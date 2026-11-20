@@ -20,7 +20,8 @@ A checked item records the specific result described. Open items include partial
 - [x] Verify reciprocal contact forces and yaw moments for sloop–sloop, catamaran–catamaran and mixed pairs in the shipped FMUs. Two clients joined the public Pages room and rendered each other.
 - [x] Publish submarine camera and feature frames only while piloting the submarine, and map rows only while viewing its sonar map. Verified independent subscriptions and camera resumption against the integrated WASM.
 - [x] Elect a peer sea clock and accept a shared incident-wave phase in the integrated Modelica world. Compare two independent FMUs at different local ages and exercise late join over WebRTC.
-- [ ] Synchronize wind history, weather settings, drift and player-generated wake sources across peers. Measure wave-height agreement on separate devices under latency and packet loss.
+- [x] Replicate wind speed, bearing, sea state and sky settings over WebRTC. Verify late join and simultaneous wind and sky edits.
+- [ ] Synchronize wind history, drift and player-generated wake sources across peers. Measure wave-height agreement on separate devices under latency and packet loss.
 - [ ] Test contact over a latency-impaired peer link, sensor visibility options, arbitrary internet peers, and race scoring through a full race.
 - [x] Reduce submarine collision broad-phase work. At 4,135 sampled poses all six force and moment components matched the exhaustive check.
 - [ ] Benchmark end-to-end submarine speed and input latency on physical phones and desktop browsers with waves, SLAM and multiplayer enabled.
