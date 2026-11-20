@@ -12,25 +12,29 @@ import {courseScene,raceAudio} from "./regatta.mjs";
 import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
 async function run(){
-  const url=new URL(location.href),cat=url.searchParams.get('boat')==='Hobie16';
+  const url=new URL(location.href);
+  const world=url.searchParams.get('runtime')==='world'?await (await import('./world-view.mjs')).openWorld():null;
+  const cat=Boolean(world)||url.searchParams.get('boat')==='Hobie16';
   const vessel=cat?'Hobie16':'Sailboat';
   $('vessel').value=vessel;
-  $('vessel').onchange=()=>{url.searchParams.set('boat',$('vessel').value);location.assign(url);};
+  $('vessel').onchange=()=>{url.searchParams.set('boat',$('vessel').value);if($('vessel').value!=='Hobie16')url.searchParams.delete('runtime');location.assign(url);};
   document.querySelector('h1').textContent=cat?'Hobie 16':'Sailboat';
   $('trampoline').hidden=!cat;$('vangControl').hidden=false;
   // Start at the default loaded waterline for each hull.
   const inputs={launchHeight:cat ? .20 : .069,windEast:10,windNorth:4,currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,vangInput:.5,manualHelm:1,rudderInput:0,trimInput:0};
-  const [model]=await Promise.all([loadInstance(vessel,inputs),loadVehicleShells()]);
-  const worker=new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
+  const [model]=await Promise.all([world?.boat??loadInstance(vessel,inputs),loadVehicleShells()]);
+  const worker=world?null:new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
   let waterFrame,waterError;
-  worker.onmessage=({data})=>{if(data.error)waterError=Error(data.error);else waterFrame=data;};
-  worker.onerror=event=>{waterError=Error(event.message);};
-  addEventListener('pagehide',()=>worker.terminate(),{once:true});
+  if(worker){
+    worker.onmessage=({data})=>{if(data.error)waterError=Error(data.error);else waterFrame=data;};
+    worker.onerror=event=>{waterError=Error(event.message);};
+    addEventListener('pagehide',()=>worker.terminate(),{once:true});
+  }
   function waveInputs(){
     const [east,north,heading,heel,pitch,volume]=model.getMany(['east','north','heading','heel','pitch','sectionVolume']);
     return {seaAmplitude:Number($('seaState').value),east,north,heading,heel,pitch,volume};
   }
-  worker.postMessage({init:{...waveInputs(),currentEast:inputs.currentEast,currentNorth:inputs.currentNorth,
+  worker?.postMessage({init:{...waveInputs(),currentEast:inputs.currentEast,currentNorth:inputs.currentNorth,
     beamHalf:model.get('beamHalf'),stations:model.get('stationX'),separation:model.get('halfSpacing'),
     windEast:inputs.windEast,windNorth:inputs.windNorth}});
   let wakeTicks=0,lastSections;
@@ -41,8 +45,8 @@ async function run(){
   renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
   const boat=sailboatMesh(T,cat,model.get("foilX")[0]);scene.add(boat.group);coast(T,scene);
-  const race=await loadInstance('Regatta',{windBearing:Math.atan2(inputs.windNorth,inputs.windEast),east:model.get('east'),north:model.get('north'),utc:Date.now()/1000});
-  const windField=await loadInstance('MarineWind',{meanEast:inputs.windEast,meanNorth:inputs.windNorth,east:model.get('east'),north:model.get('north')});
+  const race=world?.race??await loadInstance('Regatta',{windBearing:Math.atan2(inputs.windNorth,inputs.windEast),east:model.get('east'),north:model.get('north'),utc:Date.now()/1000});
+  const windField=world?.wind??await loadInstance('MarineWind',{meanEast:inputs.windEast,meanNorth:inputs.windNorth,east:model.get('east'),north:model.get('north')});
   let captureMast;
   $('mastCapture').onclick=()=>{
     captureMast??=mastCamera(T,renderer,scene,boat,cat);
@@ -102,9 +106,9 @@ async function run(){
     for(const id of ['autoDeck','mainCar','jibCar','jibSheet'])$(id).oninput=deck;
     deck();
   }
-  $('seaState').onchange=()=>model.set('swellAmplitude',.30*Number($('seaState').value));
+  $('seaState').onchange=()=>world?world.set('seaState',Number($('seaState').value)):model.set('swellAmplitude',.30*Number($('seaState').value));
   const keys=new Set();let drone;
-  const sub=submarine(T,scene), sensorCanvas=$('sensorCam').getContext('2d');
+  const sub=submarine(T,scene,world), sensorCanvas=$('sensorCam').getContext('2d');
   const drawForces=forceDisplay(T,scene,sub.mesh,boat.group,cat,model);
   $('sonarMap').onchange=()=>{sub.mapVisible=$('sonarMap').checked;};
   for(const id of ['showForces','showCompass'])$(id).onclick=()=>{
@@ -162,7 +166,7 @@ async function run(){
       stick.onlostpointercapture=e=>{if(e.pointerId!==finger)return;finger=null;analog.delete(horizontal);analog.delete(vertical);knob.style.transform='';helm();};
     }
   }
-  surveyDrone(T,scene).then(vehicle=>{
+  surveyDrone(T,scene,world).then(vehicle=>{
     drone=vehicle;$('controlTarget').disabled=false;
     $('cutMotors').onclick=()=>{const cut=$('cutMotors').getAttribute('aria-pressed')!=='true';drone.cut(cut);$('cutMotors').setAttribute('aria-pressed',String(cut));$('cutMotors').textContent=cut?'Restore motors':'Cut motors';};
     $('controlTarget').onchange=()=>{
@@ -185,7 +189,7 @@ async function run(){
   touchControls();
   $('vang').oninput=()=>model.set('vangInput',Number($('vang').value)/100);
   $('play').onclick=()=>{running=!running;$('play').textContent=running?'Pause':'Resume';};
-  $('wind').oninput=()=>{const w=+$('wind').value;windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));ocean.U.wind.value=w;$('windOut').textContent=w+' m/s';};
+  $('wind').oninput=()=>{const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;$('windOut').textContent=w+' m/s';};
   function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
   resize();addEventListener('resize',resize);
   $('luff').onclick=()=>{
@@ -217,10 +221,11 @@ async function run(){
     }
     ocean.updateSky(renderer,time,sky);
   }
+  let lastWorldTick=-1,lastFieldTick=-1,lastSurfaceTick=-1,previousSurface;
   function draw(now){
     try{
       if(now>=raceTick){
-        raceTick=now+50;race.set('east',model.get('east'));race.set('north',model.get('north'));race.set('utc',Date.now()/1000);race.advance(.05);
+        raceTick=now+50;if(!world){race.set('east',model.get('east'));race.set('north',model.get('north'));race.set('utc',Date.now()/1000);race.advance(.05);}
         const left=Math.ceil(race.get('countdown')),stage=race.get('stage');
         if(lastCountdown!==null&&lastCountdown<5&&left>295)audio.signal();
         lastCountdown=left;const label=left>298?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
@@ -234,9 +239,32 @@ async function run(){
         if(Math.abs(next-pixelScale)>.01){pixelScale=next;renderer.setPixelRatio(pixelScale);resize();}
         lastQualityCheck=now;
       }
-      if(running)acc+=Math.min(.22,(now-prev)/1000);prev=now;
+      if(running)acc+=Math.max(0,Math.min(.22,(now-prev)/1000));prev=now;
       if(waterError)throw waterError;
-      while(acc>=.01){
+      if(world){
+        const steps=Math.min(5,Math.floor(acc/.01));acc=Math.min(.1,acc);
+        if(running&&world.advance(steps))acc=Math.max(0,acc-steps*.01);
+        const tick=Math.round(world.time*100),waveTick=Math.floor(tick/10),fieldTick=Math.floor(tick/25);
+        if(lastWorldTick!==waveTick){
+          ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'));
+          lastWorldTick=waveTick;
+        }
+        if(lastFieldTick!==fieldTick){
+          ocean.updateWind(windField.get('field'));
+          ocean.U.cloudTravel.value.set(windField.get('travelE'),windField.get('travelN'));
+          ocean.U.lightning.value.set(windField.get('strikeBearing'),windField.get('strikeFlash'));
+          const thunder=windField.get('thunderArrival');if($('sky').value==='Storm'&&lastThunder!==undefined&&thunder>lastThunder)audio.thunder();
+          lastThunder=thunder;lastFieldTick=fieldTick;
+        }
+        const surfaceTick=Math.floor(tick/20);
+        if(surfaceTick!==lastSurfaceTick){
+          const surface={tile:world.get('boatWater.tile'),tide:world.get('boatWater.tide'),wind:world.get('boatWater.wind')};
+          ocean.update(previousSurface??surface,surface);previousSurface=surface;lastSurfaceTick=surfaceTick;
+        }
+        ocean.U.blend.value=(tick%20)/20;
+        wakeTicks=tick;
+      }
+      while(!world&&acc>=.01){
         // One in-flight step. A slower device can display and accept controls
         // while the worker finishes, without dropping or reordering hull samples.
         if(wakeTicks%10===0 && !waterFrame){acc=Math.min(acc,.1);break;}
@@ -326,7 +354,7 @@ async function run(){
         const f=sub.frame;
         $('readout').textContent=sub.error||(!f?'Starting underwater navigation…':f.time.toFixed(2)+' s · Depth '+(-f.position[2]).toFixed(2)+' m · '+f.estimate[15]+' features · '+f.estimate[16]+' matches · '+f.estimate[12]+' keyframes'+(f.surveyDone?' · Survey complete':f.waypoint?' · Waypoint '+f.waypoint+'/'+f.waypointCount:''));
       }
-      document.body.dataset.simTime=t;document.body.dataset.east=s[0];requestAnimationFrame(draw);
+      document.body.dataset.runtime=world?'world':'fleet';document.body.dataset.simTime=t;document.body.dataset.east=s[0];requestAnimationFrame(draw);
     }catch(e){$('readout').textContent=e.message;console.error(e);}
   }
   requestAnimationFrame(draw);

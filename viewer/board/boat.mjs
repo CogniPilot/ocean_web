@@ -19,7 +19,7 @@ export function elevation(frame,x,y){
 }
 const poseFields=['east','north','heading','heave','heel','pitch','sheet','rudder'];
 const navFields=['buoyancy','vane','navE','navN','courseEstimate','speedE','speedN','cupSpeed','p11','fixE','fixN','drumAngle','payout'];
-const boatFields=['sailVertex','sailForward','sailPort','foilAxial','foilSide','sheetRotation','footX','boomElevation','surge',...poseFields,...navFields];
+export const boatFields=['sailVertex','sailForward','sailPort','foilAxial','foilSide','sheetRotation','footX','boomElevation','surge',...poseFields,...navFields];
 export function observeBoat(model){
  const [vertices,sf,sp,fa,fs,rotation,foot,elevation,surge,...poseAndNav]=model.getMany(boatFields);
  // Preserve the telemetry and multiplayer packet layout, including the two integer states.

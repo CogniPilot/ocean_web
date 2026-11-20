@@ -1,8 +1,8 @@
 import {GLTFLoader} from './vendor/gltf-loader.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
-export async function surveyDrone(T,scene){
+export async function surveyDrone(T,scene,world){
   const [flight,{scene:model}]=await Promise.all([
-    loadInstance('Rdd2Survey',{pilot:1,stationEast:-5,stationNorth:0,currentENU:[.2,.04,0]}),
+    world?.flight??loadInstance('Rdd2Survey',{pilot:1,stationEast:-5,stationNorth:0,currentENU:[.2,.04,0]}),
     new GLTFLoader().loadAsync(new URL('./assets/drone.glb',import.meta.url).href)
   ]);
   const group=new T.Group(),props=[];
