@@ -1,4 +1,5 @@
 // Snapshot transport only. Each boat owns its local Rumoca FMU.
+import {PeerTimeline} from './fleet-timeline.mjs';
 import {joinRoom} from './vendor/trystero.mjs';
 import {sailboatMesh} from './board/boat.mjs';
 const relays=['wss://relay.damus.io','wss://nos.lol','wss://relay-rpi.edufeed.org','wss://nostr.tegila.com.br'];
@@ -9,8 +10,7 @@ function writeGhost(packet,offset,object){
   if(!object)return;
   packet[offset]=1;object.position.toArray(packet,offset+1);object.quaternion.toArray(packet,offset+4);
 }
-function drawGhost(T,scene,peer,kind,template,offset,f){
-  const d=peer.data,p=peer.prev;
+function drawGhost(T,scene,peer,kind,template,offset,p,d,f){
   if(!template||d[offset]!==1){if(peer[kind])peer[kind].visible=false;return;}
   if(!peer[kind]){
     const ghost=template.clone(true);
@@ -50,27 +50,28 @@ export function fleet(T,scene,roomName,status){
       const data=new Float32Array(packet.slice().buffer);
       if(!data.every(v=>Number.isFinite(v)&&Math.abs(v)<1e8)||![0,1].includes(data[207]))return;
       let peer=peers.get(peerId);
+      if(peer&&data[215]>0&&data[215]*1000<=peer.timeline.latest.sent)return;
       if(peer&&peer.cat!==!!data[207]){remove(peerId);peer=null;}
       if(!peer){
         if(peers.size>=channels)return;
         const mesh=sailboatMesh(T,!!data[207]);mesh.group.traverse(o=>o.layers.set(1));scene.add(mesh.group);
-        peer={mesh,cat:!!data[207],armed:false,target:new T.Vector3(),rotation:new T.Quaternion()};peers.set(peerId,peer);
+        peer={mesh,timeline:new PeerTimeline(),state:new Float32Array(207),cat:!!data[207],armed:false,target:new T.Vector3(),rotation:new T.Quaternion()};peers.set(peerId,peer);
       }
-      peer.prev=peer.data||data;peer.prevTime=peer.time??performance.now();peer.time=performance.now();peer.data=data;
+      peer.timeline.receive(data,performance.now());
     };report();
   }
   function frame(now,s,cat,extra,sub,drone){
     if(!room)return;
     if(now-lastSend>=100 && participants.size){
-      lastSend=now;const packet=new Float32Array(packetFloats);packet.set(s.slice(0,207));packet[207]=Number(cat);packet.set(extra,208);writeGhost(packet,216,sub);writeGhost(packet,224,drone);
+      lastSend=now;const packet=new Float32Array(packetFloats);packet.set(s.slice(0,207));packet[207]=Number(cat);packet.set(extra,208);packet[215]=now/1000;writeGhost(packet,216,sub);writeGhost(packet,224,drone);
       action.send(new Uint8Array(packet.buffer)).catch(()=>{});
     }
     for(const peer of peers.values()){
-      peer.mesh.group.visible=now-peer.time<2500;
+      peer.mesh.group.visible=peer.timeline.age(now)<2500;
       if(!peer.mesh.group.visible){if(peer.sub)peer.sub.visible=false;if(peer.drone)peer.drone.visible=false;continue;}
-      const d=peer.data,p=peer.prev,f=Math.min(1,Math.max(0,(now-peer.time)/Math.max(50,peer.time-peer.prevTime)));
-      drawGhost(T,scene,peer,'sub',sub,216,f);drawGhost(T,scene,peer,'drone',drone,224,f);
-      const state=d.slice(0,207);
+      const {left:p,right:d,fraction:f}=peer.timeline.at(now);
+      drawGhost(T,scene,peer,'sub',sub,216,p,d,f);drawGhost(T,scene,peer,'drone',drone,224,p,d,f);
+      const state=peer.state;state.set(d.subarray(0,207));
       for(const i of [0,1,3,4,5])state[i]=p[i]+(d[i]-p[i])*f;
       state[2]=p[2]+Math.atan2(Math.sin(d[2]-p[2]),Math.cos(d[2]-p[2]))*f;
       peer.mesh.update(state,d.subarray(208,210),peer.cat?d.subarray(210,212):null,null);
@@ -80,7 +81,8 @@ export function fleet(T,scene,roomName,status){
   function contacts(e,n){
     traffic.fill(0);let row=0;
     for(const peer of peers.values()){
-      const d=peer.data;if(performance.now()-peer.time>650)continue;
+      if(peer.timeline.age(performance.now())>650)continue;
+      const d=peer.timeline.latest.data;
       if(Math.hypot(e-d[0],n-d[1])>5.5)peer.armed=true;
       if(peer.armed)traffic.set([1,d[0],d[1],d[2],d[212],d[213],d[214],d[3],Number(peer.cat)],9*row++);
     }
