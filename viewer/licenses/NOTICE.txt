@@ -35,3 +35,6 @@ Music (Pirate1_Theme1.mp3) by Olivier Bérubé.
 
 Underwater ambience (deep_rumble.mp3) by gmason, CC0 1.0.
 https://opengameart.org/content/underwater-or-space-engine-rumble
+
+Calm surface ambience adapted from RandomMind’s Vistula wave recording, CC0 1.0.
+https://opengameart.org/content/sea-and-river-wave-sounds

@@ -56,26 +56,29 @@ export function courseScene(T,scene,race){
 }
 export function raceAudio(){
   let audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
-  let submerged,rumbleLoad;
-  function startRumble(){
-    if(rumbleLoad)return;
-    rumbleLoad=fetch(new URL('./assets/audio/deep_rumble.mp3',import.meta.url))
+  let submerged,surface;
+  const loading=new Set();
+  function startAmbience(file,destination){
+    if(loading.has(file))return;
+    loading.add(file);
+    fetch(new URL('./assets/audio/'+file,import.meta.url))
       .then(response=>{
-        if(!response.ok)throw Error('Underwater audio HTTP '+response.status);
+        if(!response.ok)throw Error('Ambience HTTP '+response.status);
         return response.arrayBuffer();
       })
       .then(bytes=>audio.decodeAudioData(bytes))
       .then(buffer=>{
         const source=audio.createBufferSource();
         source.buffer=buffer;source.loop=true;
-        source.connect(submerged);source.start();
-      }).catch(error=>console.warn('Underwater ambience unavailable',error));
+        source.connect(destination);source.start();
+      }).catch(error=>console.warn('Ambience unavailable',file,error));
   }
   async function toggle(){
     if(!audio){
       audio=new AudioContext();noise=audio.createBuffer(1,2*audio.sampleRate,audio.sampleRate);
       const data=noise.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=2*Math.random()-1;
       submerged=audio.createGain();submerged.gain.value=0;submerged.connect(audio.destination);
+      surface=audio.createGain();surface.gain.value=0;surface.connect(audio.destination);
       const blower=audio.createBufferSource();blower.buffer=noise;blower.loop=true;
       filter=audio.createBiquadFilter();filter.type='lowpass';wind=audio.createGain();wind.gain.value=0;
       const rainfall=audio.createBufferSource(),rainFilter=audio.createBiquadFilter();
@@ -88,11 +91,15 @@ export function raceAudio(){
     if(enabled)await audio.suspend();else await audio.resume();
     enabled=audio.state==='running';return enabled;
   }
-  function update(speed,storm,height){
+  function update(speed,storm,height,seaState){
     if(!enabled || audio.currentTime-lastMix<.05)return;
     lastMix=audio.currentTime;
     const exposure=Math.max(0,Math.min(1,(height+.35)/.7));
-    if(exposure<1)startRumble();
+    if(exposure<1)startAmbience('deep_rumble.mp3',submerged);
+    const calm=1-Math.min(1,seaState/1.1);
+    const surfaceLevel=storm?0:.44*exposure*calm/(1+Math.max(0,height)/16);
+    if(surfaceLevel>0)startAmbience('calm-waves.mp3',surface);
+    surface.gain.setTargetAtTime(surfaceLevel,lastMix,.45);
     submerged.gain.setTargetAtTime(.36*(1-exposure),lastMix,.35);
     weather.gain.setTargetAtTime(storm?exposure:0,lastMix,.20);
     filter.frequency.setTargetAtTime(180+Math.min(30,speed)*53,audio.currentTime,.4);

@@ -389,7 +389,7 @@ async function run(){
       }
       rain.visible=storm && camera.position.z>=-surfaceBand;
       if(rain.visible)rain.material.uniforms.rainWind.value.set(model.get('windEast'),model.get('windNorth'));
-      audio.update(model.get('cupSpeed'),storm,camera.position.z-ocean.U.tide.value);
+      audio.update(model.get('cupSpeed'),storm,camera.position.z-ocean.U.tide.value,Number($('seaState').value));
       if(Math.abs(camera.position.z)<surfaceBand){split(renderer,scene,camera,ocean,underwaterFog);}
       else{
         const submerged=camera.position.z<0;
