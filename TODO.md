@@ -114,4 +114,6 @@ A checked item records the specific result described. Open items include partial
 - [x] Add a Shift speed modifier to manual drone flight and model four-foot landings on the catamaran trampoline and sloop hatch.
 - [ ] Reproduce the upward mainsail fold reported at 68.4 s, heading 256°T, and 89 N tackle load.
 - [x] Fade the refracted seabed and caustic patch into open water and reduce both jib traveler cleats.
-- [ ] Synchronize ambient wave phase, sea state and wind across peers and preserve the room clock through late joins and host departures. Exchange timestamped hull forcing or wake state so remote boats leave a shared wake.
+- [x] Synchronize incident waves, weather settings and gust advection across peers and preserve phase through leader changes.
+- [x] Exchange the integrated catamaran’s submerged hull sections and drive nearby peer waves and hull loads in Modelica.
+- [ ] Restore earlier wake trails for late joiners, support the split-model sloop, and benchmark multiplayer wakes on phones.
