@@ -5,6 +5,7 @@ package Wreck
   constant Real pi=Modelica.Constants.pi;
 
   model Ocean
+    input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
     input Real pos[3];
     parameter Real profile[:,3]=[0,0.26,0.07; 8,0.19,0.04; 16,0.08,0.02] "Depth below mean sea level [m], east and north residual current [m/s]";
     parameter Real tidePhase=0.5, currentPhase=1.2, tidalSpeed=0.12;
@@ -17,16 +18,16 @@ package Wreck
   equation
     der(wind)=(windSpeed-wind)/20;
     der(bearing)=atan2(sin(windDirection-bearing),cos(windDirection-bearing))/18;
-    tide=0.6*sin(2*pi*time/44714+tidePhase);
+    tide=0.6*sin(2*pi*(time+seaClockOffset)/44714+tidePhase);
     when sample(0,0.2) then
-      (tile,probe)=SpectralSea.field(time,wind,bearing,fetch,waterDepth,tide,pos);
+      (tile,probe)=SpectralSea.field(time+seaClockOffset,wind,bearing,fetch,waterDepth,tide,pos);
     end when;
     for j in 1:2 loop
       meanFlow[j]=Modelica.Math.Vectors.interpolate(profile[:,1],profile[:,j+1],min(max(-pos[3],profile[1,1]),profile[size(profile,1),1]));
     end for;
     surface=tide+probe[1];
     shelter=1-0.78*(0.5+0.5*tanh(pos[1]-1))*(0.5+0.5*tanh(28-pos[1]))*(0.5+0.5*tanh(4-abs(pos[2])))*(0.5+0.5*tanh(-6-pos[3]));
-    velocity=shelter*({meanFlow[1]+tidalSpeed*sin(2*pi*time/44714+currentPhase),meanFlow[2],0}
+    velocity=shelter*({meanFlow[1]+tidalSpeed*sin(2*pi*(time+seaClockOffset)/44714+currentPhase),meanFlow[2],0}
       +0.014*wind*exp(min(0,pos[3]-tide)/2.2)*{cos(bearing),sin(bearing),0})
       + probe[2:4];
     gaugePressure=rho*g*max(0,tide-pos[3]+probe[5]);
@@ -60,7 +61,8 @@ package Wreck
     input Real windSpeed(start=11), windDirection(start=0.45);
     input Real hullSurfaceOffset=0, propSurfaceOffset[7]=zeros(7)
       "Additional local free-surface elevation at the hull and at each propeller [m]";
-    Ocean ocean(pos=body.r_0,windSpeed=windSpeed,windDirection=windDirection);
+    input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
+    Ocean ocean(seaClockOffset=seaClockOffset,pos=body.r_0,windSpeed=windSpeed,windDirection=windDirection);
     output Real waveHeight[SpectralSea.N,SpectralSea.N]=ocean.tile;
     output Real seaLevel=ocean.tide, windActual=ocean.wind;
     output Real specificForce[3]=loads.force/dryMass, rates[3]=body.w_a;

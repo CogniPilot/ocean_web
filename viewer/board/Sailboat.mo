@@ -184,6 +184,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real tailArm[2,3],tailFluid[2,3];
   Real tailImmersion[2] "Wet fraction across the ribbon near the waterline";
   Real mainCarTarget,jibCarTarget,windSide;
+  input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
   parameter Real swellK=.34,swellBearing=1.04159;
   Real swellPhase,swellLocal[2],waterDamping,waterVertical;
   final parameter Real waterplaneArea=sum((stationX[2:7]-stationX[1:6]).*(beamHalf[2:7]+beamHalf[1:6]))*(if catamaran then 2 else 1);
@@ -326,7 +327,7 @@ equation
   podBuoyancy=1025*9.80665*podWetVolume;
   podRoll=(podCenter[2]+podNormal[2]*.75*(2*podRadius-podCap)^2/(3*podRadius-podCap))*podBuoyancy-podCenter[2]*podMass*9.80665;
   podPitch=-(podCenter[1]+podNormal[1]*.75*(2*podRadius-podCap)^2/(3*podRadius-podCap))*podBuoyancy+podCenter[1]*podMass*9.80665;
-  swellPhase=swellK*(east*cos(swellBearing)+north*sin(swellBearing))-sqrt(9.80665*swellK)*time;
+  swellPhase=swellK*(east*cos(swellBearing)+north*sin(swellBearing))-sqrt(9.80665*swellK)*(time+seaClockOffset);
   swellLocal=swellK*{cos(swellBearing-heading),sin(swellBearing-heading)};
   deckImmersion=max(deckWet);contactLoad=sum(hullLift);
   targetX=if not catamaran then 0 else max(-.72,min(.72,if ballastManual>.5 then ballastCmdX else -3.8*pitch-1.4*pitchRate));

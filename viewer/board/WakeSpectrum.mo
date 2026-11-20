@@ -1,6 +1,7 @@
 model WakeSpectrum "World-referenced periodic gravity-wave field with a moving displacement source"
   constant Integer n=64;
   constant Real pi=3.141592653589793;
+  input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
   parameter Real period=64,dt=.1,depth=14,decay=.04;
   input Real east,north,heading,heel,pitch,stations[7],separation,volume[2,6],beamHalf[7];
   input Real currentEast,currentNorth,windEast,windNorth,seaAmplitude;
@@ -193,7 +194,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
 equation
   der(driftE)=currentEast;der(driftN)=currentNorth;
   when sample(0,dt) then
-    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time,time<dt/2);
+    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time+seaClockOffset,time<dt/2);
     sectionHeight=sampleSections(height,east-driftE,north-driftN,heading,heel,pitch,stations,separation,period);
   end when;
 end WakeSpectrum;

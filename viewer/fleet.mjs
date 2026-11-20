@@ -1,6 +1,7 @@
 // Snapshot transport only. Each boat owns its local Rumoca FMU.
 import {PeerTimeline} from './fleet-timeline.mjs';
-import {joinRoom} from './vendor/trystero.mjs';
+import {FleetSeaClock} from './fleet-sea-clock.mjs';
+import {joinRoom,selfId} from './vendor/trystero.mjs';
 import {sailboatMesh} from './board/boat.mjs';
 const relays=['wss://relay.damus.io','wss://nos.lol','wss://relay-rpi.edufeed.org','wss://nostr.tegila.com.br'];
 const channels=4;
@@ -32,6 +33,7 @@ function drawGhost(T,scene,peer,kind,template,offset,p,d,f){
 export function fleet(T,scene,roomName,status){
   let room,action,lastSend=-Infinity,participants=new Set();
   const peers=new Map();
+  let seaClock,clockChannel,lastClockSend=-Infinity,retainedOffset=0;
   function report(){status.textContent=room?(participants.size+1)+' online':'Offline';}
   function remove(id){
     const peer=peers.get(id);
@@ -42,14 +44,20 @@ export function fleet(T,scene,roomName,status){
       for(const item of [...textures,...geometries])item.dispose();
       peers.delete(id);}
   }
-  function leave(){const old=room;room=null;action=null;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
+  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
   function join(){
     if(room)return;
     room=joinRoom({appId:'pelagic-sailing-v1',relayConfig:{urls:relays}},roomName);
     const active=room;
+    seaClock=new FleetSeaClock(selfId);
+    seaClock.offset=retainedOffset;
+    clockChannel=room.makeAction('sea-clock');
+    clockChannel.onMessage=(sample,{peerId})=>{
+      if(room===active)seaClock.observe(peerId,sample,performance.now());
+    };
     action=room.makeAction('sail-pose');
     room.onPeerJoin=id=>{if(room===active){participants.add(id);report();}};
-    room.onPeerLeave=id=>{if(room===active){participants.delete(id);remove(id);report();}};
+    room.onPeerLeave=id=>{if(room===active){participants.delete(id);seaClock.peers.delete(id);remove(id);report();}};
     action.onMessage=(packet,{peerId})=>{
       if(room!==active||!(packet instanceof Uint8Array)||
         (packet.byteLength!==4*packetFloats&&packet.byteLength!==36))return;
@@ -116,5 +124,14 @@ export function fleet(T,scene,roomName,status){
     }
     return traffic;
   }
-  return {join,leave,frame,contacts,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
+  function seaTime(local,now){
+    if(!room)return local+retainedOffset;
+    const phase=seaClock.sample(local,now);
+    if(participants.size && now-lastClockSend>=250){
+      lastClockSend=now;
+      clockChannel.send([seaClock.joined,phase]).catch(()=>{});
+    }
+    return phase;
+  }
+  return {join,leave,frame,contacts,seaTime,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
 }
