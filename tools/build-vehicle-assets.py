@@ -23,8 +23,11 @@ def coating(name, rgb, metal=0, rough=.38, stripes=False):
         if channel == "Base Color":
             data[:, :, :3] = np.asarray(rgb) * (1 + grain[:, :, None]) + .05*scuff[:, :, None]
             if stripes:
-                mask = (x > 45) & (x < 175) & (y > 71) & (y < 90) & ((x+y) % 23 < 18)
-                data[mask, :3] *= .33
+                # Hull number panel and two canted color bars on each outboard flank.
+                flank = ((y > 8) & (y < 27)) | ((y > 65) & (y < 85))
+                stripe = x + .35*(y % 57)
+                for lo,hi,color in [(12,101,(.105,.12,.14)),(105,118,(.12,.65,.75)),(122,136,(.66,.76,.15))]:
+                    data[flank & (stripe>lo) & (stripe<hi), :3] = color
         else:
             image.colorspace_settings.name = 'Non-Color'
             data[:, :, :3] = (rough + 2*grain + .15*scuff)[:, :, None]
@@ -83,7 +86,7 @@ for side in (-1,1):
         (.15,.184,.58),(1.12,.155,.55),(1.95,.093,.47),(2.37,.043,.29),(2.555,.009,.15)]]
     hull('Port hull' if side==1 else 'Starboard hull',stations,section,white,side,side*1.02)
 export('hobie-hulls')
-red=coating('Vermilion gelcoat',(.80,.105,.08),stripes=True)
+red=coating('Vermilion gelcoat',(.80,.105,.08))
 stations=[(x,w,(.077+.19*(.48+1.55*w)),.077) for x,w in
           [(-1.1,.22),(-.82,.29),(-.3,.335),(.18,.32),(.63,.235),(.98,.12),(1.22,.01)]]
 hull('Sloop hull',stations,section,red)

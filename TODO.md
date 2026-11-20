@@ -54,6 +54,8 @@ A checked item records the specific result described. Open items include partial
 
 ## Vehicle art
 
+- [x] Incorporate the modern Hobie 16 reference with lime, white and grey sail panels, transparent foot windows, visible batten pockets, and contrasting hull stripes.
+
 - [x] Add reproducible Blender-to-GLB sources for both boat hulls and the submarine pressure housing with embedded PBR maps. Keep the requested upstream RDD2 GLB.
 - [ ] Review hulls, rudders and submerged geometry from the supplied photo angles. Extend material detail to rigging, deck hardware, thruster housings and cameras. Preserve mesh pivots, sensor transforms and force application frames.
 - [ ] Compare above-water and below-water image sequences on desktop and mobile, including sunset, swell, storm and the wreck approach.

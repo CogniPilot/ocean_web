@@ -45,25 +45,37 @@ function sailMaterial(T,cat,count){
  for(let i=0;i<7;i++){const y=150+i*66;g.fillStyle=i%2?'#d82e32':'#f04838';g.beginPath();g.moveTo(0,y);g.lineTo(512,y-170);g.lineTo(512,y-165+i*4);g.lineTo(0,y+12+i*2);g.fill();}
  g.strokeStyle='rgba(110,125,130,.45)';g.lineWidth=2;for(let y=80;y<1024;y+=104){g.beginPath();g.moveTo(0,y);g.lineTo(512,y+28);g.stroke();}
  if(cat){
-   for(let i=0;i<8;i++){
-     const y=i*128;
-     g.fillStyle=i<4?'#ffbf29':i<6?'#fe7027':'#e52f27';g.fillRect(0,y,512,128);
-
-   }
+   const classic=new URLSearchParams(location.search).get('sails')==='classic';
    const luff=count===4?[.18,.38,.55,.73]:[.075,.185,.285,.395,.49,.575,.705,.80];
    const leech=count===4?luff:[.095,.205,.31,.42,.53,.605,.76,.90];
+   const colors=classic?['#e52f27','#e52f27','#fe7027','#fe7027','#ffbf29','#ffbf29','#ffbf29','#ffbf29','#ffbf29']:
+     ['#949397','#eeeae5','#ecebe8','#c5d833','#cadc36','#c9db37','#98989d','#f1efeb','#f5f1eb'];
+   for(let i=0;i<=count;i++){
+     const lower=i===0?0:luff[i-1],upper=i===count?1:luff[i];
+     const tailLow=i===0?0:leech[i-1],tailHigh=i===count?1:leech[i];
+     g.fillStyle=count===4?(classic?colors[2*i]:'#cadb37'):colors[i];
+     g.beginPath();g.moveTo(0,1024*(1-lower));g.lineTo(512,1024*(1-tailLow));
+     g.lineTo(512,1024*(1-tailHigh));g.lineTo(0,1024*(1-upper));g.fill();
+   }
+   // The vinyl inspection windows sit below the lowest batten on both sails.
+   g.clearRect(110,963,124,34);g.fillStyle='rgba(155,184,185,.28)';g.fillRect(110,963,124,34);
+   g.strokeStyle='#d8d6cb';g.lineWidth=3;g.strokeRect(110,963,124,34);
+   if(count===8){
+     g.fillStyle='#27292b';g.font='italic bold 76px sans-serif';
+     g.fillText('16026',116,809,300);
+   }
    for(let b=0;b<count;b++){
      const y0=1024*(1-luff[b]),y1=1024*(1-leech[b]);
      function pocket(color,width){
        g.strokeStyle=color;g.lineWidth=width;g.beginPath();
        g.moveTo(0,y0);g.lineTo(512,y1);g.stroke();
      }
-     pocket('#613d2d',8);pocket('#fff1cd',5);
+     pocket('rgba(63,64,56,.45)',7);pocket('rgba(255,251,231,.68)',4);
      g.fillStyle='#534435';g.fillRect(502,y1-5,10,10);
    }
  }
  const tex=new T.CanvasTexture(c);tex.colorSpace=T.SRGBColorSpace;
- return new T.MeshStandardMaterial({map:tex,roughness:.74,side:T.DoubleSide});
+ return new T.MeshStandardMaterial({map:tex,roughness:.74,side:T.DoubleSide,transparent:cat,forceSinglePass:true});
 }
 export function sailboatMesh(T,cat=false){
  const group=new T.Group();
