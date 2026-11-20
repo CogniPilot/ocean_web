@@ -3,6 +3,10 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
   parameter Real period=96,dt=.25,seed=1;
   input Real meanEast,meanNorth,east,north;
   output Real strikeBearing,strikeFlash,thunderArrival "Atmospheric signal at the observer";
+  input Real phaseOffset=0 "Room phase minus local simulation time [s]";
+  input Real advectionAnchor[5]=zeros(5) "Phase advance [s], peer east/north travel and local east/north travel at receipt [m]";
+  output Real gustEast,gustNorth "Room-aligned advection distances [m]";
+  Real weatherTime;
   Real stormAge,stormRange,stormPhase;
   Real travelE(start=0,fixed=true),travelN(start=0,fixed=true);
   discrete output Real field[n,n,3](each start=0,each fixed=true) "East, north [m/s] and short-wave roughness proxy [m/s]";
@@ -59,8 +63,11 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
   end sampleWind;
   Real boatWind[3];
 equation
-  stormAge=mod(time,14);
-  stormPhase=floor(time/14);
+  weatherTime=time+phaseOffset;
+  gustEast=travelE+advectionAnchor[2]-advectionAnchor[4]+.74*meanEast*advectionAnchor[1];
+  gustNorth=travelN+advectionAnchor[3]-advectionAnchor[5]+.74*meanNorth*advectionAnchor[1];
+  stormAge=mod(weatherTime,14);
+  stormPhase=floor(weatherTime/14);
   strikeBearing=atan2(meanNorth,meanEast)+3.14159+.71*sin(stormPhase*13.58+seed);
   stormRange=850+550*(1+sin(7.13*stormPhase+seed));
   strikeFlash=if stormAge<.5 then 0 else exp(-13*(stormAge-.5))+
@@ -68,7 +75,7 @@ equation
   thunderArrival=if stormAge>=.5+stormRange/343 then stormPhase else stormPhase-1;
   der(travelE)=.74*meanEast;der(travelN)=.74*meanNorth;
   when sample(0,dt) then
-    field=fieldStep(pre(field),meanEast,meanNorth,travelE,travelN,time,seed,period,dt);
+    field=fieldStep(pre(field),meanEast,meanNorth,gustEast,gustNorth,weatherTime,seed,period,dt);
   end when;
   boatWind=sampleWind(field,east,north,period);
   localEast=boatWind[1];localNorth=boatWind[2];

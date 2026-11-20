@@ -33,7 +33,7 @@ async function handle(request){
       sailingManual:1,subManual:1,flightManual:1,...request.initial
     })));
     const variables=new Map(index.variables.map(v=>[v.name,v]));
-    let names=request.outputs;
+    let names=[...request.outputs,...(request.optionalOutputs??[]).filter(name=>variables.has(name))];
     if(request.sampledFields){
       const [waveDt,windDt]=session.read_values(JSON.stringify(['waves.dt','wind.dt']));
       const schedules=[[waveDt*100,['waves.height']],[20,['boatWater.tile']],[20,['image','features'],'camera'],[windDt*100,['wind.field']]];

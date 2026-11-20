@@ -2,6 +2,7 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   parameter Boolean hobie=true "Choose the hull configuration at translation";
   parameter Real prevailingBearing=atan2(4,10);
   input Real seaClockOffset(start=0) "Shared incident sea time minus vehicle simulation time [s]";
+  input Real windAnchor[5](each start=0);
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
   input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),deckManual,mainCar,jibCar,jibSheet;
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
@@ -29,7 +30,7 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
     useSectionWater=1,sectionWater=surfaceSections,previousWater=priorSections,waterStamp=sectionStamp,
     waveHeight=waves.incident[1]+boatWater.surface,wavePitch=waves.incident[2],waveRoll=waves.incident[3],
     swellAmplitude=.3*seaState,wakeEast=waves.waveLoad[1],wakeNorth=waves.waveLoad[2],wakeYaw=waves.waveLoad[3]);
-  MarineWind wind(meanEast=windSpeed*cos(windBearing),meanNorth=windSpeed*sin(windBearing),
+  MarineWind wind(phaseOffset=seaClockOffset,advectionAnchor=windAnchor,meanEast=windSpeed*cos(windBearing),meanNorth=windSpeed*sin(windBearing),
     east=boat.east,north=boat.north,droneEast=drone.position[1],droneNorth=drone.position[2]);
   WakeSpectrum waves(seaClockOffset=seaClockOffset,east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
     stations=boat.stationX,separation=boat.halfSpacing,volume=boat.sectionVolume,beamHalf=boat.beamHalf,
