@@ -13,3 +13,8 @@ for model in Wreck_Plant Wreck_Navigation Rdd2Survey Sailboat Hobie16 Regatta Ma
   cp viewer/fmi3/"$model".{fmu,json,mjs,wasm} "$out/fmi3/"
 done
 touch "$out/.nojekyll"
+
+if [[ ${2:-} == --world ]]; then
+  node scripts/prepare-world-runtime.mjs "$out/world"
+  sed 's/<body>/<body data-default-runtime="world">/' viewer/index.html > "$out/index.html"
+fi

@@ -13,8 +13,11 @@ import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
 async function run(){
   const url=new URL(location.href);
-  const world=url.searchParams.get('runtime')==='world'?await (await import('./world-view.mjs')).openWorld():null;
-  const cat=Boolean(world)||url.searchParams.get('boat')==='Hobie16';
+  const requestedHull=url.searchParams.get('boat');
+  const runtime=url.searchParams.get('runtime')??document.body.dataset.defaultRuntime;
+  const integrated=runtime==='world'&&requestedHull!=='Sailboat';
+  const world=integrated?await (await import('./world-view.mjs')).openWorld():null;
+  const cat=integrated||requestedHull==='Hobie16';
   const vessel=cat?'Hobie16':'Sailboat';
   $('vessel').value=vessel;
   $('vessel').onchange=()=>{url.searchParams.set('boat',$('vessel').value);if($('vessel').value!=='Hobie16')url.searchParams.delete('runtime');location.assign(url);};
@@ -245,7 +248,7 @@ async function run(){
       if(world){
         const steps=Math.min(5,Math.floor(acc/.01));acc=Math.min(.1,acc);
         if(running&&world.advance(steps))acc=Math.max(0,acc-steps*.01);
-        const tick=Math.round(world.time*100),waveTick=Math.floor(tick/10),fieldTick=Math.floor(tick/25);
+        const tick=Math.round(world.time*100),waveTick=model.get('waterStamp'),fieldTick=Math.floor(tick/25);
         if(lastWorldTick!==waveTick){
           ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'));
           lastWorldTick=waveTick;
@@ -262,7 +265,7 @@ async function run(){
           const surface={tile:world.get('boatWater.tile'),tide:world.get('boatWater.tide'),wind:world.get('boatWater.wind')};
           ocean.update(previousSurface??surface,surface);previousSurface=surface;lastSurfaceTick=surfaceTick;
         }
-        ocean.U.blend.value=(tick%20)/20;
+        ocean.U.blend.value=Math.min(1,(tick%20)/10);
         wakeTicks=tick;
       }
       while(!world&&acc>=.01){
@@ -297,7 +300,7 @@ async function run(){
         wakeTicks++;
         model.advance(.01);if(drone){drone.step(.005);drone.step(.005);}acc-=.01;
       }
-      ocean.U.spectrumBlend.value=Math.min(1,((wakeTicks===0?0:(wakeTicks-1)%10+1)+acc/.01)/10);
+      ocean.U.spectrumBlend.value=world?model.get('waterFraction'):Math.min(1,((wakeTicks===0?0:(wakeTicks-1)%10+1)+acc/.01)/10);
       const s=observeBoat(model);
       if(!s.every(Number.isFinite))throw Error('Non-finite FMI state at '+model.time);
       const subFrame=sub.frame;

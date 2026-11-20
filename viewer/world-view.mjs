@@ -2,7 +2,7 @@
 import {boatFields} from './board/boat.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
 const outputs=[
- ...new Set([...boatFields,...'tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag vangTension leechSpeed mainTension rigForce foilLoad foilArm'.split(' ')].map(n=>'boat.'+n)),
+ ...new Set([...boatFields,...'tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
  ...group('race','countdown stage elapsed committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
  ...group('drone','position quaternion rotorAngle dragBody aircraft.rotorGeometry.positionBodyFlu_m'),
  ...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),

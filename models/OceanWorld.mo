@@ -1,5 +1,5 @@
 model OceanWorld "Single-clock marine world, with onboard perception and guidance"
-  parameter Boolean hobie=true "Choose the hull at initialization";
+  parameter Boolean hobie=true "Choose the hull configuration at translation";
   parameter Real prevailingBearing=atan2(4,10);
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
   input Real sailingManual(start=1),rudder,trim,vang(start=.5),deckManual,mainCar,jibCar,jibSheet;
@@ -25,7 +25,7 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
     ballastManual=ballastManual,ballastCmdX=ballastX,ballastCmdY=ballastY,traffic=traffic,
     windEast=wind.localEast,windNorth=wind.localNorth,currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],
     orbitalEast=boatWater.velocity[1]-boatWater.meanFlow[1],orbitalNorth=boatWater.velocity[2]-boatWater.meanFlow[2],orbitalUp=boatWater.velocity[3],
-    useSectionWater=1,sectionWater=waves.sectionHeight,previousWater=priorSections,waterStamp=sectionStamp,
+    useSectionWater=1,sectionWater=surfaceSections,previousWater=priorSections,waterStamp=sectionStamp,
     waveHeight=waves.incident[1]+boatWater.surface,wavePitch=waves.incident[2],waveRoll=waves.incident[3],
     swellAmplitude=.3*seaState,wakeEast=waves.waveLoad[1],wakeNorth=waves.waveLoad[2],wakeYaw=waves.waveLoad[3]);
   MarineWind wind(meanEast=windSpeed*cos(windBearing),meanNorth=windSpeed*sin(windBearing),
@@ -45,10 +45,29 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   discrete output Real sensor[91](each start=0,each fixed=true),elev[100](each start=0,each fixed=true),
     image[864](each start=0,each fixed=true),estimate[21](each start=0,each fixed=true),
     keyframes[48,180](each start=0,each fixed=true),features[24,5](each start=0,each fixed=true);
+  discrete output Real surfaceSections[2,6](each start=0,each fixed=true)
+    "Tide, background sea, local wind waves and hull wake at each buoyancy strip [m]";
   discrete Real priorSections[2,6](each start=0,each fixed=true),sectionStamp(start=0,fixed=true);
+  Real stripAlong[2,6],stripAcross[2];
 equation
+  for hull in 1:2 loop
+    stripAcross[hull]=(3-2*hull)*boat.halfSpacing*cos(boat.heel);
+    for panel in 1:6 loop
+      stripAlong[hull,panel]=.5*(boat.stationX[panel]+boat.stationX[panel+1])*cos(boat.pitch)
+        +(3-2*hull)*boat.halfSpacing*sin(boat.heel)*sin(boat.pitch);
+    end for;
+  end for;
   when sample(0,.1) then
-    priorSections=pre(waves.sectionHeight);sectionStamp=time;
+    for hull in 1:2 loop
+      for panel in 1:6 loop
+        surfaceSections[hull,panel]=waves.sectionHeight[hull,panel]+boatWater.tide+
+          Wreck.Perception.seaHeight(boatWater.tile,
+            boat.east+cos(boat.heading)*stripAlong[hull,panel]-sin(boat.heading)*stripAcross[hull],
+            boat.north+sin(boat.heading)*stripAlong[hull,panel]+cos(boat.heading)*stripAcross[hull]);
+      end for;
+    end for;
+    priorSections=if initial() then surfaceSections else pre(surfaceSections);
+    sectionStamp=time;
   end when;
   when sample(0,.2) then
     (sensor,elev,image,estimate,keyframes,features)=Wreck.Perception.sampleFrame(time,

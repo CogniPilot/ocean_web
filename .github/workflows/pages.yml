@@ -27,8 +27,7 @@ jobs:
         with:
           node-version: 22
       - run: npm install --prefix .deps/ocean-component --no-save @bytecodealliance/jco-transpile@0.23.0
-      - run: scripts/package-pages.sh
-      - run: node scripts/prepare-world-runtime.mjs build/pages/world
+      - run: scripts/package-pages.sh build/pages --world
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

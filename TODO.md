@@ -5,7 +5,8 @@ A checked item records the specific result described. Open items include partial
 ## Single-FMU architecture
 
 - [ ] Export one Rumoca FMI 3 LS-WASM component that owns the vehicle plants, actuators, electrical systems, ocean, all sensors, estimation, control, contact, race state and simulation clocks.
-- [ ] Replace browser co-simulation and GPU sensor acquisition with one instance. Keep Three.js as an output renderer, including photometric caustics and material shading. Compare native and browser trajectories, range data and map updates before switching the live site.
+- [x] Compare native and LS-WASM trajectories, sonar, image features, and mapped keyframes over the first 0.4 s of the integrated Hobie scene.
+- [ ] Replace browser co-simulation and GPU sensor acquisition with one instance. Keep Three.js as an output renderer, including photometric caustics and material shading. Extend the native trajectory comparison through a complete survey.
 
 ## Browser, performance and distribution
 
@@ -23,6 +24,7 @@ A checked item records the specific result described. Open items include partial
 
 - [x] Model finite-depth spectral dispersion and wake generation from immersed sections of each individual hull. Feed wave resistance back into the boat.
 - [x] Add deterministic directional wind-wave amplitudes and independent phases to the sailing FFT. Sample the same modes for incident height and slopes.
+- [x] Verify all twelve section water heights against the sampled wave fields. The two pontoons experienced up to 0.647 m of height difference in the swell test.
 - [ ] Validate crossing seas, wave groups, sharp crests, wind shifts and puff signatures against reference sequences and buoy spectra. Validate bow waves, trailing waves, distant propagation and hull interference by speed.
 - [ ] Calibrate tides, current shear, orbital velocity, wreck shelter and distributed pressure forces. Evaluate precomputed flow around wreck geometry.
 - [ ] Compare spectral resolutions, multiple domain sizes and GPU acceleration against the CPU/WASM reference on phones. Check mobile fallback, horizon LOD, reproducibility and water masking inside hulls.
@@ -44,6 +46,7 @@ A checked item records the specific result described. Open items include partial
 - [x] Model sail deformation in Rumoca and place full-length battens across the Hobie main and jib following the supplied sail plan.
 - [x] Add main/jib sheets, travellers and vang controls, a forestay-mounted jib, masthead wind vane, compass and camera float. Represent sheet tension and slack.
 - [ ] Validate sail lift, foil lift and drag, wet sail loading, ballast response, pitch stability and leeward helm against sailing data. Test luffing, tacking, flying a hull, jumping waves and pitchpoling.
+- [x] Verify that the four fisheye lenses and stitched panorama return image pixels and export their synchronized wind field labels.
 - [ ] Qualify GPS/IMU and vane-driven autopilot through a complete course under shifting wind. Validate mast-camera coverage and stitching, plus vision-based puff observations.
 - [ ] Compare speed polars, resistance, wake and righting moments with measured Hobie data before using results for hull optimization. Maintain RL observations, actions, repeatable scoring and baseline-controller comparisons.
 - [x] Raise both tiller arms above the stern deck and connect them to the moving crossbar. Use unlettered red, orange and gold sails with fabric-covered battens and monochrome hull stripes.

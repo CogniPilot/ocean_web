@@ -6,7 +6,7 @@ Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone
 
 ## Combined simulation component
 
-[Download OceanWorld.fmu](https://cognipilot.github.io/ocean_web/fmi3/OceanWorld.fmu) to exercise the integrated Hobie, submarine, RDD2, wave field and onboard perception with an FMI 3 LS-WASM host. In Chromium the optimized component advanced 1.22 simulated seconds, including six sonar frames. After warmup, one simulated second took 2.06 seconds of wall time on the development machine. The [integrated three-vehicle simulator](https://cognipilot.github.io/ocean_web/?runtime=world) uses this component for all three vehicles, including the Hobie rig and hull, wind, waves, race state and submarine navigation. The default site and the selectable pilothouse sloop still use separate Rumoca modules. Set `sailingManual`, `subManual` and `flightManual` explicitly to 1 for manual operation with this component.
+[Download OceanWorld.fmu](https://cognipilot.github.io/ocean_web/fmi3/OceanWorld.fmu) to exercise the integrated Hobie, submarine, RDD2, wave field and onboard perception with an FMI 3 LS-WASM host. In Chromium the optimized component advanced 1.22 simulated seconds, including six sonar frames. After warmup, one simulated second took 2.06 seconds of wall time on the development machine. The [integrated three-vehicle simulator](https://cognipilot.github.io/ocean_web/?runtime=world) uses this component for all three vehicles, including the Hobie rig and hull, wind, waves, race state and submarine navigation. The public site opens the integrated Hobie scene by default. Selecting the pilothouse sloop loads its separate Rumoca modules. All three vehicles start in Manual. Select a vehicle and click **Manual** to engage its autopilot. In an FMI host, the corresponding inputs are `sailingManual`, `subManual` and `flightManual` (1 for manual, 0 for automatic).
 
 To run the integrated wreck survey headlessly, prepare the browser component with `node scripts/prepare-world-runtime.mjs`, then run `node scripts/check-world-survey.mjs`. With the sailboat and drone in manual mode, the submarine reached all 12 stations in order and finished the survey in 109.6 simulated seconds. Its onboard estimate had 0.351 m RMS position error over the route.
 
@@ -38,12 +38,11 @@ The GitHub Pages workflow packages the viewer and generates a browser host from 
 git clone https://github.com/CogniPilot/microduck_web .deps/microduck_web
 git -C .deps/microduck_web checkout f567b8c452d5c759436a568ffad5632dc1046916
 npm install --prefix .deps/ocean-component --no-save @bytecodealliance/jco-transpile@0.23.0
-scripts/package-pages.sh
-node scripts/prepare-world-runtime.mjs build/pages/world
+scripts/package-pages.sh build/pages --world
 SERVE_DIR=build/pages ./serve.sh
 ```
 
-On an existing checkout, reuse the pinned microduck_web dependency. Open `http://127.0.0.1:8074/?runtime=world` for the integrated scene. All vehicle physics and sensor sampling run in the browser worker.
+On an existing checkout, reuse the pinned microduck_web dependency. Open `http://127.0.0.1:8074/?runtime=world` for the integrated scene. The combined browser worker advances the vehicle plants and samples the submarine navigation sensors.
 
 ## Run
 
@@ -126,6 +125,15 @@ Original code, shaders and original assets are released under the [Apache Licens
 ### Calm-water tow study
 
 From the repository root, run `node scripts/tow-study.mjs 2 1.02 0 > tow.csv` for a 2 m/s tow with 1.02 m half-spacing and zero heading in radians. The test uses the loaded Hobie model’s section volumes, a fixed draft and trim, a two-second acceleration ramp, and zero wind and current. CSV output includes the signed wave resistance, side force, yaw moment, and wave-height extremes. Use short runs to limit contamination from the periodic boundary. Total resistance also includes viscous loads. Hull dimensions, wetted shape, speed, attitude and the measurement uncertainty must match the tow experiment before interpreting a design ranking. [Catamaran towing tests and interference measurements](https://eprints.soton.ac.uk/462776/) · [ITTC resistance-test uncertainty](https://www.ittc.info/media/8007/75-02-02-02.pdf)
+
+For the default Hobie strip geometry and 1.02 m half-spacing, the level-tow model produced these averages over 7.1–12.0 s. The crest is the maximum elevation on the grid at each sample. These are numerical model outputs; comparison with a measured tow is still open.
+
+| Tow speed | Wave resistance | Mean crest |
+| --- | --- | --- |
+| 0.5 m/s | 0.29 N | 0.42 mm |
+| 2 m/s | 2.85 N | 9.38 mm |
+| 5 m/s | 10.29 N | 29.17 mm |
+
 
 ### Vehicle assets and underwater lighting
 

@@ -8,7 +8,8 @@ const microduck=process.env.MICRODUCK_WEB?pathToFileURL(resolve(process.env.MICR
 const jco=process.env.JCO_TRANSPILE||new URL('.deps/ocean-component/node_modules/@bytecodealliance/jco-transpile/dist/index.js',root).pathname;
 const {buildFmu,writeBuildFiles}=await import(new URL('scripts/build-fmu.mjs',microduck));
 const out=resolve(process.argv[2]||'build/world-runtime');
-const bytes=await readFile(new URL('viewer/fmi3/OceanWorld.fmu',root));
+const archive=process.argv[3]??new URL('viewer/fmi3/OceanWorld.fmu',root);
+const bytes=await readFile(archive);
 const {index,indexFile,files}=await buildFmu(bytes,{jco});
 if(index.modelName!=='OceanWorld')throw Error('Expected the integrated OceanWorld component');
 await mkdir(out,{recursive:true});
