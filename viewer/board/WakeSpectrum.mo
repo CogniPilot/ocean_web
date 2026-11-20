@@ -93,11 +93,11 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     output Real wr[n,n],wi[n,n],displacedR[n,n],displacedI[n,n],tile[n,n],probe[3],load[3];
   protected
     Real rowR[n],rowI[n],windR[n],windI[n],sourceR[n],sourceI[n],dx,kx,ky,k,omega,c,s,atten,along,across,ex,ny,a,b,amplitude,phase,slope;
-    Integer mx,my,strip;
+    Integer mx,my,strip,mirrorI,mirrorJ;
     Real km,peak,windSpeed,directional,seed,trial;
     Real sr,si,mr,mi,stripR,stripI,momentArm,crossTerm,forceScale;
     Real cx[12,n],sx[12,n],cy[12,n],sy[12,n],ka,kb,length,width,draft,weight;
-    Real re[n,n],im[n,n],unused[n,n];
+    Real re[n,n],im[n,n],unused[n,n],momentR[n,n],momentI[n,n],yawR[n],yawI[n],oppR[n],oppI[n],oppYawR[n],oppYawI[n];
   algorithm
     windSpeed:=sqrt(ue*ue+un*un);peak:=max(.19,1.4/max(2,windSpeed));
     dx:=L/n;probe:=zeros(3);load:=zeros(3);forceScale:=1025*9.80665*dx^2/n^2;
@@ -120,8 +120,12 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     end for;
     re:=zeros(n,n);im:=zeros(n,n);displacedR:=oldR;displacedI:=oldI;
     wr:=prevR;wi:=prevI;
+    momentR:=zeros(n,n);momentI:=zeros(n,n);
     for j in 1:n loop
-      sourceR:=zeros(n);sourceI:=zeros(n);
+      sourceR:=zeros(n);sourceI:=zeros(n);yawR:=zeros(n);yawI:=zeros(n);
+      mirrorJ:=1+mod(1-j,n);
+      oppR:=displacedR[mirrorJ,:];oppI:=displacedI[mirrorJ,:];
+      oppYawR:=momentR[mirrorJ,:];oppYawI:=momentI[mirrorJ,:];
       rowR:=prevR[j,:];rowI:=prevI[j,:];windR:=zeros(n);windI:=zeros(n);
       for i in 1:n loop
         mx:=if i<=div(n,2) then i-1 else i-1-n;
@@ -129,28 +133,34 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
         kx:=2*pi*mx/L;ky:=2*pi*my/L;k:=sqrt(kx^2+ky^2);
         sr:=0;si:=0;mr:=0;mi:=0;
         ka:=kx*cos(bearing)+ky*sin(bearing);kb:=-kx*sin(bearing)+ky*cos(bearing);
-        for hull in 1:2 loop
-          for panel in 1:6 loop
-            strip:=(hull-1)*6+panel;
-            length:=max(.001,xs[panel+1]-xs[panel]);
-            width:=max(.001,beams[panel]+beams[panel+1]);
-            draft:=vol[hull,panel]/(length*width);
-            // Match each strip's volume and rectangular second moments.
-            // Submerged sources radiate less energy at short wavelengths.
-            weight:=vol[hull,panel]/dx^2*exp(-.5*k*draft-((ka*length)^2+(kb*width)^2)/24);
-            stripR:=weight*(cx[strip,i]*cy[strip,j]-sx[strip,i]*sy[strip,j]);
-            stripI:=-weight*(sx[strip,i]*cy[strip,j]+cx[strip,i]*sy[strip,j]);
-            sr:=sr+stripR;si:=si+stripI;
-            along:=.5*(xs[panel]+xs[panel+1])*cos(pitch);
-            across:=(3-2*hull)*sep*cos(heel);
-            momentArm:=along*kb-across*ka;
-            mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
-          end for;
-        end for;
-        // The signed wavevector is ambiguous on a Nyquist row or column.
-        // Omit it so a symmetric tow cannot acquire a spurious lateral load.
-        if abs(mx)==div(n,2) or abs(my)==div(n,2) then
-          sr:=0;si:=0;mr:=0;mi:=0;
+        // Real hull displacement has conjugate Fourier coefficients. The yaw
+        // moment arm changes sign at the opposite wavevector.
+        if abs(mx)<>div(n,2) and abs(my)<>div(n,2) then
+          if my<0 then
+            mirrorI:=1+mod(1-i,n);
+            sr:=oppR[mirrorI];si:=-oppI[mirrorI];
+            mr:=-oppYawR[mirrorI];mi:=oppYawI[mirrorI];
+          else
+            for hull in 1:2 loop
+              for panel in 1:6 loop
+                strip:=(hull-1)*6+panel;
+                length:=max(.001,xs[panel+1]-xs[panel]);
+                width:=max(.001,beams[panel]+beams[panel+1]);
+                draft:=vol[hull,panel]/(length*width);
+                // Match each strip's volume and rectangular second moments.
+                // Submerged sources radiate less energy at short wavelengths.
+                weight:=vol[hull,panel]/dx^2*exp(-.5*k*draft-((ka*length)^2+(kb*width)^2)/24);
+                stripR:=weight*(cx[strip,i]*cy[strip,j]-sx[strip,i]*sy[strip,j]);
+                stripI:=-weight*(sx[strip,i]*cy[strip,j]+cx[strip,i]*sy[strip,j]);
+                sr:=sr+stripR;si:=si+stripI;
+                along:=.5*(xs[panel]+xs[panel+1])*cos(pitch);
+                across:=(3-2*hull)*sep*cos(heel);
+                momentArm:=along*kb-across*ka;
+                mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
+              end for;
+            end for;
+            yawR[i]:=mr;yawI[i]:=mi;
+          end if;
         end if;
         sourceR[i]:=sr;sourceI[i]:=si;
         omega:=sqrt(9.80665*k*tanh(k*h));c:=cos(omega*dt);s:=sin(omega*dt);
@@ -183,6 +193,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
           probe[3]:=probe[3]+slope*(-kx*sin(bearing)+ky*cos(bearing));
         end if;
       end for;
+      momentR[j,:]:=yawR;momentI[j,:]:=yawI;
       displacedR[j,:]:=sourceR;displacedI[j,:]:=sourceI;
       wr[j,:]:=rowR;wi[j,:]:=rowI;re[j,:]:=rowR+windR;im[j,:]:=rowI+windI;
     end for;

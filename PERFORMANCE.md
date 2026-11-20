@@ -68,3 +68,11 @@ On a desktop Node/WASM run under shared load, the standalone Hobie advanced 200 
 | Approaching boulders | 57.04 / 71.51 | 15.31 / 18.98 |
 
 A separate compiled Modelica contact benchmark exercised 1,000 positions and headings per scenario across offshore, approach, boulder and beach regions. All six wrench components agreed to within 1e-6. Broad-phase filtering now rejects distant boulders once per vessel evaluation, and the convex face test stops when the rock cannot improve the deepest contact. The boulder case still exceeded the 10 ms simulation step budget on this host. These results exclude rendering and other FMU subsystems.
+
+## Reusing conjugate modes for hull displacement
+
+The submerged hull volume is real, so its Fourier coefficient at the opposite wavevector is the complex conjugate. The yaw lever arm changes sign there. Reusing these values skips almost half the twelve-strip integrations while continuing to advance each traveling wave independently on the 64 × 64 grid.
+
+An alternating standalone benchmark of two WASM builds from the same Rumoca compiler measured 20.78 ms median and 21.27 ms p95 per 100 ms of wave evolution for the original solver. Reusing the conjugate rows took 18.82 ms median and 19.35 ms p95. The tow turned, pitched and heeled with unequal, time-varying immersion in a wind sea and current. All 393,792 comparisons of elevations, displacement spectra, hull samples, incident waves and reaction loads matched exactly. Timings exclude input writes and output reads. Run `node scripts/compare-wake.mjs BASELINE_DIR CANDIDATE_DIR` with the two generated browser module directories to repeat the comparison.
+
+In the combined FMI 3 LS-WASM build, four alternating comparisons reversed which component initialized first. Each timed 60 batches of ten 10 ms steps per model after warmup. The original took 40.59 s in total and the conjugate-row implementation took 40.55 s for the same 24 simulated seconds. The first session ran faster in every process, whichever implementation it contained. Forty-two outputs matched at all 65 sampling boundaries in each run. This experiment demonstrates a repeatable speedup in the standalone wave model and no material throughput gain in the integrated simulator. The public build retains the original spectral integration.
