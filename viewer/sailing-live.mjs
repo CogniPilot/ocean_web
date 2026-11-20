@@ -1,6 +1,8 @@
 import {loadInstance} from './fmi3/instance.mjs';
 import {sailboatMesh,observeBoat} from './board/boat.mjs';
 import {splitCamera} from "./waterline.mjs";
+import {drawCompass} from './compass.mjs';
+import {forceDisplay} from './instrumentation.mjs';
 import {submarine} from './submarine.mjs';
 import {surveyDrone} from "./drone.mjs";
 import {mastCamera} from "./mast-camera.mjs";
@@ -98,6 +100,13 @@ async function run(){
   $('seaState').onchange=()=>model.set('swellAmplitude',Number($('seaState').value));
   const keys=new Set();let drone;
   const sub=submarine(T,scene,renderer,hull), sensorCanvas=$('sensorCam').getContext('2d');
+  const drawForces=forceDisplay(T,scene,sub.mesh,boat.group,cat);
+  $('sonarMap').onchange=()=>{sub.mapVisible=$('sonarMap').checked;};
+  for(const id of ['showForces','showCompass'])$(id).onclick=()=>{
+    const enabled=$(id).getAttribute('aria-pressed')!=='true';
+    $(id).setAttribute('aria-pressed',String(enabled));
+    if(id==='showCompass')$('dial').hidden=!enabled;
+  };
   let drawnFrame,display;
   function drawFeatures(frame){
     if(!frame?.image||drawnFrame===frame.image)return;
@@ -218,6 +227,9 @@ async function run(){
       ocean.U.spectrumBlend.value=Math.min(1,((wakeTicks+9)%10+acc/.01)/10);
       const s=observeBoat(model);
       if(!s.every(Number.isFinite))throw Error('Non-finite FMI state at '+model.time);
+      const subFrame=sub.frame;
+      if(!$('dial').hidden)drawCompass($('dial'),Math.hypot(model.get('windEast'),model.get('windNorth')),Math.atan2(model.get('windNorth'),model.get('windEast')),sub.active&&subFrame?subFrame.flow:[model.get('currentEast'),model.get('currentNorth')],sub.active&&subFrame?subFrame.estimate[3]:s[2],sub.active?'sub':'surface');
+      drawForces($('showForces').getAttribute('aria-pressed')==='true',s,subFrame,model);
       const ballast=cat?[model.get('ballastX'),model.get('ballastY')]:null;
       {
         ocean.U.swellCenter.value.set(s[0],s[1]);
@@ -260,7 +272,7 @@ async function run(){
       if(drone?.active){const [e,n,z]=drone.position;$('readout').textContent='E '+e.toFixed(1)+' m · N '+n.toFixed(1)+' m · Altitude '+z.toFixed(2)+' m · Drag '+Math.hypot(...drone.drag).toFixed(2)+' N';}
       if(sub.active){
         const f=sub.frame;
-        $('readout').textContent=sub.error||(!f?'Starting underwater navigation…':f.time.toFixed(2)+' s · Depth '+(-f.position[2]).toFixed(2)+' m · '+f.estimate[15]+' features · '+f.estimate[16]+' matches · '+f.estimate[12]+' keyframes');
+        $('readout').textContent=sub.error||(!f?'Starting underwater navigation…':f.time.toFixed(2)+' s · Depth '+(-f.position[2]).toFixed(2)+' m · '+f.estimate[15]+' features · '+f.estimate[16]+' matches · '+f.estimate[12]+' keyframes'+(f.surveyDone?' · Survey complete':f.waypoint?' · Waypoint '+f.waypoint+'/'+f.waypointCount:''));
       }
       document.body.dataset.simTime=t;document.body.dataset.east=s[0];requestAnimationFrame(draw);
     }catch(e){$('readout').textContent=e.message;console.error(e);}
