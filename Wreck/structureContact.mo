@@ -10,25 +10,29 @@ protected
   Integer candidates[WreckSolids.maxCandidates];
   Real box[18], arm[3], axes[3,3], f[3], w[3];
 algorithm
-  force:=zeros(3); moment:=zeros(3); w:=transpose(T)*omega;
-  candidates:=WreckSolids.contactCandidates(pos);
-  for j in 1:WreckSolids.maxCandidates loop
-    if candidates[j]>0 then
-      box:=WreckSolids.getBox(candidates[j]);
-      if abs(pos[1]-box[1])<box[16]+WreckSolids.guardExtent and
-         abs(pos[2]-box[2])<box[17]+WreckSolids.guardExtent and
-         abs(pos[3]-box[3])<box[18]+WreckSolids.guardExtent then
-        for k in 1:3 loop
-          axes[k,:]:=box[4+3*k:6+3*k];
-        end for;
-        for i in 1:6 loop
-          arm:=transpose(T)*centre[i,:];
-          point:=MultiBodyLie.Collision.sphereBox(pos,arm,radius[i],box[1:3],zeros(3),axes,box[4:6]);
-          f:=MultiBodyLie.Collision.contactForce(point,velocity+cross(w,point.armA),material);
-          force:=force+f;
-          moment:=moment+cross(point.armA,f);
-        end for;
+  force:=zeros(3); moment:=zeros(3);
+  if (min(pos-WreckSolids.wreckLow)>=0 and min(WreckSolids.wreckHigh-pos)>=0) or
+     (min(pos-WreckSolids.bedLow)>=0 and min(WreckSolids.bedHigh-pos)>=0) then
+    w:=transpose(T)*omega;
+    candidates:=WreckSolids.contactCandidates(pos);
+    for j in 1:WreckSolids.maxCandidates loop
+      if candidates[j]>0 then
+        box:=WreckSolids.getBox(candidates[j]);
+        if abs(pos[1]-box[1])<box[16]+WreckSolids.guardExtent and
+           abs(pos[2]-box[2])<box[17]+WreckSolids.guardExtent and
+           abs(pos[3]-box[3])<box[18]+WreckSolids.guardExtent then
+          for k in 1:3 loop
+            axes[k,:]:=box[4+3*k:6+3*k];
+          end for;
+          for i in 1:6 loop
+            arm:=transpose(T)*centre[i,:];
+            point:=MultiBodyLie.Collision.sphereBox(pos,arm,radius[i],box[1:3],zeros(3),axes,box[4:6]);
+            f:=MultiBodyLie.Collision.contactForce(point,velocity+cross(w,point.armA),material);
+            force:=force+f;
+            moment:=moment+cross(point.armA,f);
+          end for;
+        end if;
       end if;
-    end if;
-  end for;
+    end for;
+  end if;
 end structureContact;

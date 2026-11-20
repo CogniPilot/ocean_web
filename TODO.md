@@ -121,3 +121,4 @@ A checked item records the specific result described. Open items include partial
 - [ ] Verify sustained frame pacing on physical phones and reduce the CPU cost of the integrated FMU. Defer enhanced wake shading while frame pacing takes priority.
 - [x] Suspend the unoccupied manual submarine’s imager when sailing or flying manually. Preserve acoustic and inertial navigation and restore visual observations for the selected submarine and both autopilots.
 - [x] Smooth the displayed hull and aircraft poses between asynchronous physics snapshots and measure frame-to-frame motion in the sailing and FPV views.
+- [x] Skip wreck and seabed contact lookup when the submarine is outside both expanded bounds. Verify all 165 solids against the previous force and moment function.
