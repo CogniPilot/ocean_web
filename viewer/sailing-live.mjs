@@ -69,6 +69,18 @@ async function run(){
   addEventListener('pagehide',remote.leave);
   $('invite').onclick=async()=>{const link=new URL(location.href);link.searchParams.set('room',roomName);
     try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Race room link',link.href);}};
+  const theme=$('theme'),music=$('music');
+  theme.volume=.32;
+  function showMusicState(){
+    music.setAttribute('aria-pressed',String(!theme.paused));
+    music.title=theme.paused?'Play music':'Pause music';
+  }
+  theme.addEventListener('play',showMusicState);
+  theme.addEventListener('pause',showMusicState);
+  music.onclick=async()=>{
+    if(!theme.paused){theme.pause();return;}
+    try{await theme.play();}catch(error){$('online').textContent='Music: '+error.message;}
+  };
   $('sound').onclick=async()=>{try{const on=await audio.toggle(),button=$('sound');button.setAttribute('aria-pressed',String(on));button.title=on?'Mute sound':'Turn sound on';button.firstElementChild.textContent=on?'🔊':'🔇';}catch(e){$('online').textContent=e.message;}};
   const hemi=new T.HemisphereLight(0xe5f8fb,0x767266,1.8);hemi.position.z=1;scene.add(hemi);
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
