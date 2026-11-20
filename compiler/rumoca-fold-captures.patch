@@ -1,0 +1,87 @@
+diff --git a/crates/rumoca-phase-codegen/src/codegen/fmi_reduction_tests.rs b/crates/rumoca-phase-codegen/src/codegen/fmi_reduction_tests.rs
+--- a/crates/rumoca-phase-codegen/src/codegen/fmi_reduction_tests.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/fmi_reduction_tests.rs
+@@ -192,3 +192,57 @@
+ /// reductions carry no assertion, so every call passes no observer.
+ const OBSERVER_TYPE: &str = "typedef struct { void* context; int (*observe)(void*, size_t, const void* const[], size_t); } RmcAssertionObserver;\n\
+ static inline double rumoca_real64(uint64_t bits) { double value; memcpy(&value, &bits, sizeof(value)); return value; }\n";
++
++#[test]
++fn guarded_fold_predicate_receives_the_same_assigned_captures_as_its_transition() {
++    let span = rumoca_core::Span::from_offsets(
++        rumoca_core::SourceId::from_source_name("guarded_fold.mo"),
++        0,
++        1,
++    );
++    let profile = solve::SolveArithmeticProfile::construct(
++        solve::SolveRealFormat::Binary64,
++        solve::SolveIntegerDomain::FULL,
++    );
++    let program = solve::TypedProgram::construct(profile, |b| {
++        let output = b.declare_slot(
++            solve::SolveValueType::scalar(REAL),
++            solve::SolveStorageClass::Output,
++            solve::SolveSlotAccess::ReadWrite,
++            span,
++        )?;
++        let initial = b.constant(solve::SolveValue::real(profile, 1.0), span)?;
++        let state = b.present_assigned_state(initial, span)?;
++        let domain = rumoca_core::StructuredIndexDomain {
++            binders: vec![rumoca_core::StructuredIndexBinder {
++                provenance: rumoca_core::IndexBinderProvenance::Generated,
++                id: 0,
++                display_name: "i".into(),
++                lower: 1,
++                upper: 2,
++                step: 1,
++            }],
++        };
++        let carried = b.fold_while_assigned(
++            domain,
++            &[initial],
++            (&[], &[state]),
++            span,
++            |region, states, _, _, _, outputs| {
++                let present = region.assigned_state_is_present(states[0], span)?;
++                region.store(outputs[0], present, span)
++            },
++            |region, _, carried, _, _, outputs| {
++                let value = region.load(carried[0], span)?;
++                region.store(outputs[0], value, span)
++            },
++        )?;
++        b.store(output, carried[0], span)
++    })
++    .unwrap();
++    let source = render(&program, "guarded_fold").unwrap();
++    for suffix in ["_continue((const void*[])", "_fold((const void*[])"] {
++        let call = source.lines().find(|line| line.contains(suffix)).unwrap();
++        assert!(call.contains("&present0,v0,"), "{call}");
++    }
++}
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+@@ -45,6 +45,9 @@
+ 
+ {%- macro input_count(program) -%}{{ program.slots|selectattr("storage","equalto","input")|list|length }}{%- endmacro %}
+ {%- macro output_count(program) -%}{{ program.slots|selectattr("storage","equalto","output")|list|length }}{%- endmacro %}
++{%- macro fold_inputs(op) -%}
++(const void*[]){ {% for input in op.destinations + op.captures %}r{{ input }},{% endfor %}{% for binder in op.domain.binders %}b{{ loop.index0 }},{% endfor %}{% for i in op.state_captures %}&present{{ i }},v{{ i }},{% endfor %}NULL }
++{%- endmacro %}
+ {%- macro operation(op, program, region_name, prefix="rumoca_pure_", assertion_outputs=[], source_predicate_outputs={}) -%}
+ {% if op.operation == "assigned_state" -%}
+ {% set x = op.state_operation -%}
+@@ -108,10 +111,10 @@
+ if (i{{ loop.index0 }}) b{{ loop.index0 }}[0]+={{ integer(binder.step) }};
+ {% endfor -%}
+ {% if op.continuation -%}
+-{ bool fold_continue[1]; int status={{ region_name }}_continue((const void*[]){ {% for input in op.destinations + op.captures %}r{{ input }},{% endfor %}{% for binder in op.domain.binders %}b{{ loop.index0 }},{% endfor %}{% if not op.destinations and not op.captures and not op.domain.binders %}NULL{% endif %} }, (void*[]){ fold_continue }, observer); if (status) return status; fold_done = !fold_continue[0]; }
++{ bool fold_continue[1]; int status={{ region_name }}_continue({{ fold_inputs(op) }}, (void*[]){ fold_continue }, observer); if (status) return status; fold_done = !fold_continue[0]; }
+ if (!fold_done)
+ {% endif -%}
+-{ int status={{ region_name }}_fold((const void*[]){ {% for input in op.destinations + op.captures %}r{{ input }},{% endfor %}{% for binder in op.domain.binders %}b{{ loop.index0 }},{% endfor %}{% for i in op.state_captures %}&present{{ i }},v{{ i }},{% endfor %} }, (void*[]){ {% for output in op.destinations %}r{{ output }},{% else %}NULL{% endfor %} }, observer); if (status) return status; }
++{ int status={{ region_name }}_fold({{ fold_inputs(op) }}, (void*[]){ {% for output in op.destinations %}r{{ output }},{% else %}NULL{% endfor %} }, observer); if (status) return status; }
+ {% for binder in op.domain.binders %} } {% endfor %}
+ }
+ {% elif op.operation == "map" -%}

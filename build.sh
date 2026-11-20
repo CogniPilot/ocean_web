@@ -30,15 +30,13 @@ else
     echo "Rumoca checkout differs from compiler/rumoca-revision. Set RUMOCA to test another compiler." >&2
     exit 1
   fi
-  for name in marine state-initialization navigation scatter mesh sail-guard batten div-bounds-test; do
-    patch="$root/compiler/rumoca-$name.patch"
-    if ! git -C "$compiler_dir" apply --reverse --check "$patch" 2>/dev/null; then
-      git -C "$compiler_dir" apply --check "$patch"
-      git -C "$compiler_dir" apply "$patch"
-    fi
-  done
+  fixes=(marine state-initialization navigation scatter mesh sail-guard batten loop-shadow snapshot-reads
+    clock-assertions div-bounds-test comprehension-replay quotient-seeds return-prefix fold-captures initial-clock flat-subscripts tensor-concat)
+  patches=()
+  for name in "${fixes[@]}"; do patches+=("$root/compiler/rumoca-$name.patch"); done
+  python3 scripts/patch-rumoca.py "$compiler_dir" "$revision" "${patches[@]}"
   (cd "$compiler_dir" && cargo build --locked -p rumoca --bin rumoca --no-default-features \
-    --features scheduled-sim,scenario-config,input-keyboard,transport-udp,transport-zenoh,viewer-web,process-control,fmu-packaging)
+    --features scheduled-sim,scenario-config,input-keyboard,transport-udp,transport-zenoh,viewer-web,process-control,fmu-packaging,component-build)
   compiler="$compiler_dir/target/debug/rumoca"
 fi
 library_root="$root/build/rum-libs"
@@ -49,9 +47,9 @@ status=0
 for model in Sailboat Hobie16 Rdd2Survey HullWake WakeSpectrum MarineWind Regatta Wreck.Plant Wreck.Navigation; do
   extra=()
   source=Wreck/package.mo
-  if [[ $model == Hobie16 ]]; then source=viewer/board/Hobie16.mo; extra=(--source-root "$root/viewer/board/Sailboat.mo" --source-root "$root/viewer/board/SailMembrane.mo"); fi
+  if [[ $model == Hobie16 ]]; then source=viewer/board/Hobie16.mo; extra=(--source-root "$root/viewer/board/Shore.mo" --source-root "$root/viewer/board/Sailboat.mo" --source-root "$root/viewer/board/SailMembrane.mo"); fi
   if [[ $model == WakeSpectrum || $model == HullWake || $model == MarineWind || $model == Regatta || $model == Rdd2Survey ]]; then source="viewer/board/$model.mo"; fi
-  if [[ $model == Sailboat ]]; then source=viewer/board/Sailboat.mo; extra=(--source-root "$root/viewer/board/SailMembrane.mo"); fi
+  if [[ $model == Sailboat ]]; then source=viewer/board/Sailboat.mo; extra=(--source-root "$root/viewer/board/Shore.mo" --source-root "$root/viewer/board/SailMembrane.mo"); fi
   "$compiler" compile "$source" -m "$model" "${roots[@]}" "${extra[@]}" --target fmi3 -o "build/fmi3/$model" || status=1
 done
 exit "$status"

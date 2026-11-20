@@ -1,0 +1,111 @@
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/function_bodies/guarded_loop_analysis.rs b/crates/rumoca-phase-dae/src/construction/analysis/function_bodies/guarded_loop_analysis.rs
+index 276d4ee..ed2385f 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/function_bodies/guarded_loop_analysis.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/function_bodies/guarded_loop_analysis.rs
+@@ -268,12 +268,17 @@ pub(in crate::construction::analysis) fn statement_reads_target(
+         rumoca_core::Statement::For {
+             indices, equations, ..
+         } => {
+-            indices
++            for binder in indices {
++                if expression_reads_target(&binder.range, target) {
++                    return true;
++                }
++                if binder.ident == target.as_str() {
++                    return false;
++                }
++            }
++            equations
+                 .iter()
+-                .any(|index| expression_reads_target(&index.range, target))
+-                || equations
+-                    .iter()
+-                    .any(|statement| statement_reads_target(statement, target))
++                .any(|statement| statement_reads_target(statement, target))
+         }
+         rumoca_core::Statement::While { block, .. } => {
+             expression_reads_target(&block.cond, target)
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/incoming_value_flow.rs b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/incoming_value_flow.rs
+index 7ee326b..72bf0cf 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/incoming_value_flow.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/incoming_value_flow.rs
+@@ -331,11 +331,17 @@ impl Query<'_> {
+         };
+         for index in undefined.keys().copied().collect::<Vec<_>>() {
+             let name = self.names[index];
+-            if indices
+-                .iter()
+-                .any(|index| expression_reads_name(&index.range, name))
+-            {
+-                self.mark_read(undefined, index);
++            for binder in &indices {
++                // The range is in the enclosing scope. After evaluating it,
++                // the iterator shadows a same-named local for subsequent
++                // ranges and the loop body (MLS §11.2.2).
++                if expression_reads_name(&binder.range, name) {
++                    self.mark_read(undefined, index);
++                    break;
++                }
++                if binder.ident == name.as_str() {
++                    break;
++                }
+             }
+         }
+         let binders = indices
+@@ -349,6 +355,7 @@ impl Query<'_> {
+         // entry's undefined paths, and facts about anything it writes do not
+         // survive it.
+         let mut after = entry.clone();
++        entry.retain(|index, _| !binders.contains(self.names[*index]));
+         self.sequence(
+             StatementSequence {
+                 statements: body,
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/liveness_differential_tests.rs b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/liveness_differential_tests.rs
+index 00bfa01..4234bcc 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/liveness_differential_tests.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/liveness_differential_tests.rs
+@@ -487,13 +487,13 @@ fn sequencing_two_enclosing_back_edges_hides_the_outer_read() {
+ /// A `for` binder shadows an enclosing value of the same name inside the body,
+ /// so a body read of the binder is not a read of the enclosing value.
+ #[test]
+-fn binder_shadowing_separates_the_predicate_from_liveness() {
++fn binder_shadowing_excludes_the_outer_value_from_both_read_analyses() {
+     let body = vec![assign("a", &["i"])];
+     let program = vec![for_loop("i", &[], body)];
+     let binder = VarName::new("i");
+     assert!(
+-        statements_read_incoming_name(&program, &binder),
+-        "the syntactic predicate counts the binder read as a read of `i`"
++        !statements_read_incoming_name(&program, &binder),
++        "the iterator is in scope throughout its loop body"
+     );
+     assert!(
+         !liveness::reads_incoming_value(&program, &binder),
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/loop_carry_tests.rs b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/loop_carry_tests.rs
+index 2573f69..788794c 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/loop_carry_tests.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/loop_carry_tests.rs
+@@ -835,3 +835,23 @@ fn loop_prefix_substitution_retains_the_selected_read_assignment_owner() {
+         Some(rumoca_core::Statement::If { .. })
+     ));
+ }
++
++#[test]
++fn shadowing_loop_iterator_reads_only_its_own_range_in_the_enclosing_scope() {
++    let j = VarName::new("j");
++    let inner = for_loop("j", 3, vec![assign("x", var("j"))]);
++    assert!(!statements_read_incoming_name(
++        std::slice::from_ref(&inner),
++        &j
++    ));
++    assert!(statements_read_incoming_name(
++        &[inner.clone(), assign("y", var("j"))],
++        &j
++    ));
++    let mut dynamic = inner;
++    let rumoca_core::Statement::For { indices, .. } = &mut dynamic else {
++        unreachable!()
++    };
++    indices[0].range = var("j");
++    assert!(statements_read_incoming_name(&[dynamic], &j));
++}

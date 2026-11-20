@@ -1,0 +1,114 @@
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
+@@ -19,14 +19,31 @@
+ {% elif op.operation == "concatenate" -%}
+ {% set inner = ty.dimensions[op.axis + 1:]|product -%}
+ {% set outer = ty.dimensions[:op.axis]|product -%}
+-{ size_t cursor=0;
++{#- Checked concatenate operands have identical scalar types and distinct
++    SSA destinations. Copy their contiguous blocks along the selected axis. -#}
++{% if outer > 0 -%}
++{% set cursor = namespace(value=0) -%}
++{% if outer > 1 -%}
+ for (size_t outer=0; outer<{{ outer }}; ++outer) {
++{% endif -%}
+ {% for operand in op.operands -%}
+ {% set operand_dims = program.register_types[operand].dimensions -%}
+ {% set width = (operand_dims[op.axis] if operand_dims|length > op.axis else 1) * inner -%}
+-for (size_t k=0; k<{{ width }}; ++k) {{ dst }}[cursor++]=r{{ operand }}[outer*{{ width }}+k];
+-{% endfor -%}
+-} }
++{% if width > 0 -%}
++{% set row = "outer*" ~ (ty.dimensions[op.axis] * inner) ~ "+" if outer > 1 else "" -%}
++{% set src = "outer*" ~ width if outer > 1 else "0" -%}
++{% if width == 1 -%}
++{{ dst }}[{{ row }}{{ cursor.value }}]=r{{ operand }}[{{ src }}];
++{% else -%}
++memcpy(&{{ dst }}[{{ row }}{{ cursor.value }}], &r{{ operand }}[{{ src }}], {{ width }} * sizeof({{ dst }}[0]));
++{% endif -%}
++{% set cursor.value = cursor.value + width -%}
++{% endif -%}
++{% endfor -%}
++{% if outer > 1 -%}
++}
++{% endif -%}
++{% endif -%}
+ {% elif op.operation == "construct_aggregate" -%}
+ {% for element in op.elements -%}
+ {% set width = program.register_types[element].scalar_count -%}
+--- a/crates/rumoca-phase-codegen/src/codegen/fmi_reduction_tests.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/fmi_reduction_tests.rs
+@@ -87,6 +87,10 @@
+         source.push_str(&render(&program(operator, scalar, 3), name).unwrap());
+     }
+     source.push_str(HARNESS);
++    compile_and_run(&source);
++}
++
++fn compile_and_run(source: &str) {
+     let work = tempfile::tempdir().unwrap();
+     let path = work.path().join("reductions.c");
+     let binary = work.path().join("reductions");
+@@ -246,3 +250,62 @@
+         assert!(call.contains("&present0,v0,"), "{call}");
+     }
+ }
++
++#[test]
++fn concatenate_copies_nonleading_axes_in_row_major_order() {
++    let span =
++        rumoca_core::Span::from_offsets(rumoca_core::SourceId::from_source_name("cat.mo"), 0, 1);
++    let profile = solve::SolveArithmeticProfile::construct(
++        solve::SolveRealFormat::Binary64,
++        solve::SolveIntegerDomain::FULL,
++    );
++    let mut source = String::from(
++        "#include <assert.h>\n#include <stddef.h>\n#include <string.h>\n#include <stdint.h>\n#include <stdbool.h>\n",
++    );
++    source.push_str(OBSERVER_TYPE);
++    for (axis, name, trailing, shape) in [
++        (0, "rows", vec![1, 2], vec![3, 2]),
++        (1, "cols", vec![2, 1], vec![2, 3]),
++    ] {
++        let program = solve::TypedProgram::construct(profile, |b| {
++            let a = b.declare_slot(
++                solve::SolveValueType::tensor(REAL, vec![2, 2]).unwrap(),
++                solve::SolveStorageClass::Input,
++                solve::SolveSlotAccess::ReadOnly,
++                span,
++            )?;
++            let d = b.declare_slot(
++                solve::SolveValueType::tensor(REAL, trailing).unwrap(),
++                solve::SolveStorageClass::Input,
++                solve::SolveSlotAccess::ReadOnly,
++                span,
++            )?;
++            let out = b.declare_slot(
++                solve::SolveValueType::tensor(REAL, shape).unwrap(),
++                solve::SolveStorageClass::Output,
++                solve::SolveSlotAccess::ReadWrite,
++                span,
++            )?;
++            let a = b.load(a, span)?;
++            let d = b.load(d, span)?;
++            let combined = b.concatenate(axis, &[a, d], span)?;
++            b.store(out, combined, span)
++        })
++        .unwrap();
++        let rendered = render(&program, name).unwrap();
++        assert!(!rendered.contains("cursor++"));
++        source.push_str(&rendered);
++    }
++    source.push_str(
++        r#"
++int main(void) {
++    double a[]={1,2,3,4}, b[]={5,6}, out[6]={0};
++    const void* inputs[]={a,b};
++    void* outputs[]={out};
++    assert(rows(inputs,outputs,NULL)==0 && memcmp(out,(double[]){1,2,3,4,5,6},sizeof(out))==0);
++    assert(cols(inputs,outputs,NULL)==0 && memcmp(out,(double[]){1,2,5,3,4,6},sizeof(out))==0);
++}
++"#,
++    );
++    compile_and_run(&source);
++}

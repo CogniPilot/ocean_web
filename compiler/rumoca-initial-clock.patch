@@ -1,0 +1,94 @@
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
+@@ -411,8 +411,8 @@
+    located side, and a change is a change of bits. A settle pass writes the
+    discrete equations; `memories_only` writes only the condition memories,
+    which advance between passes (advance_condition_memory). */
+-static {{ prefix }}Status rmc_discrete_owners(ModelInstance* m, bool* changed, bool memories_only) {
+-    (void)m; (void)changed; (void)memories_only;
++static {{ prefix }}Status rmc_discrete_owners(ModelInstance* m, bool* changed, bool memories_only, bool enable_clocked) {
++    (void)m; (void)changed; (void)memories_only; (void)enable_clocked;
+ {%- set nguard = ev.guarded_targets|length %}
+ {%- if ndisc > 0 %}
+     static const size_t targets[{{ ndisc }}] = { {% for target in ev.discrete_targets %}{{ target }},{% endfor %} };
+@@ -431,7 +431,7 @@
+     if (!memories_only) {
+ {%- for program in solve.discrete.guarded_assignment_plan.programs %}
+ {%- set clock = ev.guarded_clocks[program.output_indices[0]] %}
+-    {% if clock is not none %}if (m->rmc_pass == 0 && rmc_clock_active({{ clock }}, m->time)) {% endif %}{
++    {% if clock is not none %}if (enable_clocked && m->rmc_pass == 0 && rmc_clock_active({{ clock }}, m->time)) {% endif %}{
+     double r[{{ program.temporary_count if program.temporary_count > 0 else 1 }}]; (void)r;
+ {%- for op in program.ops %}
+ {{ scalar_op(op, "gvalues", prefix ~ "Error") }}
+@@ -462,7 +462,7 @@
+         for (size_t g = 0; g < {{ nguard }}; ++g) {
+             /* guarded_assignments.rs guarded_assignment_accepts_snapshot: an
+                owner under a clock runs on its tick, in the first pass only. */
+-            if (gclock[g] >= 0 && (m->rmc_pass != 0 || !rmc_clock_active((size_t)gclock[g], m->time))) continue;
++            if (gclock[g] >= 0 && (!enable_clocked || m->rmc_pass != 0 || !rmc_clock_active((size_t)gclock[g], m->time))) continue;
+             double* slot = gin_y[g] ? &m->y[gindex[g]] : &m->p[gindex[g]];
+             *changed |= memcmp(slot, &gvalues[g], sizeof(double)) != 0;
+             *slot = gvalues[g];
+@@ -600,7 +600,7 @@
+         bool pass_changed = false;
+ {%- for step in schedule.settle_pass %}
+ {%- if step == "DiscreteOwners" %}
+-        if (rmc_discrete_owners(m, &pass_changed, false) != {{ prefix }}OK) return {{ prefix }}Error;
++        if (rmc_discrete_owners(m, &pass_changed, false, true) != {{ prefix }}OK) return {{ prefix }}Error;
+ {%- elif step == "RuntimeAssignments" %}
+         if (rmc_runtime_assignments(m, &pass_changed) != {{ prefix }}OK) return {{ prefix }}Error;
+ {%- elif step == "SettledIfUnchanged" %}
+@@ -793,7 +793,7 @@
+         if (rmc_event_pass(m, &changed) != {{ prefix }}OK) { rmc_surface_close(&surface); return {{ prefix }}Error; }
+         /* relation_memory.rs: condition memories advance on the settled pass,
+            before the next pass advances the pre lanes. */
+-        if (rmc_discrete_owners(m, &changed, true) != {{ prefix }}OK) { rmc_surface_close(&surface); return {{ prefix }}Error; }
++        if (rmc_discrete_owners(m, &changed, true, false) != {{ prefix }}OK) { rmc_surface_close(&surface); return {{ prefix }}Error; }
+         settled = !changed && rmc_lanes_settled(m);
+         if (settled || !rmc_on_surface(m, &surface)) continue;
+         bool found = false;
+@@ -864,7 +864,7 @@
+ {%- if ev.has_quotient_memory %}
+     /* Seed the unclocked discrete equations that supply array subscripts to
+        the first algebraic refresh. A guarded sample is still inactive here. */
+-    if (rmc_discrete_owners(m, &changed, false) != {{ prefix }}OK) return {{ prefix }}Error;
++    if (rmc_discrete_owners(m, &changed, false, false) != {{ prefix }}OK) return {{ prefix }}Error;
+ {%- endif %}
+ {%- if ev.has_quotient_memory %}
+     /* A quotient may read an algebraic supplied by a connected component.
+@@ -894,7 +894,7 @@
+ {%- endif %}
+     if (settle_values(m) != {{ prefix }}OK || rmc_relation_refresh(m, false, &changed) != {{ prefix }}OK) return {{ prefix }}Error;
+     for (size_t k = 0; k < RMC_PRE_LANES; ++k) m->p[rmc_pre_dest[k]] = rmc_pre_source(m->y, m->p, k);
+-    if (rmc_discrete_owners(m, &changed, true) != {{ prefix }}OK) return {{ prefix }}Error;
++    if (rmc_discrete_owners(m, &changed, true, false) != {{ prefix }}OK) return {{ prefix }}Error;
+     memcpy(m->rmc_entry_y, m->y, sizeof(m->y));
+     memcpy(m->rmc_entry_p, m->p, sizeof(m->p));
+     m->rmc_entry_captured = true;
+--- a/crates/rumoca/tests/suite_template_runtime/cli_target_fmi/integer_quotients.rs
++++ b/crates/rumoca/tests/suite_template_runtime/cli_target_fmi/integer_quotients.rs
+@@ -106,6 +106,12 @@
+   input Real epoch(start=0);
+   RaceClock race(utc=epoch+time);
+   output Real remaining=race.remaining;
++  discrete Real observation(start=0,fixed=true);
++  output Real reading=observation;
++equation
++  when sample(0,0.05) then
++    observation=1/race.utc;
++  end when;
+ end EpochModulo;
+ "#;
+     let compiled = rumoca::Compiler::new()
+@@ -127,9 +133,10 @@
+ for mode in ["CoSimulation", "ModelExchange"]:
+     for epoch in [-659.0, 601.0, 1250.0]:
+         result = simulate_fmu(sys.argv[1], fmi_type=mode, start_time=11, stop_time=11.1,
+-            output_interval=.05, start_values={"epoch":epoch}, output=["remaining"])
++            output_interval=.05, start_values={"epoch":epoch}, output=["remaining", "reading"])
+         for t, value in zip(result["time"], result["remaining"]):
+             assert abs(value - (300 - (epoch+t)%300)) < 1.e-7, (mode, epoch, t, value)
++        assert abs(result["reading"][-1] - 1/(epoch+11.1)) < 1.e-6
+ "#,
+     )
+     .unwrap();

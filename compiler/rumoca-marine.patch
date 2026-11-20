@@ -146,10 +146,10 @@ index f1169c5..4a3e08a 100644
      fn an_overflowing_endpoint_becomes_unconstrained() {
          let near_max = IntegerInterval::finite(0, i64::MAX);
 diff --git a/crates/rumoca-ir-dae/src/model.rs b/crates/rumoca-ir-dae/src/model.rs
-index 08a4330..667560b 100644
+index 08a4330..3392af1 100644
 --- a/crates/rumoca-ir-dae/src/model.rs
 +++ b/crates/rumoca-ir-dae/src/model.rs
-@@ -1091,6 +1091,21 @@ pub struct FunctionBody<'dae> {
+@@ -1091,6 +1091,18 @@ pub struct FunctionBody<'dae> {
      scope: Option<u32>,
  }
  
@@ -157,14 +157,11 @@ index 08a4330..667560b 100644
 +    /// Check reads in a comprehension element against its own binder domain,
 +    /// retaining the enclosing SSA definitions and function identity.
 +    pub fn with_comprehension_domain<T>(
-+        &mut self,
++        &self,
 +        domain: DomainId<'dae>,
 +        lower: impl FnOnce(&Self) -> T,
 +    ) -> T {
-+        let enclosing = self.domain.replace(domain);
-+        let result = lower(self);
-+        self.domain = enclosing;
-+        result
++        lower(&Self { domain: Some(domain), ..*self })
 +    }
 +}
 +
