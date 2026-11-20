@@ -59,9 +59,10 @@ async function run(){
     worker.onerror=event=>{waterError=Error(event.message);};
     addEventListener('pagehide',()=>worker.terminate(),{once:true});
   }
+  let omitWake=0;
   function waveInputs(){
     const [east,north,heading,heel,pitch,volume]=model.getMany(['east','north','heading','heel','pitch','sectionVolume']);
-    return {seaAmplitude:Number($('seaState').value),east,north,heading,heel,pitch,volume};
+    return {omitWake,seaAmplitude:Number($('seaState').value),east,north,heading,heel,pitch,volume};
   }
   worker?.postMessage({init:{...waveInputs(),currentEast:inputs.currentEast,currentNorth:inputs.currentNorth,
     beamHalf:model.get('beamHalf'),stations:model.get('stationX'),separation:model.get('halfSpacing'),
@@ -165,6 +166,8 @@ async function run(){
   selector.value=Object.hasOwn(profiles,preferred)?preferred:(mobile?'low':'high');
   let profile,pixelScale;
   function applyQuality(){
+    omitWake=Number(selector.value==='low');
+    world?.setWakeEnabled(!omitWake);
     profile=profiles[selector.value];pixelScale=Math.min(devicePixelRatio,profile.ratio);
     renderer.setPixelRatio(pixelScale);ocean.setQuality(profile,selector.value==='low');
   }
