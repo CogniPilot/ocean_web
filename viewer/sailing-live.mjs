@@ -204,6 +204,8 @@ async function run(){
     // Haul the boom amidships to feather the rig in the headwind.
     model.set('trimInput',-1);
   };
+  const capturePosition=new T.Vector3(),captureRotation=new T.Quaternion();
+  let captureTime=-Infinity,captureSky,captureSea,captureAspect;
   let prev=performance.now(),acc=0,lastCapture=-Infinity;
   let frameCost=1000/30,lastQualityCheck=0,pixelScale=mobile?.8:1;
   let lastEnvironment,lastThunder;
@@ -224,12 +226,12 @@ async function run(){
     }
     ocean.updateSky(renderer,time,sky);
   }
-  let meshTime;
+  let meshTime,observedBoat;
   let lastWorldTick=-1,lastFieldTick=-1,lastSurfaceTick=-1,previousSurface;
   function draw(now){
     try{
       if(now>=raceTick){
-        raceTick=now+50;if(!world){race.set('east',model.get('east'));race.set('north',model.get('north'));race.set('utc',Date.now()/1000);race.advance(.05);}
+        raceTick=now+50;
         const left=Math.ceil(race.get('countdown')),stage=race.get('stage');
         if(lastCountdown!==null&&lastCountdown<5&&left>295)audio.signal();
         lastCountdown=left;const label=left>298?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
@@ -290,6 +292,8 @@ async function run(){
         if(wakeTicks%10===0){
           const {height,incident,sections,origin,period,load}=waterFrame;
           waterFrame=null;
+          race.set('wakeTile',height);race.set('driftEast',origin[0]);race.set('driftNorth',origin[1]);
+          race.set('swellHeight',model.get('swellAmplitude'));
           worker.postMessage({...waveInputs(),windEast:windField.get('meanEast'),windNorth:windField.get('meanNorth')});
           model.set('useSectionWater',1);model.set('previousWater',lastSections??sections);
           model.set('sectionWater',sections);model.set('waterStamp',model.time);lastSections=sections;
@@ -298,11 +302,19 @@ async function run(){
           ocean.updateSpectrum(height,...origin,period);
         }
         wakeTicks++;
-        model.advance(.01);if(drone){drone.step(.005);drone.step(.005);}acc-=.01;
+        model.advance(.01);
+        if(wakeTicks%5===0){
+          race.set('east',model.get('east'));race.set('north',model.get('north'));
+          race.set('utc',Date.now()/1000);race.advance(.05);
+        }
+        if(drone){drone.step(.005);drone.step(.005);}acc-=.01;
       }
       ocean.U.spectrumBlend.value=world?model.get('waterFraction'):Math.min(1,((wakeTicks===0?0:(wakeTicks-1)%10+1)+acc/.01)/10);
-      const s=observeBoat(model);
-      if(!s.every(Number.isFinite))throw Error('Non-finite FMI state at '+model.time);
+      if(model.time!==meshTime){
+        observedBoat=observeBoat(model);
+        if(!observedBoat.every(Number.isFinite))throw Error('Non-finite FMI state at '+model.time);
+      }
+      const s=observedBoat;
       const subFrame=sub.frame;
       if(!$('dial').hidden)drawCompass($('dial'),Math.hypot(model.get('windEast'),model.get('windNorth')),Math.atan2(model.get('windNorth'),model.get('windEast')),sub.active&&subFrame?subFrame.flow:[model.get('currentEast'),model.get('currentNorth')],sub.active&&subFrame?subFrame.estimate[3]:s[2],sub.active?'sub':'surface');
       drawForces(!drone?.active&&$('showForces').getAttribute('aria-pressed')==='true',s,subFrame,sub.active);
@@ -348,7 +360,11 @@ async function run(){
       // The underwater shader computes the view through the surface from the sky.
       // Its opaque submerged pass never samples the planar capture targets.
       if(camera.position.z<=-surfaceBand)lastCapture=-Infinity;
-      else if(now-lastCapture>=(mobile?65:0)){
+      else if(now-lastCapture>=(mobile?65:0) && (lastCapture===-Infinity ||
+        t!==captureTime || camera.aspect!==captureAspect || remote.visible || captureSky!==$('sky').value || captureSea!==$('seaState').value ||
+        !capturePosition.equals(camera.position) || !captureRotation.equals(camera.quaternion))){
+        capturePosition.copy(camera.position);captureRotation.copy(camera.quaternion);
+        captureTime=t;captureAspect=camera.aspect;captureSky=$('sky').value;captureSea=$('seaState').value;
         ocean.capture(renderer,camera);lastCapture=now;
       }
       if(Math.abs(camera.position.z)<surfaceBand){split(renderer,scene,camera,ocean,underwaterFog);}

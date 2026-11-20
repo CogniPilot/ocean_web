@@ -10,6 +10,10 @@ A checked item records the specific result described. Open items include partial
 
 ## Browser, performance and distribution
 
+- [x] Float the anchored committee launch on the shared Modelica ocean. Exercise calm equilibrium, tide rise, oblique wake and settling in the shipped Regatta WASM.
+- [x] Compare the optimized 64×64 wake transform against the previous transform on a changing oblique tow. The largest measured output difference over 60 updates was below 1e-15. Median standalone wake update time fell from 45 to 21 ms on the development machine.
+- [ ] Measure end-to-end real-time factor and frame-time distribution on physical phones during the coupled survey.
+
 - [x] Publish the static Three.js simulator on GitHub Pages with sailboat, survey submarine and RDD2 in one scene. Ship precompiled Rumoca FMI 3 WebAssembly modules.
 - [x] Add vehicle selection, independent manual startup and switchable autopilots for all three vehicles, keyboard and mobile thumbstick controls, and sailboat cameras that can go underwater.
 - [x] Add opt-in peer-to-peer ghosts and verify that two browser clients see each other. Add race marks, committee boat, fleet countdown, start signal and wind audio.

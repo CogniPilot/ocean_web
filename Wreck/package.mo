@@ -58,6 +58,8 @@ package Wreck
     MultiBodyLie.Forces.WorldForceAndTorque collision(resolveInFrame=MultiBodyLie.Types.ResolveInFrameB.world);
     MultiBodyLie.Forces.WorldForceAndTorque loads(resolveInFrame=MultiBodyLie.Types.ResolveInFrameB.frame_b);
     input Real windSpeed(start=11), windDirection(start=0.45);
+    input Real hullSurfaceOffset=0, propSurfaceOffset[7]=zeros(7)
+      "Additional local free-surface elevation at the hull and at each propeller [m]";
     Ocean ocean(pos=body.r_0,windSpeed=windSpeed,windDirection=windDirection);
     output Real waveHeight[SpectralSea.N,SpectralSea.N]=ocean.tile;
     output Real seaLevel=ocean.tide, windActual=ocean.wind;
@@ -164,7 +166,7 @@ package Wreck
     shaftDemand=cat(1,thrust,{lateralThrust});
     for i in 1:7 loop
       propPosition[i,:]=body.r_0+transpose(body.frame_a.R.T)*propMount[i,:];
-      localSurface[i]=seaLevel+Perception.seaHeight(ocean.tile,propPosition[i,1],propPosition[i,2]);
+      localSurface[i]=propSurfaceOffset[i]+seaLevel+Perception.seaHeight(ocean.tile,propPosition[i,1],propPosition[i,2]);
       propDiskHeight[i]=.5*propellerDiameter*sqrt(max(0,1-(up*propAxis[i,:])^2));
       diskCut[i]=max(-1,min(1,(localSurface[i]-propPosition[i,3])/max(.001,propDiskHeight[i])));
       propWet[i]=.5+(asin(diskCut[i])+diskCut[i]*sqrt(max(0,1-diskCut[i]^2)))/pi;
@@ -178,7 +180,7 @@ package Wreck
     fore.target=max(0,min(fore.capacity,0.00042-0.00010*verticalError-0.0002*pitch));
     aft.target=max(0,min(aft.capacity,0.00042-0.00010*verticalError+0.0002*pitch));
     up=body.frame_a.R.T*{0,0,1};
-    wet=max(0,min(1,(ocean.surface-body.r_0[3]+0.16)/0.32));
+    wet=max(0,min(1,(ocean.surface+hullSurfaceOffset-body.r_0[3]+0.16)/0.32));
     buoy=rho*g*displaced*wet*up;
     ballast=-g*(fore.mass+aft.mass)*up;
     rel=body.frame_a.v-body.frame_a.R.T*ocean.velocity;

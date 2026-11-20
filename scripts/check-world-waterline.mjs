@@ -21,10 +21,11 @@ function bind(name) {
 }
 
 function elevation(tile, east, north) {
-  const col = east / 2, row = north / 2;
+  const size = Math.sqrt(tile.length);
+  const col = east * size / 64, row = north * size / 64;
   const x = Math.floor(col), y = Math.floor(row);
-  const wrap = i => (i % 32 + 32) % 32;
-  const at = (j, i) => tile[32 * wrap(j) + wrap(i)];
+  const wrap = i => (i % size + size) % size;
+  const at = (j, i) => tile[size * wrap(j) + wrap(i)];
   const a = col - x, b = row - y;
   return (1-b) * ((1-a) * at(y,x) + a * at(y,x+1)) + b * ((1-a) * at(y+1,x) + a * at(y+1,x+1));
 }
@@ -35,6 +36,9 @@ try {
   const pose = world.bind_outputs(JSON.stringify(['sectionStamp','boat.east','boat.north','boat.heading',
     'boat.heel','boat.pitch','boat.halfSpacing','boatWater.tide','boat.waterFraction','boat.buoyancy']));
   world.set_inputs(JSON.stringify([['windSpeed',11],['seaState',.6],['subManual',1],['sailingManual',1],['flightManual',1]]));
+  const [wave, receivers, sampled, driftE, driftN, committee] =
+    ['waves.height','receiverPosition','sampledWake','waves.driftE','waves.driftN','race.launchPose'].map(bind);
+  let wakeError=0, launchExcursion=0;
   let samples = 0, worst = 0, difference = 0, lastStamp = -1, previous;
   for (let i=0; i<81; i++) {
     const [stamp,east,north,yaw,heel,pitch,spacing,tide,fraction,lift] = world.read_bound(pose);
@@ -50,6 +54,12 @@ try {
       // Score at the sampling instant. A host can observe a tick on its right limit.
       if (Math.abs(now-stamp)<1e-6 && stamp>0) {
         samples++;
+        const xy=receivers(), heights=sampled(), spectrum=wave(), de=driftE()[0], dn=driftN()[0];
+        for(let k=0;k<heights.length;k++){
+          const expected=elevation(spectrum,xy[2*k]-de,xy[2*k+1]-dn);
+          wakeError=Math.max(wakeError,Math.abs(heights[k]-expected));
+        }
+        launchExcursion=Math.max(launchExcursion,Math.abs(committee()[0]));
         for (let k=0; k<12; k++) {
           const side = k<6 ? 1 : -1, panel = k%6;
           const along = .5*(xs[panel]+xs[panel+1])*Math.cos(pitch)+side*spacing*Math.sin(heel)*Math.sin(pitch);
@@ -66,7 +76,8 @@ try {
     previous = water;
     world.step(.01);
   }
-  console.log({samples,maxSectionErrorMetres:worst,maxPontoonDifferenceMetres:difference});
+  console.log({samples,wakeError,launchExcursion,maxSectionErrorMetres:worst,maxPontoonDifferenceMetres:difference});
+  assert(wakeError<.005 && launchExcursion>.001, "Shared waves must reach other vessels and the anchored launch");
   assert(samples>=6 && worst<.01 && difference>.001, 'Hull strips disagree with the displayed sea');
 } finally {
   world.free();

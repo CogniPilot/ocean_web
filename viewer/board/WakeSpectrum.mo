@@ -29,55 +29,62 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
       end for;
     end for;
   end sampleSections;
-  function transform "Radix-two FFT in both dimensions. The inverse divides by n squared."
+  function reverseIndex "One-based index in radix-two digit-reversed order"
+    input Integer index,size;
+    output Integer reversed;
+  protected
+    Integer bits,remaining;
+  algorithm
+    bits:=index-1; remaining:=size; reversed:=0;
+    while remaining>1 loop
+      reversed:=2*reversed+mod(bits,2);
+      bits:=div(bits,2); remaining:=div(remaining,2);
+    end while;
+    reversed:=1+reversed;
+  end reverseIndex;
+
+  function transformLine "One gather per butterfly stage"
+    input Real sourceR[n],sourceI[n],cosine[n],sine[n];
+    input Integer order[n];
+    output Real a[n],b[n];
+  protected
+    Real oldR[n],oldI[n];
+    Integer halfSpan,lo[n],hi[n],phase[n];
+  algorithm
+    a:={sourceR[order[j]] for j in 1:n};
+    b:={sourceI[order[j]] for j in 1:n};
+    halfSpan:=1;
+    while halfSpan<n loop
+      oldR:=a; oldI:=b;
+      lo:={1+2*halfSpan*div(j,2*halfSpan)+mod(j,halfSpan) for j in 0:n-1};
+      hi:=lo+fill(halfSpan,n);
+      phase:={1+mod(j,2*halfSpan)*div(n,2*halfSpan) for j in 0:n-1};
+      a:={oldR[lo[j]]+oldR[hi[j]]*cosine[phase[j]]-oldI[hi[j]]*sine[phase[j]] for j in 1:n};
+      b:={oldI[lo[j]]+oldR[hi[j]]*sine[phase[j]]+oldI[hi[j]]*cosine[phase[j]] for j in 1:n};
+      halfSpan:=2*halfSpan;
+    end while;
+  end transformLine;
+
+  function transform "Separable two-dimensional FFT. The inverse divides by n squared."
     input Real realPart[n,n],imagPart[n,n];
     input Boolean inverse;
     output Real re[n,n],im[n,n];
   protected
-    Real a[n],b[n],c,s,r,v,angle;
-    Integer rev,bit,span,halfSpan,j,k;
+    Real rowsR[n,n],rowsI[n,n],lineR[n],lineI[n];
+    Real normalization,cosine[n],sine[n];
+    Integer order[n];
   algorithm
-    re:=realPart;im:=imagPart;
-    for axis in 1:2 loop
-      for line in 1:n loop
-        if axis==1 then
-          a:=re[line,:];b:=im[line,:];
-        else
-          a:=re[:,line];b:=im[:,line];
-        end if;
-        rev:=0;
-        for i in 1:n loop
-          if i<rev+1 then
-            r:=a[i];a[i]:=a[rev+1];a[rev+1]:=r;
-            v:=b[i];b[i]:=b[rev+1];b[rev+1]:=v;
-          end if;
-          bit:=div(n,2);
-          while bit>0 and mod(div(rev,max(1,bit)),2)==1 loop
-            rev:=rev-bit;bit:=div(bit,2);
-          end while;
-          rev:=rev+bit;
-        end for;
-        span:=2;
-        while span<=n loop
-          halfSpan:=div(span,2);
-          for offset in 0:halfSpan-1 loop
-            angle:=(if inverse then 2 else -2)*pi*offset/span;
-            c:=cos(angle);s:=sin(angle);
-            for blockIndex in 0:div(n,span)-1 loop
-              j:=blockIndex*span+offset+1;k:=j+halfSpan;
-              r:=c*a[k]-s*b[k];v:=s*a[k]+c*b[k];
-              a[k]:=a[j]-r;b[k]:=b[j]-v;a[j]:=a[j]+r;b[j]:=b[j]+v;
-            end for;
-          end for;
-          span:=span*2;
-        end while;
-        if axis==1 then
-          re[line,:]:=a;im[line,:]:=b;
-        else
-          re[:,line]:=a/(if inverse then n*n else 1);
-          im[:,line]:=b/(if inverse then n*n else 1);
-        end if;
-      end for;
+    order:={reverseIndex(j,n) for j in 1:n};
+    cosine:={cos(2*pi*j/n) for j in 0:n-1};
+    sine:={(if inverse then 1 else -1)*sin(2*pi*j/n) for j in 0:n-1};
+    normalization:=if inverse then n*n else 1;
+    for row in 1:n loop
+      (lineR,lineI):=transformLine(realPart[row,:],imagPart[row,:],cosine,sine,order);
+      rowsR[row,:]:=lineR; rowsI[row,:]:=lineI;
+    end for;
+    for column in 1:n loop
+      (lineR,lineI):=transformLine(rowsR[:,column],rowsI[:,column],cosine,sine,order);
+      re[:,column]:=lineR/normalization; im[:,column]:=lineI/normalization;
     end for;
   end transform;
   function step

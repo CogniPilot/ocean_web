@@ -11,7 +11,7 @@ export function courseScene(T,scene,race){
     const o=mesh(parent,new T.CylinderGeometry(r,r,d.length(),8),material,0,0,0);
     o.position.copy(v).lerp(w,.5);o.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return o;
   }
-  const boat=new T.Group();boat.position.set(race.get('committeeEast'),race.get('committeeNorth'),0);boat.rotation.z=race.get('windBearing')+Math.PI;group.add(boat);
+  const boat=new T.Group();boat.position.set(race.get('committeeEast'),race.get('committeeNorth'),0);boat.rotation.order='ZYX';boat.rotation.z=race.get('windBearing')+Math.PI;group.add(boat);
   const vertices=[],indices=[];
   const stations=[[-3,.88],[-2.7,1.02],[-.7,1.10],[1,1.01],[2.1,.72],[3.2,.025]];
   for(const [x,w] of stations){
@@ -35,6 +35,7 @@ export function courseScene(T,scene,race){
   mesh(boat,new T.BoxGeometry(.52,.48,.68),navy,-3.13,0,.58);
   rod(boat,[0,0,2.34],[0,0,4],.033,metal);
   mesh(boat,new T.BoxGeometry(.96,.03,.73),orange,-.48,0,3.6);
+  batchScenery(T,boat);
   const canvas=document.createElement('canvas');canvas.width=512;canvas.height=168;
   const ctx=canvas.getContext('2d'),texture=new T.CanvasTexture(canvas);
   const board=mesh(boat,new T.BoxGeometry(.06,1.72,.56),new T.MeshBasicMaterial({map:texture}),-.82,0,1.9);
@@ -47,6 +48,8 @@ export function courseScene(T,scene,race){
   race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i]));
   let previous;
   return label=>{
+    const [heave,roll,pitch]=race.get('launchPose');
+    boat.position.z=heave;boat.rotation.x=roll;boat.rotation.y=-pitch;
     if(previous===label)return;previous=label;ctx.fillStyle='#101d23';ctx.fillRect(0,0,512,168);
     ctx.fillStyle='#ffbe52';ctx.font='bold 127px monospace';ctx.textAlign='center';ctx.fillText(label,256,127);texture.needsUpdate=true;
   };

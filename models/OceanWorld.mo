@@ -34,11 +34,12 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
     stations=boat.stationX,separation=boat.halfSpacing,volume=boat.sectionVolume,beamHalf=boat.beamHalf,
     currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],windEast=wind.meanEast,windNorth=wind.meanNorth,seaAmplitude=seaState);
   Wreck.Ocean boatWater(pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
-  Regatta race(windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north);
+  Regatta race(wakeTile=waves.height,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
+    tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north);
   Wreck.Plant sub(windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,
-    manual=subManual,pilot=subPilot);
+    manual=subManual,pilot=subPilot,hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:8]);
   Wreck.Ocean droneWater(pos=drone.position,windSpeed=windSpeed,windDirection=windBearing);
-  Rdd2Survey drone(windENU=wind.droneWind,currentENU=droneWater.velocity,waterLevel=droneWater.surface,
+  Rdd2Survey drone(windENU=wind.droneWind,currentENU=droneWater.velocity,waterLevel=droneWater.surface+receiverWater[9],
     pilot=flightManual,forward=flightPilot[1],left=flightPilot[2],climb=flightPilot[3],turn=flightPilot[4],
     stationEast=estimate[1],stationNorth=estimate[2],motorCut=motorCut);
   final parameter Real beams[1017,3]=Wreck.Perception.directions();
@@ -49,7 +50,17 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
     "Tide, background sea, local wind waves and hull wake at each buoyancy strip [m]";
   discrete Real priorSections[2,6](each start=0,each fixed=true),sectionStamp(start=0,fixed=true);
   Real stripAlong[2,6],stripAcross[2];
+  Real receiverPosition[9,2],receiverWater[9];
+  discrete Real sampledWake[9](each start=0,each fixed=true),priorWake[9](each start=0,each fixed=true);
 equation
+  receiverPosition[1,:]=sub.position[1:2];
+  receiverPosition[2:8,:]=sub.propPosition[:,1:2];
+  receiverPosition[9,:]=drone.position[1:2];
+  for i in 1:9 loop
+    receiverWater[i]=(1-boat.waterFraction)*priorWake[i]+boat.waterFraction*sampledWake[i]
+      +boat.swellAmplitude*sin(boat.swellPhase+boat.swellK*((receiverPosition[i,1]-boat.east)*cos(boat.swellBearing)
+      +(receiverPosition[i,2]-boat.north)*sin(boat.swellBearing)));
+  end for;
   for hull in 1:2 loop
     stripAcross[hull]=(3-2*hull)*boat.halfSpacing*cos(boat.heel);
     for panel in 1:6 loop
@@ -58,6 +69,11 @@ equation
     end for;
   end for;
   when sample(0,.1) then
+    for i in 1:9 loop
+      sampledWake[i]=Regatta.elevationAt(waves.height,receiverPosition[i,1]-waves.driftE,
+        receiverPosition[i,2]-waves.driftN,waves.period);
+    end for;
+    priorWake=if initial() then sampledWake else pre(sampledWake);
     for hull in 1:2 loop
       for panel in 1:6 loop
         surfaceSections[hull,panel]=waves.sectionHeight[hull,panel]+boatWater.tide+

@@ -31,3 +31,21 @@ for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
   near(race.get('elapsed'),90);
 }
 console.log('Three wind bearings passed course geometry, start, both marks, finish and elapsed time.');
+const launch=await loadInstance('Regatta',{windBearing:-Math.PI},read);
+const settle=seconds=>{for(let i=0;i<seconds*20;i++)launch.advance(.05);};
+const pose=()=>Array.from(launch.get('launchPose'));
+settle(2);
+assert.ok(pose().every(v=>Math.abs(v)<1e-6),'balanced in still water');
+launch.set('tide',.25);
+settle(6);
+assert.ok(Math.abs(pose()[0]-.25)<1e-3,'follows tide');
+const e=launch.get('committeeEast'),n=launch.get('committeeNorth');
+const waves=Float64Array.from({length:4096},(_,k)=>
+  .15*Math.sin(2*Math.PI*(k%64-e)/64)+.12*Math.sin(2*Math.PI*(Math.floor(k/64)-n)/64));
+launch.set('wakeTile',waves);
+settle(6);
+assert.ok(pose()[1]>.009 && pose()[2]>.012,'heels and pitches toward the local wake slope');
+launch.set('wakeTile',new Float64Array(4096));
+settle(6);
+assert.ok(pose().slice(1).every(v=>Math.abs(v)<1e-3),'settles after the wake passes');
+console.log('Committee launch passed still water, tide, oblique wake and settling checks.');
