@@ -12,6 +12,7 @@ A checked item records the specific result described. Open items include partial
 
 - [x] Float the anchored committee launch on the shared Modelica ocean. Exercise calm equilibrium, tide rise, oblique wake and settling in the shipped Regatta WASM.
 - [x] Compare the optimized 64×64 wake transform against the previous transform on a changing oblique tow. The largest measured output difference over 60 updates was below 1e-15. Median standalone wake update time fell from 45 to 21 ms on the development machine.
+- [x] Compare three independent ocean receivers against one shared spectral tile in the compiled FMU. Record physical equivalence and alternating step timings in PERFORMANCE.md.
 - [ ] Measure end-to-end real-time factor and frame-time distribution on physical phones during the coupled survey.
 
 - [x] Publish the static Three.js simulator on GitHub Pages with sailboat, survey submarine and RDD2 in one scene. Ship precompiled Rumoca FMI 3 WebAssembly modules.

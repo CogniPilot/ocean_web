@@ -86,3 +86,19 @@ The released `9a3a47043dcc6627` world ran three 1.8 s launches on the same works
 | 18.5, 40 | 180 | 18.2 kN | 96.3 ms | 50.6 ms | 361.9 ms |
 
 Sustained contact cost about five times as much as the offshore trajectory. The comparison includes both geometric contact evaluation and the integration of the resulting forces. It cannot assign that difference to a single collision routine.
+
+## Sharing the incoming spectrum across vehicle receivers
+
+The production world at revision `9de38b3` calls the same 32 × 32 finite-depth spectrum separately for the sailboat, submarine and drone every 200 ms. An experimental Modelica implementation accumulated all three position-dependent probes in one pass over the wave modes, ran one inverse transform, and supplied the resulting elevation tile as an input to all three receivers. It also skipped the upwind modes whose directional energy is exactly zero.
+
+The released and experimental FMUs produced identical values in 65,331 comparisons over two simulated seconds. The checks covered the three elevation tiles, surface heights, orbital velocities, pressure, receiver probes and vehicle positions during wind speed and direction changes. To repeat, run `node scripts/compare-ocean-receivers.mjs <released-runtime> <candidate-runtime>` with directories prepared by `scripts/prepare-world-runtime.mjs`.
+
+Each timing below measured 400 steps of 10 ms per FMU after 100 warmup steps. Runs used Node on one shared development workstation, alternating execution order every 20 steps. The four-way run also included a version using algebraic aliases and a version that only skipped zero-energy modes.
+
+| Trial | Released mean step | Shared tile mean step | Released median 200 ms event | Shared tile median 200 ms event |
+| --- | ---: | ---: | ---: | ---: |
+| Four builds | 19.00 ms | 18.46 ms | 84.85 ms | 85.36 ms |
+| Shared build initialized first | 16.66 ms | 15.96 ms | 78.59 ms | 80.49 ms |
+| Released build initialized first | 15.93 ms | 17.64 ms | 78.36 ms | 80.94 ms |
+
+Sharing the tile did not consistently reduce total step time. The coincident wave and sensor event became slightly slower in all three trials. Retain the deployed kernel pending a repeatable improvement. A CPU profile of the released guest attributed approximately 15% of sampled stepping time, including callees, to the 64 × 64 hull wake update and 6% to the 48 × 48 wind-field update. Those are separate kernels from the incoming spectrum tested here.

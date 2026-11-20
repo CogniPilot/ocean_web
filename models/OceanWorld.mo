@@ -34,12 +34,13 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   WakeSpectrum waves(seaClockOffset=seaClockOffset,east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
     stations=boat.stationX,separation=boat.halfSpacing,volume=boat.sectionVolume,beamHalf=boat.beamHalf,
     currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],windEast=wind.meanEast,windNorth=wind.meanNorth,seaAmplitude=seaState);
-  Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
+  discrete Real incidentTile[Wreck.SpectralSea.N,Wreck.SpectralSea.N],waterProbe[3,5];
+  Wreck.OceanReceiver boatWater(tile=incidentTile,probe=waterProbe[1,:],seaClockOffset=seaClockOffset,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
   Regatta race(seaClockOffset=seaClockOffset,landingReaction=drone.deckWrench[7:12],wakeTile=waves.height,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
     tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north);
-  Wreck.Plant sub(seaClockOffset=seaClockOffset,windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,
+  Wreck.Plant sub(redeclare model LocalOcean=Wreck.OceanReceiver,ocean(tile=incidentTile,probe=waterProbe[2,:]),seaClockOffset=seaClockOffset,windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,
     manual=subManual,pilot=subPilot,hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:8]);
-  Wreck.Ocean droneWater(seaClockOffset=seaClockOffset,pos=drone.position,windSpeed=windSpeed,windDirection=windBearing);
+  Wreck.OceanReceiver droneWater(tile=incidentTile,probe=waterProbe[3,:],seaClockOffset=seaClockOffset,pos=drone.position,windSpeed=windSpeed,windDirection=windBearing);
   Rdd2Survey drone(sailDeckEnabled=1,sailDeckState=boat.landingDeck,isCatamaran=if hobie then 1 else 0,deckEnabled=1,deckState=race.deckState,windENU=wind.droneWind,currentENU=droneWater.velocity,waterLevel=droneWater.surface+receiverWater[9],
     pilot=flightManual,forward=flightPilot[1],left=flightPilot[2],climb=flightPilot[3],turn=flightPilot[4],
     stationEast=estimate[1],stationNorth=estimate[2],motorCut=motorCut);
@@ -54,6 +55,10 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   Real receiverPosition[9,2],receiverWater[9];
   discrete Real sampledWake[9](each start=0,each fixed=true),priorWake[9](each start=0,each fixed=true);
 equation
+  when sample(0,.2) then
+    (incidentTile,waterProbe)=Wreck.SpectralSea.sampleField(time+seaClockOffset,boatWater.wind,boatWater.bearing,
+      boatWater.fetch,boatWater.waterDepth,boatWater.tide,{boatWater.pos,sub.position,drone.position});
+  end when;
   receiverPosition[1,:]=sub.position[1:2];
   receiverPosition[2:8,:]=sub.propPosition[:,1:2];
   receiverPosition[9,:]=drone.position[1:2];
