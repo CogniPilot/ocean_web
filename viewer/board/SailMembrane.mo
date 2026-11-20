@@ -12,7 +12,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     {.18,.38,.55,.73,0,0,0,0} else {.095,.205,.31,.42,.53,.605,.76,.90};
   final parameter Real battenWeight[rows,cols]={sum(max(0,1-abs((r-1)-(rows-1)*
     (battenLuff[b]+(battenLeech[b]-battenLuff[b])*(c-1)/(cols-1))))
-    for b in 1:battenCount) for r in 1:rows,c in 1:cols};
+    for b in 1:battenCount) for c in 1:cols,r in 1:rows};
   parameter Real span=2.6,foot=1.12,rake=0,stepSize=.01,arealMass=.17;
   input Real boomElevation;
   input Real air[3], water[3], omega[3], gravity[3], waterPlane[4] "Signed immersion = plane[4]+plane[1:3]*p";
