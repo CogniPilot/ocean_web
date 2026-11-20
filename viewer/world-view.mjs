@@ -9,7 +9,7 @@ const outputs=[
  ...group('wind','field strikeBearing strikeFlash thunderArrival travelE travelN'),
  ...group('waves','height driftE driftN period'),
  ...group('boatWater','tile tide wind'),
- 'estimate','features','image','keyframes'
+ 'estimate','features','image'
 ];
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
@@ -23,13 +23,14 @@ export async function openWorld(){
  function send(message){return new Promise((resolve,reject)=>{pending={resolve,reject};worker.postMessage({...message,id:++id});});}
  const initial={sailingManual:1,subManual:1,flightManual:1,windSpeed:Math.hypot(10,4),windBearing:Math.atan2(4,10),epoch:Date.now()/1000,vang:.5};
  const inputs=[...new Set([...Object.keys(initial),...Object.values(boatInputs),'seaState','subPilot','flightPilot','motorCut'])];
- const frame=await send({type:'open',outputs,inputs,initial});
+ const frame=await send({type:'open',outputs,inputs,initial,surveyMap:true});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
    if(typeof value==='number')controls[i]=value;else controls.set(value,i);}
  Object.entries(initial).forEach(([name,v])=>set(name,v));
  function receive(f){time=f.time;
+   if(f.mapRows)state.set('keyframes',f.mapRows);
    for(const v of layout.outputs)state.set(v.name,v.shape.length?f.values.subarray(v.offset,v.offset+v.count):f.values[v.offset]);}
  receive(frame);
  let busy=false;
