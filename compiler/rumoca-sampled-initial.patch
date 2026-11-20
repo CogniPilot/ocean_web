@@ -1,0 +1,212 @@
+diff --git a/crates/rumoca-ir-solve/src/fmi/initial_mode.rs b/crates/rumoca-ir-solve/src/fmi/initial_mode.rs
+index 889085c..4d72aa7 100644
+--- a/crates/rumoca-ir-solve/src/fmi/initial_mode.rs
++++ b/crates/rumoca-ir-solve/src/fmi/initial_mode.rs
+@@ -1,4 +1,4 @@
+-//! C admission of the compiler's relation-only initialization mode.
++//! C admission of the compiler's initialization-mode reads.
+ 
+ #[cfg(test)]
+ mod tests;
+@@ -12,6 +12,8 @@ pub(super) fn validate(model: &SolveModel) -> Result<(), &'static str> {
+         return Ok(());
+     };
+     let mut reads = ModeReads {
++        model: Some(model),
++        in_sample: false,
+         flag,
+         memory: &model.problem.solve_layout.relation_memory_parameter_indices,
+         calls: &model.pure_calls,
+@@ -29,13 +31,15 @@ pub(super) fn validate(model: &SolveModel) -> Result<(), &'static str> {
+     }
+     if reads.total != reads.guards {
+         return Err(
+-            "the C profile cannot execute mode reads outside checked relation regions (including authored initial()) yet",
++            "the C profile cannot execute mode reads outside checked relation or sampled assignment regions (including authored initial()) yet",
+         );
+     }
+     Ok(())
+ }
+ 
+ struct ModeReads<'a> {
++    model: Option<&'a SolveModel>,
++    in_sample: bool,
+     flag: usize,
+     memory: &'a [usize],
+     calls: &'a crate::SolvePureCallTable,
+@@ -48,6 +52,52 @@ struct ModeReads<'a> {
+ impl SolveVisitor for ModeReads<'_> {
+     type Error = std::convert::Infallible;
+ 
++    fn visit_scalar_program_block(
++        &mut self,
++        block: &crate::ScalarProgramBlock,
++    ) -> Result<(), Self::Error> {
++        let Some(model) = self.model else {
++            return crate::visitor::walk_scalar_program_block(self, block);
++        };
++        let discrete = &model.problem.discrete;
++        let artifacts = &model.artifacts.discrete;
++        let guarded_jvp = artifacts
++            .guarded_jacobian_v
++            .as_ref()
++            .is_some_and(|b| std::ptr::eq(b, block));
++        let condition_rows = std::ptr::eq(block, &discrete.rhs)
++            || artifacts
++                .rhs_jacobian_v
++                .as_ref()
++                .is_some_and(|b| std::ptr::eq(b, block));
++        for (i, ops) in block.programs().iter().enumerate() {
++            // Both primal and directional programs use the same current mode
++            // during the initial clock event. Its isolated edge-memory copy
++            // is seeded through the existing condition-memory lifecycle.
++            self.in_sample = (guarded_jvp
++                && discrete
++                    .guarded_assignments
++                    .get(i)
++                    .is_some_and(|g| g.clock_owner().is_some()))
++                || (condition_rows
++                    && discrete
++                        .rhs
++                        .programs()
++                        .get(i)
++                        .is_some_and(|primal| mode_parameter(primal) == Some(self.flag))
++                    && block
++                        .program_contiguous_output_range(i)
++                        .is_some_and(|rows| {
++                            rows.len() == 1
++                                && discrete.row_roles.get(rows.start)
++                                    == Some(&crate::DiscreteRowRole::ConditionMemory)
++                        }));
++            self.visit_scalar_program(i, block.program_span(i), ops)?;
++        }
++        self.in_sample = false;
++        Ok(())
++    }
++
+     fn visit_compute_node(
+         &mut self,
+         index: usize,
+@@ -60,15 +110,21 @@ impl SolveVisitor for ModeReads<'_> {
+ 
+     fn visit_linear_op(
+         &mut self,
+-        _kind: LinearOpSliceKind,
++        kind: LinearOpSliceKind,
+         _index: usize,
+         op: &LinearOp,
+     ) -> Result<(), Self::Error> {
++        let sampled = self.in_sample
++            || matches!(kind, LinearOpSliceKind::GuardedAssignmentProgram { program_index, .. } if self.model.is_some_and(|m| m.problem.discrete.guarded_assignments[program_index].clock_owner().is_some()));
++        if sampled && matches!(op, LinearOp::LoadP { index, .. } if *index == self.flag) {
++            return Ok(());
++        }
+         self.total += usize::from(
+             crate::parameter_reads::parameter_read_range(op)
+                 .is_some_and(|run| run.contains(&self.flag)),
+         );
+-        if let LinearOp::FunctionConditional { program, .. } = op
++        if !sampled
++            && let LinearOp::FunctionConditional { program, .. } = op
+             && let [arm] = program.arms.as_ref()
+             && mode_parameter(&arm.condition) == Some(self.flag)
+             && parameter_seed(&arm.condition, self.seed_offset)
+diff --git a/crates/rumoca-ir-solve/src/fmi/initial_mode/tests.rs b/crates/rumoca-ir-solve/src/fmi/initial_mode/tests.rs
+index 18f56e9..7ff1cf1 100644
+--- a/crates/rumoca-ir-solve/src/fmi/initial_mode/tests.rs
++++ b/crates/rumoca-ir-solve/src/fmi/initial_mode/tests.rs
+@@ -40,6 +40,8 @@ fn admitted(ops: &[LinearOp]) -> bool {
+ 
+ fn admitted_with_calls(ops: &[LinearOp], calls: &crate::SolvePureCallTable) -> bool {
+     let mut reads = ModeReads {
++        model: None,
++        in_sample: false,
+         flag: 7,
+         memory: &[8],
+         calls,
+@@ -155,6 +157,8 @@ fn compact_parameter_strides_cannot_hide_a_mode_read() {
+             span: Span::DUMMY,
+         };
+         let mut reads = ModeReads {
++            model: None,
++            in_sample: false,
+             flag: 7,
+             memory: &[8],
+             calls: &crate::SolvePureCallTable::default(),
+diff --git a/crates/rumoca/tests/suite_core/fmi_event_c_warnings.rs b/crates/rumoca/tests/suite_core/fmi_event_c_warnings.rs
+index 7790655..f2793fb 100644
+--- a/crates/rumoca/tests/suite_core/fmi_event_c_warnings.rs
++++ b/crates/rumoca/tests/suite_core/fmi_event_c_warnings.rs
+@@ -48,6 +48,9 @@ model StateAndTimeEvents
+   Integer n(start = 0, fixed = true);
+   Integer m(start = 0, fixed = true);
+   Integer ticks(start = 0, fixed = true);
++  Integer sampled[2](each start = 0, each fixed = true);
++  Integer previous[2](each start = -3, each fixed = true);
++  Integer observed = previous[2];
+ equation
+   der(x) = 1;
+   when x >= 0.5 then
+@@ -59,6 +62,10 @@ equation
+   when sample(0.05, 0.1) then
+     ticks = pre(ticks) + 1;
+   end when;
++  when sample(0, 0.1) then
++    sampled = pre(sampled) + {1, 2};
++    previous = if initial() then sampled else pre(sampled);
++  end when;
+   assert(time < 2, "late");
+ end StateAndTimeEvents;
+ "#;
+diff --git a/crates/rumoca/tests/suite_core/fmi_event_c_warnings/pulse_lifecycle.rs b/crates/rumoca/tests/suite_core/fmi_event_c_warnings/pulse_lifecycle.rs
+index 5249728..b40bcd6 100644
+--- a/crates/rumoca/tests/suite_core/fmi_event_c_warnings/pulse_lifecycle.rs
++++ b/crates/rumoca/tests/suite_core/fmi_event_c_warnings/pulse_lifecycle.rs
+@@ -61,7 +61,7 @@ fn check_pulse_lifecycle(target: &str) {
+     };
+     let guid = xml_attribute(&xml, b"fmiModelDescription", identity_attribute, None);
+     let identifier = xml_attribute(&xml, b"CoSimulation", b"modelIdentifier", None);
+-    let references = ["n", "m", "ticks"].map(|name| {
++    let references = ["n", "m", "ticks", "observed"].map(|name| {
+         xml_attribute(&xml, variable_tag, b"valueReference", Some(name))
+             .parse::<u32>()
+             .unwrap()
+@@ -115,16 +115,17 @@ int main(void) {
+     PulseInstance c = pulse_instantiate("@GUID@");
+     CHECK(c != NULL);
+     CHECK(pulse_initialize(c));
+-    PulseReference references[3] = { @REFERENCES@ };
+-    PulseInteger values[3];
++    PulseReference references[4] = { @REFERENCES@ };
++    PulseInteger values[4];
+     CHECK(pulse_read(c, references, values));
+-    CHECK(values[0] == 0 && values[1] == 0 && values[2] == 0);
++    CHECK(values[0] == 0 && values[1] == 0 && values[2] == 0 && values[3] == 2);
+     for (int step = 0; step < 6; ++step) {
+         double t = (double)step / 10.0;
+         CHECK(pulse_step(c, t));
+         CHECK(pulse_read(c, references, values));
+         printf("%.17g,%lld,%lld,%lld\n", t + 0.1, (long long)values[0], (long long)values[1], (long long)values[2]);
+         CHECK(values[2] == step + 1);
++        CHECK(values[3] == 2 * (step + 1));
+         CHECK(values[0] == (step >= 4 ? 1 : 0));
+         CHECK(values[1] == (step >= 4 ? 1 : 0));
+     }
+@@ -148,7 +149,7 @@ static int pulse_initialize(PulseInstance c) {
+         fmi2EnterInitializationMode(c) == fmi2OK && fmi2ExitInitializationMode(c) == fmi2OK;
+ }
+ static int pulse_read(PulseInstance c, const PulseReference* references, PulseInteger* values) {
+-    return fmi2GetInteger(c, references, 3, values) == fmi2OK;
++    return fmi2GetInteger(c, references, 4, values) == fmi2OK;
+ }
+ static int pulse_step(PulseInstance c, double time) {
+     return fmi2DoStep(c, time, 0.1, 1) == fmi2OK;
+@@ -170,7 +171,7 @@ static int pulse_initialize(PulseInstance c) {
+         fmi3ExitInitializationMode(c) == fmi3OK;
+ }
+ static int pulse_read(PulseInstance c, const PulseReference* references, PulseInteger* values) {
+-    return fmi3GetInt64(c, references, 3, values, 3) == fmi3OK;
++    return fmi3GetInt64(c, references, 4, values, 4) == fmi3OK;
+ }
+ static int pulse_step(PulseInstance c, double time) {
+     fmi3Boolean event_needed, terminate, early_return;
