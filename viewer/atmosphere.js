@@ -173,16 +173,28 @@ function atmosphere(scene){
  const pixels=new Uint8Array(32*32*4),tile=new THREE.DataTexture(pixels,32,32);
  tile.wrapS=tile.wrapT=THREE.RepeatWrapping;tile.minFilter=tile.magFilter=THREE.LinearFilter;tile.needsUpdate=true;
  Object.assign(U,{tile:{value:tile},blend:{value:1},tide:{value:0},wind:{value:11},bearing:{value:.45},boat:{value:new THREE.Vector4()},reflection:{value:null},transmission:{value:null},mirrorMatrix:{value:new THREE.Matrix4()},viewport:{value:new THREE.Vector2(1,1)}});
- const field=oceanHeightGLSL;
- const geometry=new THREE.PlaneGeometry(1,1,144,144);
+ const field=oceanHeightGLSL+`
+ vec2 surfaceSlope(vec2 p){return vec2(heightAt(p+vec2(.48,0))-heightAt(p-vec2(.48,0)),
+   heightAt(p+vec2(0,.48))-heightAt(p-vec2(0,.48)))/.96;}
+ #ifdef VERTEX_SLOPE
+ varying vec2 resolvedSlope;
+ #endif
+ `;
+ function waterMesh(segments){
+ const geometry=new THREE.PlaneGeometry(1,1,segments,segments);
  const coords=geometry.attributes.position;
  for(let j=0;j<coords.count;j++){
    const stretch=v=>Math.sign(v)*(Math.abs(v)*30+Math.pow(2*Math.abs(v),4)*580);
    coords.setXY(j,stretch(coords.getX(j)),stretch(coords.getY(j)));
  }
- const water=new THREE.Mesh(geometry,new THREE.ShaderMaterial({uniforms:U,side:THREE.DoubleSide,
+ return geometry;
+ }
+ const water=new THREE.Mesh(waterMesh(144),new THREE.ShaderMaterial({uniforms:U,side:THREE.DoubleSide,
  vertexShader:field+`varying vec3 wp;
  void main(){wp=(modelMatrix*vec4(position,1.)).xyz;wp.z=heightAt(wp.xy);
+ #ifdef VERTEX_SLOPE
+ resolvedSlope=surfaceSlope(wp.xy);
+ #endif
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
  uniform sampler2D windMap; uniform float windFieldActive; uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;uniform vec4 boat;varying vec3 wp;
@@ -197,8 +209,11 @@ function atmosphere(scene){
    vec2 baseDir=vec2(cos(bearing),sin(bearing));
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
-   vec2 d=vec2((heightAt(wp.xy+vec2(.48,0))-heightAt(wp.xy-vec2(.48,0)))/.96,
-               (heightAt(wp.xy+vec2(0,.48))-heightAt(wp.xy-vec2(0,.48)))/.96);
+   #ifdef VERTEX_SLOPE
+   vec2 d=resolvedSlope;
+   #else
+   vec2 d=surfaceSlope(wp.xy);
+   #endif
    d+=fade*rippleSlope(wp.xy,tm,bearing,rippleWind);
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    float day=smoothstep(-.12,.22,sunDir.z);
@@ -289,9 +304,16 @@ function atmosphere(scene){
    renderer.render(scene,camera);renderer.setRenderTarget(null);
    scene.fog=oldFog;scene.background=oldBackground;water.visible=true;dome.visible=true;
  }
- function setCaptureScale(scale){
+ function setQuality(profile,vertexSlope){
+   if(water.geometry.parameters.widthSegments!==profile.mesh){
+     water.geometry.dispose();water.geometry=waterMesh(profile.mesh);
+   }
+   water.material.defines=vertexSlope?{VERTEX_SLOPE:1}:{};
+   water.material.needsUpdate=true;
+   skyTarget.setSize(Math.round(512*profile.sky),Math.round(192*profile.sky));lastSky=-Infinity;
+   const scale=profile.capture;
    const width=Math.round(512*scale),height=Math.round(320*scale);
    reflectRT.setSize(width,height);throughRT.setSize(width,height);
  }
- return {U,dome,water,update,updateSpectrum,updateWind,capture,setCaptureScale,updateSky};
+ return {U,dome,water,update,updateSpectrum,updateWind,capture,setQuality,updateSky};
 }
