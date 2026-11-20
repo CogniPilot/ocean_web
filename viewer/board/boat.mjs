@@ -1,5 +1,5 @@
 import {vehicleShell} from '../vehicle-assets.mjs';
-import {loadInstance} from '../fmi3/instance.mjs';
+import {loadInstance} from '../fmi3/instance.mjs?api=2';
 export function advanceHullWake(model,wake){
   for(const name of ['east','north','heading','surge','sway','sectionVolume'])wake.set(name,model.get(name));
   wake.set('hullHeel',model.get('heel'));
@@ -17,15 +17,16 @@ export function elevation(frame,x,y){
  const at=(ix,iy)=>frame.tile[wrap(iy)*32+wrap(ix)];
  return frame.tide+(1-a)*(1-b)*at(i,j)+a*(1-b)*at(i+1,j)+(1-a)*b*at(i,j+1)+a*b*at(i+1,j+1);
 }
+const poseFields=['east','north','heading','heave','heel','pitch','sheet','rudder'];
+const navFields=['buoyancy','vane','navE','navN','courseEstimate','speedE','speedN','cupSpeed','p11','fixE','fixN','drumAngle','payout'];
+const boatFields=['sailVertex','sailForward','sailPort','foilAxial','foilSide','sheetRotation','footX','boomElevation','surge',...poseFields,...navFields];
 export function observeBoat(model){
- const scalars=names=>names.split(' ').map(n=>model.get(n));
- const vertices=model.get('sailVertex');
- const [sf,sp,fa,fs]=['sailForward','sailPort','foilAxial','foilSide'].map(n=>model.get(n));
- // Preserve the existing telemetry layout. Sample the membrane at each strip.
+ const [vertices,sf,sp,fa,fs,rotation,foot,elevation,surge,...poseAndNav]=model.getMany(boatFields);
+ // Preserve the telemetry and multiplayer packet layout, including the two integer states.
  const sections=Array.from({length:10},(_,i)=>vertices[72*Math.floor(i/5)+12*(i%5)+7]);
- return [...scalars('east north heading heave heel pitch sheet rudder leg tack surge'),...sections,
+ return [...poseAndNav.slice(0,poseFields.length),model.get('leg'),model.get('tack'),surge,...sections,
    sf[0],sp[0],sf[1],sp[1],fa[0],fs[0],fa[1],fs[1],
-   ...scalars('buoyancy vane navE navN courseEstimate speedE speedN cupSpeed p11 fixE fixN drumAngle payout'),...vertices,...model.get('sheetRotation'),...model.get('footX'),model.get('boomElevation')];
+   ...poseAndNav.slice(poseFields.length),...vertices,...rotation,...foot,elevation];
 }
 export async function loadBoat(read=fetch){
  const ports=['windEast','windNorth','currentEast','currentNorth','waveHeight','waveRoll','wavePitch','orbitalEast','orbitalNorth','orbitalUp'];

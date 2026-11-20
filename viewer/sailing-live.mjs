@@ -27,8 +27,8 @@ async function run(){
   worker.onerror=event=>{waterError=Error(event.message);};
   addEventListener('pagehide',()=>worker.terminate(),{once:true});
   function waveInputs(){
-    return {seaAmplitude:Number($('seaState').value),east:model.get('east'),north:model.get('north'),heading:model.get('heading'),
-      heel:model.get('heel'),pitch:model.get('pitch'),volume:model.get('sectionVolume')};
+    const [east,north,heading,heel,pitch,volume]=model.getMany(['east','north','heading','heel','pitch','sectionVolume']);
+    return {seaAmplitude:Number($('seaState').value),east,north,heading,heel,pitch,volume};
   }
   worker.postMessage({init:{...waveInputs(),currentEast:inputs.currentEast,currentNorth:inputs.currentNorth,
     beamHalf:model.get('beamHalf'),stations:model.get('stationX'),separation:model.get('halfSpacing'),
@@ -243,13 +243,14 @@ async function run(){
             windField.set('droneEast',east);windField.set('droneNorth',north);
           }
           windField.set('east',model.get('east'));windField.set('north',model.get('north'));windField.advance(.25);
-          const [strike,bearing,flash,travelE,travelN]=windField.getMany(['thunderArrival','strikeBearing','strikeFlash','travelE','travelN']);
+          const [strike,bearing,flash,travelE,travelN,droneWind,localEast,localNorth,field]=windField.getMany(
+            ['thunderArrival','strikeBearing','strikeFlash','travelE','travelN','droneWind','localEast','localNorth','field']);
           if($('sky').value==='Storm'&&lastThunder!==undefined&&strike>lastThunder)audio.thunder();
           lastThunder=strike;
           ocean.U.lightning.value.set(bearing,flash);
           ocean.U.cloudTravel.value.set(travelE,travelN);
-          if(drone){drone.wind(windField.get('droneWind'));if(sub.frame)drone.station(sub.frame.estimate[0],sub.frame.estimate[1]);}
-          model.set('windEast',windField.get('localEast'));model.set('windNorth',windField.get('localNorth'));ocean.updateWind(windField.get('field'));
+          if(drone){drone.wind(droneWind);if(sub.frame)drone.station(sub.frame.estimate[0],sub.frame.estimate[1]);}
+          model.set('windEast',localEast);model.set('windNorth',localNorth);ocean.updateWind(field);
         }
         if(wakeTicks%10===0){
           const {height,incident,sections,origin,period,load}=waterFrame;
@@ -270,16 +271,17 @@ async function run(){
       const subFrame=sub.frame;
       if(!$('dial').hidden)drawCompass($('dial'),Math.hypot(model.get('windEast'),model.get('windNorth')),Math.atan2(model.get('windNorth'),model.get('windEast')),sub.active&&subFrame?subFrame.flow:[model.get('currentEast'),model.get('currentNorth')],sub.active&&subFrame?subFrame.estimate[3]:s[2],sub.active?'sub':'surface');
       drawForces($('showForces').getAttribute('aria-pressed')==='true',s,subFrame,model);
-      const ballast=cat?[model.get('ballastX'),model.get('ballastY')]:null;
+      const [ballastX,ballastY,k,direction,amplitude,phase,mainCar,jibCar,ve,vn,yawRate,sag,vang,leech,tension]=model.getMany(
+        ['ballastX','ballastY','swellK','swellBearing','swellAmplitude','swellPhase','mainCar','jibCar','ve','vn','yawRate','exposedSheetSag','vangTension','leechSpeed','mainTension']);
+      const ballast=cat?[ballastX,ballastY]:null;
       {
         ocean.U.swellCenter.value.set(s[0],s[1]);
-        const k=model.get('swellK'),direction=model.get('swellBearing');
-        ocean.U.swell.value.set(model.get('swellAmplitude'),model.get('swellPhase'),k*Math.cos(direction),k*Math.sin(direction));
+        ocean.U.swell.value.set(amplitude,phase,k*Math.cos(direction),k*Math.sin(direction));
       }
       if(cat)$('weightPos').textContent='X '+ballast[0].toFixed(2)+' m · Y '+ballast[1].toFixed(2)+' m';
-      remote.frame(now,s,cat,[...(ballast||[0,0]),model.get('mainCar'),model.get('jibCar'),model.get('ve'),model.get('vn'),model.get('yawRate'),0],sub.mesh,drone?.group);
+      remote.frame(now,s,cat,[...(ballast||[0,0]),mainCar,jibCar,ve,vn,yawRate,0],sub.mesh,drone?.group);
       document.body.dataset.visiblePeers=remote.visible;
-      boat.update(s,ballast,cat?[model.get('mainCar'),model.get('jibCar')]:null,model.get('exposedSheetSag'));const t=model.time;life(t);causticTime.value=t;
+      boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag);const t=model.time;life(t);causticTime.value=t;
       ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
       camera.up.set(0,0,1);camera.position.set(s[0]+distance*Math.cos(angle),s[1]+distance*Math.sin(angle),s[3]+(cat?3:.9)+distance*Math.sin(tilt));if($('cameraDepth').value==='line')camera.position.z=0;
       camera.position.z=Math.max(-13.1,camera.position.z);
@@ -314,8 +316,8 @@ async function run(){
         ocean.U.under.value=Number(submerged);ocean.dome.visible=!submerged;renderer.render(scene,camera);
       }
       document.body.dataset.eyeDepth=camera.position.z.toFixed(2);
-      $('vangLoad').textContent=model.get('vangTension').toFixed(0)+' N';
-      $('readout').textContent=t.toFixed(1)+' s · '+Math.hypot(s[34],s[35]).toFixed(2)+' m/s · waypoint '+s[8]+' · main leech '+model.get('leechSpeed')[0].toFixed(2)+' m/s · sheet '+(model.get('mainTension')<.1?'slack':model.get('mainTension').toFixed(0)+' N');
+      $('vangLoad').textContent=vang.toFixed(0)+' N';
+      $('readout').textContent=t.toFixed(1)+' s · '+Math.hypot(s[34],s[35]).toFixed(2)+' m/s · waypoint '+s[8]+' · main leech '+leech[0].toFixed(2)+' m/s · sheet '+(tension<.1?'slack':tension.toFixed(0)+' N');
       if(drone?.active){const [e,n,z]=drone.position;$('readout').textContent='E '+e.toFixed(1)+' m · N '+n.toFixed(1)+' m · Altitude '+z.toFixed(2)+' m · Drag '+Math.hypot(...drone.drag).toFixed(2)+' N';}
       if(sub.active){
         const f=sub.frame;

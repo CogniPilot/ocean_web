@@ -46,7 +46,7 @@ A checked item records the specific result described. Open items include partial
 - [ ] Qualify GPS/IMU and vane-driven autopilot through a complete course under shifting wind. Validate mast-camera coverage and stitching, plus vision-based puff observations.
 - [ ] Compare speed polars, resistance, wake and righting moments with measured Hobie data before using results for hull optimization. Maintain RL observations, actions, repeatable scoring and baseline-controller comparisons.
 - [x] Raise both tiller arms above the stern deck and connect them to the moving crossbar. Use unlettered red, orange and gold sails with fabric-covered battens and monochrome hull stripes.
-- [ ] Qualify beach grounding, exposed rock contact, and one-pontoon impacts against the rendered shoreline.
+- [x] Verify beach support and independent port and starboard rock impacts against the rendered shoreline. The two approach tracks produce opposite yaw moments.
 - [x] Shape both deployed Hobie rudders after the supplied photos and keep their tiller arms linked. Kick-up dynamics and multibody rope simulation are deferred by request.
 
 ## Submarine, wreck and drone
