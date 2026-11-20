@@ -19,6 +19,7 @@ export async function openWorld(){
  addEventListener('pagehide',()=>worker.terminate(),{once:true});
  let id=0,pending,error,time=0;
  const state=new Map();
+ const surveyView={camera:false,map:false};
  worker.onmessage=({data})=>{if(data.error)pending.reject(Error(data.error));else pending.resolve(data);};
  worker.onerror=e=>{error=Error(e.message);pending?.reject(error);};
  function send(message){return new Promise((resolve,reject)=>{pending={resolve,reject};worker.postMessage({...message,id:++id});});}
@@ -26,7 +27,7 @@ export async function openWorld(){
  const inputs=[...new Set([...Object.keys(initial),...Object.values(boatInputs),'seaState','subPilot','flightPilot','motorCut'])];
  const parameters={prevailingBearing:windBearing};
  for(const [key,value] of Object.entries(sailingStart(true)))parameters['boat.'+key]=value;
- const frame=await send({type:'open',outputs,inputs,initial,parameters,surveyMap:true,sampledFields:true});
+ const frame=await send({type:'open',outputs,inputs,initial,parameters,surveyMap:true,sampledFields:true,surveyView});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
@@ -53,7 +54,7 @@ export async function openWorld(){
    if(busy||!queued||document.hidden)return;
    const steps=queued;queued=0;
    set('epoch',Date.now()/1000-time);
-   busy=true;send({type:'advance',steps,values:controls}).then(f=>{
+   busy=true;send({type:'advance',steps,values:controls,surveyView}).then(f=>{
      receive(f);busy=false;dispatch();
    }).catch(e=>{busy=false;queued=0;error=e;});
  }
@@ -68,5 +69,5 @@ export async function openWorld(){
  const axes=['forward','left','climb','turn'];
  const flight=view('drone',(n,v)=>{const i=axes.indexOf(n);if(i>=0)controls[offsets.get('flightPilot')+i]=v;
    else set(n==='pilot'?'flightManual':n,v);});
- return {advance,clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
+ return {advance,setSurveyView(camera,map){surveyView.camera=camera;surveyView.map=map;},clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }
