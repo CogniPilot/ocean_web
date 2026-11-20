@@ -1,0 +1,42 @@
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
+@@ -425,7 +425,16 @@
+        the rows; a target that is an overridden relation memory keeps the
+        located side. Clock-free owners run in every pass. */
+     static const size_t gindex[{{ nguard }}] = { {% for slot in ev.guarded_targets %}{{ slot.index }},{% endfor %} };
+-    static const long gclock[{{ nguard }}] = { {% for clock in ev.guarded_clocks %}{{ clock if clock is not none else -1 }},{% endfor %} };
++    /* Elements of a tensor owner share a clock. Keep their snapshot writes
++       in their original order, testing each contiguous run once. */
++    static const struct { long clock; size_t begin; } runs[] = {
++{%- for clock in ev.guarded_clocks %}
++{%- if loop.first or clock != ev.guarded_clocks[loop.index0 - 1] %}
++        { {{ clock if clock is not none else -1 }}, {{ loop.index0 }} },
++{%- endif %}
++{%- endfor %}
++        { -1, {{ nguard }} }
++    };
+     static const bool gin_y[{{ nguard }}] = { {% for slot in ev.guarded_targets %}{{ "true" if slot.column == "y" else "false" }},{% endfor %} };
+     double gvalues[{{ nguard }}];
+     if (!memories_only) {
+@@ -459,13 +468,14 @@
+             if (memory < 0) continue;
+             for (size_t g = 0; g < {{ nguard }}; ++g) if (!gin_y[g] && (long)gindex[g] == memory) gvalues[g] = m->rmc_override_value[k];
+         }
+-        for (size_t g = 0; g < {{ nguard }}; ++g) {
+-            /* guarded_assignments.rs guarded_assignment_accepts_snapshot: an
+-               owner under a clock runs on its tick, in the first pass only. */
+-            if (gclock[g] >= 0 && (!enable_clocked || m->rmc_pass != 0 || !rmc_clock_active((size_t)gclock[g], m->time))) continue;
+-            double* slot = gin_y[g] ? &m->y[gindex[g]] : &m->p[gindex[g]];
+-            *changed |= memcmp(slot, &gvalues[g], sizeof(double)) != 0;
+-            *slot = gvalues[g];
++        for (size_t run = 0; run + 1 < sizeof(runs)/sizeof(runs[0]); ++run) {
++            long clock = runs[run].clock;
++            if (clock >= 0 && (!enable_clocked || m->rmc_pass != 0 || !rmc_clock_active((size_t)clock, m->time))) continue;
++            for (size_t g = runs[run].begin; g < runs[run+1].begin; ++g) {
++                double* slot = gin_y[g] ? &m->y[gindex[g]] : &m->p[gindex[g]];
++                *changed |= memcmp(slot, &gvalues[g], sizeof(double)) != 0;
++                *slot = gvalues[g];
++            }
+         }
+     }
+ {%- endif %}

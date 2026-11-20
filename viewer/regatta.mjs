@@ -77,7 +77,8 @@ export function raceAudio(){
         source.connect(destination);source.start();
       }).catch(error=>console.warn('Ambience unavailable',file,error));
   }
-  async function toggle(){
+  async function setEnabled(on){
+    if(!audio && !on)return;
     if(!audio){
       audio=new AudioContext();noise=audio.createBuffer(1,2*audio.sampleRate,audio.sampleRate);
       const data=noise.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=2*Math.random()-1;
@@ -93,7 +94,7 @@ export function raceAudio(){
       rainfall.connect(rainFilter).connect(rain).connect(weather).connect(effects);rainfall.start();
       blower.connect(filter).connect(wind).connect(effects);blower.start();
     }
-    if(enabled)await audio.suspend();else await audio.resume();
+    if(on)await audio.resume();else await audio.suspend();
     enabled=audio.state==='running';return enabled;
   }
   function update(speed,storm,height,seaState){
@@ -126,5 +127,5 @@ export function raceAudio(){
     src.connect(low).connect(gain).connect(weather);src.onended=()=>{src.disconnect();low.disconnect();gain.disconnect();};
     src.start(t);src.stop(t+3.6);
   }
-  return {toggle,update,signal,thunder,setVolume};
+  return {setEnabled,update,signal,thunder,setVolume};
 }

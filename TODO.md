@@ -42,6 +42,9 @@ A checked item records the specific result described. Open items include partial
 - [x] Set a 200 m triangular course with a wind-square 40 m start line. Test crossings at three prevailing wind bearings.
 - [x] Move the Pilothouse fin, bulb and lateral force station amidships.
 - [x] Give the trampoline ballast carriage a matte black finish.
+- [x] Mount apparent-wind telltales on both catamaran shrouds and verify calm, crosswind and boat-induced flow in the compiled model.
+- [x] Allow the mainsheet blocks to meet, with tension-only low-stretch purchase and elastic fore–aft mast bend.
+- [ ] Calibrate mast flexural rigidity and loaded tackle extension against measured hardware.
 - [x] Verify linked main/jib manual trim (S hauls in, W eases), windward sheet take-up, on-deck slack and independent jib fine trim.
 
 - [ ] Keep the eased mainsail, its full-length battens and boom inboard of both sidestays. Verify port and starboard contact, release on trimming in, and force transfer at the clew.

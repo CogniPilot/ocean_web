@@ -4,6 +4,8 @@ Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone
 
 [Request tracker](TODO.md)
 
+On the Hobie 16, the red port and green starboard sidestay ribbons stream in the direction the apparent wind is going. A ribbon pointing aft means wind is coming over the bow. They hang down when the air is still relative to the boat. Rumoca calculates each ribbon direction using local rig velocity and gravity.
+
 ## Combined simulation component
 
 [Download OceanWorld.fmu](https://cognipilot.github.io/ocean_web/fmi3/OceanWorld.fmu) to exercise the integrated Hobie, submarine, RDD2, wave field and onboard perception with an FMI 3 LS-WASM host. In Chromium the optimized component advanced 1.22 simulated seconds, including six sonar frames. After warmup, one simulated second took 2.06 seconds of wall time on the development machine. The [integrated three-vehicle simulator](https://cognipilot.github.io/ocean_web/?runtime=world) uses this component for all three vehicles, including the Hobie rig and hull, wind, waves, race state and submarine navigation. The public site opens the integrated Hobie scene by default. Selecting the pilothouse sloop loads its separate Rumoca modules. All three vehicles start in Manual. Select a vehicle and click **Manual** to engage its autopilot. In an FMI host, the corresponding inputs are `sailingManual`, `subManual` and `flightManual` (1 for manual, 0 for automatic).

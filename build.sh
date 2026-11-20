@@ -31,7 +31,7 @@ else
     exit 1
   fi
   fixes=(marine state-initialization navigation scatter mesh sail-guard batten loop-shadow snapshot-reads
-    clock-assertions div-bounds-test comprehension-replay quotient-seeds return-prefix fold-captures initial-clock flat-subscripts tensor-concat sampled-initial division-cutoff)
+    clock-assertions div-bounds-test comprehension-replay quotient-seeds return-prefix fold-captures initial-clock flat-subscripts tensor-concat sampled-initial division-cutoff clock-runs mooring-initial direct-isolation lazy-event-history)
   patches=()
   for name in "${fixes[@]}"; do patches+=("$root/compiler/rumoca-$name.patch"); done
   python3 scripts/patch-rumoca.py "$compiler_dir" "$revision" "${patches[@]}"

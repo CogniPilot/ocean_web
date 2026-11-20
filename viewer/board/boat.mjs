@@ -92,7 +92,8 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  function mesh(geo,mat,parent=group){const m=new T.Mesh(geo,mat);parent.add(m);return m;}
  function rod(a,b,r,mat,parent=group){a=new T.Vector3(...a);b=new T.Vector3(...b);const d=b.clone().sub(a);const m=mesh(new T.CylinderGeometry(r,r,d.length(),10),mat,parent);m.position.copy(a).lerp(b,.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return m;}
  let vane,drum,rudder,otherRudder,carriage,crossTiller;
- const deckCars=[],sheets=[];
+ const deckCars=[],sheets=[],blockCheeks=[],podParts=[],streamers=[];
+ let mastGeometry,mastRest,mastWeights,travelerStrop;
  const ropeSides=6,ropeRings=9;
  const circle=Array.from({length:ropeSides},(_,i)=>[Math.cos(i*2*Math.PI/ropeSides),Math.sin(i*2*Math.PI/ropeSides)]);
  const side=new T.Vector3(),tangent=new T.Vector3(),binormal=new T.Vector3();
@@ -168,12 +169,36 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      if(side===1)rudder=blade;else otherRudder=blade;
      rod([2.1,side*1.02,.29],[2.26,0,.75],.013,black);
      rod([-.52,side*1.02,.34],[.44,0,5.85],.009,black);
+     // Woven tape, 42.5 cm long and 15 mm wide, with a square-cut free end.
+     // A slight twist keeps both edges legible when seen from the helm.
+     const ribbon=new T.BufferGeometry(),vertices=[],indices=[];
+     for(let j=0;j<=12;j++){
+       const t=j/12,twist=1.25*Math.sin(1.5*Math.PI*t);
+       const w=.0075*Math.min(1,.45+8*t);
+       const fold=.007*t*Math.sin(2*Math.PI*t),hem=.009*t*t*Math.sin(2.5*Math.PI*t);
+       for(const edge of [-1,1])vertices.push(.425*t,fold+w*edge*Math.sin(twist),hem+w*edge*Math.cos(twist));
+       if(j>0){const i=2*j;indices.push(i-2,i-1,i,i-1,i+1,i);}
+     }
+     ribbon.setAttribute('position',new T.Float32BufferAttribute(vertices,3));
+     ribbon.setIndex(indices);
+     ribbon.computeVertexNormals();
+     const yarn=mesh(ribbon,new T.MeshStandardMaterial({color:side===1?0xf94748:0x67ee85,roughness:.95,side:T.DoubleSide}));
+     yarn.position.set(-.52+.28*.96,side*1.02*.72,.34+.28*5.51);
+     yarn.visible=false;streamers[side===1?0:1]=yarn;
    }
    for(const x of [-1.4,.55])rod([x,-1.06,.41],[x,1.06,.41],.067,black);
    const tramp=mesh(new T.BoxGeometry(1.95,1.94,.028),paint(0x36454b));tramp.position.set(-.425,0,.40);
    for(const y of [-.87,.87])rod([-1.33,y,.44],[.48,y,.44],.014,black);
    carriage=mesh(new T.BoxGeometry(.34,.24,.16),new T.MeshStandardMaterial({color:0x17191a,roughness:.85,metalness:.08}));carriage.position.z=.52;
-   rod([.44,0,.41],[.44,0,8.33],.043,black);
+   mastGeometry=new T.CylinderGeometry(.043,.043,7.92,10,32);
+   mastGeometry.rotateX(Math.PI/2);mastGeometry.translate(.44,0,4.37);
+   mesh(mastGeometry,black);
+   const positions=mastGeometry.attributes.position;
+   mastRest=positions.clone();
+   // This interpolates the six luff nodes reported by the cloth FMU.
+   mastWeights=Array.from({length:positions.count},(_,i)=>Math.min(5,Math.max(0,(positions.getZ(i)-.97)*5/7.15)));
+   travelerStrop=rod([-1.4,0,.47],[-1.4,0,.67],.012,black);
+   for(let i=0;i<2;i++)blockCheeks.push(mesh(new T.BoxGeometry(.09,.07,.06),black));
    rod([2.26,0,.75],[.44,0,5.85],.011,black);
    crossTiller=rod([-1.69,-1.02,.47],[-1.69,1.02,.47],.021,black);
    for(const x of [-1.4,.55])rod([x,-.94,.465],[x,.94,.465],.014,paint(0xbdc5c4));
@@ -238,18 +263,22 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    });
    shell=new T.LatheGeometry(profile,32);shell.rotateZ(-Math.PI/2);
    const bracket=mesh(new T.BoxGeometry(.095,.06,.115),paint(0x76838b));
-   bracket.position.set(podX,0,podHeight-sideRadius-.022);
+   podParts.push(bracket);bracket.position.set(podX,0,podHeight-sideRadius-.022);
  }else shell=new T.SphereGeometry(podRadius,24,16);
- const pod=mesh(shell,cat?white:paint(0xffd14c));pod.position.set(podX,0,podHeight);
+ const pod=mesh(shell,cat?white:paint(0xffd14c));podParts.push(pod);pod.position.set(podX,0,podHeight);
  const cameraPorts=[];
  for(let i=0;i<4;i++){
    const a=i*Math.PI/2,r=i%2?sideRadius:halfLength;
    const lens=mesh(new T.SphereGeometry(cat?.022:podRadius*.24,12,8),paint(0x18262e));
    lens.position.set(podX+r*Math.cos(a),r*Math.sin(a),podHeight);
-   cameraPorts.push(lens.position.toArray());
+   podParts.push(lens);cameraPorts.push(lens.position.toArray());
  }
  if(vane)vane.position.z=podHeight+podRadius+.035;
- return {group,cameraPorts,update(s,ballast,cars,rope){
+ return {group,cameraPorts,update(s,ballast,cars,rope,tails){
+   for(let i=0;i<streamers.length;i++){
+     streamers[i].visible=Boolean(tails);
+     if(tails)streamers[i].quaternion.setFromUnitVectors(tangent.set(1,0,0),side.fromArray(tails,3*i).normalize());
+   }
    if(vane)vane.rotation.z=s[30];if(drum)drum.rotation.y=s[40];
    if(otherRudder)otherRudder.rotation.z=-s[7];
    if(carriage && ballast)carriage.position.set(-.425+ballast[0],ballast[1],.52);
@@ -273,16 +302,36 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      }
      coords.needsUpdate=true;geo.computeVertexNormals();
    });
+   if(mastGeometry){
+     const main=sails[0],nodes=main.coords;
+     const bend=Array.from({length:6},(_,r)=>s[186]*nodes.getX(4*r)+s[187]*nodes.getY(4*r));
+     const pos=mastGeometry.attributes.position;
+     for(let i=0;i<pos.count;i++){
+       const w=mastWeights[i],lo=Math.floor(w),hi=Math.min(5,lo+1);
+       pos.setX(i,mastRest.getX(i)+bend[lo]+(w-lo)*(bend[hi]-bend[lo]));
+     }
+     pos.needsUpdate=true;
+     const dx=podX+bend[5]-pod.position.x;
+     for(const part of podParts)part.position.x+=dx;
+     for(const port of cameraPorts)port[0]+=dx;
+   }
    if(cars){
      crossTiller.position.set(-2.58+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.47);
      deckCars[0].position.y=cars[0];deckCars[1].position.y=cars[1];deckCars[2].position.y=-cars[1];
      // Attachment positions in the hull frame. The front clew follows the actual cloth.
      const top=new T.Vector3(-1.84*Math.cos(s[206]),0,1.84*Math.sin(s[206])).applyQuaternion(sails[0].pivot.quaternion).add(sails[0].pivot.position);
+     const lowerBlock=deckCars[0].position.clone();lowerBlock.z=.67;
+     travelerStrop.position.y=cars[0];
+     const axis=new T.Vector3().subVectors(top,lowerBlock).normalize();
+     blockCheeks.forEach((block,i)=>{
+       block.position.copy(i?top:lowerBlock).addScaledVector(axis,i?-.03:.03);
+       block.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),axis);
+     });
      const jib=new T.Vector3().fromBufferAttribute(sails[1].coords,3).applyQuaternion(sails[1].pivot.quaternion).add(sails[1].pivot.position);
      for(let i=0;i<sheets.length;i++){
        const main=i<6,car=deckCars[main?0:i<8?1:2];
        const offset=(main?i-2.5:i%2-.5)*.014;
-       const start=car.position.clone(),end=(main?top:jib).clone();start.x+=offset;end.x+=offset;
+       const start=(main?lowerBlock:car.position).clone(),end=(main?top:jib).clone();start.x+=offset;end.x+=offset;
        drawRope(sheets[i],start,end,rope?rope[main?0:i<8?1:2]:0);
      }
    }else if(rope){

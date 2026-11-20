@@ -14,6 +14,17 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     (battenLuff[b]+(battenLeech[b]-battenLuff[b])*(c-1)/(cols-1))))
     for b in 1:battenCount) for c in 1:cols,r in 1:rows};
   parameter Real span=2.6,foot=1.12,rake=0,stepSize=.01,arealMass=.17;
+  parameter Real mastSupport=.68 "Fractional luff height at the stay tang";
+  // Static overhanging beam under a unit tip load, normalized at the head.
+  final parameter Real modeShape[rows]={bendShape((r-1)/(rows-1),mastSupport) for r in 1:rows};
+  function bendShape
+    input Real z,s;
+    output Real phi;
+  algorithm
+    phi:=if z<=s then (z^3/s-s*z)/(2*(1-s)) else
+      (s*(z-s)+(1.5*(z-s)^2)-.5*(z-s)^3/(1-s))/(1-s);
+  end bendShape;
+  input Real mastOffset[3] "Masthead displacement resolved in sail coordinates";
   input Real boomElevation;
   parameter Boolean hasShrouds=false;
   input Real shroudFoot[2,3],shroudHead[3] "Two finite sidestays in the rotating sail frame";
@@ -26,12 +37,12 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
      span*div(i-1,cols)/(rows-1)} for i in 1:n};
   discrete output Real vertex[n,3](start=mesh,each fixed=true);
   discrete Real velocity[n,3](each start=0,each fixed=true);
-  discrete output Real fluidForce[3],fluidMoment[3],wetArea,leechSpeed,clewForce[3];
+  discrete output Real fluidForce[3],fluidMoment[3],wetArea,leechSpeed,clewForce[3],mastLoad[3];
   function advanceCloth
     input Real rest[n,3], old[n,3], oldV[n,3],air[3],water[3],omega[3],gravity[3],plane[4],dt,mu,t,elevation,battenRows[rows,cols],EI,lineMass;
     input Boolean contact;
-    input Real footStay[2,3],headStay[3];
-    output Real p[n,3],v[n,3],force[3],moment[3],wetArea,leechSpeed,clewForce[3];
+    input Real footStay[2,3],headStay[3],tipOffset[3],shape[rows];
+    output Real p[n,3],v[n,3],force[3],moment[3],wetArea,leechSpeed,clewForce[3],mastLoad[3];
   protected
     Real mass[n],nodal[n,3],normal[3],a[3],b[3],c[3],center[3],dv[3],q[3],load[3],relative[3];
     Real implicitFactor,gust,d[3],low,mid,high,wet,area,u,vn,dist,reference,extension,wa,wb,correction,restArea;
@@ -95,6 +106,12 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
         p[i,:]:=old[i,:]+dt*((1-.7*dt)*oldV[i,:]+dt*(gravity+nodal[i,:]/mass[i]));
       end if;
     end for;
+    mastLoad:=zeros(3);
+    for r in 1:rows loop
+      j:=(r-1)*cols+1;
+      p[j,:]:=rest[j,:]+shape[r]*tipOffset;
+      mastLoad:=mastLoad+shape[r]*(nodal[j,:]+mass[j]*gravity);
+    end for;
     p[cols,:]:={rest[cols,1]*cos(elevation),0,-rest[cols,1]*sin(elevation)};
     clewForce:=nodal[cols,:]+mass[cols]*gravity;
     // Position-based cloth: tension-only warp, weft and bias links. A small
@@ -111,6 +128,12 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
             wa:=if mod(j-1,cols)==0 or j==cols then 0 else 1/mass[j];
             wb:=if mod(k-1,cols)==0 or k==cols then 0 else 1/mass[k];
             correction:=extension/(max(1e-8,dist)*(wa+wb+.00005/dt^2));
+            if mod(j-1,cols)==0 then
+              mastLoad:=mastLoad+shape[div(j-1,cols)+1]*correction*q/dt^2;
+            end if;
+            if mod(k-1,cols)==0 then
+              mastLoad:=mastLoad-shape[div(k-1,cols)+1]*correction*q/dt^2;
+            end if;
             if j==cols then
               clewForce:=clewForce+correction*q/dt^2;
             elseif k==cols then
@@ -133,6 +156,9 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
           wb:=if j+1==cols then 0 else 1/mass[j+1];
           wCenter:=1/mass[j];
           q:=(p[j-1,:]-2*p[j,:]+p[j+1,:])/(1/(stiffness*dt^2)+wa+4*wCenter+wb);
+          if col==2 then
+            mastLoad:=mastLoad-shape[r]*q/dt^2;
+          end if;
           p[j-1,:]:=p[j-1,:]-wa*q;
           p[j,:]:=p[j,:]+2*wCenter*q;
           p[j+1,:]:=p[j+1,:]-wb*q;
@@ -187,6 +213,6 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   end advanceCloth;
 equation
   when sample(0,stepSize) then
-    (vertex,velocity,fluidForce,fluidMoment,wetArea,leechSpeed,clewForce)=advanceCloth(mesh,pre(vertex),pre(velocity),air,water,omega,gravity,waterPlane,stepSize,arealMass,time,boomElevation,battenWeight,battenEI,battenLinearMass,hasShrouds,shroudFoot,shroudHead);
+    (vertex,velocity,fluidForce,fluidMoment,wetArea,leechSpeed,clewForce,mastLoad)=advanceCloth(mesh,pre(vertex),pre(velocity),air,water,omega,gravity,waterPlane,stepSize,arealMass,time,boomElevation,battenWeight,battenEI,battenLinearMass,hasShrouds,shroudFoot,shroudHead,mastOffset,modeShape);
   end when;
 end SailMembrane;

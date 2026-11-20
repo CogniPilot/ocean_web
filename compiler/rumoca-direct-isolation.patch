@@ -1,0 +1,90 @@
+diff --git a/crates/rumoca-phase-codegen/src/codegen/me_projection/table.rs b/crates/rumoca-phase-codegen/src/codegen/me_projection/table.rs
+index 68624ea..0591629 100644
+--- a/crates/rumoca-phase-codegen/src/codegen/me_projection/table.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/me_projection/table.rs
+@@ -17,6 +17,30 @@ use rumoca_ir_solve as solve;
+ use super::super::scalar_program_plan::ScalarProgramPlan;
+ use crate::errors::CodegenError;
+ 
++/// For load-only isolators, record where each output comes from. Reading a
++/// scalar directly avoids evaluating every element of a tensor assignment
++/// for each singleton block. Any operation that could fail uses the full kernel.
++fn direct_load_slots(ops: &[solve::LinearOp]) -> Option<Vec<i64>> {
++    use solve::{LinearOp, TensorInputKind};
++    let mut registers = BTreeMap::new();
++    let mut outputs = Vec::new();
++    for op in ops {
++        match *op {
++            LinearOp::LoadY { dst, index } => { registers.insert(dst, index as i64 + 1); }
++            LinearOp::LoadP { dst, index } => { registers.insert(dst, -(index as i64 + 1)); }
++            LinearOp::TensorLoad { dst_start, input, input_start, count, lanes: 1, .. } => {
++                let sign = match input { TensorInputKind::Y => 1, TensorInputKind::P => -1 };
++                for k in 0..count {
++                    registers.insert(dst_start + k as solve::Reg, sign * ((input_start + k) as i64 + 1));
++                }
++            }
++            LinearOp::StoreOutput { src } => outputs.push(*registers.get(&src)?),
++            _ => return None,
++        }
++    }
++    Some(outputs)
++}
++
+ /// One interned family of single-program C functions.
+ ///
+ /// A component that switches reduced charts keys its programs by chart, and
+@@ -210,6 +234,11 @@ impl ProgramTable {
+             .map(|id| isolators.output_count(id))
+             .max()
+             .unwrap_or(1);
++        let direct_outputs: Vec<_> = isolators.programs.iter()
++            .map(|(ops, _)| direct_load_slots(ops)).collect();
++        let direct_slots: Vec<_> = isolator_group.iter().zip(&isolator_slot)
++            .map(|(&group, &slot)| direct_outputs[group].as_ref().map_or(0, |loads| loads[slot]))
++            .collect();
+         // A non-empty pool keeps every descriptor offset a valid address.
+         let pool = if self.pool.is_empty() {
+             vec![0]
+@@ -226,6 +255,7 @@ impl ProgramTable {
+             causal => self.causal.into_plan()?,
+             isolator_group => isolator_group,
+             isolator_slot => isolator_slot,
++            direct_slots => direct_slots,
+             iso_max_outputs => iso_max_outputs,
+             row_max_outputs => row_max_outputs,
+             pool => pool,
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/me_projection.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/me_projection.jinja
+@@ -400,6 +400,11 @@
+ 
+ /* One target isolation: its row's grouped isolator program, one slot. */
+ static int rmc_isolate(ModelInstance* m, size_t id, double* value) {
++    long direct = rmc_iso_direct[id];
++    if (direct != 0) {
++        *value = direct > 0 ? m->y[direct-1] : m->p[-direct-1];
++        return 0;
++    }
+     double out[{{ me.table.iso_max_outputs }}];
+     if (rmc_iso_fn[rmc_iso_group[id]](m, out) != 0) return -1;
+     *value = out[rmc_iso_slot[id]];
+@@ -2079,10 +2084,12 @@
+ {%- if me.table.isolators.programs|length > 0 %}
+ RMC_API extern const RmcProgram rmc_iso_fn[{{ me.table.isolators.programs|length }}];
+ RMC_API extern const size_t rmc_iso_group[{{ me.table.isolator_group|length }}];
++RMC_API extern const long rmc_iso_direct[{{ me.table.direct_slots|length }}];
+ RMC_API extern const size_t rmc_iso_slot[{{ me.table.isolator_slot|length }}];
+ {%- else %}
+ #define rmc_iso_fn ((const RmcProgram*)0)
+ #define rmc_iso_group ((const size_t*)0)
++#define rmc_iso_direct ((const long*)0)
+ #define rmc_iso_slot ((const size_t*)0)
+ {%- endif %}
+ {%- if me.table.causal.programs|length > 0 %}
+@@ -2160,6 +2167,7 @@
+ {%- if me.table.isolators.programs|length > 0 %}
+ RMC_API const RmcProgram rmc_iso_fn[{{ me.table.isolators.programs|length }}] = { {% for program in me.table.isolators.programs %}rmc_iso_p{{ loop.index0 }},{% endfor %} };
+ RMC_API const size_t rmc_iso_group[{{ me.table.isolator_group|length }}] = { {% for value in me.table.isolator_group %}{{ value }},{% endfor %} };
++RMC_API const long rmc_iso_direct[{{ me.table.direct_slots|length }}] = { {% for value in me.table.direct_slots %}{{ value }},{% endfor %} };
+ RMC_API const size_t rmc_iso_slot[{{ me.table.isolator_slot|length }}] = { {% for value in me.table.isolator_slot %}{{ value }},{% endfor %} };
+ {%- endif %}
+ {%- endif %}

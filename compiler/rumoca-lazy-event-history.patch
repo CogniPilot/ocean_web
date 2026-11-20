@@ -1,0 +1,50 @@
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
+@@ -640,7 +640,7 @@
+     s->data = window ? rmc_instance_allocate(m, window * s->width, sizeof(double)) : NULL;
+     return !window || s->data != NULL;
+ }
+-static void rmc_surface_close(RmcSurface* s) { rmc_instance_free(s->owner, s->data); s->data = NULL; }
++static void rmc_surface_close(RmcSurface* s) { if (s->data) rmc_instance_free(s->owner, s->data); s->data = NULL; }
+ static bool rmc_on_surface(const ModelInstance* m, RmcSurface* s) {
+     if (!s->data) return false;
+     bool repeats = false;
+@@ -733,8 +733,7 @@
+ 
+ static {{ prefix }}Status rmc_relation_passes(ModelInstance* m, bool* changed_any, RmcSurface* surface);
+ static {{ prefix }}Status rmc_relation_settle(ModelInstance* m, bool* changed_any) {
+-    RmcSurface surface;
+-    if (!rmc_surface_open(m, &surface)) { RMC_LOG(m, "the relation surface history could not be allocated"); return {{ prefix }}Error; }
++    RmcSurface surface = {0};
+     {{ prefix }}Status status = rmc_relation_passes(m, changed_any, &surface);
+     rmc_surface_close(&surface);
+     return status;
+@@ -755,6 +754,7 @@
+         if (rmc_runtime_assignments(m, &step_changed) != {{ prefix }}OK) return {{ prefix }}Error;
+ {%- else %}{{ fail("unsupported-feature:fmi.c.relation-step " ~ step) }}{% endif %}
+ {%- endfor %}
++        if (!surface->data && !rmc_surface_open(m, surface)) { RMC_LOG(m, "the relation surface history could not be allocated"); return {{ prefix }}Error; }
+         if (rmc_on_surface(m, surface)) {
+             bool found = false;
+             if (rmc_mode_search(m, surface, &found) != {{ prefix }}OK) return {{ prefix }}Error;
+@@ -795,8 +795,7 @@
+ static {{ prefix }}Status rmc_event_iterate_passes(ModelInstance* m, bool canonicalize) {
+     for (size_t k = 0; k < RMC_PRE_LANES; ++k) m->p[rmc_pre_dest[k]] = rmc_pre_source(m->rmc_entry_y, m->rmc_entry_p, k);
+     bool settled = false;
+-    RmcSurface surface;
+-    if (!rmc_surface_open(m, &surface)) { RMC_LOG(m, "the event surface history could not be allocated"); return {{ prefix }}Error; }
++    RmcSurface surface = {0};
+     for (size_t pass = 0; pass < {{ schedule.fixed_point_cap }} && !settled; ++pass) {
+         m->rmc_pass = pass;
+         bool changed = pass > 0 && rmc_advance_lanes(m);
+@@ -805,7 +804,9 @@
+            before the next pass advances the pre lanes. */
+         if (rmc_discrete_owners(m, &changed, true, false) != {{ prefix }}OK) { rmc_surface_close(&surface); return {{ prefix }}Error; }
+         settled = !changed && rmc_lanes_settled(m);
+-        if (settled || !rmc_on_surface(m, &surface)) continue;
++        if (settled) continue;
++        if (!surface.data && !rmc_surface_open(m, &surface)) { RMC_LOG(m, "the event surface history could not be allocated"); return {{ prefix }}Error; }
++        if (!rmc_on_surface(m, &surface)) continue;
+         bool found = false;
+         if (rmc_mode_search(m, &surface, &found) != {{ prefix }}OK) { rmc_surface_close(&surface); return {{ prefix }}Error; }
+         if (found) { surface.count = 0; surface.head = 0; } else settled = true;

@@ -87,24 +87,37 @@ async function run(){
   }
   volumeControl('effectsVolume',audio.setVolume);
   volumeControl('musicVolume',value=>musicGain?.gain.setTargetAtTime(value,musicContext.currentTime,.025));
-  function showMusicState(){
-    music.setAttribute('aria-pressed',String(!theme.paused));
-    music.title=theme.paused?'Play music by Olivier Bérubé':'Pause music by Olivier Bérubé';
+  function audioPreference(id,apply,describe){
+    const button=$(id),key='ocean_web.'+id+'Enabled';
+    let on=true;
+    try{on=localStorage.getItem(key)!=='false';}catch{}
+    function show(){button.setAttribute('aria-pressed',String(on));describe(on);}
+    function sync(){apply(on).catch(error=>{
+      if(error.name!=='NotAllowedError' && error.name!=='AbortError')$('online').textContent=error.message;
+    });}
+    button.onclick=()=>{on=!on;try{localStorage.setItem(key,String(on));}catch{}show();sync();};
+    show();sync();
+    return ()=>{if(on)sync();};
   }
-  theme.addEventListener('play',showMusicState);
-  theme.addEventListener('pause',showMusicState);
-  music.onclick=async()=>{
-    if(!theme.paused){theme.pause();return;}
-    try{
-      if(!musicContext){
-        musicContext=new AudioContext();musicGain=musicContext.createGain();
-        musicGain.gain.value=$('musicVolume').valueAsNumber/100;
-        musicContext.createMediaElementSource(theme).connect(musicGain).connect(musicContext.destination);
-      }
-      await Promise.all([musicContext.resume(),theme.play()]);
-    }catch(error){$('online').textContent='Music: '+error.message;}
-  };
-  $('sound').onclick=async()=>{try{const on=await audio.toggle(),button=$('sound');button.setAttribute('aria-pressed',String(on));button.title=on?'Mute sound':'Turn sound on';button.firstElementChild.textContent=on?'🔊':'🔇';}catch(e){$('online').textContent=e.message;}};
+  const startMusic=audioPreference('music',async on=>{
+    if(!on){theme.pause();return;}
+    if(!musicContext){
+      musicContext=new AudioContext();musicGain=musicContext.createGain();
+      musicGain.gain.value=$('musicVolume').valueAsNumber/100;
+      musicContext.createMediaElementSource(theme).connect(musicGain).connect(musicContext.destination);
+    }
+    await Promise.all([musicContext.resume(),theme.play()]);
+  },on=>{music.title=(on?'Mute':'Play')+' music by Olivier Bérubé';});
+  const startEffects=audioPreference('sound',audio.setEnabled,on=>{
+    $('sound').title=on?'Mute sound':'Turn sound on';
+    $('sound').firstElementChild.textContent=on?'🔊':'🔇';
+  });
+  function unlockAudio(event){
+    if(!event.isTrusted)return;
+    startMusic();startEffects();
+    for(const type of ['click','keydown'])removeEventListener(type,unlockAudio);
+  }
+  for(const type of ['click','keydown'])addEventListener(type,unlockAudio);
   const hemi=new T.HemisphereLight(0xe5f8fb,0x767266,1.8);hemi.position.z=1;scene.add(hemi);
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   const ocean=atmosphere(scene),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
@@ -367,7 +380,7 @@ async function run(){
       document.body.dataset.visiblePeers=remote.visible;
       const t=model.time;
       if(t!==meshTime){
-        boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag);
+        boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag,cat?model.get('shroudTail'):null);
         life(t);causticTime.value=t;meshTime=t;
       }
       ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
