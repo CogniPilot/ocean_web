@@ -8,6 +8,18 @@ Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone
 
 [Download OceanWorld.fmu](https://cognipilot.github.io/ocean_web/fmi3/OceanWorld.fmu) to exercise the integrated Hobie, submarine, RDD2, wave field and onboard perception with an FMI 3 LS-WASM host. In Chromium the optimized component advanced 1.22 simulated seconds, including six sonar frames. After warmup, one simulated second took 2.06 seconds of wall time on the development machine. The interactive site currently uses separate Rumoca modules. Set `sailingManual`, `subManual` and `flightManual` explicitly to 1 for manual operation with this component.
 
+The Pages build also serves a dedicated simulation worker at `world/ocean-world-worker.mjs`. From a same-origin page, open a module worker, bind input and observation names once, then send fixed-step requests. Replies echo the request ID and contain simulation time and a transferable Float64Array. This example advances the world through one navigation update.
+
+```js
+const world = new Worker('./world/ocean-world-worker.mjs', {type: 'module'});
+world.onmessage = ({data}) => console.log(data);
+world.postMessage({
+  id: 1, type: 'open', inputs: ['subPilot[1]'],
+  outputs: ['boat.east', 'sub.position[1]', 'drone.position[3]', 'estimate[1]']
+});
+world.postMessage({id: 2, type: 'advance', steps: 21, values: Float64Array.of(0.7)});
+```
+
 ## Live build status
 
 Select **Control → RDD2 drone** to fly, or open `?control=drone`. W/S and A/D move horizontally, Q/E yaw, and R/F climb or descend. Releasing the keys holds position. Each vehicle starts in manual mode and retains its mode during vehicle switches. Selecting Autopilot on the drone sends it to an altitude of 5 m over the latest estimated submarine position. The flight FMU uses CogniPilot’s RDD2 plant and rotor geometry with a local position controller, ideal 10 Hz GNSS, and gyroscope integration. Linear and quadratic body-axis drag use airspeed relative to the local simulated wind. The horizontal gust field is sampled at the aircraft’s location. Drag areas and low-speed damping use the RDD2 template defaults. [CogniPilot RDD2 plant](https://github.com/CogniPilot/modelica_models/blob/main/Vehicles/Rdd2/Plant.mo)

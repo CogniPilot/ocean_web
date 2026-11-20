@@ -18,7 +18,17 @@ jobs:
       url: ${{ steps.upload.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: CogniPilot/microduck_web
+          ref: f567b8c452d5c759436a568ffad5632dc1046916
+          path: .deps/microduck_web
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --prefix .deps/ocean-component --no-save @bytecodealliance/jco-transpile@0.23.0
       - run: scripts/package-pages.sh
+      - run: node scripts/prepare-world-runtime.mjs build/pages/world
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
