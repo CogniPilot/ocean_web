@@ -5,6 +5,9 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
   parameter Real period=64,dt=.1,depth=14,decay=.04;
   input Real east,north,heading,heel,pitch,stations[7],separation,volume[2,6],beamHalf[7];
   input Real currentEast,currentNorth,windEast,windNorth,seaAmplitude;
+  input Real peers[4,38]=zeros(4,38) "Source token, sample time, then east/north/immersed volume for twelve strips";
+  discrete Real priorPeers[4,38](each start=0,each fixed=true),priorDrift[4,2](each start=0,each fixed=true);
+  discrete output Real sourceStrips[12,3](each start=0,each fixed=true);
   Real driftE(start=0,fixed=true),driftN(start=0,fixed=true);
   discrete Real modesR[n,n](each start=0,each fixed=true),modesI[n,n](each start=0,each fixed=true);
   discrete Real displacementR[n,n](each start=0,each fixed=true),displacementI[n,n](each start=0,each fixed=true);
@@ -88,9 +91,67 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
       re[:,column]:=lineR/normalization; im[:,column]:=lineI/normalization;
     end for;
   end transform;
+  function hullSource
+    input Real x,y,bearing,heel,pitch,xs[7],sep,vol[2,6];
+    output Real strips[12,3];
+  protected
+    Real along,across;
+    Integer r;
+  algorithm
+    strips:=zeros(12,3);
+    for hull in 1:2 loop
+      across:=(3-2*hull)*sep*cos(heel);
+      for panel in 1:6 loop
+        r:=(hull-1)*6+panel;
+        along:=.5*(xs[panel]+xs[panel+1])*cos(pitch)+(3-2*hull)*sep*sin(heel)*sin(pitch);
+        strips[r,:]:={x+along*cos(bearing)-across*sin(bearing),y+along*sin(bearing)+across*cos(bearing),vol[hull,panel]};
+      end for;
+    end for;
+  end hullSource;
+
+  function peerForcing "Deposit the change in displaced volume on the periodic grid, then transform all peers together"
+    input Real peers[4,38],old[4,38],driftE,driftN,oldDrift[4,2],east,north,L;
+    output Real re[n,n],im[n,n];
+  protected
+    Real grid[n,n],scale=n/L,u,v,fx,fy,z;
+    Integer col,row,nextCol,nextRow,k;
+    Boolean changed=false;
+  algorithm
+    grid:=zeros(n,n);
+    for peer in 1:4 loop
+      if peers[peer,1]>0 and peers[peer,1]==old[peer,1] and peers[peer,2]>old[peer,2]
+          and peers[peer,2]-old[peer,2]<1 and
+          (peers[peer,3]-east)^2+(peers[peer,4]-north)^2<(.45*L)^2 and
+          (old[peer,3]-east)^2+(old[peer,4]-north)^2<(.45*L)^2 then
+        changed:=true;
+        for strip in 1:12 loop
+          k:=3+3*(strip-1);
+          for endpoint in 1:2 loop
+            u:=scale*(if endpoint==1 then peers[peer,k]-driftE else old[peer,k]-oldDrift[peer,1]);
+            v:=scale*(if endpoint==1 then peers[peer,k+1]-driftN else old[peer,k+1]-oldDrift[peer,2]);
+            z:=scale^2*(if endpoint==1 then peers[peer,k+2] else -old[peer,k+2]);
+            col:=1+mod(integer(floor(u)),n);row:=1+mod(integer(floor(v)),n);
+            nextCol:=1+mod(col,n);nextRow:=1+mod(row,n);
+            fx:=u-floor(u);fy:=v-floor(v);
+            grid[row,col]:=grid[row,col]+z*(1-fx)*(1-fy);
+            grid[nextRow,col]:=grid[nextRow,col]+z*(1-fx)*fy;
+            grid[row,nextCol]:=grid[row,nextCol]+z*fx*(1-fy);
+            grid[nextRow,nextCol]:=grid[nextRow,nextCol]+z*fx*fy;
+          end for;
+        end for;
+      end if;
+    end for;
+    if changed then
+      (re,im):=transform(grid,zeros(n,n),false);
+    else
+      re:=zeros(n,n);im:=zeros(n,n);
+    end if;
+  end peerForcing;
+
   function step
     input Real prevR[n,n],prevI[n,n],oldR[n,n],oldI[n,n],vol[2,6],xs[7],beams[7],sep,x,y,bearing,heel,pitch,ue,un,sea,L,h,dt,loss,t;
     input Boolean first;
+    input Real peers[4,38],oldPeers[4,38],driftE,driftN,oldDrift[4,2];
     output Real wr[n,n],wi[n,n],displacedR[n,n],displacedI[n,n],tile[n,n],probe[3],load[3];
   protected
     Real rowR[n],rowI[n],windR[n],windI[n],sourceR[n],sourceI[n],dx,kx,ky,k,omega,c,s,atten,along,across,ex,ny,a,b,amplitude,phase,slope;
@@ -98,13 +159,16 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     Real km,peak,windSpeed,directional,seed,trial;
     Real sr,si,mr,mi,stripR,stripI,momentArm,crossTerm,forceScale;
     Real cx[12,n],sx[12,n],cy[12,n],sy[12,n],ka,kb,length,width,draft,weight;
+    Real peerR[n,n],peerI[n,n];
     Real armAlong[12],armAcross[12];
     Real re[n,n],im[n,n],unused[n,n];
   algorithm
+    (peerR,peerI):=peerForcing(peers,oldPeers,driftE,driftN,oldDrift,x+driftE,y+driftN,L);
     windSpeed:=sqrt(ue*ue+un*un);peak:=max(.19,1.4/max(2,windSpeed));
     dx:=L/n;probe:=zeros(3);load:=zeros(3);forceScale:=1025*9.80665*dx^2/n^2;
     // Fourier transform of six immersed strips on each hull. Separable phase
     // tables preserve the exact subcell locations and avoid a forward FFT.
+    armAlong:=zeros(12);armAcross:=zeros(12);
     cx:=zeros(12,n);sx:=zeros(12,n);cy:=zeros(12,n);sy:=zeros(12,n);
     for hull in 1:2 loop
       for panel in 1:6 loop
@@ -159,8 +223,8 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
         atten:=exp(-dt*loss*(1+.08*k^2));
         // Complex travelling waves encode elevation and its quadrature.
         // A real spatial displacement increment excites both travel directions.
-        rowR[i]:=atten*(c*prevR[j,i]+s*prevI[j,i])+(if first or k==0 then 0 else sourceR[i]-oldR[j,i]);
-        rowI[i]:=atten*(c*prevI[j,i]-s*prevR[j,i])+(if first or k==0 then 0 else sourceI[i]-oldI[j,i]);
+        rowR[i]:=atten*(c*prevR[j,i]+s*prevI[j,i])+(if first or k==0 then 0 else sourceR[i]-oldR[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerR[j,i] else 0);
+        rowI[i]:=atten*(c*prevI[j,i]-s*prevR[j,i])+(if first or k==0 then 0 else sourceI[i]-oldI[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerI[j,i] else 0);
 
         // Integral of -rho*g*displacement*grad(elevation), evaluated by
         // Parseval on the same modes used to reconstruct the displayed wake.
@@ -194,7 +258,15 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
 equation
   der(driftE)=currentEast;der(driftN)=currentNorth;
   when sample(0,dt) then
-    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time+seaClockOffset,time<dt/2);
+    sourceStrips=hullSource(east,north,heading,heel,pitch,stations,separation,volume);
+    priorPeers=peers;
+    for peer in 1:4 loop
+      for axis in 1:2 loop
+        priorDrift[peer,axis]=if abs(peers[peer,1]-pre(priorPeers[peer,1]))>.5 or peers[peer,2]>pre(priorPeers[peer,2])
+          then (if axis==1 then driftE else driftN) else pre(priorDrift[peer,axis]);
+      end for;
+    end for;
+    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time+seaClockOffset,time<dt/2,peers,pre(priorPeers),driftE,driftN,pre(priorDrift));
     sectionHeight=sampleSections(height,east-driftE,north-driftN,heading,heel,pitch,stations,separation,period);
   end when;
 end WakeSpectrum;
