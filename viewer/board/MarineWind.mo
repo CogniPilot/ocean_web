@@ -13,11 +13,30 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
   input Real droneEast,droneNorth;
   output Real droneWind[3];
   output Real localEast,localNorth;
+  function gustCell "Wind vector and roughness for one independent grid cell"
+    input Real east,north,previous,speed,direction,c,s,meanShift,cx[8],cy[8],width[8],lengths[8],turn[8],gain[8],period,t,rise,fall;
+    output Real cell[3];
+  protected
+    Real amplitude,shift,ex,ny,along,across,w,theta,u,relax;
+  algorithm
+    amplitude:=1;shift:=meanShift;
+    for g in 1:8 loop
+      ex:=mod(east-cx[g]+period/2,period)-period/2;
+      ny:=mod(north-cy[g]+period/2,period)-period/2;
+      along:=ex*c+ny*s;across:=-ex*s+ny*c;
+      w:=exp(-.5*((along/lengths[g])^2+(across/width[g])^2));
+      amplitude:=amplitude+gain[g]*w;shift:=shift+turn[g]*w;
+    end for;
+    theta:=direction+shift;u:=speed*amplitude;
+    cell[1]:=u*cos(theta);cell[2]:=u*sin(theta);
+    relax:=if u>previous then rise else fall;
+    cell[3]:=if t<.01 then u else previous+relax*(u-previous);
+  end gustCell;
   function fieldStep
     input Real prev[n,n,3],baseE,baseN,travelE,travelN,t,seed,period,dt;
     output Real tile[n,n,3];
   protected
-    Real speed,direction,shift,meanShift,along,across,ex,ny,w,amplitude,u,theta,relax;
+    Real speed,direction,meanShift;
     Real cx[8],cy[8],turn[8],gain[8],width[8],lengths[8];
   algorithm
     speed:=sqrt(baseE^2+baseN^2);direction:=atan2(baseN,baseE);
@@ -29,22 +48,8 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
       turn[g]:=.30*sin(2.3*g+seed);
       gain[g]:=(if mod(g,4)==0 then -.30 else .48)*(.72+.28*sin(t/(7+g)+g+seed));
     end for;
-    for j in 1:n loop
-      for i in 1:n loop
-        amplitude:=1;shift:=meanShift;
-        for g in 1:8 loop
-          ex:=mod((i-1)*period/n-cx[g]+period/2,period)-period/2;
-          ny:=mod((j-1)*period/n-cy[g]+period/2,period)-period/2;
-          along:=ex*cos(direction)+ny*sin(direction);across:=-ex*sin(direction)+ny*cos(direction);
-          w:=exp(-.5*((along/lengths[g])^2+(across/width[g])^2));
-          amplitude:=amplitude+gain[g]*w;shift:=shift+turn[g]*w;
-        end for;
-        theta:=direction+shift;u:=speed*amplitude;
-        tile[j,i,1]:=u*cos(theta);tile[j,i,2]:=u*sin(theta);
-        relax:=if u>prev[j,i,3] then 1.4 else 3.5;
-        tile[j,i,3]:=if t<.01 then u else prev[j,i,3]+(1-exp(-dt/relax))*(u-prev[j,i,3]);
-      end for;
-    end for;
+    tile:={gustCell((i-1)*period/n,(j-1)*period/n,prev[j,i,3],speed,direction,cos(direction),sin(direction),
+      meanShift,cx,cy,width,lengths,turn,gain,period,t,1-exp(-dt/1.4),1-exp(-dt/3.5)) for i in 1:n, j in 1:n};
   end fieldStep;
   function sampleWind
     input Real grid[n,n,3],east,north,period;
