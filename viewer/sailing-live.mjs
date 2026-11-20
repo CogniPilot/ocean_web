@@ -61,13 +61,21 @@ async function run(){
   const boardClock=courseScene(T,scene,race),audio=raceAudio();
   let lastCountdown=null,raceTick=0,lastLap;
   const roomName=(url.searchParams.get('room')||'regatta').slice(0,64);
-  const remote=fleet(T,scene,roomName,$('online'));camera.layers.enable(1);
+  const remote=fleet(T,scene,roomName,$('online'),{
+    read:()=>({wind:Number($('wind').value),bearing:ocean.U.bearing.value,sea:$('seaState').value,sky:$('sky').value}),
+    apply(settings){
+      if(settings.wind!==undefined)$('wind').value=settings.wind;
+      if(settings.bearing!==undefined)ocean.U.bearing.value=settings.bearing;
+      if(settings.wind!==undefined||settings.bearing!==undefined)applyWind();
+      if(settings.sea!==undefined){$('seaState').value=settings.sea;applySea();}
+      if(settings.sky!==undefined)$('sky').value=settings.sky;
+    }
+  });camera.layers.enable(1);
   function multiplayer(on){
     if(on)remote.join();else remote.leave();
     $('multiplayer').setAttribute('aria-pressed',String(on));$('invite').hidden=!on;
   }
   $('multiplayer').onclick=()=>multiplayer($('multiplayer').getAttribute('aria-pressed')!=='true');
-  if(url.searchParams.has('room'))multiplayer(true);
   addEventListener('pagehide',remote.leave);
   $('invite').onclick=async()=>{const link=new URL(location.href);link.searchParams.set('room',roomName);
     try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Race room link',link.href);}};
@@ -161,7 +169,13 @@ async function run(){
     for(const id of ['autoDeck','mainCar','jibCar','jibSheet'])$(id).oninput=deck;
     deck();
   }
-  $('seaState').onchange=()=>world?world.set('seaState',Number($('seaState').value)):model.set('swellAmplitude',.30*Number($('seaState').value));
+  function applySea(){
+    const level=Number($('seaState').value);
+    if(world)world.set('seaState',level);
+    else model.set('swellAmplitude',.30*level);
+  }
+  $('seaState').onchange=()=>{applySea();remote.changeWeather('sea',$('seaState').value);};
+  $('sky').onchange=()=>remote.changeWeather('sky',$('sky').value);
   const keys=new Set();let drone;
   $('subSensors').open=!mobile;
   const sub=submarine(T,scene,world), sensorCanvas=$('sensorCam').getContext('2d');
@@ -260,12 +274,15 @@ async function run(){
   touchControls();
   $('vang').oninput=()=>model.set(cat?'downhaulInput':'vangInput',Number($('vang').value)/100);
   $('play').onclick=()=>{running=!running;if(!running)world?.clearQueued();$('play').textContent=running?'Pause':'Resume';};
-  $('wind').oninput=()=>{const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;$('windOut').textContent=w+' m/s';};
+  function applyWind(){const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;$('windOut').textContent=w+' m/s';}
+  $('wind').oninput=()=>{applyWind();remote.changeWeather('wind',Number($('wind').value));};
+  if(url.searchParams.has('room'))multiplayer(true);
   function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
   resize();addEventListener('resize',resize);
   $('luff').onclick=()=>{
     // Swing the wind onto the current bow. The wind stays at that bearing as the boat turns.
-    ocean.U.bearing.value=model.get('heading')+Math.PI;
+    ocean.U.bearing.value=Math.atan2(-Math.sin(model.get('heading')),-Math.cos(model.get('heading')));
+    remote.changeWeather('bearing',ocean.U.bearing.value);
     $('wind').oninput();
     if(!manual)$('helm').click();
     keys.clear();helm();

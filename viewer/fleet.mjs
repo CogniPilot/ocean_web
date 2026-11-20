@@ -30,10 +30,23 @@ function drawGhost(T,scene,peer,kind,template,offset,p,d,f){
   ghost.position.fromArray(old,offset+1).lerp(peer.target.fromArray(d,offset+1),f);
   ghost.quaternion.fromArray(old,offset+4).normalize().slerp(peer.rotation.fromArray(d,offset+4).normalize(),f);
 }
-export function fleet(T,scene,roomName,status){
+export function fleet(T,scene,roomName,status,weather){
   let room,action,lastSend=-Infinity,participants=new Set();
   const peers=new Map();
   let seaClock,clockChannel,lastClockSend=-Infinity,retainedOffset=0;
+  let weatherChannel,weatherRows,weatherChanged=false,lastWeatherSend=-Infinity;
+  const weatherValid={
+    wind:v=>Number.isInteger(v)&&v>=0&&v<=22,
+    bearing:v=>Number.isFinite(v)&&Math.abs(v)<=Math.PI*2,
+    sea:v=>['0','.45','1.1'].includes(v),
+    sky:v=>['Day','Sunset','Moonlit','Storm','Cycle'].includes(v)
+  };
+  function changeWeather(key,value){
+    if(!room||!weatherRows||!weatherValid[key](value)||weatherRows[key][2]===value)return;
+    const revision=Math.max(0,weatherRows[key][0])+1;
+    weatherRows[key]=[revision,selfId,value];
+    weatherChanged=true;
+  }
   function report(){status.textContent=room?(participants.size+1)+' online':'Offline';}
   function remove(id){
     const peer=peers.get(id);
@@ -44,7 +57,7 @@ export function fleet(T,scene,roomName,status){
       for(const item of [...textures,...geometries])item.dispose();
       peers.delete(id);}
   }
-  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
+  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;weatherChannel=null;weatherRows=null;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
   function join(){
     if(room)return;
     room=joinRoom({appId:'pelagic-sailing-v1',relayConfig:{urls:relays}},roomName);
@@ -55,8 +68,29 @@ export function fleet(T,scene,roomName,status){
     clockChannel.onMessage=(sample,{peerId})=>{
       if(room===active)seaClock.observe(peerId,sample,performance.now());
     };
+    if(weather){
+      weatherRows={};
+      for(const [key,value] of Object.entries(weather.read())){
+        weatherRows[key]=[-seaClock.joined,selfId,value];
+      }
+      weatherChannel=room.makeAction('weather');
+      weatherChannel.onMessage=sample=>{
+        if(room!==active||!sample||typeof sample!=='object')return;
+        const changes={};
+        for(const [key,valid] of Object.entries(weatherValid)){
+          const row=sample[key],prior=weatherRows[key];
+          if(!Array.isArray(row)||row.length!==3)continue;
+          const [revision,id,value]=row;
+          if(!Number.isSafeInteger(revision)||typeof id!=='string'||id.length>128||!valid(value))continue;
+          if(revision<prior[0]||(revision===prior[0]&&id<=prior[1]))continue;
+          weatherRows[key]=row;
+          if(value!==prior[2])changes[key]=value;
+        }
+        if(Object.keys(changes).length)weather.apply(changes);
+      };
+    }
     action=room.makeAction('sail-pose');
-    room.onPeerJoin=id=>{if(room===active){participants.add(id);report();}};
+    room.onPeerJoin=id=>{if(room===active){participants.add(id);lastWeatherSend=-Infinity;report();}};
     room.onPeerLeave=id=>{if(room===active){participants.delete(id);seaClock.peers.delete(id);remove(id);report();}};
     action.onMessage=(packet,{peerId})=>{
       if(room!==active||!(packet instanceof Uint8Array)||
@@ -88,6 +122,10 @@ export function fleet(T,scene,roomName,status){
   }
   function frame(now,s,cat,extra,sub,drone,kind){
     if(!room)return;
+    if(weatherChannel && participants.size && now-lastWeatherSend>=(weatherChanged?125:3000)){
+      lastWeatherSend=now;weatherChanged=false;
+      weatherChannel.send(weatherRows).catch(()=>{});
+    }
     if(now-lastSend>=100 && participants.size){
       lastSend=now;
       let packet;
@@ -133,5 +171,5 @@ export function fleet(T,scene,roomName,status){
     }
     return phase;
   }
-  return {join,leave,frame,contacts,seaTime,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
+  return {join,leave,frame,contacts,seaTime,changeWeather,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
 }
