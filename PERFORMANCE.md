@@ -86,3 +86,11 @@ The released `9a3a47043dcc6627` world ran three 1.8 s launches on the same works
 | 18.5, 40 | 180 | 18.2 kN | 96.3 ms | 50.6 ms | 361.9 ms |
 
 Sustained contact cost about five times as much as the offshore trajectory. The comparison includes both geometric contact evaluation and the integration of the resulting forces. It cannot assign that difference to a single collision routine.
+
+## Nearby multiplayer wakes
+
+Two Chromium windows joined one WebRTC room as a boat and a drone. The drone received advancing hull samples, and switching the sender to submarine cleared its source. Each sample carries 148 bytes before transport overhead, or 1.48 kB per receiving peer per simulated second at 10 Hz.
+
+Three independent FMUs tested a real catamaran source replayed 3 m east and 1 m north of a second boat against a quiet control. The maximum surface difference reached 2.85 cm, and the receiving hull sections saw up to 2.30 cm. Existing waves continued after the sender left.
+
+On the development workstation, after 100 warm-up steps, 400 interleaved steps averaged 15.53 ms per 10 ms step on the preceding release and 16.33 ms on the candidate with no peers. A separate comparison on the same candidate averaged 14.47 ms with no source and 15.18 ms with one moving source. Median 200 ms events took 76.41 and 82.23 ms respectively. The tests measured physics alone. Physical phone frame times and multi-peer scaling remain open.

@@ -351,6 +351,10 @@ async function run(){
           if(world.hasWindAnchor)world.set('windAnchor',remote.windAnchor(phase,now,
             windField.get('gustEast'),windField.get('gustNorth'),windField.get('travelE'),windField.get('travelN')));
         }
+        if(world.hasPeerWake){
+          const strips=$('controlTarget').value==='boat'?world.get('waves.sourceStrips'):null;
+          world.set('peerWake',remote.wakeSources(now,strips,model.get('waterStamp')));
+        }
         const steps=Math.min(5,Math.floor(acc/.01));acc=Math.min(.1,acc);
         if(running)acc=Math.max(0,acc-world.advance(steps)*.01);
         const tick=Math.round(world.time*100),waveTick=model.get('waterStamp'),fieldTick=Math.floor(tick/25);

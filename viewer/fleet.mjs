@@ -50,8 +50,43 @@ export function fleet(T,scene,roomName,status,weather){
   const gustReports=new Map();
   const anchor=new Float64Array(5);
   let appliedReport,gustChannel,lastGustSend=-Infinity;
+  const wakeRows=new Float64Array(4*38),wakeSlots=Array(4).fill(null);
+  let wakeChannel,wakeSequence=0,lastWakeStamp=-Infinity;
+  function clearWake(id){
+    const slot=wakeSlots.findIndex(entry=>entry?.id===id);
+    if(slot<0)return;
+    wakeSlots[slot]=null;wakeRows.fill(0,slot*38,(slot+1)*38);
+  }
+  function receiveWake(packet,id){
+    if(peers.get(id)?.kind!=='boat'||!(packet instanceof Uint8Array)||packet.byteLength!==37*4)return;
+    const data=new Float32Array(packet.slice().buffer);
+    if(!data.every(Number.isFinite)||data[0]<0)return;
+    for(let i=1;i<data.length;i+=3){
+      if(Math.abs(data[i])>1e7||Math.abs(data[i+1])>1e7||data[i+2]<0||data[i+2]>5)return;
+    }
+    let slot=wakeSlots.findIndex(entry=>entry?.id===id);
+    if(slot<0){
+      slot=wakeSlots.indexOf(null);if(slot<0)return;
+      wakeSlots[slot]={id,stamp:-1,seen:0};
+      wakeRows[slot*38]=++wakeSequence;
+    }
+    const entry=wakeSlots[slot];
+    if(data[0]<=entry.stamp)return;
+    wakeRows.set(data,slot*38+1);entry.stamp=data[0];entry.seen=performance.now();
+  }
+  function wakeSources(now,source,stamp){
+    for(const entry of wakeSlots)if(entry&&now-entry.seen>1000)clearWake(entry.id);
+    if(room&&participants.size&&source&&stamp!==lastWakeStamp){
+      const packet=new Float32Array(37);
+      packet[0]=stamp;packet.set(source,1);
+      wakeChannel.send(new Uint8Array(packet.buffer)).catch(()=>{});
+      lastWakeStamp=stamp;
+    }
+    return wakeRows;
+  }
   function report(){status.textContent=room?(participants.size+1)+' online':'Offline';}
   function remove(id){
+    clearWake(id);
     const peer=peers.get(id);
     if(peer){peer.mesh?.group.removeFromParent();peer.sub?.removeFromParent();peer.drone?.removeFromParent();
       const geometries=new Set(),materials=new Set(),textures=new Set();
@@ -60,7 +95,7 @@ export function fleet(T,scene,roomName,status,weather){
       for(const item of [...textures,...geometries])item.dispose();
       peers.delete(id);}
   }
-  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
+  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
   function join(){
     if(room)return;
     room=joinRoom({appId:'pelagic-sailing-v1',relayConfig:{urls:relays}},roomName);
@@ -97,6 +132,8 @@ export function fleet(T,scene,roomName,status,weather){
       if(room===active && Array.isArray(report) && report.length===3 && report.every(Number.isFinite))
         gustReports.set(peerId,report);
     };
+    wakeChannel=room.makeAction('hull-wake');
+    wakeChannel.onMessage=(packet,{peerId})=>{if(room===active)receiveWake(packet,peerId);};
     action=room.makeAction('sail-pose');
     room.onPeerJoin=id=>{if(room===active){participants.add(id);lastWeatherSend=-Infinity;report();}};
     room.onPeerLeave=id=>{if(room===active){participants.delete(id);seaClock.peers.delete(id);gustReports.delete(id);remove(id);report();}};
@@ -195,5 +232,5 @@ export function fleet(T,scene,roomName,status,weather){
     }
     return anchor;
   }
-  return {join,leave,frame,contacts,seaTime,changeWeather,windAnchor,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
+  return {join,leave,frame,contacts,seaTime,changeWeather,windAnchor,wakeSources,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
 }
