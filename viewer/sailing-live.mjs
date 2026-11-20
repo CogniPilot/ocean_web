@@ -12,6 +12,30 @@ import {mastCamera} from "./mast-camera.mjs";
 import {courseScene,raceAudio,firstLeg,trueBearing} from "./regatta.mjs";
 import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
+// Present two committed world poses between worker packets. Restore the
+// measured pose after drawing so mast captures and peer packets stay synchronized.
+function displayPose(){
+  const start=new T.Vector3(),end=new T.Vector3(),startQ=new T.Quaternion(),endQ=new T.Quaternion();
+  let stamp,arrival,interval=1;
+  return {
+    apply(mesh,time,now,running){
+      if(time!==stamp){
+        if(stamp===undefined){
+          start.copy(mesh.position);startQ.copy(mesh.quaternion);
+        }else{
+          const blend=Math.min(1,(now-arrival)/interval);
+          start.lerp(end,blend);startQ.slerp(endQ,blend);
+          interval=Math.max(1,Math.min(160,Math.max(now-arrival,.9*interval)));
+        }
+        end.copy(mesh.position);endQ.copy(mesh.quaternion);stamp=time;arrival=now;
+      }
+      const blend=running?Math.min(1,(now-arrival)/interval):1;
+      mesh.position.lerpVectors(start,end,blend);
+      mesh.quaternion.slerpQuaternions(startQ,endQ,blend);
+    },
+    restore(mesh){mesh.position.copy(end);mesh.quaternion.copy(endQ);}
+  };
+}
 async function run(){
   const url=new URL(location.href);
   const requestedHull=url.searchParams.get('boat');
@@ -307,6 +331,7 @@ async function run(){
     // Haul the boom amidships to feather the rig in the headwind.
     model.set('trimInput',-1);
   };
+  const hullDisplay=displayPose(),flightDisplay=displayPose();
   const capturePosition=new T.Vector3(),captureRotation=new T.Quaternion();
   let captureTime=-Infinity,captureSky,captureSea,captureAspect;
   let prev=performance.now(),acc=0,lastCapture=-Infinity;
@@ -462,6 +487,7 @@ async function run(){
         life(t);causticTime.value=t;meshTime=t;
       }
       ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
+      if(world)hullDisplay.apply(boat.group,t,now,running);
       boat.group.localToWorld(orbitCenter.copy(helmSeat));
       const horizontal=distance*Math.cos(tilt);
       camera.up.set(0,0,1);
@@ -480,6 +506,7 @@ async function run(){
       }
       if(drone){
         drone.draw();
+        if(world)flightDisplay.apply(drone.group,t,now,running);
         if(drone.active){
           const {position,quaternion}=drone.group;
           if($('cameraDepth').value==='fpv'){
@@ -527,6 +554,10 @@ async function run(){
         const submerged=camera.position.z<0;
         scene.fog=submerged?underwaterFog:null;scene.background=submerged?underwaterFog.color:null;
         ocean.U.under.value=Number(submerged);ocean.dome.visible=!submerged;renderer.render(scene,camera);
+      }
+      if(world){
+        hullDisplay.restore(boat.group);
+        if(drone)flightDisplay.restore(drone.group);
       }
       document.body.dataset.eyeDepth=camera.position.z.toFixed(2);
       $('vangLoad').textContent=vang.toFixed(0)+' N';
