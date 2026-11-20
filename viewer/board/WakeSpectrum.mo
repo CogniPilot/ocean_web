@@ -97,6 +97,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     Real km,peak,windSpeed,directional,seed,trial;
     Real sr,si,mr,mi,stripR,stripI,momentArm,crossTerm,forceScale;
     Real cx[12,n],sx[12,n],cy[12,n],sy[12,n],ka,kb,length,width,draft,weight;
+    Real armAlong[12],armAcross[12];
     Real re[n,n],im[n,n],unused[n,n];
   algorithm
     windSpeed:=sqrt(ue*ue+un*un);peak:=max(.19,1.4/max(2,windSpeed));
@@ -107,8 +108,10 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     for hull in 1:2 loop
       for panel in 1:6 loop
         strip:=(hull-1)*6+panel;
-        along:=.5*(xs[panel]+xs[panel+1])*cos(pitch);
+        // Horizontal projection of the same body-fixed strip that samples the water.
+        along:=.5*(xs[panel]+xs[panel+1])*cos(pitch)+(3-2*hull)*sep*sin(heel)*sin(pitch);
         across:=(3-2*hull)*sep*cos(heel);
+        armAlong[strip]:=along;armAcross[strip]:=across;
         ex:=x+along*cos(bearing)-across*sin(bearing);
         ny:=y+along*sin(bearing)+across*cos(bearing);
         for i in 1:n loop
@@ -141,9 +144,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
             stripR:=weight*(cx[strip,i]*cy[strip,j]-sx[strip,i]*sy[strip,j]);
             stripI:=-weight*(sx[strip,i]*cy[strip,j]+cx[strip,i]*sy[strip,j]);
             sr:=sr+stripR;si:=si+stripI;
-            along:=.5*(xs[panel]+xs[panel+1])*cos(pitch);
-            across:=(3-2*hull)*sep*cos(heel);
-            momentArm:=along*kb-across*ka;
+            momentArm:=armAlong[strip]*kb-armAcross[strip]*ka;
             mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
           end for;
         end for;
