@@ -365,9 +365,11 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    crossTiller=rod([-1.69,-1.02,.47],[-1.69,1.02,.47],.021,black);
    for(const x of [-1.4,.55])rod([x,-.94,.465],[x,.94,.465],.014,paint(0xbdc5c4));
    for(const x of [-1.4,.55,.55]){
-     const car=mesh(new T.BoxGeometry(.095,.085,.075),black);car.position.set(x,0,.48);deckCars.push(car);
+     const jibCar=x>0;
+     const car=mesh(jibCar?new T.BoxGeometry(.070,.055,.028):new T.BoxGeometry(.095,.085,.075),black);
+     car.position.set(x,0,jibCar?.482:.48);deckCars.push(car);
      if(x<0)rod([-.028,0,.04],[.028,0,.04],.004,pin,car);
-     if(x>0){const fairlead=deckHardware(T,true);fairlead.name='Jib traveler fairlead and cam cleat';fairlead.position.z=.033;car.add(fairlead);}
+     if(x>0){const fairlead=deckHardware(T,true);fairlead.name='Jib traveler fairlead and cam cleat';fairlead.scale.setScalar(.60);fairlead.position.z=.014;car.add(fairlead);}
    }
    for(let i=0;i<10;i++)sheets.push(sheetRope(i<6?0xc65845:0x24768c));
  }else{
@@ -563,7 +565,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
          start=new T.Vector3(x,y,.038).applyQuaternion(sheetBlocks[0].quaternion).add(lowerBlock);
          end=new T.Vector3(x,y,-.038).applyQuaternion(sheetBlocks[1].quaternion).add(top);
        }else{
-         start=car.position.clone();start.x+=offset;start.z+=.073;
+         start=car.position.clone();start.x+=.026*.60+offset*.60;start.z+=.014+.05*.60;
          end=jib.clone();end.x+=offset;
        }
        drawRope(sheets[i],start,end,rope?rope[main?0:i<8?1:2]:0);
