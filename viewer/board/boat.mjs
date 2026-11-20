@@ -142,7 +142,7 @@ export function sailboatMesh(T,cat=false){
    for(const x of [-1.4,.55])rod([x,-1.06,.41],[x,1.06,.41],.067,black);
    const tramp=mesh(new T.BoxGeometry(1.95,1.94,.028),paint(0x36454b));tramp.position.set(-.425,0,.40);
    for(const y of [-.87,.87])rod([-1.33,y,.44],[.48,y,.44],.014,black);
-   carriage=mesh(new T.BoxGeometry(.34,.24,.16),paint(0xffa627));carriage.position.z=.52;
+   carriage=mesh(new T.BoxGeometry(.34,.24,.16),new T.MeshStandardMaterial({color:0x17191a,roughness:.85,metalness:.08}));carriage.position.z=.52;
    rod([.44,0,.41],[.44,0,8.33],.043,black);
    rod([2.26,0,.75],[.44,0,5.85],.011,black);
    crossTiller=rod([-1.69,-1.02,.39],[-1.69,1.02,.39],.021,black);

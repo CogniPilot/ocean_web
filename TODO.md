@@ -32,6 +32,9 @@ A checked item records the specific result described. Open items include partial
 
 ## Sailboats
 
+- [x] Give the trampoline ballast carriage a matte black finish.
+- [ ] Verify linked main/jib manual trim (S hauls in, W eases), windward sheet take-up, on-deck slack and independent jib fine trim.
+
 - [ ] Keep the eased mainsail, its full-length battens and boom inboard of both sidestays. Verify port and starboard contact, release on trimming in, and force transfer at the clew.
 
 - [x] Add selectable Pelagic sloop and full-size Hobie 16 with two shallow hulls, twin steering blades, mainsail and jib. Give the Hobie adjustable fore–aft and transverse trampoline ballast.
