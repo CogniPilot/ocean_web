@@ -53,16 +53,18 @@ vec2 rippleSlope(vec2 world,float clock,float bearing,float wind){
   return min(1.7,wind/10.)*(along*slope.x+crossSea*slope.y);
 }`;
 // Shared sky radiance for the dome and the water reflection. World Z is up.
+const skyNoiseGLSL=`float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.54);}
+float noise2(vec2 p){vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
+float cloud(vec2 p){return noise2(p)*.53+noise2(p*2.1)*.27+noise2(p*4.3)*.13+noise2(p*8.9)*.07;}
+`;
 const skyGLSL=`
 uniform vec3 sunDir;
 uniform vec3 moonDir;
 uniform float tm;
 uniform float storm;
 uniform vec2 cloudTravel,lightning;
-float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.54);}
-float noise2(vec2 p){vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
-float cloud(vec2 p){return noise2(p)*.53+noise2(p*2.1)*.27+noise2(p*4.3)*.13+noise2(p*8.9)*.07;}
-vec3 skyColor(vec3 d){
+${skyNoiseGLSL}
+vec4 skyRadiance(vec3 d){
  float day=smoothstep(-.12,.18,sunDir.z), dusk=1.-smoothstep(.03,.48,abs(sunDir.z));
  float h=pow(max(d.z,0.),.43);
  vec3 horizon=mix(vec3(.022,.041,.077),mix(vec3(.66,.83,.92),vec3(1.,.46,.21),dusk),day);
@@ -70,14 +72,13 @@ vec3 skyColor(vec3 d){
  vec3 c=mix(horizon,zenith,h);
  float sd=max(dot(d,sunDir),0.),md=max(dot(d,moonDir),0.);
  c+=vec3(1.,.67,.32)*pow(sd,28.)*.42*day;
- c+=vec3(5.,3.6,2.1)*smoothstep(.99991,.99997,sd);
  c+=vec3(.72,.81,1.)*smoothstep(.99989,.99996,md)*(0.65+0.35*noise2(d.xy*430.));
  c+=vec3(.6,.76,.96)*step(.9986,hash(floor(d.xy/(.7+abs(d.z))*650.)))*(1.-day)*smoothstep(.05,.3,d.z);
  vec2 field=d.xy/max(.045,d.z)*1.45+-cloudTravel*.001;
  float clouds=smoothstep(.51-.14*storm,.72-.18*storm,cloud(field))*smoothstep(.025,.22,d.z);
  vec3 vapor=mix(vec3(.028,.04,.065),mix(vec3(.87,.91,.92),vec3(1.,.71,.48),dusk),day);
  vec3 fair=mix(c,vapor,clouds*.81);
- if(storm<.001)return fair;
+ if(storm<.001)return vec4(fair,1.-clouds*.81);
  // Trace a curved layer. Finite grazing paths leave a misty horizon.
  vec3 view=normalize(vec3(d.xy,max(0.,d.z)));
  float earth=160.,mu=view.z*earth;
@@ -105,7 +106,7 @@ vec3 skyColor(vec3 d){
  float bolt=exp(-abs(atan(sin(az-line),cos(az-line)))*500.)*smoothstep(.004,.025,d.z)*(1.-smoothstep(.18,.24,d.z));
  float arc=atan(sin(az-strike),cos(az-strike));
  base+=blink*(vec3(.72,.76,.95)*exp(-5.*arc*arc-8.*pow(d.z-.22,2.))*shelf+vec3(2.8,2.7,2.5)*bolt);
- return mix(fair,base*(.45+.55*day),storm);
+ return vec4(mix(fair,base*(.45+.55*day),storm),(1.-clouds*.81)*(1.-storm));
 }
 `;
 function atmosphere(scene){
@@ -114,11 +115,17 @@ function atmosphere(scene){
  skyTarget.texture.wrapS=THREE.RepeatWrapping;
  U.skyMap={value:skyTarget.texture};
  const lookup=`uniform sampler2D skyMap;uniform vec3 sunDir,moonDir;uniform float tm,storm;
- vec3 skyColor(vec3 d){return texture2D(skyMap,vec2(atan(d.y,d.x)/6.2831853+.5,asin(clamp(d.z,-1.,1.))/3.14159265+.5)).rgb;}`;
+ vec3 skyColor(vec3 d){
+   vec4 sky=texture2D(skyMap,vec2(atan(d.y,d.x)/6.2831853+.5,asin(clamp(d.z,-1.,1.))/3.14159265+.5));
+   float separation=length(d-sunDir);
+   float edge=max(.00005,.5*fwidth(separation));
+   float disc=1.-smoothstep(.00465-edge,.00465+edge,separation);
+   return sky.rgb+vec3(5.,3.6,2.1)*disc*sky.a*step(0.,d.z);
+ }`;
  const skyPass=new THREE.Scene(),skyEye=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
  skyPass.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.ShaderMaterial({uniforms:U,depthTest:false,depthWrite:false,
  vertexShader:'varying vec2 p;void main(){p=uv;gl_Position=vec4(position.xy,0.,1.);}',
- fragmentShader:skyGLSL.replace('vec3 skyColor',`
+ fragmentShader:skyGLSL.replace('vec4 skyRadiance',`
  float cloudNoise(vec3 p){
    float layer=floor(p.z),z=fract(p.z);
    vec2 offset=vec2(31.19,17.71);
@@ -128,7 +135,7 @@ function atmosphere(scene){
    float v=.54*cloudNoise(q)+.27*cloudNoise(q*2.09+9.)+.13*cloudNoise(q*4.27-13.)+.06*cloudNoise(q*8.5+21.);
    return smoothstep(.28,.70,v)*smoothstep(0.,.26,h)*(1.-smoothstep(.78,1.,h));
  }
- vec3 skyColor`)+'varying vec2 p;void main(){float a=(p.x-.5)*6.2831853,h=(p.y-.5)*3.14159265;gl_FragColor=vec4(skyColor(vec3(cos(a)*cos(h),sin(a)*cos(h),sin(h))),1.);}'})));
+ vec4 skyRadiance`)+'varying vec2 p;void main(){float a=(p.x-.5)*6.2831853,h=(p.y-.5)*3.14159265;gl_FragColor=skyRadiance(vec3(cos(a)*cos(h),sin(a)*cos(h),sin(h)));}'})));
  let lastSky=-Infinity,skyKey='';
  function updateSky(renderer,time,key){
    if(key===skyKey && time-lastSky<(U.storm.value>.3?.075:.35))return;
@@ -177,7 +184,7 @@ function atmosphere(scene){
  vertexShader:field+`varying vec3 wp;
  void main(){wp=(modelMatrix*vec4(position,1.)).xyz;wp.z=heightAt(wp.xy);
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
- fragmentShader:lookup+oceanRippleGLSL+skyGLSL.slice(skyGLSL.indexOf('float hash'),skyGLSL.indexOf('vec3 skyColor'))+field+`
+ fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
  uniform sampler2D windMap; uniform float windFieldActive; uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;uniform vec4 boat;varying vec3 wp;
  uniform sampler2D transmissionDepth;uniform vec2 cameraRange;
  float viewDepth(float z){return cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}

@@ -93,18 +93,40 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  function rod(a,b,r,mat,parent=group){a=new T.Vector3(...a);b=new T.Vector3(...b);const d=b.clone().sub(a);const m=mesh(new T.CylinderGeometry(r,r,d.length(),10),mat,parent);m.position.copy(a).lerp(b,.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return m;}
  let vane,drum,rudder,otherRudder,carriage,crossTiller;
  const deckCars=[],sheets=[];
+ const ropeSides=6,ropeRings=9;
+ const circle=Array.from({length:ropeSides},(_,i)=>[Math.cos(i*2*Math.PI/ropeSides),Math.sin(i*2*Math.PI/ropeSides)]);
+ const side=new T.Vector3(),tangent=new T.Vector3(),binormal=new T.Vector3();
  function sheetRope(color){
-   const geometry=new T.BufferGeometry().setAttribute('position',new T.Float32BufferAttribute(new Float32Array(9*3),3));
-   const line=new T.Line(geometry,new T.LineBasicMaterial({color}));line.frustumCulled=false;group.add(line);return line;
- }
- function drawRope(line,from,to,sag){
-   const v=line.geometry.attributes.position;
-   for(let i=0;i<9;i++){
-     const u=i/8;
-     v.setXYZ(i,from.x+(to.x-from.x)*u,from.y+(to.y-from.y)*u,
-       from.z+(to.z-from.z)*u-4*u*(1-u)*sag);
+   const geometry=new T.BufferGeometry(),faces=[];
+   for(const name of ['position','normal']){
+     geometry.setAttribute(name,new T.BufferAttribute(new Float32Array(3*ropeRings*ropeSides),3).setUsage(T.DynamicDrawUsage));
    }
-   v.needsUpdate=true;
+   for(let i=0;i<ropeRings-1;i++)for(let j=0;j<ropeSides;j++){
+     const a=i*ropeSides+j,b=i*ropeSides+(j+1)%ropeSides;
+     faces.push(a,b,b+ropeSides,a,b+ropeSides,a+ropeSides);
+   }
+   geometry.setIndex(faces);
+   const rope=mesh(geometry,new T.MeshStandardMaterial({color,roughness:.94}));
+   rope.frustumCulled=false;
+   return rope;
+ }
+ function drawRope(rope,from,to,sag){
+   const {position,normal}=rope.geometry.attributes;
+   const dx=to.x-from.x,dy=to.y-from.y,dz=to.z-from.z,radius=cat ? .005 : .002;
+   side.set(-dy,dx,0);
+   if(side.lengthSq()<1e-16)side.set(1,0,0);else side.normalize();
+   for(let i=0;i<ropeRings;i++){
+     const u=i/(ropeRings-1),x=from.x+dx*u,y=from.y+dy*u,z=from.z+dz*u-4*u*(1-u)*sag;
+     tangent.set(dx,dy,dz-4*(1-2*u)*sag).normalize();
+     binormal.crossVectors(tangent,side);
+     for(let j=0;j<ropeSides;j++){
+       const [c,s]=circle[j],k=i*ropeSides+j;
+       const nx=c*side.x+s*binormal.x,ny=c*side.y+s*binormal.y,nz=s*binormal.z;
+       normal.setXYZ(k,nx,ny,nz);
+       position.setXYZ(k,x+radius*nx,y+radius*ny,z+radius*nz);
+     }
+   }
+   position.needsUpdate=true;normal.needsUpdate=true;
  }
  if(cat){
    // Loft the white blades through progressively narrower foil sections.

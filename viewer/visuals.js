@@ -28,7 +28,7 @@ function seabedMaterials(T,illumination){
    m.onBeforeCompile=s=>{
      s.vertexShader='varying vec3 location;\n'+s.vertexShader.replace('#include <worldpos_vertex>','#include <worldpos_vertex>\nlocation=(modelMatrix*vec4(transformed,1.)).xyz;');
      s.uniforms.causticTime=causticTime;
-     s.fragmentShader='uniform float causticTime;varying vec3 location;\n'+skyGLSL.slice(skyGLSL.indexOf('float hash'),skyGLSL.indexOf('vec3 skyColor'))+s.fragmentShader;
+     s.fragmentShader='uniform float causticTime;varying vec3 location;\n'+skyNoiseGLSL+s.fragmentShader;
      const code=kind==='sand'?`vec2 p=location.xy;float ridge=sin(6.*p.x+2.4*sin(p.y*.81)+cloud(p*.7)*5.); diffuseColor.rgb=vec3(.26,.31,.27)*(.65+.12*ridge+.53*cloud(p*2.));`:
      `vec2 p=vec2(location.x+.34*location.y,location.z+.25*location.y);float oxidation=cloud(p*vec2(.75,.38))+.16*noise2(p*vec2(7.,1.2));vec3 brown=vec3(.35,.125,.046);diffuseColor.rgb=mix(vec3(${base}),brown,smoothstep(.43,.69,oxidation))*(.63+.47*noise2(p*43.));`;
      Object.assign(s.uniforms,illumination);
