@@ -63,7 +63,7 @@ A checked item records the specific result described. Open items include partial
 - [ ] Extend survey regression to sustained sensor outages, ambiguous loop closures and minimum structural clearance.
 - [ ] Validate the electrical powertrain, ballast thermofluid behavior, air/water propeller loading, surface wind, full added-mass coupling and current-gradient pressure against measured data. Compare against the [Mariana reference](https://piccard.science/).
 - [x] Verify RDD2 station holding, manual flight, return to station, drag in reversed crosswinds and motor-cut descent to rest at −13.61 m in the released WASM.
-- [ ] Measure drone tracking error while its submarine station moves.
+- [x] Follow the onboard submarine estimate through the full wreck survey with the RDD2. Horizontal tracking error was 0.874 m RMS, altitude error was 0.236 m RMS and peak horizontal separation was 2.28 m.
 - [x] Add fish and the Quaternius shark and whale. Retain asset credits; compare shading, size and animation from the submarine and waterline cameras.
 
 ## Vehicle art
