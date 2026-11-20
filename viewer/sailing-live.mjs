@@ -81,6 +81,7 @@ async function run(){
   const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;scene.add(bottom);
   const wreckVisual=batchScenery(T,makeWreck(T,materials));scene.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,scene);
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
+  const helmSeat=new T.Vector3(cat ? -1.2 : -.73,0,cat ? .65 : .18),orbitCenter=new T.Vector3();
   let angle=-.8,distance=cat?14:5.7,tilt=.16,drag=null,running=true,manual=true;
   $('view').onpointerdown=e=>{drag=[e.clientX,e.clientY];e.target.setPointerCapture(e.pointerId);};
   $('view').onpointermove=e=>{if(drag){angle-=(e.clientX-drag[0])*.008;tilt=Math.min(1.4,Math.max(-1.45,tilt+(e.clientY-drag[1])*.006));drag=[e.clientX,e.clientY];}};
@@ -335,9 +336,13 @@ async function run(){
         life(t);causticTime.value=t;meshTime=t;
       }
       ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
-      camera.up.set(0,0,1);camera.position.set(s[0]+distance*Math.cos(angle),s[1]+distance*Math.sin(angle),s[3]+(cat?3:.9)+distance*Math.sin(tilt));if($('cameraDepth').value==='line')camera.position.z=0;
+      boat.group.localToWorld(orbitCenter.copy(helmSeat));
+      const horizontal=distance*Math.cos(tilt);
+      camera.up.set(0,0,1);
+      camera.position.set(horizontal*Math.cos(angle),horizontal*Math.sin(angle),distance*Math.sin(tilt)).add(orbitCenter);
+      if($('cameraDepth').value==='line')camera.position.z=0;
       camera.position.z=Math.max(-13.1,camera.position.z);
-      camera.lookAt(s[0],s[1],camera.position.z<.4?s[3]:s[3]+(cat?3.8:1.1));
+      camera.lookAt(orbitCenter);
       if(drone){
         drone.draw();
         if(drone.active){const [x,y,z]=drone.position;
