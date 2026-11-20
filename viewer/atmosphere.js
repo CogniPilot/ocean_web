@@ -186,7 +186,7 @@ function atmosphere(scene){
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
  uniform sampler2D windMap; uniform float windFieldActive; uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;uniform vec4 boat;varying vec3 wp;
- uniform sampler2D transmissionDepth;uniform vec2 cameraRange;
+ uniform highp sampler2D transmissionDepth;uniform mat4 throughMatrix;uniform vec3 throughEye;uniform vec2 cameraRange;
  float viewDepth(float z){return cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}
  void main(){
    vec3 eye=normalize(cameraPosition-wp);
@@ -224,14 +224,19 @@ function atmosphere(scene){
      vec2 uv=clamp(clip.xy/clip.w*.5+.5-d*normalOffset,.001,.999);
      vec4 objects=texture2D(reflection,uv,.65);
      vec3 reflected=mix(skyColor(ref),objects.rgb,objects.a);
-     vec2 screen=gl_FragCoord.xy/viewport;
+     // Compare both depths in the camera that captured the seabed.
+     vec4 captureClip=throughMatrix*vec4(wp,1.);
+     vec2 screen=captureClip.xy/max(.001,captureClip.w)*.5+.5;
      vec2 refrUV=clamp(screen+d*.009,.001,.999);
-     float surfaceDepth=viewDepth(gl_FragCoord.z);
+     float surfaceDepth=captureClip.w;
      float hitDepth=viewDepth(texture2D(transmissionDepth,refrUV).r);
      if(hitDepth<surfaceDepth){refrUV=screen;hitDepth=viewDepth(texture2D(transmissionDepth,screen).r);}
-     float path=clamp((hitDepth-surfaceDepth)*length(cameraPosition-wp)/max(.01,surfaceDepth),0.,60.);
+     float path=clamp((hitDepth-surfaceDepth)*length(throughEye-wp)/max(.01,surfaceDepth),0.,60.);
+     vec2 frameMargin=min(screen,1.-screen);
+     float visible=smoothstep(0.,.025,min(frameMargin.x,frameMargin.y))
+        *step(.001,surfaceDepth)*step(surfaceDepth,hitDepth)*(1.-smoothstep(9.,32.,path));
      vec3 below=texture2D(transmission,refrUV).rgb;
-     vec3 trans=exp(-vec3(.22,.068,.040)*path);
+     vec3 trans=visible*exp(-vec3(.22,.085,.055)*path);
      color=mix(waterColor*(1.-trans)+below*trans,reflected,fres);
      color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
      float crest=wp.z-tide-.4*length(d);
@@ -266,10 +271,12 @@ function atmosphere(scene){
  reflectRT.texture.generateMipmaps=true;
  reflectRT.texture.minFilter=THREE.LinearMipmapLinearFilter;
  throughRT.depthTexture=new THREE.DepthTexture(512,320,THREE.UnsignedIntType);
+ U.throughMatrix={value:new THREE.Matrix4()};U.throughEye={value:new THREE.Vector3()};
  U.transmissionDepth={value:throughRT.depthTexture};U.cameraRange={value:new THREE.Vector2()};
  U.reflection.value=reflectRT.texture;U.transmission.value=throughRT.texture;
  function capture(renderer,camera){
-   U.cameraRange.value.set(camera.near,camera.far);renderer.getDrawingBufferSize(U.viewport.value);const oldBackground=scene.background,oldFog=scene.fog;
+   camera.updateMatrixWorld();U.throughMatrix.value.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
+   U.throughEye.value.copy(camera.position);U.cameraRange.value.set(camera.near,camera.far);renderer.getDrawingBufferSize(U.viewport.value);const oldBackground=scene.background,oldFog=scene.fog;
    const target=new THREE.Vector3();camera.getWorldDirection(target);target.add(camera.position);
    mirrorCamera.copy(camera);mirrorCamera.position.z=2*U.tide.value-camera.position.z;target.z=2*U.tide.value-target.z;
    mirrorCamera.up.set(0,0,-1);mirrorCamera.lookAt(target);mirrorCamera.updateMatrixWorld();

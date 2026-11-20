@@ -41,7 +41,9 @@ function seabedMaterials(T,illumination){
        vec2 floorUV=(location.xy+waterRay.xy*((-13.7-location.z)/min(-.05,waterRay.z))-vec2(16.,0.))/64.+.5;
        if(all(greaterThan(floorUV,vec2(0.)))&&all(lessThan(floorUV,vec2(1.)))){
          float focus=max(0.,texture2D(wreckFlux,floorUV).r/.13-1.);
-         diffuseColor.rgb*=1.+min(focus,3.)*sunStrength*exposed*vec3(.55,.86,.77);
+         vec2 margin=min(floorUV,1.-floorUV);
+         float coverage=smoothstep(0.,.10,min(margin.x,margin.y));
+         diffuseColor.rgb*=1.+coverage*min(focus,3.)*sunStrength*exposed*vec3(.55,.86,.77);
        }`);
    };
    m.customProgramCacheKey=()=>kind+base;return m;

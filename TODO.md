@@ -108,3 +108,5 @@ A checked item records the specific result described. Open items include partial
 - [x] Add an estimated attitude ladder, heading tape, speed and altitude or depth to both first-person views. Mount the submarine camera inside a transparent forward viewport.
 - [x] Add a Shift speed modifier to manual drone flight and model four-foot landings on the catamaran trampoline and sloop hatch.
 - [ ] Reproduce the upward mainsail fold reported at 68.4 s, heading 256°T, and 89 N tackle load.
+- [x] Fade the refracted seabed and caustic patch into open water and reduce both jib traveler cleats.
+- [ ] Synchronize ambient wave phase, sea state and wind across peers and preserve the room clock through late joins and host departures. Exchange timestamped hull forcing or wake state so remote boats leave a shared wake.
