@@ -119,3 +119,4 @@ A checked item records the specific result described. Open items include partial
 - [ ] Restore earlier wake trails for late joiners, support the split-model sloop, and benchmark multiplayer wakes on phones.
 - [x] Ship Low, Balanced and High rendering settings, default Low on touch phones, and benchmark draw time independently of simulated time.
 - [ ] Verify sustained frame pacing on physical phones and reduce the CPU cost of the integrated FMU. Defer enhanced wake shading while frame pacing takes priority.
+- [x] Suspend the unoccupied manual submarine’s imager when sailing or flying manually. Preserve acoustic and inertial navigation and restore visual observations for the selected submarine and both autopilots.
