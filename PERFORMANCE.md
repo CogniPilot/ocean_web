@@ -110,3 +110,11 @@ A workstation comparison interleaved three WASM sessions over 400 measured 10 ms
 ### Movement between worker updates
 
 A cache-disabled Chromium touch viewport (393 × 852, SwiftShader) rendered 181 sampled frames per sailing run. With the previous renderer, the hull repeated exactly the same position on 144 and 149 of 180 frame transitions at 48 FPS. Sampling position and orientation between committed worker poses reduced repeats to 16 of 180 at 50 FPS. The maximum visible position change in that run was 9.2 cm, compared with 14.4 and 11.9 cm in the baseline runs. Pausing stabilized both the boat and its camera. In a separate drone FPV run the aircraft altitude changed on 158 of 180 transitions. These are display measurements. The interpolation can trail the latest solved pose by up to one interpolation interval (capped at 160 ms). Vehicle contacts, sensors, network packets and mast captures continue to use committed physics states.
+
+### Submarine collision lookup during sailing
+
+A 300-step sampling profile with the survey camera idle found 253 of 3,748 samples inside the submarine's structure-contact routine. Its launch position is outside the wreck and above the seabed. The Modelica function now first compares the submarine position to two expanded bounding boxes, one for the wreck and one for the seabed. Both use the original narrow-phase guard margin. The geometry generator derives the bounds from the same rounded collision solids used by the solver. The candidate profile counted 4 of 3,612 samples in that routine.
+
+Two interleaved WASM runs each measured 400 steps after 100 warm-up steps per model. With the previous release first, mean time per 10 ms step was 14.58 ms versus 14.30 ms with the bounds. With initialization order reversed, means were 16.39 ms versus 13.18 ms. Variability under shared workstation load limits the precision of the timing gain.
+
+An independent OpenModelica comparison evaluated the old and new force and moment functions at 5,940 positions across the six faces of all 165 oriented collision solids, with six offsets, varying hull yaw and nonzero linear and angular velocity. Forces and moments matched exactly, including 4,115 positions with nonzero contact force.

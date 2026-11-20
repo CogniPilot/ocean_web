@@ -58,10 +58,20 @@ function emitPartition(node,indent) {
     emitPartition(node.left,indent+'  '),indent+'else',emitPartition(node.right,indent+'  '),indent+'end if;'].join('\n');
 }
 const exterior=[1,...Array(maxCandidates-1).fill(0)];
+// Use the same conservative bounds before entering the narrow-phase function.
+// Keep the large seabed separate so it cannot enlarge the wreck's guard volume.
+const vectorLiteral=values=>'{'+values.join(',')+'}';
+const bed=rows[0].split(',').map(Number);
+const boundsConstants=[
+  ['wreckLow',[0,1,2].map(i=>Math.min(...candidates.map(v=>v.low[i])))],
+  ['wreckHigh',[0,1,2].map(i=>Math.max(...candidates.map(v=>v.high[i])))],
+  ['bedLow',[0,1,2].map(i=>bed[i]-bed[15+i]-guardExtent-1e-6)],
+  ['bedHigh',[0,1,2].map(i=>bed[i]+bed[15+i]+guardExtent+1e-6)]
+].map(([name,values])=>'  constant Real '+name+'[3]='+vectorLiteral(values)+';');
 const hullBounds=[0,1,2].map(i=>'pos['+(i+1)+']>='+Math.min(...candidates.map(x=>x.low[i]))+
     ' and pos['+(i+1)+']<='+Math.max(...candidates.map(x=>x.high[i]))).join(' and ');
 const contactTree=['  constant Integer maxCandidates='+maxCandidates+';',
-  '  constant Real guardExtent='+guardExtent+';',
+  '  constant Real guardExtent='+guardExtent+';',...boundsConstants,
   '  function contactCandidates','    input Real pos[3];','    output Integer ids[maxCandidates];','  algorithm',
   '    if '+hullBounds+' then',emitPartition(root,'      '),'    else','      ids:={'+exterior.join(',')+'};',
   '    end if;','    annotation(Inline=false);','  end contactCandidates;'].join('\n');
