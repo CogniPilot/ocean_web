@@ -30,3 +30,5 @@ Emscripten runtime, MIT option. See Emscripten.txt, musl.txt and LLVM.txt.
 Dolphin mesh and swim motion by Quaternius, CC0 1.0. Resized and baked to eight swim poses.
 https://quaternius.com/packs/animatedfish.html
 https://poly.pizza/m/3LzFgI3GLO
+
+Music (Pirate1_Theme1.mp3) by Olivier Bérubé.

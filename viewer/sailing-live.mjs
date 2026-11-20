@@ -73,7 +73,7 @@ async function run(){
   theme.volume=.32;
   function showMusicState(){
     music.setAttribute('aria-pressed',String(!theme.paused));
-    music.title=theme.paused?'Play music':'Pause music';
+    music.title=theme.paused?'Play music by Olivier Bérubé':'Pause music by Olivier Bérubé';
   }
   theme.addEventListener('play',showMusicState);
   theme.addEventListener('pause',showMusicState);
