@@ -65,6 +65,7 @@ A checked item records the specific result described. Open items include partial
 - [x] Score survey heading and test a controlled stern-entry revisit. The 12-station run had 2.62° RMS heading error. The 24 s return-track test accepted one closure with 0.604 m maximum position error.
 - [x] Exercise the integrated LS-WASM world through the 12-station wreck mission and score the onboard pose estimate against the plant trajectory.
 - [x] Verify the public worker sends the SLAM map when keyframes change. Over 40 browser snapshots the five map updates matched the complete FMI graph, and 35 snapshots skipped its 8,640 values.
+- [x] Transfer the wind, wake, background sea, camera and feature arrays on their simulation clocks. Across 90 mixed-step browser snapshots, all 1,171,530 checked scalar values matched full reads. The sampled arrays and the scalar probe used 2.61 MB versus 9.37 MB.
 - [ ] Extend survey regression to sustained sensor outages, ambiguous loop closures and minimum structural clearance.
 - [ ] Validate the electrical powertrain, ballast thermofluid behavior, air/water propeller loading, surface wind, full added-mass coupling and current-gradient pressure against measured data. Compare against the [Mariana reference](https://piccard.science/).
 - [x] Verify RDD2 station holding, manual flight, return to station, drag in reversed crosswinds and motor-cut descent to rest at −13.61 m in the released WASM.

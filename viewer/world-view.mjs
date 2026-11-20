@@ -23,15 +23,20 @@ export async function openWorld(){
  function send(message){return new Promise((resolve,reject)=>{pending={resolve,reject};worker.postMessage({...message,id:++id});});}
  const initial={sailingManual:1,subManual:1,flightManual:1,windSpeed:Math.hypot(10,4),windBearing:Math.atan2(4,10),epoch:Date.now()/1000,vang:.5};
  const inputs=[...new Set([...Object.keys(initial),...Object.values(boatInputs),'seaState','subPilot','flightPilot','motorCut'])];
- const frame=await send({type:'open',outputs,inputs,initial,surveyMap:true});
+ const frame=await send({type:'open',outputs,inputs,initial,surveyMap:true,sampledFields:true});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
    if(typeof value==='number')controls[i]=value;else controls.set(value,i);}
  Object.entries(initial).forEach(([name,v])=>set(name,v));
+ function unpack(fields,values){
+   for(const v of fields)state.set(v.name,v.shape.length?values.subarray(v.offset,v.offset+v.count):values[v.offset]);
+ }
  function receive(f){time=f.time;
    if(f.mapRows)state.set('keyframes',f.mapRows);
-   for(const v of layout.outputs)state.set(v.name,v.shape.length?f.values.subarray(v.offset,v.offset+v.count):f.values[v.offset]);}
+   unpack(layout.outputs,f.values);
+   f.sampled?.forEach((values,i)=>{if(values)unpack(layout.sampled[i],values);});
+ }
  receive(frame);
  let busy=false;
  function advance(steps){if(error)throw error;if(busy||!steps)return false;

@@ -5,6 +5,12 @@ import {openFmuSession} from './fmu-session.js';
 import {scalarNames} from './fmu-page-contract.js';
 
 let session,observations,inputs,surveyMap;
+let sampledGroups=[],stepCount=0;
+// These discrete outputs share sample events in OceanWorld. The initial
+// right limit can differ from the initialization snapshot on the first step.
+function sampleEpoch(step,interval){
+  return step===0 ? -1 : Math.floor(step/interval);
+}
 function expand(names,variables){
   const layout=[],elements=[];
   for(const name of names){
@@ -27,7 +33,20 @@ async function handle(request){
       sailingManual:1,subManual:1,flightManual:1,...request.initial
     })));
     const variables=new Map(index.variables.map(v=>[v.name,v]));
-    const reads=expand(request.outputs,variables),writes=expand(request.inputs,variables);
+    let names=request.outputs;
+    if(request.sampledFields){
+      const [waveDt,windDt]=session.read_values(JSON.stringify(['waves.dt','wind.dt']));
+      const schedules=[[waveDt*100,['waves.height']],[20,['boatWater.tile','image','features']],[windDt*100,['wind.field']]];
+      for(const [interval,candidates] of schedules){
+        if(!Number.isSafeInteger(interval)||interval<1)continue;
+        const selected=names.filter(name=>candidates.includes(name));
+        if(!selected.length)continue;
+        const fields=expand(selected,variables);
+        sampledGroups.push({interval,layout:fields.layout,binding:session.bind_outputs(JSON.stringify(fields.elements))});
+        names=names.filter(name=>!selected.includes(name));
+      }
+    }
+    const reads=expand(names,variables),writes=expand(request.inputs,variables);
     observations=session.bind_outputs(JSON.stringify(reads.elements));
     if(request.surveyMap){
       const estimate=reads.layout.find(v=>v.name==='estimate');
@@ -37,16 +56,25 @@ async function handle(request){
         binding:session.bind_outputs(JSON.stringify(keys.elements)), count:-1, closures:-1};
     }
     inputs=session.bind_inputs(JSON.stringify(writes.elements));
-    layout={outputs:reads.layout,inputs:writes.layout};
+    layout={outputs:reads.layout,inputs:writes.layout,sampled:sampledGroups.map(group=>group.layout)};
   }else if(request.type==='advance'){
     if(!Number.isSafeInteger(request.steps)||request.steps<0)throw Error('Expected nonnegative step count');
     if(request.values)session.write_bound(inputs,request.values);
     for(let i=0;i<request.steps;i++)session.step(.01);
+    stepCount+=request.steps;
   }else if(request.type==='close'){
     session?.free();self.close();return;
   }else throw Error('Unknown world request');
   const values=session.read_bound(observations);
   const transfer=[values.buffer];
+  const sampled=sampledGroups.map(group=>{
+    const epoch=sampleEpoch(stepCount,group.interval);
+    if(epoch===group.epoch)return null;
+    group.epoch=epoch;
+    const data=session.read_bound(group.binding);
+    transfer.push(data.buffer);
+    return data;
+  });
   let mapRows;
   if(surveyMap){
     // The estimator appends a keyframe or optimizes on loop closure. Send the
@@ -59,7 +87,7 @@ async function handle(request){
       surveyMap.closures=closures;
     }
   }
-  self.postMessage({id:request.id,time:session.time(),values,layout,mapRows},transfer);
+  self.postMessage({id:request.id,time:session.time(),values,layout,mapRows,sampled},transfer);
 }
 // Opening the guest is asynchronous. Process later control packets in order.
 let queue=Promise.resolve();
