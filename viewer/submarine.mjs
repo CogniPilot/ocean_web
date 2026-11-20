@@ -18,6 +18,9 @@ export function submarine(T,scene){
     toPosition.fromArray(data.position);
     const [w,x,y,z]=data.q;toAttitude.set(x,y,z,w);
     blendMs=frame?Math.max(16,Math.min(800,now-receivedAt)):1;
+    // The plant publishes poses between camera acquisitions. Retain the last
+    // sensor frame until the navigation clock supplies the next image.
+    if(frame && !data.image){data.image=frame.image;data.features=frame.features;data.estimate=frame.estimate;}
     receivedAt=now;frame=data;previous=data.time;
   };
   worker.onerror=e=>{error=e.message;busy=false;};

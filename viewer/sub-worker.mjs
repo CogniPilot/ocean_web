@@ -10,9 +10,9 @@ let tick=0, estimate, image, features;
 let mapRows, mappedKeys=-1, closures=-1;
 function acquire(plant,nav){
   nav.set('stamp',tick*.01);
-  nav.set('truth',[...plant.get('position'),...plant.get('orientation'),
-    ...plant.get('velocity'),plant.get('yawRate'),plant.get('pressure'),
-    ...plant.get('specificForce'),...plant.get('rates')]);
+  const [position,orientation,velocity,yawRate,pressure,accel,rates]=plant.getMany(
+    ['position','orientation','velocity','yawRate','pressure','specificForce','rates']);
+  nav.set('truth',[...position,...orientation,...velocity,yawRate,pressure,...accel,...rates]);
   const names=[
     'sensor','elev','image','features','estimate','keyframes'
   ];
@@ -30,16 +30,17 @@ self.onmessage=async({data})=>{
     const [plant,nav]=await ready;
     plant.set('manual',Number(data.manual));plant.set('pilot',data.pilot);
     plant.set('windSpeed',data.wind);plant.set('windDirection',data.bearing);
+    const previousImage=image;
     for(let i=0;i<data.steps;i++){
       if(tick%20===0)acquire(plant,nav);
       plant.advance(.01);tick++;
     }
-    const survey=plant.get('surveyTelemetry');
+    const [survey,position,q,rpm,cavitation,flow]=plant.getMany(
+      ['surveyTelemetry','position','orientation','propellerRPM','cavitation','current']);
     self.postMessage({waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,
       thrust:survey.slice(3,10),buoyancy:survey.slice(10,13),contact:survey.slice(13,16),mapRows,
-      time:tick*.01,position:plant.get('position'),q:plant.get('orientation'),
-      rpm:plant.get('propellerRPM'),cavitation:plant.get('cavitation'),flow:plant.get('current'),
-      estimate,image,features},mapRows?[mapRows.buffer]:[]);
+      time:tick*.01,position,q,rpm,cavitation,flow,
+      ...(previousImage===image?{}:{estimate,image,features})},mapRows?[mapRows.buffer]:[]);
     mapRows=undefined;
   }catch(error){self.postMessage({error:error.message});}
 };
