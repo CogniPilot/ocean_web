@@ -269,9 +269,11 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      rod([-.16,0,.09],[-.13,0,.24],.027,black,blade);
      rod([-.13,0,.24],[.89,0,.31],.023,black,blade);
      if(side===1)rudder=blade;else otherRudder=blade;
-     // A bow tang sits on the inner face immediately below the raised sheer.
-     rod([2.42,side*.99,.38],[2.42,side*.98,.414],.007,pin);
-     rod([2.42,side*.98,.414],[2.29,0,.65],.003,pin);
+     // Terminal loft station of Shore.pontoon: 4 mm half-beam, .463 m sheer.
+     const bowEye=[2.555,side*(1.02-.004),.463];
+     rod([2.548,side*1.02,.452],bowEye,.004,pin);
+     const bridle=rod(bowEye,[2.29,0,.65],.003,pin);
+     bridle.name=side===1?'Port bow bridle':'Starboard bow bridle';
      installStay(side===1?0:1,[-.52,side*1.02,.34]);
      // Woven tape, 42.5 cm long and 15 mm wide, with a square-cut free end.
      // A slight twist keeps both edges legible when seen from the helm.
