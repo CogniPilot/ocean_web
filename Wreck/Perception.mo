@@ -64,11 +64,13 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
 
   function renderDepth "First returns along the four DVL, 149 sonar and 864 pinhole-camera rays"
     input Real pos[3],T[3,3],d[rays,3];
+    input Boolean camera=true;
     output Real depth[rays];
   protected Real eye[3],limit,hit;
   algorithm
     eye:=pos+transpose(T)*{.62,0,.09};
-    for i in 1:rays loop
+    depth:=zeros(rays);
+    for i in 1:(if camera then rays else 153) loop
       limit:=if i<=4 then 35 elseif i<=153 then 18 else 8;
       hit:=WreckSolids.beamRange(if i<=153 then pos else eye,transpose(T)*d[i,:],limit+1);
       depth[i]:=if hit<=limit then hit else 0;
@@ -83,6 +85,7 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
 
   function instruments
     input Real t,pos[3],T[3,3],v[3],rates[3],accel[3],pressure,depth[rays],d[rays,3];
+    input Boolean camera=true;
     output Real raw[195] "149 sonar ranges, four DVL ranges and radial velocities, pressure, inertial measurements";
     output Real image[864];
   protected
@@ -99,7 +102,8 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
       raw[158+i]:=rates[i]+.002*noise(t,158+i)+(if i==3 then .0018 else 0);
       raw[161+i]:=accel[i]+.025*noise(t,161+i);
     end for;
-    for i in 1:864 loop
+    image:=zeros(864);
+    for i in 1:(if camera then 864 else 0) loop
       r:=depth[153+i];signalLevel:=14;
       if r>0 then
         rayWorld:=transpose(T)*d[153+i,:];p:=eye+r*rayWorld;
@@ -189,6 +193,7 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
   end registration;
   function estimate "Pressure/gravity aided sonar keyframe graph; temporal optical features constrain yaw and verify revisits"
     input Real t,raw[195],d[rays,3],image[864],previousImage[864],previous[21],history[keys,stride];
+    input Boolean camera=true;
     output Real s[21],graph[keys,stride],sensor[91],ft[24,5];
   protected
     Real ring[16],opticalRate,cloud[48,3],r,roll,pitch,cp,sp,cr,sr,x,y,z,kg,fix[3],rms,best,chosenFix[3],innovation[4],oldPose[4];
@@ -202,7 +207,11 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
       // Zero-rate measurement in the stationary launch cradle.
       s[21]:=raw[161];
     end if;
-    (ft,ring,opticalRate,nf,nm):=features(image,previousImage);
+    if camera then
+      (ft,ring,opticalRate,nf,nm):=features(image,previousImage);
+    else
+      ft:=fill(-1,24,5);ring:=zeros(16);opticalRate:=0;nf:=0;nm:=0;
+    end if;
     lock:=min(raw[1:4])>0;
     if raw[1]>0 and raw[2]>0 then s[5]:=(raw[154]-raw[155])/(2*sin(pi/8));end if;
     if raw[3]>0 and raw[4]>0 then s[6]:=(raw[156]-raw[157])/(2*sin(pi/8));end if;
@@ -324,12 +333,13 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
 
   function sampleFrame
     input Real t,truth[18],d[rays,3],overrideDepth[rays],useRaster,oldImage[864],previous[21],history[keys,stride];
+    input Boolean camera=true;
     output Real sensor[91],elev[100],image[864],state[21],graph[keys,stride],ft[24,5];
   protected Real T[3,3],depth[rays],raw[195];
   algorithm
     T:=MultiBodyLie.Math.quaternionToT(truth[4:7]);
-    if useRaster>.5 then depth:=overrideDepth;else depth:=renderDepth(truth[1:3],T,d);end if;
-    (raw,image):=instruments(t,truth[1:3],T,truth[8:10],truth[16:18],truth[13:15],truth[12],depth,d);
-    elev:=raw[54:153];(state,graph,sensor,ft):=estimate(t,raw,d,image,oldImage,previous,history);
+    if useRaster>.5 then depth:=overrideDepth;else depth:=renderDepth(truth[1:3],T,d,camera);end if;
+    (raw,image):=instruments(t,truth[1:3],T,truth[8:10],truth[16:18],truth[13:15],truth[12],depth,d,camera);
+    elev:=raw[54:153];(state,graph,sensor,ft):=estimate(t,raw,d,image,oldImage,previous,history,camera);
   end sampleFrame;
 end Perception;

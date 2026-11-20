@@ -7,6 +7,7 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
   input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),deckManual,mainCar,jibCar,jibSheet;
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
+  input Real idleCamera(start=0) "Permit suspending the survey imager while other vehicles have manual control";
   input Real subManual(start=1),subPilot[4],flightManual(start=1),flightPilot[4],motorCut;
   Sailboat boat(seaClockOffset=seaClockOffset,catamaran=hobie,droneLoad=drone.sailWrench[7:12],mass=if hobie then 205 else 64,
     launchHeight=if hobie then .2 else .069,ballastMass=if hobie then 60 else 0,
@@ -91,6 +92,6 @@ equation
   when sample(0,.2) then
     (sensor,elev,image,estimate,keyframes,features)=Wreck.Perception.sampleFrame(time,
       cat(1,sub.position,sub.orientation,sub.velocity,{sub.yawRate,sub.pressure},sub.specificForce,sub.rates),
-      beams,zeros(1017),0,pre(image),pre(estimate),pre(keyframes));
+      beams,zeros(1017),0,pre(image),pre(estimate),pre(keyframes), idleCamera<.5 or subManual<.5 or flightManual<.5);
   end when;
 end OceanWorld;
