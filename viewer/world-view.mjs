@@ -1,3 +1,4 @@
+import {sailingStart,windBearing,windSpeed} from './sailing-start.mjs';
 // Views share one committed worker snapshot, so every mesh uses the same clock.
 import {boatFields} from './board/boat.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
@@ -21,9 +22,11 @@ export async function openWorld(){
  worker.onmessage=({data})=>{if(data.error)pending.reject(Error(data.error));else pending.resolve(data);};
  worker.onerror=e=>{error=Error(e.message);pending?.reject(error);};
  function send(message){return new Promise((resolve,reject)=>{pending={resolve,reject};worker.postMessage({...message,id:++id});});}
- const initial={sailingManual:1,subManual:1,flightManual:1,windSpeed:Math.hypot(10,4),windBearing:Math.atan2(4,10),epoch:Date.now()/1000,vang:.5};
+ const initial={sailingManual:1,subManual:1,flightManual:1,windSpeed,windBearing,epoch:Date.now()/1000,vang:.5};
  const inputs=[...new Set([...Object.keys(initial),...Object.values(boatInputs),'seaState','subPilot','flightPilot','motorCut'])];
- const frame=await send({type:'open',outputs,inputs,initial,surveyMap:true,sampledFields:true});
+ const parameters={prevailingBearing:windBearing};
+ for(const [key,value] of Object.entries(sailingStart(true)))parameters['boat.'+key]=value;
+ const frame=await send({type:'open',outputs,inputs,initial,parameters,surveyMap:true,sampledFields:true});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);

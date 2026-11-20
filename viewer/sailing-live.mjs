@@ -1,3 +1,4 @@
+import {sailingStart,windBearing,windSpeed} from './sailing-start.mjs';
 import {wreckCaustics} from './caustics.mjs';
 import {loadVehicleShells} from './vehicle-assets.mjs';
 import {loadInstance} from './fmi3/instance.mjs?api=2';
@@ -24,7 +25,7 @@ async function run(){
   document.querySelector('h1').textContent=cat?'Hobie 16':'Sailboat';
   $('trampoline').hidden=!cat;$('vangControl').hidden=false;
   // Start at the default loaded waterline for each hull.
-  const inputs={launchHeight:cat ? .20 : .069,windEast:10,windNorth:4,currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,vangInput:.5,manualHelm:1,rudderInput:0,trimInput:0};
+  const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,vangInput:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const [model]=await Promise.all([world?.boat??loadInstance(vessel,inputs),loadVehicleShells()]);
   const worker=world?null:new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
   let waterFrame,waterError;

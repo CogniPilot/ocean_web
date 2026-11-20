@@ -28,7 +28,7 @@ async function handle(request){
     const base=new URL('./',import.meta.url);
     const {index:file}=await (await fetch(new URL('manifest.json',base),{cache:'no-cache'})).json();
     const index=await (await fetch(new URL(file,base))).json();
-    session=await openFmuSession({index,base,instanceName:'ocean_web'});
+    session=await openFmuSession({index,base,parameters:request.parameters,instanceName:'ocean_web'});
     session.set_inputs(JSON.stringify(Object.entries({
       sailingManual:1,subManual:1,flightManual:1,...request.initial
     })));

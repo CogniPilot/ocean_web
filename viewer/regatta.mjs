@@ -56,7 +56,7 @@ export function courseScene(T,scene,race){
 }
 export function raceAudio(){
   let audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
-  let submerged,surface,effects,level=.25;
+  let submerged,surface,effects,level=.15;
   function setVolume(value){
     level=value;
     if(effects)effects.gain.setTargetAtTime(level,audio.currentTime,.025);

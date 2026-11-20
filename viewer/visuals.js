@@ -91,9 +91,20 @@ function marineLife(T,scene){
  };
  scene.add(new T.Mesh(kelp,frond));
  const dust=new Float32Array(1500*3);
- for(let i=0;i<dust.length;i+=3){dust[i]=random()*58-14;dust[i+1]=random()*30-15;dust[i+2]=-13+random()*11;}
+ for(let i=0;i<dust.length;i+=3){dust[i]=random()*80;dust[i+1]=random()*80;dust[i+2]=-13.3+random()*12.6;}
  const geo=new T.BufferGeometry();geo.setAttribute('position',new T.BufferAttribute(dust,3));
- const motes=new T.Points(geo,new T.PointsMaterial({size:.022,color:0x9ddddc,transparent:true,opacity:.45}));scene.add(motes);
+ const silt=new T.PointsMaterial({size:.012,color:0xa9c5bd,transparent:true,depthWrite:false,opacity:.24});
+ silt.onBeforeCompile=shader=>{
+   shader.vertexShader='varying float siltFade;\n'+shader.vertexShader.replace('#include <begin_vertex>',
+     `#include <begin_vertex>
+      vec2 origin=(modelMatrix*vec4(0.,0.,0.,1.)).xy;
+      vec2 offset=mod(position.xy+origin-cameraPosition.xy+40.,80.)-40.;
+      transformed.xy=cameraPosition.xy-origin+offset;
+      siltFade=1.-smoothstep(26.,39.,length(offset));`);
+   shader.fragmentShader='varying float siltFade;\n'+shader.fragmentShader.replace('#include <alphamap_fragment>',
+     '#include <alphamap_fragment>\ndiffuseColor.a*=siltFade*(1.-smoothstep(.06,.5,length(gl_PointCoord-.5)));');
+ };
+ const motes=new T.Points(geo,silt);motes.frustumCulled=false;scene.add(motes);
  return t=>{
    visitors(t);
    swimmers.forEach((f,i)=>{const cycle=(t*6+i)%8,k=Math.floor(cycle);f.morphTargetInfluences.fill(0);f.morphTargetInfluences[k]=1-(cycle-k);f.morphTargetInfluences[(k+1)%8]=cycle-k;const a=t*.11+i*.17;f.position.set(-1+4*Math.sin(a)+.8*Math.sin(i*11),-3.8+1.9*Math.cos(a)+.67*Math.cos(i*2),-9.4+.8*Math.sin(i*3.2)+.18*Math.sin(t*.9+i));f.rotation.z=Math.atan2(-1.9*Math.sin(a),4*Math.cos(a))+.07*Math.sin(t*6+i);});
