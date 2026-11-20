@@ -36,13 +36,13 @@ async function handle(request){
     let names=request.outputs;
     if(request.sampledFields){
       const [waveDt,windDt]=session.read_values(JSON.stringify(['waves.dt','wind.dt']));
-      const schedules=[[waveDt*100,['waves.height']],[20,['boatWater.tile','image','features']],[windDt*100,['wind.field']]];
-      for(const [interval,candidates] of schedules){
+      const schedules=[[waveDt*100,['waves.height']],[20,['boatWater.tile']],[20,['image','features'],'camera'],[windDt*100,['wind.field']]];
+      for(const [interval,candidates,subscription] of schedules){
         if(!Number.isSafeInteger(interval)||interval<1)continue;
         const selected=names.filter(name=>candidates.includes(name));
         if(!selected.length)continue;
         const fields=expand(selected,variables);
-        sampledGroups.push({interval,layout:fields.layout,binding:session.bind_outputs(JSON.stringify(fields.elements))});
+        sampledGroups.push({interval,subscription,layout:fields.layout,binding:session.bind_outputs(JSON.stringify(fields.elements))});
         names=names.filter(name=>!selected.includes(name));
       }
     }
@@ -68,6 +68,10 @@ async function handle(request){
   const values=session.read_bound(observations);
   const transfer=[values.buffer];
   const sampled=sampledGroups.map(group=>{
+    if(group.subscription && request.surveyView?.[group.subscription]===false){
+      group.epoch=undefined;
+      return null;
+    }
     const epoch=sampleEpoch(stepCount,group.interval);
     if(epoch===group.epoch)return null;
     group.epoch=epoch;
@@ -76,7 +80,7 @@ async function handle(request){
     return data;
   });
   let mapRows;
-  if(surveyMap){
+  if(surveyMap && request.surveyView?.map!==false){
     // The estimator appends a keyframe or optimizes on loop closure. Send the
     // entire occupied prefix on either event so earlier optimized poses refresh.
     const count=values[surveyMap.estimateOffset+12],closures=values[surveyMap.estimateOffset+13];

@@ -18,6 +18,7 @@ A checked item records the specific result described. Open items include partial
 - [x] Add vehicle selection, independent manual startup and switchable autopilots for all three vehicles, keyboard and mobile thumbstick controls, and sailboat cameras that can go underwater.
 - [x] Add opt-in peer-to-peer ghosts and verify that two browser clients see each other. Add race marks, committee boat, fleet countdown, start signal and wind audio.
 - [x] Verify reciprocal contact forces and yaw moments for sloop–sloop, catamaran–catamaran and mixed pairs in the shipped FMUs. Two clients joined the public Pages room and rendered each other.
+- [x] Publish submarine camera and feature frames only while piloting the submarine, and map rows only while viewing its sonar map. Verified independent subscriptions and camera resumption against the integrated WASM.
 - [ ] Test contact over a latency-impaired peer link, sensor visibility options, arbitrary internet peers, and race scoring through a full race.
 - [x] Reduce submarine collision broad-phase work. At 4,135 sampled poses all six force and moment components matched the exhaustive check.
 - [ ] Benchmark end-to-end submarine speed and input latency on physical phones and desktop browsers with waves, SLAM and multiplayer enabled.
