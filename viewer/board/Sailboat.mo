@@ -109,6 +109,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   end standingRig;
   input Real traffic[4,9] "Active, east, north, yaw, east/north velocity, yaw rate, height, twin hull";
   output Real peerForce[3] "World east/north force and yaw moment";
+  input Real committeeLoad[6] "World force and moment of the committee launch about the sailboat origin";
   input Real wakeEast,wakeNorth,wakeYaw "Free-surface pressure reaction from the local wave FMU";
   input Real useSectionWater,sectionWater[2,6],previousWater[2,6],waterStamp;
   Real waterFraction;
@@ -586,18 +587,18 @@ equation
   skinDrag=.5*1025*skinArea*(1+formFactor)*frictionCoefficient*waterRelative[1]*abs(waterRelative[1]);
   shoreWrench=Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing);
   peerForce=contactWrench({east,north,heading,ve,vn,yawRate,heave},traffic,catamaran);
-  der(surge)=((wakeEast+droneLoad[1]+peerForce[1])*cos(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*sin(heading)+fx+shoreWrench[1]+sum(foilAxial)+skinDrag)/totalMass+yawRate*sway;
-  der(sway)=(-(wakeEast+droneLoad[1]+peerForce[1])*sin(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*cos(heading)+fy+shoreWrench[2]+sum(foilSide)-80*sway*abs(sway)-40*sway)/totalMass-yawRate*surge;
-  levelYawMoment=droneLoad[6]+shoreWrench[6]+wakeYaw+peerForce[3]+sailMoment[3]+sum(foilTorque[:,3]);
+  der(surge)=((wakeEast+droneLoad[1]+committeeLoad[1]+peerForce[1])*cos(heading)+(wakeNorth+droneLoad[2]+committeeLoad[2]+peerForce[2])*sin(heading)+fx+shoreWrench[1]+sum(foilAxial)+skinDrag)/totalMass+yawRate*sway;
+  der(sway)=(-(wakeEast+droneLoad[1]+committeeLoad[1]+peerForce[1])*sin(heading)+(wakeNorth+droneLoad[2]+committeeLoad[2]+peerForce[2])*cos(heading)+fy+shoreWrench[2]+sum(foilSide)-80*sway*abs(sway)-40*sway)/totalMass-yawRate*surge;
+  levelYawMoment=droneLoad[6]+shoreWrench[6]+wakeYaw+committeeLoad[6]+peerForce[3]+sailMoment[3]+sum(foilTorque[:,3]);
   der(yawRate)=(levelYawMoment-(if catamaran then 190 else 30)*yawRate)/(yawInertia+rigWaterInertia*(sin(pitch)^2+cos(pitch)^2*sin(heel)^2)+sum(hingeWaterInertia));
   der(heading)=yawRate;
   der(heel)=rollRate;
   // The roll axis pitches with the hull. Its moment is conjugate to the
   // roll-rate term in spin, including when the bows pass vertical.
-  der(rollRate)=(cos(pitch)*(droneLoad[4]*cos(heading)+droneLoad[5]*sin(heading)+shoreWrench[4]+sum(foilTorque[:,1])+podRoll+sailMoment[1]+(if catamaran then sum(hullRoll)+massRoll else -400*sin(heel-waveRoll)))-sin(pitch)*levelYawMoment-(if catamaran then 280 else 65)*rollRate)/(rollInertia+rigWaterInertia+podMass*podZ^2);
+  der(rollRate)=(cos(pitch)*(droneLoad[4]*cos(heading)+droneLoad[5]*sin(heading)+committeeLoad[4]*cos(heading)+committeeLoad[5]*sin(heading)+shoreWrench[4]+sum(foilTorque[:,1])+podRoll+sailMoment[1]+(if catamaran then sum(hullRoll)+massRoll else -400*sin(heel-waveRoll)))-sin(pitch)*levelYawMoment-(if catamaran then 280 else 65)*rollRate)/(rollInertia+rigWaterInertia+podMass*podZ^2);
   der(pitch)=pitchRate;
   weightArm=rotation[1,1]*centerMassX;
-  der(pitchRate)=(-droneLoad[4]*sin(heading)+droneLoad[5]*cos(heading)+shoreWrench[5]+sum(foilTorque[:,2])+podPitch+sailMoment[2]+sum(impactTorque)+pitchBuoyancy+mass*9.80665*weightArm+massPitch-(if catamaran then 420 else 72)*pitchRate)/(pitchInertia+rigWaterInertia+podMass*(podZ^2+footX[1]^2));
+  der(pitchRate)=(-droneLoad[4]*sin(heading)+droneLoad[5]*cos(heading)-committeeLoad[4]*sin(heading)+committeeLoad[5]*cos(heading)+shoreWrench[5]+sum(foilTorque[:,2])+podPitch+sailMoment[2]+sum(impactTorque)+pitchBuoyancy+mass*9.80665*weightArm+massPitch-(if catamaran then 420 else 72)*pitchRate)/(pitchInertia+rigWaterInertia+podMass*(podZ^2+footX[1]^2));
   der(heave)=vertical;
   for hull in 1:2 loop
     sectionVolume[hull,:]=if hull==1 or catamaran then volumes[hull,:] else zeros(6);
@@ -608,6 +609,6 @@ equation
   waterDamping=if catamaran then 2*heaveDampingRatio*sqrt(1025*9.80665*waterplaneArea/totalMass)*min(1,buoyancy/(mass*9.80665)) else 5.8;
   waterVertical=orbitalUp-swellAmplitude*sqrt(9.80665*swellK)*cos(swellPhase)
      +(if useSectionWater>.5 then sum(sectionWater-previousWater)/1.2 else 0);
-  der(vertical)=(droneLoad[3]+shoreWrench[3]+podBuoyancy+buoyancy+sum(foilLoad[:,3])+sum(impact[:,3])+sum(rigForce[:,3]))/totalMass-9.80665-waterDamping*(vertical-waterVertical);
+  der(vertical)=(droneLoad[3]+committeeLoad[3]+shoreWrench[3]+podBuoyancy+buoyancy+sum(foilLoad[:,3])+sum(impact[:,3])+sum(rigForce[:,3]))/totalMass-9.80665-waterDamping*(vertical-waterVertical);
   annotation(experiment(StopTime=300,Interval=0.05));
 end Sailboat;

@@ -86,3 +86,68 @@ The released `9a3a47043dcc6627` world ran three 1.8 s launches on the same works
 | 18.5, 40 | 180 | 18.2 kN | 96.3 ms | 50.6 ms | 361.9 ms |
 
 Sustained contact cost about five times as much as the offshore trajectory. The comparison includes both geometric contact evaluation and the integration of the resulting forces. It cannot assign that difference to a single collision routine.
+
+## Why the 80 m gate preview falls behind
+
+On November 20 the local single-FMU preview used world index `d2b8ae5490a96980`. The comparison used the Pages build's `7da70130b10a9b8d` index served locally. Both ran the full scene. A 10 ms physics tick has a 10 ms wall-clock budget for 1× simulation. The following Node measurements exclude rendering, networking and audio. Each run warmed up for 100 ticks and timed the next 120 with identical inputs.
+
+| Build | Mean tick | Median | p95 | Simulated seconds per wall second |
+| --- | ---: | ---: | ---: | ---: |
+| Pages | 16.1 ms | 7.5 ms | 77.2 ms | 0.62 |
+| Local gate preview | 100.1 ms | 43.1 ms | 436.3 ms | 0.10 |
+
+These were reverse-order repeats on a shared Ryzen 9 5950X. In the first pair, pinned to one core during concurrent profiling, the means were higher, 54.6 and 206.1 ms respectively. Use the paired runs to establish the regression. Neither run predicts a particular phone's frame rate. Reading three pose outputs on the local build took 1.19 ms median. Most of the delay occurred inside the guest's step.
+
+A separate V8 sampling profile of the local guest collected 16,706 samples over 100 steps after 40 warmup steps. Algebraic refresh was on 90.9% of stacks, complete projection on 75.0%, and scalar equation isolation on 59.3%. These inclusive shares overlap. Two isolation programs calling the hull hydrostatics function accounted for 3,834 samples together (23.0% of the entire profile). The generated call computes eight outputs including lift, moments and six immersed volumes. The scalar solver repeatedly visits that tuple. Event update appeared on 9.7% of stacks. Lowering sonar frequency alone would leave the dominant local solver path intact.
+
+| Local trajectory, 2 m/s initial speed | Mean tick | p95 | Contact evidence |
+| --- | ---: | ---: | --- |
+| Offshore | 115.5 ms | 453.6 ms | Zero shore force |
+| Island approach | 198.2 ms | 755.1 ms | 47 of 180 ticks with shore force |
+| Sustained rocks | 329.2 ms | 1349.7 ms | 159 of 180 ticks, 33.5 kN peak |
+| Pass 8 m farther from pin | 89.2 ms | 240.5 ms | Zero mark force |
+| Strike pin, ticks with force above 1 N | 206.8 ms | 521.0 ms | 1.02 kN peak, 2.36 m maximum pin excursion |
+
+The shore rows exclude 30 warmup timings. Impact and miss used the same heading and speed in calm wind. The impact row includes 81 loaded ticks after warmup. Different trajectories activate different equation branches and integrator work. A slower contact trajectory does not directly measure the time spent inside the geometric intersection function.
+
+### Browser and mobile
+
+Chromium ran at 393 × 852 CSS pixels using touch emulation and SwiftShader. Over 180 frames the local build delivered 15.3 FPS, p95 frame time of 83 ms and 0.051× simulation speed. The Pages build served locally achieved 27.9 FPS, 48.5 ms and 0.542×. The local drawing buffer initially measured 451 × 979, versus 314 × 681 for Pages. Both builds adapt resolution during the run.
+
+With the local drawing buffer fixed at 314 × 681, holding reflection and refraction at their initial capture reduced mean draw calls from 144 to 106 and p95 frame time from 71.7 to 58.8 ms. Simulation advanced at 0.056× and 0.058× respectively. This diagnostic froze water captures in both space and time. It demonstrates potential frame-time savings, but freezing the reflections would give an incorrect moving view. GPU timings on a physical phone remain unmeasured.
+
+### Where to spend the fidelity budget
+
+* Keep the boat's two hulls, leeward immersion, sheet limits, full-length battens and paired contact forces. Verify them with heel, yaw, righting moment and sheet-tension histories. Reusing identical force evaluations in the compiler can save time at full model resolution.
+* Spend additional water resolution close to the bows and along an active wake. Compare crest spacing, wave height, hull resistance and energy balance on the same reach before adopting a finer solver. A uniformly finer ocean would charge every vehicle for bow detail everywhere.
+* Keep sonar and navigation at survey fidelity on an occupied sub. Test selecting one active vehicle per peer and scheduling sensors only for vehicles using them. A control selector that leaves every vehicle in the compiled solve cannot deliver the same saving. Measure complete survey time and pose error on the sub; measure helm latency on a sail-only run.
+* Separate camera effects from physics. A slower capture cadence and smaller render targets can improve frame pacing. Nearby hull and mark contact must continue to sample the actual Modelica state on every required solver step.
+* For peer-to-peer racing, agree on a world seed, simulation tick, weather inputs and wake contributions. Share keyframes with late joiners. Let the coordinator confirm race events and shared-body impacts, and render snapshots between updates. Raw frame rate and each device's wall clock are unsuitable as the wave phase.
+
+To reproduce an isolated run, use `node scripts/profile-world.mjs PATH_TO_PREPARED_WORLD 180 rocks`. Positional scenarios include the approach from the first tick. The default scenario includes warmup. Set `OCEAN_CPU_PROFILE=/tmp/ocean.cpuprofile` for a separate V8 sampling run.
+
+### Compiler result on identical model equations
+
+The Rumoca C generator now recognizes compact multi-output pure calls in scalar isolation programs. It keeps the last successful result in the FMU instance, keyed on the exact bytes of every typed argument. A changed input causes reevaluation. Calls with assertion predicates take the existing path. The cache is bounded and excludes large fields. This targets repeated evaluation of hull hydrostatics while retaining the model equations and solver step.
+
+The table compares the same 80 m race model and compiler options with and without the generator change. Two independent FMU instances advanced in alternating order, with identical rudder, sheet and wind changes. Each scenario compared 118 force, moment, pose, displaced-volume, wake, estimator and buoy output scalars at every one of 150 steps. All **53,100 scalar comparisons were bit-identical**. Timing excludes the first 20 steps per case. These runs took place under concurrent build and benchmark load.
+
+| Scenario | Previous mean / p95 (ms) | With cache, mean / p95 (ms) | Mean cost reduction |
+| --- | ---: | ---: | ---: |
+| Offshore | 104.3 / 382.4 | 81.9 / 296.8 | 21.5% |
+| Pin approach and impact | 321.7 / 1098.7 | 305.8 / 1108.5 | 4.9% |
+| Rock approach and impact | 495.4 / 1517.7 | 464.6 / 1442.4 | 6.2% |
+
+The pin p95 did not improve in this run. The optimized world remains above the 10 ms budget. Reproduce the comparison using `node scripts/compare-world-contact.mjs BASELINE_RUNTIME CANDIDATE_RUNTIME`. The compiler's 268 code-generation library tests also passed.
+
+### Wind fidelity experiment
+
+Three standalone builds used the same gust equations, 96 m periodic patch, seed, 10 m/s east and 4 m/s north mean wind, and 4 Hz updates. Over 16 seconds, 16 moving receiver locations per tick yielded 1,024 vector comparisons against direct evaluation of the continuous gust equations. The rows measure spatial interpolation error relative to this model. They do not validate its real-world meteorology or a boat's long-term trajectory.
+
+| Grid | Cell width | Median update | RMS vector error | p95 / maximum error |
+| --- | ---: | ---: | ---: | ---: |
+| 24 × 24 | 4 m | 1.26 ms | 0.102 m/s | 0.192 / 0.863 m/s |
+| 32 × 32 | 3 m | 2.19 ms | 0.054 m/s | 0.108 / 0.376 m/s |
+| 48 × 48 | 2 m | 4.47 ms | 0.025 m/s | 0.046 / 0.206 m/s |
+
+A 32 × 32 field is a promising rendering and roughness grid. A better physical fidelity trade is to evaluate the continuous gust model at the occupied boat and drone independently of the display grid. That would also give different graphics tiers a common wind at the same position and tick. The current preview keeps the 48 × 48 production grid. Even saving 2.28 ms four times per second would recover only about 9 ms per simulated second in this standalone test. The much larger deficit is in the integrated solver.

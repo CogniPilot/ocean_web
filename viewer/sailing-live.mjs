@@ -51,6 +51,9 @@ async function run(){
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
   const boat=sailboatMesh(T,cat,model.get("foilX")[0]);scene.add(boat.group);coast(T,scene);
   const race=world?.race??await loadInstance('Regatta',{windBearing:Math.atan2(inputs.windNorth,inputs.windEast),east:model.get('east'),north:model.get('north'),utc:Date.now()/1000});
+  if(!world){
+    race.set('hullStations',model.get('stationX'));race.set('hullWidths',model.get('beamHalf'));race.set('hullOffset',model.get('halfSpacing'));
+  }
   const windField=world?.wind??await loadInstance('MarineWind',{meanEast:inputs.windEast,meanNorth:inputs.windNorth,east:model.get('east'),north:model.get('north')});
   let captureMast;
   $('mastCapture').onclick=()=>{
@@ -376,6 +379,8 @@ async function run(){
           const {height,incident,sections,origin,period,load}=waterFrame;
           waterFrame=null;
           race.set('wakeTile',height);race.set('driftEast',origin[0]);race.set('driftNorth',origin[1]);
+          race.set('surfaceWind',[model.get('windEast'),model.get('windNorth')]);
+          race.set('surfaceFlow',[model.get('currentEast'),model.get('currentNorth')]);
           race.set('swellHeight',model.get('swellAmplitude'));
           worker.postMessage({...waveInputs(),windEast:windField.get('meanEast'),windNorth:windField.get('meanNorth')});
           model.set('useSectionWater',1);model.set('previousWater',lastSections??sections);
@@ -385,11 +390,11 @@ async function run(){
           ocean.updateSpectrum(height,...origin,period);
         }
         wakeTicks++;
+        race.set('east',model.get('east'));race.set('north',model.get('north'));
+        race.set('racerState',[1,...model.getMany(['heading','heel','pitch','heave','ve','vn','yawRate','vertical','rollRate','pitchRate'])]);
+        model.set('committeeLoad',race.get('racerLoad'));
         model.advance(.01);
-        if(wakeTicks%5===0){
-          race.set('east',model.get('east'));race.set('north',model.get('north'));
-          race.set('utc',Date.now()/1000);race.advance(.05);
-        }
+        race.set('utc',Date.now()/1000);race.advance(.01);
         if(drone){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);race.set('landingReaction',drone.deckReaction);model.set('droneLoad',drone.sailReaction);}acc-=.01;
       }
       ocean.U.spectrumBlend.value=world?model.get('waterFraction'):Math.min(1,((wakeTicks===0?0:(wakeTicks-1)%10+1)+acc/.01)/10);

@@ -22,7 +22,7 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
     aspect=if hobie then {.65,3.4,.65,3.4} else {3.5,2.6,1,1},
     manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,
     deckManual=deckManual,mainCarInput=mainCar,jibCarInput=jibCar,jibTrimInput=jibSheet,reachTrial=0,
-    ballastManual=ballastManual,ballastCmdX=ballastX,ballastCmdY=ballastY,traffic=traffic,
+    ballastManual=ballastManual,ballastCmdX=ballastX,ballastCmdY=ballastY,traffic=traffic,committeeLoad=race.racerLoad,
     windEast=wind.localEast,windNorth=wind.localNorth,currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],
     orbitalEast=boatWater.velocity[1]-boatWater.meanFlow[1],orbitalNorth=boatWater.velocity[2]-boatWater.meanFlow[2],orbitalUp=boatWater.velocity[3],
     useSectionWater=1,sectionWater=surfaceSections,previousWater=priorSections,waterStamp=sectionStamp,
@@ -34,7 +34,8 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
     stations=boat.stationX,separation=boat.halfSpacing,volume=boat.sectionVolume,beamHalf=boat.beamHalf,
     currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],windEast=wind.meanEast,windNorth=wind.meanNorth,seaAmplitude=seaState);
   Wreck.Ocean boatWater(pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
-  Regatta race(landingReaction=drone.deckWrench[7:12],wakeTile=waves.height,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
+  Regatta race(landingReaction=drone.deckWrench[7:12],racerState={1,boat.heading,boat.heel,boat.pitch,boat.heave,boat.ve,boat.vn,boat.yawRate,boat.vertical,boat.rollRate,boat.pitchRate},
+    hullStations=boat.stationX,hullWidths=boat.beamHalf,hullOffset=boat.halfSpacing,surfaceFlow=boatWater.meanFlow,surfaceWind={wind.meanEast,wind.meanNorth},wakeTile=waves.height,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
     tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north);
   Wreck.Plant sub(windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,
     manual=subManual,pilot=subPilot,hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:8]);

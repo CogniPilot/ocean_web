@@ -40,7 +40,8 @@ A checked item records the specific result described. Open items include partial
 
 ## Sailboats
 
-- [x] Set a 200 m triangular course with a wind-square 40 m start line. Test crossings at three prevailing wind bearings.
+- [x] Set a 200 m triangular course with a wind-square 80 m start line. Test crossings at three prevailing wind bearings.
+- [x] Exercise port and starboard hull contact with the floating start pin and both rounding marks in Modelica. Verify separation and force balance.
 - [x] Move the Pilothouse fin, bulb and lateral force station amidships.
 - [x] Give the trampoline ballast carriage a matte black finish.
 - [x] Transmit leech tension through the mainsail mesh and verify loaded-edge motion with the sheet hauled.
@@ -110,3 +111,5 @@ A checked item records the specific result described. Open items include partial
 - [ ] Reproduce the upward mainsail fold reported at 68.4 s, heading 256°T, and 89 N tackle load.
 - [x] Fade the refracted seabed and caustic patch into open water and reduce both jib traveler cleats.
 - [ ] Synchronize ambient wave phase, sea state and wind across peers and preserve the room clock through late joins and host departures. Exchange timestamped hull forcing or wake state so remote boats leave a shared wake.
+- [ ] Let each multiplayer window join with one vehicle and a distinct identity. Measure role-specific Modelica solves, on-demand sonar and cross-peer deck contact. Retain the full world for the integrated survey.
+- [ ] Elect a race coordinator with a term and a majority of the agreed roster. Verify late join, leader handover, 1–1 partitions and duplicate lap suppression in multiple windows.

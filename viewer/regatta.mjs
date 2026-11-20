@@ -66,19 +66,30 @@ export function courseScene(T,scene,race){
     const board=mesh(boat,new T.PlaneGeometry(2.2,.82),boardMaterial,-.28,side*.57,1.83);
     board.rotation.order='ZXY';board.rotation.x=Math.PI/2;board.rotation.z=side<0?0:Math.PI;
   }
-  const marks=[];
-  function mark(x,y,number){
-    const body=new T.Group();group.add(body);marks.push(body);body.position.set(x,y,0);x=0;y=0;
-    if(number)markNumber(body,number,x,y);
-    const buoy=mesh(body,new T.ConeGeometry(.85,1.75,3,1),orange,x,y,.77);buoy.rotation.x=Math.PI/2;
-    const collar=mesh(body,new T.CylinderGeometry(.76,.81,.14,3),navy,x,y,.04);collar.rotation.x=Math.PI/2;
-  }
-  mark(race.get('pinEast'),race.get('pinNorth'));
-  race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i],i+1));
-  let previous;
+  const marks=Array.from({length:3},(_,i)=>{
+    const mark=new T.Group();group.add(mark);if(i>0)markNumber(mark,i,0,0);
+    const buoy=mesh(mark,new T.ConeGeometry(.85,1.75,3,1),orange,0,0,.775);buoy.rotation.x=Math.PI/2;
+    const collar=mesh(mark,new T.CylinderGeometry(.76,.81,.14,3),navy,0,0,.04);collar.rotation.x=Math.PI/2;
+    return mark;
+  });
+  const cord=new T.BufferGeometry(),points=new T.BufferAttribute(new Float32Array(4*3*2*3),3);
+  points.setUsage(T.DynamicDrawUsage);cord.setAttribute('position',points);
+  const rodes=new T.LineSegments(cord,new T.LineBasicMaterial({color:0x918576}));rodes.frustumCulled=false;group.add(rodes);
+  let previous,poseTime;
   return label=>{
-    const [heave,roll,pitch]=race.get('launchPose');
-    boat.position.z=heave;boat.rotation.x=roll;boat.rotation.y=-pitch;
+    if(race.time!==poseTime){
+      const [heave,roll,pitch]=race.get('launchPose');
+      boat.position.set(race.get('committeeEast'),race.get('committeeNorth'),heave);
+      boat.rotation.z=race.get('launchHeading');boat.rotation.x=roll;boat.rotation.y=-pitch;
+      const positions=race.get('buoyPosition'),path=race.get('mooringPath');
+      marks.forEach((mark,i)=>mark.position.fromArray(positions,i*3));
+      let next=0;
+      for(let body=0;body<4;body++)for(let link=0;link<3;link++)for(let end=0;end<2;end++){
+        const i=3*(4*body+link+end);
+        points.setXYZ(next++,path[i],path[i+1],path[i+2]);
+      }
+      points.needsUpdate=true;poseTime=race.time;
+    }
     const poses=race.get('markPose');
     marks.forEach((mark,i)=>{
       mark.position.z=poses[3*i];

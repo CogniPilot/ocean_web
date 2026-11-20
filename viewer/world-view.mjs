@@ -4,7 +4,7 @@ import {boatFields} from './board/boat.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
 const outputs=[
  ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
- ...group('race','countdown stage elapsed lapTime markPose launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
+ ...group('race','countdown stage elapsed lapTime markPose launchHeading launchPose buoyPosition mooringPath committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
  ...group('drone','position quaternion rotorAngle attitude gps gpsVelocity dragBody aircraft.rotorGeometry.positionBodyFlu_m'),
  ...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),
  ...group('wind','field strikeBearing strikeFlash thunderArrival travelE travelN'),
