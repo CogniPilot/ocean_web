@@ -42,8 +42,13 @@ A checked item records the specific result described. Open items include partial
 - [x] Set a 200 m triangular course with a wind-square 40 m start line. Test crossings at three prevailing wind bearings.
 - [x] Move the Pilothouse fin, bulb and lateral force station amidships.
 - [x] Give the trampoline ballast carriage a matte black finish.
+- [x] Transmit leech tension through the mainsail mesh and verify loaded-edge motion with the sheet hauled.
+- [x] Replace the catamaran vang with a downhaul. Verify the fixed head, moving tack, tracked foot and reversible luff load through an ease–haul–ease cycle.
+- [ ] Compare eased-sail leech speeds during hard trim releases against measured rig motion. Investigate the short, large spikes in the release transient.
+- [x] Render generic triple mainsheet blocks, shackles, routed sheet and cam hardware on the moving jib travelers.
+- [x] Add pairs of local-flow telltales to both faces of the main and jib at two heights.
 - [x] Mount apparent-wind telltales on both catamaran shrouds and verify calm, crosswind and boat-induced flow in the compiled model.
-- [x] Allow the mainsheet blocks to meet, with tension-only low-stretch purchase and elastic fore–aft mast bend.
+- [ ] Allow the mainsheet blocks to meet, with tension-only low-stretch purchase and elastic fore–aft mast bend.
 - [ ] Calibrate mast flexural rigidity and loaded tackle extension against measured hardware.
 - [x] Verify linked main/jib manual trim (S hauls in, W eases), windward sheet take-up, on-deck slack and independent jib fine trim.
 
@@ -51,7 +56,7 @@ A checked item records the specific result described. Open items include partial
 
 - [x] Add selectable Pelagic sloop and full-size Hobie 16 with two shallow hulls, twin steering blades, mainsail and jib. Give the Hobie adjustable fore–aft and transverse trampoline ballast.
 - [x] Model sail deformation in Rumoca and place full-length battens across the Hobie main and jib following the supplied sail plan.
-- [x] Add main/jib sheets, travellers and vang controls, a forestay-mounted jib, masthead wind vane, compass and camera float. Represent sheet tension and slack.
+- [x] Add main/jib sheets, travellers and vehicle-specific downhaul or vang controls, a forestay-mounted jib, masthead wind vane, compass and camera float. Represent sheet tension and slack.
 - [ ] Validate sail lift, foil lift and drag, wet sail loading, ballast response, pitch stability and leeward helm against sailing data. Test luffing, tacking, flying a hull, jumping waves and pitchpoling.
 - [x] Verify that the four fisheye lenses and stitched panorama return image pixels and export their synchronized wind field labels.
 - [ ] Qualify GPS/IMU and vane-driven autopilot through a complete course under shifting wind. Validate mast-camera coverage and stitching, plus vision-based puff observations.
@@ -82,3 +87,23 @@ A checked item records the specific result described. Open items include partial
 - [x] Add reproducible Blender-to-GLB sources for both boat hulls and the submarine pressure housing with embedded PBR maps. Keep the requested upstream RDD2 GLB.
 - [ ] Review hulls, rudders and submerged geometry from the supplied photo angles. Extend material detail to rigging, deck hardware, thruster housings and cameras. Preserve mesh pivots, sensor transforms and force application frames.
 - [ ] Compare above-water and below-water image sequences on desktop and mobile, including sunset, swell, storm and the wreck approach.
+
+- [x] Pin the lower mainsheet block directly to the traveler car and align the Modelica fairlead with the pin.
+- [x] Give full-length batten segments axial compression resistance and damp changes in pocket curvature.
+- [ ] Calibrate batten stiffness and damping against measured bend and tack-reversal motion. Check peak leech speed during the first haul-in.
+- [ ] Reconcile the full-trim rig after lowering the traveler attachment. Check block clearance and peak sheet loads across the downhaul range.
+
+- [x] Shorten the catamaran jib on the live forestay and show the exposed head halyard. Assumed 4.56 m of cloth rise from the reference photos.
+- [x] Reproduce runaway wet sail loads in compiled pitchpole and beam-capsize tests. Include wet rig inertia and transverse stay damping.
+- [ ] Calibrate sheet tail effort and wet-rig coefficients against measured data.
+- [x] Show the triangle designation, port roundings and true first-leg bearing aboard the committee boat. Time each boat from its own start to the finish.
+- [x] Give the bow-up sailing compass a rotating true-bearing card, fixed bow index and prominent numeric true heading.
+- [ ] Benchmark a local short-wave bow field driven by hull wetting and pressure, with long waves in the existing spectral solver, on physical phones.
+- [x] Replace the deck ballast box with an unbranded blue cooler on the moving carriage.
+- [x] Profile and optimize island collision with matched contact loads and measured offshore, beach and boulder approaches.
+- [x] Verify gust-driven aircraft drag and bank, add drone FPV, and test four-foot deck touchdown, rocking, takeoff and missing the deck.
+- [x] Give all three pyramid marks buoyancy and roll/pitch response to water sampled across their individual footprints.
+
+- [x] Add an estimated attitude ladder, heading tape, speed and altitude or depth to both first-person views. Mount the submarine camera inside a transparent forward viewport.
+- [x] Add a Shift speed modifier to manual drone flight and model four-foot landings on the catamaran trampoline and sloop hatch.
+- [ ] Reproduce the upward mainsail fold reported at 68.4 s, heading 256°T, and 89 N tackle load.

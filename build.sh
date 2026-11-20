@@ -13,8 +13,11 @@ fetch() {
   git -C ".deps/$1" checkout -q --detach "$3"
 }
 fetch modelica_models https://github.com/CogniPilot/modelica_models 98266128fc635bf7618a71a8065ac38ec37da86d
-if ! git -C .deps/modelica_models apply --reverse --check "$root/compiler/rdd2-wind.patch" 2>/dev/null; then
-  git -C .deps/modelica_models apply "$root/compiler/rdd2-wind.patch"
+if ! git -C .deps/modelica_models apply --reverse --check "$root/compiler/rdd2-deck.patch" 2>/dev/null; then
+  if ! git -C .deps/modelica_models apply --reverse --check "$root/compiler/rdd2-wind.patch" 2>/dev/null; then
+    git -C .deps/modelica_models apply "$root/compiler/rdd2-wind.patch"
+  fi
+  git -C .deps/modelica_models apply "$root/compiler/rdd2-deck.patch"
 fi
 fetch msl https://github.com/modelica/ModelicaStandardLibrary 8ae3d35c24e519cb2996cab20f3b13daf2b0c50a
 node scripts/wreck-solids.mjs
@@ -31,7 +34,7 @@ else
     exit 1
   fi
   fixes=(marine state-initialization navigation scatter mesh sail-guard batten loop-shadow snapshot-reads
-    clock-assertions div-bounds-test comprehension-replay quotient-seeds return-prefix fold-captures initial-clock flat-subscripts tensor-concat sampled-initial division-cutoff clock-runs mooring-initial direct-isolation lazy-event-history)
+    clock-assertions div-bounds-test comprehension-replay quotient-seeds return-prefix fold-captures initial-clock flat-subscripts tensor-concat sampled-initial division-cutoff clock-runs mooring-initial direct-isolation lazy-event-history stay-slices)
   patches=()
   for name in "${fixes[@]}"; do patches+=("$root/compiler/rumoca-$name.patch"); done
   python3 scripts/patch-rumoca.py "$compiler_dir" "$revision" "${patches[@]}"

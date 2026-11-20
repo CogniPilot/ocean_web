@@ -62,6 +62,51 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       end if;
     end for;
   end contactWrench;
+  function standingRig "One loaded midpoint per elastic cable, mast step fixed"
+    input Real anchors[3,3],tang[3],previous[2],rate[2],sailMomentBody[3],jibLoad[3],clothReaction[2,3],gravityBody[3];
+    input Real dt,EA,preload,entrainedMass,previousSag[3,3];
+    output Real lean[2],velocity[2],path[3,3,3],tension[3],lateralK[3],midSag[3,3];
+  protected
+    Real direction[3],head[3],force[3],q[3],weight[3],drive[2],dragK,rest,L,L0,P,lo,hi,sag,halfSpan,Tline;
+  algorithm
+    // Boom/mast share the overturning moment. The headsail load below is
+    // already carried by the forestay and is omitted from this applied moment.
+    drive:={sailMomentBody[2],-sailMomentBody[1]}/(tang[3]-.41);
+    head:=tang+{previous[1],previous[2],0};
+    for i in 1:3 loop
+      direction:=head-anchors[i,:];L:=sqrt(direction*direction);direction:=direction/L;
+      q:=tang-anchors[i,:];L0:=sqrt(q*q);
+      P:=if i<=2 then preload else preload*(2*.96/1.82)*L0/sqrt(.96^2+1.02^2+5.51^2);
+      rest:=L0/(1+P/EA);
+      weight:=.045*L0*.5*gravityBody;
+      force:=weight+(if i<=2 then clothReaction[min(i,2),:] else jibLoad);
+      // Implicit transverse damping of the moving wire and attached wet cloth.
+      dragK:=(8+entrainedMass/dt)/dt;
+      force:=force+dragK*previousSag[i,:];
+      force:=force-direction*(force*direction);
+      P:=sqrt(force*force);
+      // Midpoint transverse force balance. Either half may carry tension
+      // only. Cable length and geometric stiffness grow as it deflects.
+      lo:=0;hi:=.5*sqrt(max(0,rest^2-L^2))+.02+L*(P/EA)^(1/3);
+      for iteration in 1:16 loop
+        sag:=(lo+hi)/2;halfSpan:=sqrt(.25*L^2+sag^2);
+        Tline:=EA*max(0,2*halfSpan/rest-1);
+        if (2*Tline+dragK*halfSpan)*sag<P*halfSpan then lo:=sag;else hi:=sag;end if;
+      end for;
+      sag:=(lo+hi)/2;halfSpan:=sqrt(.25*L^2+sag^2);
+      path[i,1,:]:=anchors[i,:];path[i,3,:]:=head;
+      midSag[i,:]:=sag*force/max(1e-10,P);
+      path[i,2,:]:=(head+anchors[i,:])/2+midSag[i,:];
+      tension[i]:=EA*max(0,2*halfSpan/rest-1);
+      q:=(path[i,2,:]-head)*tension[i]/halfSpan;
+      drive:=drive+q[1:2];
+      lateralK[i]:=2*tension[i]/halfSpan+2*EA/rest*sag^2/halfSpan^2;
+    end for;
+    // First fore-aft and athwartship hounds sway mode. Backward damping
+    // accounts for rig losses without a high-frequency cable time step.
+    velocity:=((14+entrainedMass)*rate+dt*(drive-850*previous))/(14+entrainedMass+dt*350);
+    lean:=previous+dt*velocity;
+  end standingRig;
   input Real traffic[4,9] "Active, east, north, yaw, east/north velocity, yaw rate, height, twin hull";
   output Real peerForce[3] "World east/north force and yaw moment";
   input Real wakeEast,wakeNorth,wakeYaw "Free-surface pressure reaction from the local wave FMU";
@@ -71,9 +116,15 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   input Real orbitalEast,orbitalNorth,orbitalUp "Wave particle velocity at the boat [m/s]";
   input Real manualHelm,rudderInput,trimInput;
   input Real vangInput "Tackle adjustment, 0 eased to 1 tight";
+  input Real droneLoad[6] "Drone contact force and moment about hull origin, ENU";
+  output Real landingDeck[12] "Hull ENU pose and twist, with bow-up pitch";
   Real boomElevation(start=.04,fixed=true),boomLiftRate(start=0,fixed=true);
   Real vangLength,vangTension,vangArm,clewTorque;
   parameter Real vangAttachment=.42,vangDrop=.115;
+  input Real downhaulInput "Catamaran luff adjustment, 0 eased to 1 hauled";
+  parameter Real downhaulTravel(unit="m")=.10 "Available shortening at the tack";
+  parameter Real luffRigidity(unit="N")=45000, downhaulStiffness(unit="N/m")=40000;
+  Real downhaulShortening(start=0,fixed=true),tackDrop,downhaulTension;
   Real payout(start=.12,fixed=true),drumAngle,lineSpeed,boomLimit;
   parameter Real drumRadius=.043, sheetArm=.44;
   parameter Boolean catamaran=false;
@@ -84,7 +135,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real attachRadius[2]={if catamaran then 1.84 else .44,feet[2]};
   Real fairlead[3,3],attachment[2,3],tipLocal[2,3],tipVel[2,3],leadVel[3,3];
   Real sheetForce[3,3],lineDirection[3,3],ropeTorque[3,3],lineSpan[3],lineRate[3],lineTension[3],lineTarget[3];
-  parameter Real travelerRiser(unit="m")=.20 "Height of the lower block strop above the traveler car";
+  parameter Real travelerRiser(unit="m")=.05 "Traveler pin height above the rail datum";
   final parameter Real mainInitialSpan=sqrt((attachRadius[1]*(1-cos(.04)*cos(.17)))^2+
     (attachRadius[1]*cos(.04)*sin(.17))^2+(.50-travelerRiser+attachRadius[1]*sin(.04))^2);
   Real linePaid[3](start={if catamaran then mainInitialSpan else .32,.32,.32},each fixed=true),trimRate[2](each start=0,each fixed=true),hingeLoad[2],sheetYaw[3],sheetLift;
@@ -96,15 +147,29 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real mainsheetEA(unit="N")=30000 "Assumed working axial rigidity of one sheet part";
   parameter Real sheetTail(unit="m")=2 "Loaded line between tackle and winch";
   final parameter Integer purchase=6;
+  parameter Real sheetHaulForce(unit="N")=220 "Assumed available force at the working tail";
+  parameter Real sheetHoldingForce(unit="N")=500 "Assumed slip load at the working tail";
+  Real haulFraction,brakeSlip;
   Real mainSheetStiffness(unit="N/m") "Effective stiffness across both blocks";
   parameter Real blockStack(unit="m")=.12 "Combined closed height between tackle attachments";
   output Real mainBlockClearance "Free distance between the mainsheet block cheeks [m]";
+  // Reference sail cut with the two blocks together and the traveler centered.
+  final parameter Real footCut=if catamaran then asin((blockStack-.50+travelerRiser)/attachRadius[1]) else 0;
   parameter Real leechEA(unit="N")=90000 "Estimated axial rigidity of the reinforced mainsail leech";
-  final parameter Real leechRest=sqrt(spans[1]^2+feet[1]^2)+.012;
+  final parameter Real leechRest=sqrt((spans[1]-feet[1]*sin(footCut))^2+(feet[1]*cos(footCut)-(if catamaran then .14 else 0))^2)+.012;
   Real leechDelta[3],leechDirection[3],leechLength,leechLoad,leechLift;
   Real blockContact,mainTension,jibTension;
   Real jibTrimTarget;
   output Real exposedSheetSag[3] "Free-span deflection with excess line retained on deck";
+  parameter Real stayEA(unit="N")=520000,shroudPreload(unit="N")=220;
+  final parameter Real stayAnchors[3,3]=[-.52,1.02,.34;-.52,-1.02,.34;2.26,0,.75];
+  final parameter Real tang[3]={.44,0,5.85};
+  final parameter Real jibStation[6]={(row-1)/5*spans[2]/(tang[3]-stayAnchors[3,3]) for row in 1:6};
+  discrete output Real stayPath[3,3,3],stayTension[3],stayStiffness[3];
+  discrete Real midSag[3,3](each start=0,each fixed=true);
+  discrete Real tangLean[2](each start=0,each fixed=true),tangRate[2](each start=0,each fixed=true);
+  Real contactBody[2,3],mainMomentBody[3],jibWireLoad[3];
+  output Real sailTail[2,4,3] "Paired face telltales on main and jib";
   output Real shroudTail[2,3] "Direction of each sidestay streamer in hull coordinates, port first";
   function streamerDirection
     input Real relativeVelocity[3],gravityDown[3],density;
@@ -158,7 +223,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real footX[2]={.12,1.16-(.19-.09)*forestaySlope};
   parameter Real axisX[2]={0,-forestaySlope/sqrt(1+forestaySlope^2)},axisZ[2]={1,1/sqrt(1+forestaySlope^2)};
   output Real sheetRotation[2,3,3] "Sail frame to hull frame";
-  SailMembrane cloth[2](each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={0,spans[2]*forestaySlope},roach={mainRoach,0});
+  SailMembrane cloth[2](cutAngle={footCut,0},footInTrack={catamaran,false},each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={0,spans[2]*forestaySlope},roach={mainRoach,0});
   Real rotation[3,3],rig[2,3,3],trim[2](each start=.17,each fixed=true), waterRelative[3],spin[3],origin[2,3];
   Real pitchRate(start=launchPitchRate,fixed=true),rigMoment[2,3],rigForce[2,3],surfaceNormal[3];
   output Real sailVertex[2,24,3],wettedArea[2],leechSpeed[2],sailMoment[3];
@@ -317,6 +382,7 @@ equation
   error=atan2(sin(course-courseEstimate),cos(course-courseEstimate));
   ve=cos(heading)*surge-sin(heading)*sway+currentEast;
   vn=sin(heading)*surge+cos(heading)*sway+currentNorth;
+  landingDeck={east,north,heave,heading,heel,-pitch,ve,vn,vertical,cos(heading)*spin[1]-sin(heading)*spin[2],sin(heading)*spin[1]+cos(heading)*spin[2],spin[3]};
   der(east)=ve; der(north)=vn;
   awx=(windEast-ve)*cos(heading)+(windNorth-vn)*sin(heading);
   awy=-(windEast-ve)*sin(heading)+(windNorth-vn)*cos(heading);
@@ -347,8 +413,13 @@ equation
       else .47+2.1*jibSheet) else sqrt(fairlead[2,3]^2+(.88*feet[2]*payout/sheetArm)^2);
   end for;
   mainSheetStiffness=purchase^2*mainsheetEA/(sheetTail+purchase*linePaid[1]);
+  // Limit negative drum work under load. A backdriven brake pays out
+  // excess extension while the elastic line continues to report its load.
+  haulFraction=max(0,1-mainSheetStiffness*max(0,lineSpan[1]-linePaid[1])/(purchase*sheetHaulForce));
+  brakeSlip=max(0,lineSpan[1]-linePaid[1]-purchase*sheetHoldingForce/mainSheetStiffness)/.035;
   for j in 1:3 loop
-    der(linePaid[j])=max(-1.8,min(1.8,(lineTarget[j]-linePaid[j])/.22));
+    der(linePaid[j])=if catamaran and j==1 then max(brakeSlip,min(1.8,max(0,(lineTarget[j]-linePaid[j])/.22)))+
+      haulFraction*max(-1.8,min(0,(lineTarget[j]-linePaid[j])/.22)) else max(-1.8,min(1.8,(lineTarget[j]-linePaid[j])/.22));
     lineSpan[j]=sqrt((fairlead[j,:]-attachment[sailOf[j],:])*(fairlead[j,:]-attachment[sailOf[j],:]));
     // The sheets lead through deck blocks to the winch. A slack bight
     // rests on deck once its free span reaches the trampoline or sloop deck.
@@ -367,7 +438,7 @@ equation
   blockContact=if catamaran and lineSpan[1]<blockStack then max(0,65000*(blockStack-lineSpan[1])-180*lineRate[1]) else 0;
   // Head-to-clew reinforcement transfers boom downhaul into an aft spar load.
   // Its stretch is measured between the moving masthead and the rotating boom.
-  leechDelta={mastTip,0,spans[1]}-sheetRotation[1,:,:]*
+  leechDelta={mastTip,0,spans[1]+tackDrop}-sheetRotation[1,:,:]*
     {-feet[1]*cos(boomElevation),0,feet[1]*sin(boomElevation)};
   leechLength=sqrt(leechDelta*leechDelta);
   leechDirection=leechDelta/leechLength;
@@ -375,19 +446,44 @@ equation
   leechLift=leechLoad*leechDirection*(sheetRotation[1,:,:]*
     {feet[1]*sin(boomElevation),0,feet[1]*cos(boomElevation)});
   der(mastTip)=mastTipRate;
-  mastModalMass*der(mastTipRate)=(if catamaran then sheetRotation[1,1,:]*cloth[1].mastLoad else 0)
+  (mastModalMass+.25*rigWaterMass[1])*der(mastTipRate)=(if catamaran then sheetRotation[1,1,:]*cloth[1].mastLoad else 0)
     -leechLoad*leechDirection[1]-mastStiffness*mastTip-2*mastDampingRatio*sqrt(mastModalMass*mastStiffness)*mastTipRate;
+  mainMomentBody=sheetRotation[1,:,:]*cloth[1].fluidMoment;
+  jibWireLoad=.5*sheetRotation[2,:,:]*cloth[2].fluidForce;
+  for wire in 1:2 loop
+    contactBody[wire,:]=sheetRotation[1,:,:]*{0,cloth[1].wireReaction[wire],0};
+  end for;
+  when sample(0,.01) then
+    (tangLean,tangRate,stayPath,stayTension,stayStiffness,midSag)=standingRig(stayAnchors,tang,
+      pre(tangLean),pre(tangRate),if catamaran then pre(mainMomentBody) else zeros(3),
+      if catamaran then pre(jibWireLoad) else zeros(3),pre(contactBody),transpose(rotation)*{0,0,-9.80665},.01,stayEA,shroudPreload,.5*sum(pre(rigWaterMass)),pre(midSag));
+  end when;
+  for row in 1:6 loop
+    cloth[1].luffShift[row,:]=if catamaran then transpose(sheetRotation[1,:,:])*
+      {stayPath[1,3,1]-tang[1],stayPath[1,3,2],0}*((row-1)/5/stayFraction)-{0,0,tackDrop*(6-row)/5} else zeros(3);
+    cloth[2].luffShift[row,:]=if catamaran then transpose(sheetRotation[2,:,:])*(
+      (if jibStation[row]<=.5 then (1-2*jibStation[row])*stayPath[3,1,:]+2*jibStation[row]*stayPath[3,2,:]
+       else (2-2*jibStation[row])*stayPath[3,2,:]+(2*jibStation[row]-1)*stayPath[3,3,:])
+        -((1-jibStation[row])*stayAnchors[3,:]+jibStation[row]*tang)) else zeros(3);
+  end for;
   cloth[1].mastOffset=transpose(sheetRotation[1,:,:])*{mastTip,0,0};
   cloth[2].mastOffset=zeros(3);
   mainTension=lineTension[1];jibTension=sum(lineTension[2:3]);
-  sheetLift=ropeTorque[1,:]*sheetRotation[1,:,2];
+  sheetLift=cross(attachment[1,:]+{0,0,tackDrop},sheetForce[1,:])*sheetRotation[1,:,2];
   vangLength=sqrt(vangAttachment^2+vangDrop^2+2*vangAttachment*vangDrop*sin(boomElevation));
   vangArm=vangAttachment*vangDrop*cos(boomElevation)/vangLength;
-  vangTension=if catamaran then max(0,2200*(vangLength-(.50-.073*max(0,min(1,vangInput))))) else max(0,3200*(vangLength-(.49-.065*max(0,min(1,vangInput)))));
+  vangTension=if catamaran then 0 else max(0,3200*(vangLength-(.49-.065*max(0,min(1,vangInput)))));
+  // The tackle and reinforced luff are elastic elements in series. The head
+  // is fixed while the tack slide travels down the mast under the downhaul.
+  der(downhaulShortening)=if catamaran then (downhaulTravel*max(0,min(1,downhaulInput))-downhaulShortening)/.25 else 0;
+  tackDrop=downhaulShortening/(1+luffRigidity/(spans[1]*downhaulStiffness));
+  downhaulTension=luffRigidity*tackDrop/spans[1];
   clewTorque=feet[1]*(sin(boomElevation)*cloth[1].clewForce[1]+cos(boomElevation)*cloth[1].clewForce[3]);
   der(boomElevation)=boomLiftRate;
   der(boomLiftRate)=(clewTorque+leechLift-vangTension*vangArm+sheetLift-(if catamaran then 26 else .95)*cos(boomElevation)-(if catamaran then 90 else 3)*boomLiftRate
     +900*max(0,(if catamaran then -.25 else -.035)-boomElevation)-900*max(0,boomElevation-.65))/((if catamaran then 11 else .28)+hingeWaterInertia[1]);
+  cloth[1].leechTension=leechLoad;
+  cloth[2].leechTension=0;
   cloth[1].boomElevation=boomElevation;
   cloth[2].boomElevation=0;
   der(rudder)=((if manualHelm>.5 then .54*rudderInput else max(-0.56,min(0.56,1.35*error-0.45*gyro)))-rudder)/0.2;
@@ -402,7 +498,7 @@ equation
        -orbitalEast*sin(heading)+orbitalNorth*cos(heading)-sway,orbitalUp-vertical};
   surfaceNormal={-tan(wavePitch),tan(waveRoll),-1};
   for side in 1:2 loop
-    tailArm[side,:]=rotation*(.72*{-.52,(3-2*side)*1.02,.34}+.28*{.44,0,5.85});
+    tailArm[side,:]=rotation*(.44*stayPath[side,1,:]+.56*stayPath[side,2,:]);
     tailImmersion[side]=noEvent(max(0,min(1,.5+(waveHeight-heave+surfaceNormal*tailArm[side,:]+
       swellAmplitude*sin(swellPhase+swellLocal*tailArm[side,1:2]))/.03)));
     tailFluid[side,:]=transpose(rotation)*((1-tailImmersion[side])*{awx,awy,-vertical}+tailImmersion[side]*waterRelative-cross(spin,tailArm[side,:]));
@@ -412,9 +508,9 @@ equation
   for m in 1:2 loop
     tipLocal[m,:]=if m==1 then {-attachRadius[m]*cos(boomElevation),0,attachRadius[m]*sin(boomElevation)}
       else {-attachRadius[m],0,0};
-    attachment[m,:]=sheetRotation[m,:,:]*tipLocal[m,:];
+    attachment[m,:]=sheetRotation[m,:,:]*tipLocal[m,:]-(if m==1 then {0,0,tackDrop} else zeros(3));
     tipVel[m,:]=cross(trimRate[m]*{axisX[m],0,axisZ[m]},attachment[m,:])+
-      (if m==1 then sheetRotation[m,:,:]*cross({0,boomLiftRate,0},tipLocal[m,:]) else zeros(3));
+      (if m==1 then sheetRotation[m,:,:]*cross({0,boomLiftRate,0},tipLocal[m,:])-{0,0,der(tackDrop)} else zeros(3));
     rigWaterMass[m]=1025*.04*wettedArea[m];
     hingeWaterInertia[m]=rigWaterMass[m]*feet[m]^2/6;
     hingeLoad[m]=cross(cloth[m].vertex[4,:],cloth[m].clewForce)*{axisX[m],0,axisZ[m]};
@@ -436,7 +532,12 @@ equation
         (3-2*side)*(if catamaran then 1.02 else .31),
         (if catamaran then .34 else .09)-footZ[m]};
     end for;
-    cloth[m].shroudHead=transpose(sheetRotation[m,:,:])*{
+    cloth[m].wireK=if catamaran then stayStiffness[1:2] else {1e8,1e8};
+    for side in 1:2 loop
+      cloth[m].shroudMid[side,:]=if catamaran then transpose(sheetRotation[m,:,:])*
+        (stayPath[side,2,:]-{footX[m],0,footZ[m]}) else (cloth[m].shroudHead+cloth[m].shroudFoot[side,:])/2;
+    end for;
+    cloth[m].shroudHead=if catamaran then transpose(sheetRotation[m,:,:])*(stayPath[1,3,:]-{footX[m],0,footZ[m]}) else transpose(sheetRotation[m,:,:])*{
       (if catamaran then .44 else .12)-footX[m],0,
       (if catamaran then 5.85 else 2.78)-footZ[m]};
     cloth[m].air=transpose(rig[m,:,:])*({awx,awy,-vertical}-cross(spin,origin[m,:]));
@@ -447,6 +548,7 @@ equation
     sailVertex[m,:,:]=cloth[m].vertex;
     wettedArea[m]=cloth[m].wetArea;
     leechSpeed[m]=cloth[m].leechSpeed;
+    sailTail[m,:,:]=cloth[m].faceTail;
     rigForce[m,:]=rig[m,:,:]*cloth[m].fluidForce;
     rigMoment[m,:]=rig[m,:,:]*cloth[m].fluidMoment+cross(origin[m,:],rigForce[m,:]);
     sailForward[m]=rigForce[m,1];sailPort[m]=rigForce[m,2];
@@ -484,18 +586,18 @@ equation
   skinDrag=.5*1025*skinArea*(1+formFactor)*frictionCoefficient*waterRelative[1]*abs(waterRelative[1]);
   shoreWrench=Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing);
   peerForce=contactWrench({east,north,heading,ve,vn,yawRate,heave},traffic,catamaran);
-  der(surge)=((wakeEast+peerForce[1])*cos(heading)+(wakeNorth+peerForce[2])*sin(heading)+fx+shoreWrench[1]+sum(foilAxial)+skinDrag)/totalMass+yawRate*sway;
-  der(sway)=(-(wakeEast+peerForce[1])*sin(heading)+(wakeNorth+peerForce[2])*cos(heading)+fy+shoreWrench[2]+sum(foilSide)-80*sway*abs(sway)-40*sway)/totalMass-yawRate*surge;
-  levelYawMoment=shoreWrench[6]+wakeYaw+peerForce[3]+sailMoment[3]+sum(foilTorque[:,3]);
+  der(surge)=((wakeEast+droneLoad[1]+peerForce[1])*cos(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*sin(heading)+fx+shoreWrench[1]+sum(foilAxial)+skinDrag)/totalMass+yawRate*sway;
+  der(sway)=(-(wakeEast+droneLoad[1]+peerForce[1])*sin(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*cos(heading)+fy+shoreWrench[2]+sum(foilSide)-80*sway*abs(sway)-40*sway)/totalMass-yawRate*surge;
+  levelYawMoment=droneLoad[6]+shoreWrench[6]+wakeYaw+peerForce[3]+sailMoment[3]+sum(foilTorque[:,3]);
   der(yawRate)=(levelYawMoment-(if catamaran then 190 else 30)*yawRate)/(yawInertia+rigWaterInertia*(sin(pitch)^2+cos(pitch)^2*sin(heel)^2)+sum(hingeWaterInertia));
   der(heading)=yawRate;
   der(heel)=rollRate;
   // The roll axis pitches with the hull. Its moment is conjugate to the
   // roll-rate term in spin, including when the bows pass vertical.
-  der(rollRate)=(cos(pitch)*(shoreWrench[4]+sum(foilTorque[:,1])+podRoll+sailMoment[1]+(if catamaran then sum(hullRoll)+massRoll else -400*sin(heel-waveRoll)))-sin(pitch)*levelYawMoment-(if catamaran then 280 else 65)*rollRate)/(rollInertia+rigWaterInertia+podMass*podZ^2);
+  der(rollRate)=(cos(pitch)*(droneLoad[4]*cos(heading)+droneLoad[5]*sin(heading)+shoreWrench[4]+sum(foilTorque[:,1])+podRoll+sailMoment[1]+(if catamaran then sum(hullRoll)+massRoll else -400*sin(heel-waveRoll)))-sin(pitch)*levelYawMoment-(if catamaran then 280 else 65)*rollRate)/(rollInertia+rigWaterInertia+podMass*podZ^2);
   der(pitch)=pitchRate;
   weightArm=rotation[1,1]*centerMassX;
-  der(pitchRate)=(shoreWrench[5]+sum(foilTorque[:,2])+podPitch+sailMoment[2]+sum(impactTorque)+pitchBuoyancy+mass*9.80665*weightArm+massPitch-(if catamaran then 420 else 72)*pitchRate)/(pitchInertia+rigWaterInertia+podMass*(podZ^2+footX[1]^2));
+  der(pitchRate)=(-droneLoad[4]*sin(heading)+droneLoad[5]*cos(heading)+shoreWrench[5]+sum(foilTorque[:,2])+podPitch+sailMoment[2]+sum(impactTorque)+pitchBuoyancy+mass*9.80665*weightArm+massPitch-(if catamaran then 420 else 72)*pitchRate)/(pitchInertia+rigWaterInertia+podMass*(podZ^2+footX[1]^2));
   der(heave)=vertical;
   for hull in 1:2 loop
     sectionVolume[hull,:]=if hull==1 or catamaran then volumes[hull,:] else zeros(6);
@@ -506,6 +608,6 @@ equation
   waterDamping=if catamaran then 2*heaveDampingRatio*sqrt(1025*9.80665*waterplaneArea/totalMass)*min(1,buoyancy/(mass*9.80665)) else 5.8;
   waterVertical=orbitalUp-swellAmplitude*sqrt(9.80665*swellK)*cos(swellPhase)
      +(if useSectionWater>.5 then sum(sectionWater-previousWater)/1.2 else 0);
-  der(vertical)=(shoreWrench[3]+podBuoyancy+buoyancy+sum(foilLoad[:,3])+sum(impact[:,3])+sum(rigForce[:,3]))/totalMass-9.80665-waterDamping*(vertical-waterVertical);
+  der(vertical)=(droneLoad[3]+shoreWrench[3]+podBuoyancy+buoyancy+sum(foilLoad[:,3])+sum(impact[:,3])+sum(rigForce[:,3]))/totalMass-9.80665-waterDamping*(vertical-waterVertical);
   annotation(experiment(StopTime=300,Interval=0.05));
 end Sailboat;

@@ -6,7 +6,7 @@ Watch the submarine navigate the wreck using its onboard estimate, with the sona
 
 [Request tracker](TODO.md)
 
-On the Hobie 16, the red port and green starboard sidestay ribbons stream in the direction the apparent wind is going. A ribbon pointing aft means wind is coming over the bow. They hang down when the air is still relative to the boat. Rumoca calculates each ribbon direction using local rig velocity and gravity.
+On the Hobie 16, the red port and green starboard sidestay ribbons stream in the direction the apparent wind is going. A ribbon pointing aft means wind is coming over the bow. They hang down when the air is still relative to the boat. Paired telltales on the main and jib follow local cloth motion and apparent flow. A lifting or reversing ribbon indicates possible separation. The incidence-based response is an approximation for sail trim. Rumoca calculates each ribbon direction using local rig velocity and gravity.
 
 ## Combined simulation component
 
@@ -86,7 +86,7 @@ The combined build targets Rumoca FMI 3 co-simulation. Body coordinates are forw
 
 `viewer/board/Sailboat.mo` runs the dynamics and autopilot in the precompiled **Rumoca FMI 3** WebAssembly module. The waypoint coordinates, no-go angle and cross-track switching band are in the Modelica source. A leg advances inside a 2.5 m capture radius. When the next mark is upwind, the controller chooses a close-hauled heading and changes tack using cross-track hysteresis. 
 
-Select **Head into wind** on the live page to swing the wind onto the current bow, switch to manual helm, and haul in the sheet. Orbit behind the rig to see the trailing edges cross the boom plane. The header reports mainsail leech speed relative to the boom. S hauls in the main and working jib together. W eases them. The Vang slider adjusts tackle length and displays line tension in newtons. The loaded clew can lift the boom, changing leech tension independently of the sheet.
+Select **Head into wind** on the live page to swing the wind onto the current bow, switch to manual helm, and haul in the sheet. Orbit behind the rig to see the trailing edges cross the boom plane. The header reports mainsail leech speed relative to the boom. S hauls in the main and working jib together. W eases them. On the catamaran, Downhaul lowers the tack and tensions the mainsail luff. The display gives luff load in newtons. The sloop has a separate Vang control. The loaded clew can lift the boom, changing leech tension independently of the sheet.
 
 Each sail has 24 material points and 30 triangular panels. Wind and water loads act on the moving panels, and tension-only fabric links couple adjacent points. The luff and clew attach to the rig while the leech moves freely. Three.js draws the positions exported by the model. Crosswind fluctuations are prescribed, and the panel pressure law and cloth parameters have not been calibrated against sail measurements. Run `node scripts/check-luff.mjs` to check the headwind maneuver against the browser FMU.
 
@@ -144,3 +144,11 @@ For the default Hobie strip geometry and 1.02 m half-spacing, the level-tow mode
 Run `blender -b -P tools/build-vehicle-assets.py` to regenerate the three original textured vehicle shells. The embedded glTF materials carry base color, roughness and metallic response. Dynamic sails, sheets, rudders, thrusters and lights attach to the simulated vehicle frames. The RDD2 uses the upstream drone asset.
 
 A GPU pass refracts sunlight through the wave normals and accumulates flux on a reference seabed 13.7 m below mean water. A cached directional depth map of the wreck gates illumination on each receiver. Receiver depths away from the seabed use projection along the mean refracted ray. This approximation resolves blocked sunlight and deck openings but omits multiple scattering and a full volumetric photon solution.
+
+### Sailing the triangle
+
+The committee board identifies the local one-lap course as **TRI 1**. Its first-leg bearing is measured clockwise from true north at the midpoint of the start line. After the five-minute fleet signal, cross between the committee boat and pin toward mark 1. Tack to mark 1, then sail to mark 2, leaving both marks to port. The scorer registers each mark within 2.5 m of its centre. Return through the same gate from the course side. Each leg is 200 m. The lap clock starts at your own crossing and freezes at the finish. The race panel retains your last time until another finish or page reload.
+
+Select **RDD2 drone** and **View → Drone FPV** for the nose camera. Approach the committee boat's aft H, descend with **F**, and cut motors after touchdown. Re-enable motors and climb with **R** for takeoff. Drone feet exchange forces and moments with the moving deck. The pin and both rounding marks sample waves individually and respond in heave, roll and pitch.
+
+In drone FPV, hold **Shift** with **W/A/S/D** to command twice the horizontal speed. The heading tape and pitch ladder follow the onboard attitude estimate. The side readouts show ground speed and altitude in metres. The sailboat landing surfaces are the catamaran trampoline and the sloop’s raised hatch. In **Sub FPV**, the camera looks out through the clear bow dome. The instruments show navigation heading, pitch, roll, depth and horizontal speed.

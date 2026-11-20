@@ -29,16 +29,24 @@ export async function surveyDrone(T,scene,world){
   }
   scene.add(group);
   let active=false,manual=true;
-  function input(axis){
+  function input(axis,fast=false){
     for(const [key,a,b] of [['forward','KeyW','KeyS'],['left','KeyA','KeyD'],['climb','KeyR','KeyF'],['turn','KeyQ','KeyE']])
-      flight.set(key,active&&manual?axis(a,b):0);
+      flight.set(key,active&&manual?axis(a,b)*(fast && (key==='forward'||key==='left')?2:1):0);
   }
-  return {group,get active(){return active;},get position(){return flight.get('position');},
+  function instruments(){
+    const [[roll,pitch,yaw],gps,v]=flight.getMany(['attitude','gps','gpsVelocity']);
+    return {roll,pitch,yaw,speed:Math.hypot(v[0],v[1]),level:gps[2],vertical:v[2]};
+  }
+  return {group,instruments,get active(){return active;},get position(){return flight.get('position');},
     get drag(){return flight.get('dragBody');},
     get manual(){return manual;},set manual(value){manual=value;flight.set('pilot',Number(value));input(()=>0);},
     select(value){active=value;input(()=>0);},
     cut(value){flight.set('motorCut',Number(value));},
     station(east,north){flight.set('stationEast',east);flight.set('stationNorth',north);},
+    sailDeck(state,cat){flight.set('sailDeckState',state);flight.set('sailDeckEnabled',1);flight.set('isCatamaran',Number(cat));},
+    get sailReaction(){return flight.get('sailWrench').slice(6);},
+    deck(state){flight.set('deckState',state);flight.set('deckEnabled',1);},
+    get deckReaction(){return flight.get('deckWrench').slice(6);},
     wind(velocity){flight.set('windENU',velocity);},
     input,step(dt){flight.advance(dt);},
     draw(){group.position.fromArray(flight.get('position'));

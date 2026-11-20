@@ -1,3 +1,13 @@
+// Compass bearing clockwise from true north in the east/north world frame.
+export function trueBearing(east,north){
+  const degrees=(Math.round(Math.atan2(east,north)*180/Math.PI)+360)%360;
+  return String(degrees).padStart(3,'0')+'°T';
+}
+export function firstLeg(race){
+  const e=race.get('markEast')[0]-(race.get('committeeEast')+race.get('pinEast'))/2;
+  const n=race.get('markNorth')[0]-(race.get('committeeNorth')+race.get('pinNorth'))/2;
+  return trueBearing(e,n);
+}
 // Z-up committee launch and inflatable marks. Dimensions are in metres.
 export function courseScene(T,scene,race){
   const group=new T.Group();scene.add(group);
@@ -35,23 +45,51 @@ export function courseScene(T,scene,race){
   mesh(boat,new T.BoxGeometry(.52,.48,.68),navy,-3.13,0,.58);
   rod(boat,[0,0,2.34],[0,0,4],.033,metal);
   mesh(boat,new T.BoxGeometry(.96,.03,.73),orange,-.48,0,3.6);
+  // Aft landing pad shares the height and extent of the Modelica deck.
+  mesh(boat,new T.BoxGeometry(1.45,1.3,.012),navy,-1.98,0,.777);
+  for(const y of [-.22,.22])mesh(boat,new T.BoxGeometry(.65,.065,.008),white,-1.98,y,.786);
+  mesh(boat,new T.BoxGeometry(.065,.47,.008),white,-1.98,0,.786);
   batchScenery(T,boat);
+  function markNumber(parent,number,x,y){
+    const face=document.createElement('canvas');face.width=64;face.height=64;
+    const c=face.getContext('2d');
+    c.fillStyle='#fff8e9';c.fillRect(6,3,52,58);
+    c.fillStyle='#202a30';c.font='bold 50px sans-serif';c.textAlign='center';
+    c.fillText(String(number),32,50);
+    const plaque=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(face)}));
+    plaque.scale.set(.62,.62,1);plaque.position.set(x,y,1.84);parent.add(plaque);
+  }
   const canvas=document.createElement('canvas');canvas.width=512;canvas.height=168;
   const ctx=canvas.getContext('2d'),texture=new T.CanvasTexture(canvas);
-  const board=mesh(boat,new T.BoxGeometry(.06,1.72,.56),new T.MeshBasicMaterial({map:texture}),-.82,0,1.9);
-  board.rotation.z=Math.PI/2;
-  function mark(x,y){
-    const buoy=mesh(group,new T.ConeGeometry(.85,1.75,3,1),orange,x,y,.77);buoy.rotation.x=Math.PI/2;
-    const collar=mesh(group,new T.CylinderGeometry(.76,.81,.14,3),navy,x,y,.04);collar.rotation.x=Math.PI/2;
+  const boardMaterial=new T.MeshBasicMaterial({map:texture});
+  for(const side of [-1,1]){
+    const board=mesh(boat,new T.PlaneGeometry(2.2,.82),boardMaterial,-.28,side*.57,1.83);
+    board.rotation.order='ZXY';board.rotation.x=Math.PI/2;board.rotation.z=side<0?0:Math.PI;
+  }
+  const marks=[];
+  function mark(x,y,number){
+    const body=new T.Group();group.add(body);marks.push(body);body.position.set(x,y,0);x=0;y=0;
+    if(number)markNumber(body,number,x,y);
+    const buoy=mesh(body,new T.ConeGeometry(.85,1.75,3,1),orange,x,y,.77);buoy.rotation.x=Math.PI/2;
+    const collar=mesh(body,new T.CylinderGeometry(.76,.81,.14,3),navy,x,y,.04);collar.rotation.x=Math.PI/2;
   }
   mark(race.get('pinEast'),race.get('pinNorth'));
-  race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i]));
+  race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i],i+1));
   let previous;
   return label=>{
     const [heave,roll,pitch]=race.get('launchPose');
     boat.position.z=heave;boat.rotation.x=roll;boat.rotation.y=-pitch;
-    if(previous===label)return;previous=label;ctx.fillStyle='#101d23';ctx.fillRect(0,0,512,168);
-    ctx.fillStyle='#ffbe52';ctx.font='bold 127px monospace';ctx.textAlign='center';ctx.fillText(label,256,127);texture.needsUpdate=true;
+    const poses=race.get('markPose');
+    marks.forEach((mark,i)=>{
+      mark.position.z=poses[3*i];
+      mark.rotation.set(poses[3*i+1],-poses[3*i+2],0,'ZYX');
+    });
+    const bearing=firstLeg(race),key=label+bearing;
+    if(previous===key)return;previous=key;ctx.fillStyle='#101d23';ctx.fillRect(0,0,512,168);
+    ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 48px monospace';
+    ctx.fillText('TRI 1   '+bearing,256,49);
+    ctx.font='bold 35px monospace';ctx.fillText('S – 1p – 2p – F',256,99);
+    ctx.fillStyle='#ffbe52';ctx.font='bold 43px monospace';ctx.fillText(label,256,151);texture.needsUpdate=true;
   };
 }
 export function raceAudio(){

@@ -18,6 +18,17 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   discrete Real water[4](each start=0,each fixed=true),priorWater[4](each start=0,each fixed=true);
   discrete Real stamp(start=0,fixed=true);
   Real fraction;
+  output Real markPose[3,3] "Heave, east-axis roll and bow-up pitch for each pyramid";
+  Real buoySpeed[3,3](each start=0,each fixed=true),buoyState[3,3](each start=0,each fixed=true);
+  final parameter Real bx[3]={0,.34641,-.34641},by[3]={.4,-.2,-.2};
+  parameter Real pyramidHeight=1.75,pyramidArea=3*sqrt(3.0)*.85^2/4,pyramidDraft=.10;
+  final parameter Real pyramidMass=1025*pyramidArea*pyramidHeight/3*(1-(1-pyramidDraft/pyramidHeight)^3);
+  parameter Real ballastDepth(unit="m")=.20 "Assumed vertical separation between buoyancy and ballast centers";
+  parameter Real markRollDamping(unit="N.m.s")=50 "Effective rotational drag including entrained water";
+  discrete Real buoyWater[3,3](each start=0,each fixed=true),lastBuoyWater[3,3](each start=0,each fixed=true);
+  Real buoyEast[3],buoyNorth[3],depthAt[3,3],buoyLift[3,3],buoyV[3,3];
+  input Real landingReaction[6] "Drone contact wrench on launch, world ENU";
+  output Real deckState[12] "Origin ENU, yaw/roll/bow-up pitch, linear and angular velocity ENU";
   function elevationAt "Periodic bilinear elevation on an east-north grid"
     input Real grid[:,:],east,north,period;
     output Real elevation;
@@ -35,6 +46,8 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   output Real countdown;
   discrete output Integer stage(start=0,fixed=true) "0 prestart, 1 start open, 2/3 marks, 4 finish, 5 finished";
   discrete output Real elapsed(start=0,fixed=true);
+  discrete output Real lapTime(start=0,fixed=true) "Time from the boat crossing the start until it crosses the finish";
+  discrete Real crossed(start=0,fixed=true);
   Real along,across;
   discrete Real lastAlong(start=0,fixed=true),lastAcross(start=0,fixed=true),heat(start=-1,fixed=true),started(start=0,fixed=true);
   discrete Real boundary,crossingAt;
@@ -43,6 +56,22 @@ equation
   committeeEast=gateEast+rightE*lineLength/2;
   committeeNorth=gateNorth+rightN*lineLength/2;
   launchPose={heave,roll,pitch};
+  deckState={committeeEast,committeeNorth,heave,windBearing+3.141592653589793,roll,pitch,0,0,heaveRate,cos(windBearing+3.141592653589793)*cos(pitch)*rollRate+sin(windBearing+3.141592653589793)*pitchRate,sin(windBearing+3.141592653589793)*cos(pitch)*rollRate-cos(windBearing+3.141592653589793)*pitchRate,0+sin(pitch)*rollRate};
+  buoyEast={pinEast,markEast[1],markEast[2]};buoyNorth={pinNorth,markNorth[1],markNorth[2]};
+  markPose=buoyState;
+  for b in 1:3 loop
+    der(buoyState[b,:])=buoySpeed[b,:];
+    for j in 1:3 loop
+      depthAt[b,j]=max(0,min(pyramidHeight,pyramidDraft+(1-fraction)*lastBuoyWater[b,j]+fraction*buoyWater[b,j]
+        -buoyState[b,1]-by[j]*sin(buoyState[b,2])-bx[j]*sin(buoyState[b,3])));
+      buoyV[b,j]=buoySpeed[b,1]+by[j]*cos(buoyState[b,2])*buoySpeed[b,2]+bx[j]*cos(buoyState[b,3])*buoySpeed[b,3];
+      buoyLift[b,j]=if depthAt[b,j]>0 then max(0,1025*9.80665*pyramidArea*pyramidHeight/9*
+        (1-(1-depthAt[b,j]/pyramidHeight)^3)+120*((buoyWater[b,j]-lastBuoyWater[b,j])/.1-buoyV[b,j])) else 0;
+    end for;
+    pyramidMass*der(buoySpeed[b,1])=sum(buoyLift[b,:])-pyramidMass*9.80665;
+    (.40*pyramidMass)*der(buoySpeed[b,2])=cos(buoyState[b,2])*(by*buoyLift[b,:])-pyramidMass*9.80665*ballastDepth*sin(buoyState[b,2])-markRollDamping*buoySpeed[b,2];
+    (.40*pyramidMass)*der(buoySpeed[b,3])=cos(buoyState[b,3])*(bx*buoyLift[b,:])-pyramidMass*9.80665*ballastDepth*sin(buoyState[b,3])-markRollDamping*buoySpeed[b,3];
+  end for;
   der(heave)=heaveRate; der(roll)=rollRate; der(pitch)=pitchRate;
   fraction=min(1,max(0,(time-stamp)/.1));
   for k in 1:4 loop
@@ -55,15 +84,23 @@ equation
     lift[k]=if immersion[k]>0 then max(0,1025*9.80665*waterplaneArea/4*min(.78,immersion[k])
       +1400*((water[k]-priorWater[k])/.1-stationRate[k])) else 0;
   end for;
-  launchMass*der(heaveRate)=sum(lift)-launchMass*9.80665;
-  rollInertia*der(rollRate)=cos(roll)*cos(pitch)*(stationY*lift);
-  pitchInertia*der(pitchRate)=cos(pitch)*(stationX*lift)-sin(roll)*sin(pitch)*(stationY*lift);
+  launchMass*der(heaveRate)=landingReaction[3]+sum(lift)-launchMass*9.80665;
+  rollInertia*der(rollRate)=cos(windBearing+3.141592653589793)*landingReaction[4]+sin(windBearing+3.141592653589793)*landingReaction[5]+cos(roll)*cos(pitch)*(stationY*lift);
+  pitchInertia*der(pitchRate)=sin(windBearing+3.141592653589793)*landingReaction[4]-cos(windBearing+3.141592653589793)*landingReaction[5]+cos(pitch)*(stationX*lift)-sin(roll)*sin(pitch)*(stationY*lift);
   when sample(0,.1) then
     for k in 1:4 loop
       water[k]=tide+elevationAt(backgroundTile,stationE[k],stationN[k],64)
         +elevationAt(wakeTile,stationE[k]-driftEast,stationN[k]-driftNorth,64)
         +swellHeight*sin(swellK*(stationE[k]*cos(swellBearing)+stationN[k]*sin(swellBearing))-sqrt(9.80665*swellK)*time);
     end for;
+    for b in 1:3 loop
+      for j in 1:3 loop
+        buoyWater[b,j]=tide+elevationAt(backgroundTile,buoyEast[b]+bx[j],buoyNorth[b]+by[j],64)
+          +elevationAt(wakeTile,buoyEast[b]+bx[j]-driftEast,buoyNorth[b]+by[j]-driftNorth,64)
+          +swellHeight*sin(swellK*((buoyEast[b]+bx[j])*cos(swellBearing)+(buoyNorth[b]+by[j])*sin(swellBearing))-sqrt(9.80665*swellK)*time);
+      end for;
+    end for;
+    lastBuoyWater=if initial() then buoyWater else pre(buoyWater);
     priorWater=if initial() then water else pre(water);
     stamp=time;
   end when;
@@ -88,6 +125,8 @@ equation
           elseif pre(stage)==4 and finishCross then 5 else pre(stage);
     started=if boundary>pre(heat) and (pre(stage)<=1 or pre(stage)==5) then boundary else pre(started);
     elapsed=if stage>=2 and pre(stage)<>5 then utc-started elseif stage==5 then pre(elapsed) else 0;
+    crossed=if stage==2 and pre(stage)<>2 then utc else pre(crossed);
+    lapTime=if stage>=2 and pre(stage)<>5 then utc-crossed elseif stage==5 then pre(lapTime) else 0;
     lastAlong=along;
     lastAcross=across;
   end when;

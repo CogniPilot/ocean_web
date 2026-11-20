@@ -18,3 +18,5 @@ if [[ ${2:-} == --world ]]; then
   node scripts/prepare-world-runtime.mjs "$out/world"
   sed 's/<body>/<body data-default-runtime="world">/' viewer/index.html > "$out/index.html"
 fi
+
+node scripts/version-viewer.mjs "$out"

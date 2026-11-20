@@ -156,18 +156,32 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
   protected
     Real arm[3],p[3],normal[3],delta[3],n[3],v[3],slip[3],force[3],localPoint[3];
     Real x,y,h,t,z,dx,dy,penetration,d,support,weight,along,beam,depth,highest;
+    Integer nearby[46],count,r,f;
+    Real reach,maxBeam;
     Real ch,sh,profile[3],inv[3,3],q[3],gradient[3],magnitude;
   algorithm
     wrench:=zeros(6);
     if abs(pos[1]-36)>31 or abs(pos[2]-40)>26 then return; end if;
     ch:=cos(heading);sh:=sin(heading);
+    // A rotation preserves distance from the hull origin. Screen rocks
+    // once for the whole vessel before testing the unchanged hull samples.
+    maxBeam:=max(abs(widths));
+    reach:=sqrt(max(abs(xs))^2+(abs(spacing)+.69*max(maxBeam,max(pontoon[:,2])))^2
+      +max(max(abs(pontoon[:,3:4])),.19*(.48+1.55*maxBeam))^2);
+    nearby:=fill(0,46);count:=0;
+    for rock in 1:46 loop
+      delta:=pos-rocks[rock,1:3];
+      if delta*delta<(reach+rocks[rock,4])^2 then
+        count:=count+1;
+        nearby[count]:=rock;
+      end if;
+    end for;
     for hull in 1:(if spacing>0 then 2 else 1) loop
       for j in 1:13 loop
+        along:=.5*(xs[div(j+1,2)]+xs[div(j+2,2)]);
+        beam:=.5*(widths[div(j+1,2)]+widths[div(j+2,2)]);
+        profile:=pontoonSection(along);
         for side in -1:1 loop
-          along:=.5*(xs[div(j+1,2)]+xs[div(j+2,2)]);
-          beam:=.5*(widths[div(j+1,2)]+widths[div(j+2,2)]);
-          // Rounded bilge and underside samples of each individual hull.
-          profile:=pontoonSection(along);
           depth:=if spacing>0 then profile[2]+(profile[3]-profile[2])*(if side==0 then 1 else .77)
             else -.19*(.48+1.55*beam)*(if side==0 then 1 else .77);
           localPoint:={along,(3-2*hull)*spacing+side*.69*(if spacing>0 then profile[1] else beam),depth};
@@ -187,16 +201,20 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
             z:=z-normal[1]*(x-h-dx)-normal[2]*(y-t-dy);
           end if;
           penetration:=(z-p[3])/sqrt(normal*normal);normal:=normal/sqrt(normal*normal);
-          for r in 1:46 loop
+          for candidate in 1:count loop
+            r:=nearby[candidate];
             delta:=p-rocks[r,1:3];
             if delta*delta<rocks[r,4]^2 then
               inv:=[rocks[r,5],rocks[r,6],rocks[r,7];rocks[r,8],rocks[r,9],rocks[r,10];rocks[r,11],rocks[r,12],rocks[r,13]];
               q:=inv*delta;highest:=-1e6;n:={0,0,1};
-              for f in 1:80 loop
+              f:=1;
+              // One separating plane rules out a stronger contact at this point.
+              while f<=80 and highest < -max(0,penetration) loop
                 gradient:=transpose(inv)*planes[f,1:3];magnitude:=sqrt(gradient*gradient);
                 d:=(planes[f,1:3]*q-planes[f,4])/magnitude;
                 if d>highest then highest:=d;n:=gradient/magnitude;end if;
-              end for;
+                f:=f+1;
+              end while;
               if -highest>penetration then penetration:=-highest;normal:=n;end if;
             end if;
           end for;
