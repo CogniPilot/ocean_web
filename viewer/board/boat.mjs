@@ -160,6 +160,56 @@ function deckHardware(T,traveler=false){
  return group;
 }
 
+// A single vertex-coloured mesh keeps the moving deck ballast to one draw call.
+function ballastCooler(T){
+ const position=[],normal=[],color=[];
+ function add(geometry,tint){
+   const g=geometry.index?geometry.toNonIndexed():geometry;
+   const rgb=new T.Color(tint);
+   position.push(...g.attributes.position.array);
+   normal.push(...g.attributes.normal.array);
+   for(let i=0;i<g.attributes.position.count;i++)color.push(rgb.r,rgb.g,rgb.b);
+   if(g!==geometry)g.dispose();
+   geometry.dispose();
+ }
+ function rounded(width,depth,r){
+   const contour=new T.Shape(),x=width/2,y=depth/2;
+   contour.moveTo(-x+r,-y);contour.lineTo(x-r,-y);contour.quadraticCurveTo(x,-y,x,-y+r);
+   contour.lineTo(x,y-r);contour.quadraticCurveTo(x,y,x-r,y);
+   contour.lineTo(-x+r,y);contour.quadraticCurveTo(-x,y,-x,y-r);
+   contour.lineTo(-x,-y+r);contour.quadraticCurveTo(-x,-y,-x+r,-y);
+   return contour;
+ }
+ function molding(contour,base,height,bevel,tint){
+   const g=new T.ExtrudeGeometry(contour,{depth:height,curveSegments:4,bevelEnabled:true,
+     bevelSegments:2,bevelThickness:bevel,bevelSize:bevel});
+   add(g.translate(0,0,base),tint);
+ }
+ molding(rounded(.41,.25,.03),-.098,.176,.009,0x096587);
+ molding(rounded(.415,.255,.03),.077,.023,.005,0xeaf0e9);
+ const lid=rounded(.411,.253,.031);
+ for(const x of [-.148,.148]){
+   const hole=new T.Path();hole.absarc(x,.065,.028,0,2*Math.PI,true);
+   lid.holes.push(hole);
+   add(new T.CircleGeometry(.029,24).translate(x,.065,.103),0x737b7c);
+ }
+ molding(lid,.102,.022,.004,0xa8ada9);
+ for(const sign of [-1,1]){
+   const outline=rounded(.112,.080,.012);
+   const hole=new T.Path();hole.moveTo(-.039,-.023);hole.lineTo(-.039,.03);
+   hole.lineTo(.039,.03);hole.lineTo(.039,-.023);hole.closePath();outline.holes.push(hole);
+   const grip=new T.ExtrudeGeometry(outline,{depth:.005,bevelThickness:.002,bevelSize:.002,bevelSegments:1,curveSegments:3});
+   grip.rotateX(Math.PI/2);grip.rotateZ(sign*Math.PI/2);
+   add(grip.translate(sign*.216,0,.038),0xdde2dd);
+ }
+ const g=new T.BufferGeometry();
+ for(const [key,data] of [['position',position],['normal',normal],['color',color]])
+   g.setAttribute(key,new T.Float32BufferAttribute(data,3));
+ const cooler=new T.Mesh(g,new T.MeshStandardMaterial({vertexColors:true,roughness:.68}));
+ cooler.name='Deck ballast cooler';
+ return cooler;
+}
+
 export function sailboatMesh(T,cat=false,keelX=.06){
  const group=new T.Group();
  const paint=(c)=>new T.MeshStandardMaterial({color:c,roughness:.42,metalness:.12});
@@ -296,7 +346,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    for(const x of [-1.4,.55])rod([x,-1.06,.41],[x,1.06,.41],.067,black);
    const tramp=mesh(new T.BoxGeometry(1.95,1.94,.028),paint(0x36454b));tramp.position.set(-.425,0,.40);
    for(const y of [-.87,.87])rod([-1.33,y,.44],[.48,y,.44],.014,black);
-   carriage=mesh(new T.BoxGeometry(.34,.24,.16),new T.MeshStandardMaterial({color:0x17191a,roughness:.85,metalness:.08}));carriage.position.z=.52;
+   carriage=ballastCooler(T);group.add(carriage);carriage.position.set(-.425,0,.52);
    mastGeometry=new T.CylinderGeometry(.043,.043,7.92,10,32);
    mastGeometry.rotateX(Math.PI/2);mastGeometry.translate(.44,0,4.37);
    mesh(mastGeometry,black);

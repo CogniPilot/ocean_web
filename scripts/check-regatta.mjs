@@ -52,3 +52,24 @@ launch.set('wakeTile',new Float64Array(4096));
 settle(6);
 assert.ok(pose().slice(1).every(v=>Math.abs(v)<1e-3),'settles after the wake passes');
 console.log('Committee launch passed still water, tide, oblique wake and settling checks.');
+
+// Force the marks with a local travelling swell after still-water equilibrium.
+const marks=await loadInstance('Regatta',{swellHeight:0},read);
+marks.advance(.1);
+assert(marks.get('markPose').every(v=>Math.abs(v)<1e-8));
+marks.set('swellHeight',.30);
+const lo=Array(9).fill(Infinity),hi=Array(9).fill(-Infinity);
+let difference=0;
+for(let step=0;step<220;step++){
+  marks.advance(.05);
+  const p=marks.get('markPose');
+  if(step<80)continue;
+  p.forEach((v,i)=>{lo[i]=Math.min(lo[i],v);hi[i]=Math.max(hi[i],v);});
+  difference=Math.max(difference,Math.abs(p[0]-p[3]));
+}
+for(let i=0;i<9;i++){
+ const travel=hi[i]-lo[i];
+ assert(travel>(i%3===0?.35:.03) && travel<(i%3===0?.9:.5),JSON.stringify({i,travel}));
+}
+assert(difference>.1);
+console.log({markRanges:hi.map((v,i)=>v-lo[i]),difference});

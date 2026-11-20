@@ -99,3 +99,11 @@ A checked item records the specific result described. Open items include partial
 - [x] Show the triangle designation, port roundings and true first-leg bearing aboard the committee boat. Time each boat from its own start to the finish.
 - [x] Give the bow-up sailing compass a rotating true-bearing card, fixed bow index and prominent numeric true heading.
 - [ ] Benchmark a local short-wave bow field driven by hull wetting and pressure, with long waves in the existing spectral solver, on physical phones.
+- [x] Replace the deck ballast box with an unbranded blue cooler on the moving carriage.
+- [x] Profile and optimize island collision with matched contact loads and measured offshore, beach and boulder approaches.
+- [x] Verify gust-driven aircraft drag and bank, add drone FPV, and test four-foot deck touchdown, rocking, takeoff and missing the deck.
+- [x] Give all three pyramid marks buoyancy and roll/pitch response to water sampled across their individual footprints.
+
+- [x] Add an estimated attitude ladder, heading tape, speed and altitude or depth to both first-person views. Mount the submarine camera inside a transparent forward viewport.
+- [x] Add a Shift speed modifier to manual drone flight and model four-foot landings on the catamaran trampoline and sloop hatch.
+- [ ] Reproduce the upward mainsail fold reported at 68.4 s, heading 256°T, and 89 N tackle load.

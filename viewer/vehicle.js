@@ -15,7 +15,12 @@ function surveyVehicle(T,housing){
    return shape;
  }
  sub.add(housing);
- part(sphere,mat(0x80b8c8,.26,.12),[.52,0,.1],[.15,.168,.168]);
+ const windowMaterial=new T.MeshPhysicalMaterial({color:0xb8e7ee,metalness:0,roughness:.09,
+   transparent:true,opacity:.18,depthWrite:false,side:T.DoubleSide});
+ const dome=part(sphere,windowMaterial,[.52,0,.1],[.15,.168,.168]);
+ dome.name='Forward acrylic viewport';
+ cylinder(.567,0,.1,.04,.034,'x',rubber);
+ cylinder(.585,0,.1,.026,.008,'x',mat(0x26434d,.18,.10));
  for(const y of [-.23,.23]){
    part(cube,frame,[0,y,-.007],[1.22,.023,.105]);
    part(cube,frame,[0,y,-.172],[1.22,.023,.034]);

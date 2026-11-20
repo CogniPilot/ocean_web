@@ -45,6 +45,10 @@ export function courseScene(T,scene,race){
   mesh(boat,new T.BoxGeometry(.52,.48,.68),navy,-3.13,0,.58);
   rod(boat,[0,0,2.34],[0,0,4],.033,metal);
   mesh(boat,new T.BoxGeometry(.96,.03,.73),orange,-.48,0,3.6);
+  // Aft landing pad shares the height and extent of the Modelica deck.
+  mesh(boat,new T.BoxGeometry(1.45,1.3,.012),navy,-1.98,0,.777);
+  for(const y of [-.22,.22])mesh(boat,new T.BoxGeometry(.65,.065,.008),white,-1.98,y,.786);
+  mesh(boat,new T.BoxGeometry(.065,.47,.008),white,-1.98,0,.786);
   batchScenery(T,boat);
   function markNumber(parent,number,x,y){
     const face=document.createElement('canvas');face.width=64;face.height=64;
@@ -62,10 +66,12 @@ export function courseScene(T,scene,race){
     const board=mesh(boat,new T.PlaneGeometry(2.2,.82),boardMaterial,-.28,side*.57,1.83);
     board.rotation.order='ZXY';board.rotation.x=Math.PI/2;board.rotation.z=side<0?0:Math.PI;
   }
+  const marks=[];
   function mark(x,y,number){
-    if(number)markNumber(group,number,x,y);
-    const buoy=mesh(group,new T.ConeGeometry(.85,1.75,3,1),orange,x,y,.77);buoy.rotation.x=Math.PI/2;
-    const collar=mesh(group,new T.CylinderGeometry(.76,.81,.14,3),navy,x,y,.04);collar.rotation.x=Math.PI/2;
+    const body=new T.Group();group.add(body);marks.push(body);body.position.set(x,y,0);x=0;y=0;
+    if(number)markNumber(body,number,x,y);
+    const buoy=mesh(body,new T.ConeGeometry(.85,1.75,3,1),orange,x,y,.77);buoy.rotation.x=Math.PI/2;
+    const collar=mesh(body,new T.CylinderGeometry(.76,.81,.14,3),navy,x,y,.04);collar.rotation.x=Math.PI/2;
   }
   mark(race.get('pinEast'),race.get('pinNorth'));
   race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i],i+1));
@@ -73,6 +79,11 @@ export function courseScene(T,scene,race){
   return label=>{
     const [heave,roll,pitch]=race.get('launchPose');
     boat.position.z=heave;boat.rotation.x=roll;boat.rotation.y=-pitch;
+    const poses=race.get('markPose');
+    marks.forEach((mark,i)=>{
+      mark.position.z=poses[3*i];
+      mark.rotation.set(poses[3*i+1],-poses[3*i+2],0,'ZYX');
+    });
     const bearing=firstLeg(race),key=label+bearing;
     if(previous===key)return;previous=key;ctx.fillStyle='#101d23';ctx.fillRect(0,0,512,168);
     ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='bold 48px monospace';

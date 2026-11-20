@@ -148,3 +148,7 @@ A GPU pass refracts sunlight through the wave normals and accumulates flux on a 
 ### Sailing the triangle
 
 The committee board identifies the local one-lap course as **TRI 1**. Its first-leg bearing is measured clockwise from true north at the midpoint of the start line. After the five-minute fleet signal, cross between the committee boat and pin toward mark 1. Tack to mark 1, then sail to mark 2, leaving both marks to port. The scorer registers each mark within 2.5 m of its centre. Return through the same gate from the course side. Each leg is 200 m. The lap clock starts at your own crossing and freezes at the finish. The race panel retains your last time until another finish or page reload.
+
+Select **RDD2 drone** and **View → Drone FPV** for the nose camera. Approach the committee boat's aft H, descend with **F**, and cut motors after touchdown. Re-enable motors and climb with **R** for takeoff. Drone feet exchange forces and moments with the moving deck. The pin and both rounding marks sample waves individually and respond in heave, roll and pitch.
+
+In drone FPV, hold **Shift** with **W/A/S/D** to command twice the horizontal speed. The heading tape and pitch ladder follow the onboard attitude estimate. The side readouts show ground speed and altitude in metres. The sailboat landing surfaces are the catamaran trampoline and the sloop’s raised hatch. In **Sub FPV**, the camera looks out through the clear bow dome. The instruments show navigation heading, pitch, roll, depth and horizontal speed.
