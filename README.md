@@ -2,6 +2,8 @@
 
 Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone, and explore a listed shipwreck with a survey submarine. The browser steps precompiled Rumoca FMI 3 models and draws their outputs with Three.js. [Open the simulator](https://cognipilot.github.io/ocean_web/)
 
+Watch the submarine navigate the wreck using its onboard estimate, with the sonar map visible and the drone following overhead. Select **Autopilot** to take manual control. [Launch the wreck survey](https://cognipilot.github.io/ocean_web/?demo=wreck)
+
 [Request tracker](TODO.md)
 
 On the Hobie 16, the red port and green starboard sidestay ribbons stream in the direction the apparent wind is going. A ribbon pointing aft means wind is coming over the bow. They hang down when the air is still relative to the boat. Rumoca calculates each ribbon direction using local rig velocity and gravity.

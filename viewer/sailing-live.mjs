@@ -227,7 +227,18 @@ async function run(){
       keys.clear();$('view').focus({preventScroll:true});sub.active=$('controlTarget').value==='sub';$('onboardOption').hidden=!sub.active;if(!sub.active&&$('cameraDepth').value==='onboard')$('cameraDepth').value='deck';$('subPanel').hidden=!sub.active;drone.select($('controlTarget').value==='drone');helm();touchControls();
       $('cutMotors').hidden=!drone.active;$('flightKeys').hidden=!drone.active;document.querySelector('h1').textContent=sub.active?'Survey submarine':drone.active?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
     };
-    if(['drone','sub'].includes(url.searchParams.get('control'))){$('controlTarget').value=url.searchParams.get('control');$('controlTarget').onchange();}
+    const wreckSurvey=url.searchParams.get('demo')==='wreck';
+    const target=wreckSurvey?'sub':url.searchParams.get('control');
+    if(wreckSurvey){
+      sub.manual=false;
+      drone.manual=false;
+      $('sonarMap').checked=true;
+      sub.mapVisible=true;
+    }
+    if(target==='drone'||target==='sub'){
+      $('controlTarget').value=target;
+      $('controlTarget').onchange();
+    }
   }).catch(e=>{$('controlTarget').title=e.message;});
 
   function helm(){drone?.input(axis);if(drone?.active||sub.active){model.set('rudderInput',0);model.set('trimInput',0);return;}model.set('rudderInput',axis('KeyA','KeyD'));model.set('trimInput',axis('KeyW','KeyS'));}
