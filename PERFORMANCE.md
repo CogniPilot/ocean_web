@@ -126,3 +126,9 @@ Low skips the local and received hull displacement spectrum and associated wave 
 Two workstation WASM benchmarks interleaved the previous release and both wake settings on the new release, alternating execution order and reversing session initialization for the second run. Each session warmed up for 100 steps and measured 400 steps of 10 ms. Median wave-only event steps fell from 32.5 and 33.5 ms on the previous release to 20.5 and 19.6 ms on Low. With wakes enabled they took 32.8 and 31.9 ms. Low averaged 12.24 and 11.20 ms across all steps. The 200 ms sensor events still took 55.1 and 50.4 ms on Low.
 
 A 393 × 852 touch viewport in Chromium using SwiftShader selected Low on a fresh origin. Across 180 running frames it averaged 48.4 FPS with a 25.9 ms p95 frame and advanced 0.525 simulated seconds per wall second. Physical handset timing remains unmeasured.
+
+### Time to first motion
+
+The viewer starts loading vehicle meshes alongside the integrated world and prepares the renderer and shoreline before awaiting both. When the tide is at or above mean sea level, the planar reflection pass can skip the submerged wreck, seabed and animals. The transmission pass still draws these objects.
+
+In a cache-disabled Chromium touch viewport (393 × 852, SwiftShader, localhost), two candidate launches first reported positive simulation time at 2.821 and 2.822 seconds. The interleaved previous release took 2.934 seconds. The first catamaran hull request began at 157–160 ms on the candidate and 735 ms on the previous release. In a paired render of the same orbit view, all 23,040 pixels in the Low reflection target matched with submerged scenery included and excluded.
