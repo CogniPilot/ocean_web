@@ -25,37 +25,53 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
     end for;
   end directions;
 
-  function renderDepth "Headless reference renderer. Ranges along calibrated body-frame rays."
+  function slabInterval "Parametric ray interval inside a rectangular box; hi < lo means miss"
+    input Real origin[3],direction[3],lower[3],upper[3],parallelTolerance;
+    output Real lo,hi;
+  protected
+    Real a,b;
+  algorithm
+    lo:=-1e6;hi:=1e6;
+    for k in 1:3 loop
+      if abs(direction[k])<parallelTolerance then
+        if origin[k]<lower[k] or origin[k]>upper[k] then hi:=-1e6;end if;
+      else
+        a:=(lower[k]-origin[k])/direction[k];b:=(upper[k]-origin[k])/direction[k];
+        lo:=max(lo,min(a,b));hi:=min(hi,max(a,b));
+      end if;
+      if hi<lo then break;end if;
+    end for;
+  end slabInterval;
+
+  function intersectsBounds "Conservative subtree test over the sensor near and far planes"
+    input Real o[3],d[3],low[3],high[3],limit;
+    output Boolean hit;
+  protected Real entry,exitDistance;
+  algorithm
+    (entry,exitDistance):=slabInterval(o,d,low,high,1e-15);
+    hit:=exitDistance>=max(.08,entry) and entry<=limit;
+  end intersectsBounds;
+
+  function plateRange "Closest entry or exit of an oriented solid; ranges are in metres"
+    input Real o[3],d[3],center[3],halfExtent[3],worldToBox[3,3],limit;
+    output Real distance;
+  protected Real entry,exitDistance,hit;
+  algorithm
+    (entry,exitDistance):=slabInterval(worldToBox*(o-center),worldToBox*d,-halfExtent,halfExtent,1e-9);
+    hit:=if entry>=.08 then entry else exitDistance;
+    distance:=if exitDistance>=entry and hit>=.08 then min(limit,hit) else limit;
+  end plateRange;
+
+  function renderDepth "First returns along the four DVL, 149 sonar and 864 pinhole-camera rays"
     input Real pos[3],T[3,3],d[rays,3];
     output Real depth[rays];
-  protected
-    Real box[18],B[3,3],R[3,3],o[3],e[3],org,dir,lo,hi,a,b,limit;
+  protected Real eye[3],limit,hit;
   algorithm
-    depth:=zeros(rays);
-    for j in 1:WreckSolids.count loop
-      box:=WreckSolids.getBox(j);
-      if abs(pos[1]-box[1])<=box[16]+35 and abs(pos[2]-box[2])<=box[17]+35 and abs(pos[3]-box[3])<=box[18]+35 then
-        for k in 1:3 loop B[k,:]:=box[4+3*k:6+3*k];end for;
-        R:=B*transpose(T);o:=B*(pos-box[1:3]);e:=o+R*{.62,0,.09};
-        for i in 1:rays loop
-          limit:=if i<=4 then 35 elseif i<=153 then 18 else 8;
-          if depth[i]>0 then limit:=min(limit,depth[i]);end if;
-          lo:=-1e6;hi:=1e6;
-          for k in 1:3 loop
-            dir:=R[k,1]*d[i,1]+R[k,2]*d[i,2]+R[k,3]*d[i,3];
-            org:=if i<=153 then o[k] else e[k];
-            if abs(dir)<1e-9 then
-              if abs(org)>box[3+k] then hi:=-1e6;end if;
-            else
-              a:=(-box[3+k]-org)/dir;b:=(box[3+k]-org)/dir;
-              lo:=max(lo,min(a,b));hi:=min(hi,max(a,b));
-            end if;
-            if lo>hi or lo>limit then break;end if;
-          end for;
-          a:=if lo>=.08 then lo else hi;
-          if hi>=lo and a>=.08 and a<=limit then depth[i]:=a;end if;
-        end for;
-      end if;
+    eye:=pos+transpose(T)*{.62,0,.09};
+    for i in 1:rays loop
+      limit:=if i<=4 then 35 elseif i<=153 then 18 else 8;
+      hit:=WreckSolids.beamRange(if i<=153 then pos else eye,transpose(T)*d[i,:],limit+1);
+      depth[i]:=if hit<=limit then hit else 0;
     end for;
   end renderDepth;
 

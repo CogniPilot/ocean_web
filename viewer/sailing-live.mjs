@@ -71,7 +71,7 @@ async function run(){
   ocean.U.moonDir.value.set(-.8,-.4,-.5);ocean.U.bearing.value=Math.atan2(inputs.windNorth,inputs.windEast);
   const caustics=wreckCaustics(T,renderer,ocean,mobile);
   const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;scene.add(bottom);
-  const hull=makeWreck(T,materials);const wreckVisual=batchScenery(T,hull.clone(true));scene.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,scene);
+  const wreckVisual=batchScenery(T,makeWreck(T,materials));scene.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,scene);
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
   let angle=-.8,distance=cat?14:5.7,tilt=.16,drag=null,running=true,manual=false;
   $('view').onpointerdown=e=>{drag=[e.clientX,e.clientY];e.target.setPointerCapture(e.pointerId);};
@@ -104,7 +104,7 @@ async function run(){
   }
   $('seaState').onchange=()=>model.set('swellAmplitude',.30*Number($('seaState').value));
   const keys=new Set();let drone;
-  const sub=submarine(T,scene,renderer,hull), sensorCanvas=$('sensorCam').getContext('2d');
+  const sub=submarine(T,scene), sensorCanvas=$('sensorCam').getContext('2d');
   const drawForces=forceDisplay(T,scene,sub.mesh,boat.group,cat);
   $('sonarMap').onchange=()=>{sub.mapVisible=$('sonarMap').checked;};
   for(const id of ['showForces','showCompass'])$(id).onclick=()=>{

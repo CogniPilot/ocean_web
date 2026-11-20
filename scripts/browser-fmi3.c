@@ -1,7 +1,13 @@
 #include "model.h"
 static fmi3Instance instance;
 static double values[16384];
+static fmi3ValueReference references[128];
 double *buffer(void) {return values;}
+fmi3ValueReference *reference_buffer(void) {return references;}
+int read_batch(unsigned count,unsigned n) {
+    if (count > sizeof(references)/sizeof(*references) || n > sizeof(values)/sizeof(*values)) return fmi3Error;
+    return fmi3GetFloat64(instance,references,count,values,n);
+}
 int create_instance(const char *token) {
     instance=fmi3InstantiateCoSimulation("pelagic",token,NULL,false,false,false,false,NULL,0,NULL,NULL,NULL);
     return instance ? fmi3EnterInitializationMode(instance,false,0,0,false,0) : fmi3Error;

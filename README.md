@@ -24,7 +24,7 @@ Run `scripts/package-pages.sh` to assemble the static release in `build/pages`. 
 
 Open **http://127.0.0.1:8074**. The launcher uses Python 3, with a Nix fallback. The prebuilt simulator requires a WebGL2 browser with WebAssembly and gzip DecompressionStream support. The contents of `viewer/` also work on a static HTTP host.
 
-Select **Submarine** for the underwater survey. Switch the helm to manual for W/S surge, A/D sway, Q/E yaw and R/F rise or dive. The onboard camera overlay shows detected features. A 5 Hz navigation FMU receives 1,017 geometric ranges from a GPU pass over the listed wreck and seabed. The plant and navigation exchange samples in a dedicated worker. The sailing sea runs in a second worker.
+Select **Submarine** for the underwater survey. Switch the helm to manual for W/S surge, A/D sway, Q/E yaw and R/F rise or dive. The onboard camera overlay shows detected features. At 5 Hz the Rumoca navigation FMU computes 1,017 geometric ranges against the wreck and seabed in Modelica. The plant and navigation exchange samples in a dedicated worker. The sailing sea runs in a second worker.
 
 ## Ocean and sub
 
@@ -35,7 +35,7 @@ The combined build targets Rumoca FMI 3 co-simulation. Body coordinates are forw
 * MultiBodyLie supplies six-degree-of-freedom rigid-body dynamics. Forces include displaced-water buoyancy with a centre-of-buoyancy offset, changing fore/aft tank weights and trim moments, axis-specific effective translational mass and water-relative drag. Both piston tanks have a finite volume, pump lag and pressure-dependent emptying rate. Two axial thrusters, four vertical thrusters and a reversible transverse thruster have force limits and first-order response. The manual velocity controller and immersion-scaled delivered thrust run in Modelica. Propeller RPM is estimated from shaft demand and a static thrust coefficient. A pressure- and tip-speed-based inception model drives the cavitation bubble emitters. These coefficients are illustrative.
 
 * The ship has three deck levels, companionway openings, side cabins and a bridge. Its mesh boxes are exported into Modelica by `scripts/wreck-solids.mjs`. At 100 Hz six sphere proxies attached to the sub use MultiBodyLie.Collision.sphereBox and contactForce against those oriented boxes and the seabed. Normal load, damping, friction and off-centre moments act on the simulated rigid body.
-* The 5 Hz sensor exchange uses four downward-looking DVL beams, a forward sonar with a 49-ray centre fan and four 25-ray fans at −24°, −12°, +12° and +24° elevation, a 36 × 24 raycast navigation camera, a pressure sensor and inertial measurements. Three.js intersects the same structural meshes used in the viewer. Sensor outputs include slant ranges, signed beam velocities, sonar returns, pressure, angular rates, specific force and image-patch measurements. The navigation front end matches sonar scans against cells accumulated from prior measurements. It tracks a camera patch by its brightness pattern. Modelica uses upstream FAST corner scoring to gate the visual angular-rate estimate and upstream pose-edge residuals to combine the scan match with DVL and gyro odometry. Pressure closes the depth loop and accelerometers help level the vehicle.
+* The 5 Hz sensor exchange uses four downward-looking DVL beams, a forward sonar with a 49-ray centre fan and four 25-ray fans at −24°, −12°, +12° and +24° elevation, a 36 × 24 raycast navigation camera, a pressure sensor and inertial measurements. The Modelica sensor intersects oriented solids shared with wreck collision geometry. Sensor outputs include slant ranges, signed beam velocities, sonar returns, pressure, angular rates, specific force and image-patch measurements. The navigation front end matches sonar scans against cells accumulated from prior measurements. It tracks a camera patch by its brightness pattern. Modelica uses upstream FAST corner scoring to gate the visual angular-rate estimate and upstream pose-edge residuals to combine the scan match with DVL and gyro odometry. Pressure closes the depth loop and accelerometers help level the vehicle.
 * Each survey keyframe stores 48 selected sonar returns across horizontal and elevated fans. Estimated attitude places those returns in 3D. Registration corrects horizontal translation and yaw, pressure constrains depth, and gravity helps level the estimate. The 12-station regression completed in 112.8 simulated seconds with 0.585 m translational RMS error, temporal feature matches on 558 of 565 frames, and a peak contact force of 45.1 N.
 
 ### Sensor vector
@@ -70,6 +70,8 @@ The waypoint controller is a baseline for later reinforcement-learning experimen
 
 ```sh
 ./build.sh
+node scripts/check-sensor-geometry.mjs
+node scripts/check.mjs
 node scripts/check-rdd2.mjs
 node scripts/check-luff.mjs
 node scripts/check-wake-spectrum.mjs

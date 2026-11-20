@@ -1,0 +1,101 @@
+--- a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/incoming_value_flow.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/incoming_value_flow.rs
+@@ -273,7 +273,7 @@
+     ) {
+         for index in undefined.keys().copied().collect::<Vec<_>>() {
+             let name = self.names[index];
+-            if expression_reads_name(value, name) {
++            if self.reads_on_paths(value, name, &undefined[&index]) {
+                 self.mark_read(undefined, index);
+             } else if target == name {
+                 undefined.remove(&index);
+@@ -287,6 +287,45 @@
+         });
+     }
+ 
++    /// A branch-selection snapshot uses an if-expression to evaluate its source
++    /// predicate only on paths where its enclosing branch is active. A local
++    /// defined by that branch is never read on the complementary paths.
++    fn reads_on_paths(&self, expr: &Expression, name: &VarName, paths: &PathSet) -> bool {
++        if !self.guarded {
++            return expression_reads_name(expr, name);
++        }
++        if paths.is_unreachable() || !expression_reads_name(expr, name) {
++            return false;
++        }
++        let Expression::If {
++            branches,
++            else_branch,
++            ..
++        } = expr
++        else {
++            return true;
++        };
++        let conditions = branches
++            .iter()
++            .map(|(condition, _)| condition)
++            .collect::<Vec<_>>();
++        for (i, (condition, value)) in branches.iter().enumerate() {
++            if self.reads_on_paths(
++                condition,
++                name,
++                &paths.entering(&conditions[..i], i, self.scope),
++            ) || self.reads_on_paths(value, name, &paths.entering(&conditions, i, self.scope))
++            {
++                return true;
++            }
++        }
++        self.reads_on_paths(
++            else_branch,
++            name,
++            &paths.entering(&conditions, branches.len(), self.scope),
++        )
++    }
++
+     /// A statement that owns no nested statements: each name is read by it,
+     /// written whole by it, or merely carried past it.
+     fn leaf(&mut self, statement: &rumoca_core::Statement, undefined: &mut Undefined) {
+--- a/crates/rumoca-compile/src/session/tests/bounded_function_domains_tests.rs
++++ b/crates/rumoca-compile/src/session/tests/bounded_function_domains_tests.rs
+@@ -222,3 +222,41 @@
+         "a mismatched selected extent must be rejected"
+     );
+ }
++
++#[test]
++fn guarded_snapshot_reads_a_local_only_while_the_enclosing_loop_is_active() {
++    let source = r#"
++ function f
++  input Real x; output Real y;
++ protected Real lo;Integer n;
++ algorithm
++  n:=1; y:=0;
++  for visit in 1:5 loop
++    if n>4 then break; end if;
++    lo:=1;
++    for k in 1:3 loop
++     lo:=max(lo,x*k);
++     if lo>8 then break;end if;
++    end for;
++    if lo>2 then
++      n:=n+1;
++    else
++      n:=n+2; lo:=2;
++      for k in 1:3 loop
++        lo:=min(lo,x*k);
++        if lo<0 then break;end if;
++      end for;
++      y:=max(y,lo);
++    end if;
++  end for;
++ end f;
++model Ordered
++  parameter Real u = 2;
++  Real y;
++equation
++  y=f(u);
++end Ordered;
++"#;
++    assert_eq!(evaluate(source, 0.25), 0.25);
++    assert_eq!(evaluate(source, 4.0), 0.0);
++}
