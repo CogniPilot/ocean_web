@@ -32,7 +32,7 @@ export function fleet(T,scene,roomName,status){
     const peer=peers.get(id);
     if(peer){scene.remove(peer.mesh.group);peer.sub?.removeFromParent();peer.drone?.removeFromParent();
       const geometries=new Set(),materials=new Set(),textures=new Set();
-      peer.mesh.group.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)materials.add(o.material);});
+      peer.mesh.group.traverse(o=>{if(o.userData.sharedVehicleAsset)return;if(o.geometry)geometries.add(o.geometry);if(o.material)materials.add(o.material);});
       for(const m of materials){if(m.map)textures.add(m.map);m.dispose();}
       for(const item of [...textures,...geometries])item.dispose();
       peers.delete(id);}

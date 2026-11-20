@@ -13,14 +13,15 @@ export function forceDisplay(T,scene,sub,yacht,cat){
  const buoyIndex=specs.length;arrow(yacht,[0,0,-.08],0x77e7ba);
  for(const r of sub.userData.rotors)arrow(sub,r.center.toArray(),0xff82af);
  arrow(sub,[0,0,.055],0x77e7ba);arrow(sub,[0,0,0],0xff524b);
- const dir=new T.Vector3();
+ const dir=new T.Vector3(),up=new T.Vector3(0,0,1),yaw=new T.Quaternion();
  return (enabled,b,f,model)=>{
    group.visible=enabled;if(!enabled)return;
+   yaw.setFromAxisAngle(up,b[2]);
    const sails=model.get('rigForce'),foils=model.get('foilLoad');
    for(let i=0;i<specs.length;i++){
      const {glyph,parent,origin}=specs[i];glyph.position.copy(origin).applyQuaternion(parent.quaternion).add(parent.position);
-     if(i<2)dir.fromArray(sails,3*i).applyQuaternion(parent.quaternion);
-     else if(i<buoyIndex)dir.fromArray(foils,3*(i-2)).applyQuaternion(parent.quaternion);
+     if(i<2)dir.fromArray(sails,3*i).applyQuaternion(yaw);
+     else if(i<buoyIndex)dir.fromArray(foils,3*(i-2)).applyQuaternion(yaw);
      else if(i===buoyIndex)dir.set(0,0,b[29]);
      else if(!f?.thrust){glyph.visible=false;continue;}
      else if(i<=buoyIndex+7){const rotor=i-buoyIndex-1;dir.copy(sub.userData.rotors[rotor].axis).multiplyScalar(f.thrust[rotor]).applyQuaternion(sub.quaternion);}

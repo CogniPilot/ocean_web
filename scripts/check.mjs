@@ -1,11 +1,41 @@
-import {startDive} from '../viewer/live.mjs';
-const dive=await startDive();
-let maxX=-Infinity,sum=0,loss=0,visual=0,minZ=0;
-for(let i=1;i<=625;i++){
- const f=dive.advance();
- sum+=(f.pos[0]-f.est[0])**2+(f.pos[1]-f.est[1])**2;
- maxX=Math.max(maxX,f.pos[0]);minZ=Math.min(minZ,f.pos[2]);loss+=!f.lock;visual+=f.visualWeight>0;
+import assert from 'node:assert/strict';
+import {subHarness} from './sub-harness.mjs';
+
+// The controller sees only sensor estimates. Ground truth below scores the run.
+const {plant, sample, step} = await subHarness();
+const visited = new Set();
+let squaredError = 0, trackedFrames = 0, frames = 0, contactPeak = 0;
+let maxEast = -Infinity, minNorth = Infinity, maxNorth = -Infinity;
+let complete = false, atFinish;
+for (; frames < 1200; frames++) {
+  const {pos, estimate} = await sample();
+  const [station, count, done, ...forces] = plant.get('surveyTelemetry');
+  assert.equal(count, 12);
+  if (!visited.has(station)) {
+    assert.equal(station, visited.size + 1, 'survey skipped a waypoint');
+    visited.add(station);
+    console.log('Station', station, 'at', plant.time.toFixed(1), 's; position',
+      pos.map(v=>v.toFixed(2)).join(', '), 'm; estimate',
+      estimate.slice(0,3).map(v=>v.toFixed(2)).join(', '), 'm');
+  }
+  squaredError += pos.reduce((sum, value, i) => sum + (value - estimate[i])**2, 0);
+  trackedFrames += Number(estimate[16] > 0);
+  contactPeak = Math.max(contactPeak, Math.hypot(...forces.slice(10)));
+  maxEast = Math.max(maxEast, pos[0]);
+  minNorth = Math.min(minNorth, pos[1]);
+  maxNorth = Math.max(maxNorth, pos[1]);
+  if (done > .5) {
+    complete = true;
+    atFinish = pos;
+    frames++;
+    break;
+  }
+  await step();
 }
-const end=dive.frame.pos,rmse=Math.sqrt(sum/625);
-console.log({maxX,minZ,end,rmse,loss,visual});
-if(maxX<20 || Math.hypot(end[0]+5,end[1])>1.5 || rmse>.9 || !loss || !visual)throw Error('Dive qualification failed');
+const rmse = Math.sqrt(squaredError / frames);
+console.log({complete, seconds:plant.time, stationsReached:visited.size, rmse, trackedFrames, frames, maxEast, minNorth, maxNorth, contactPeak, atFinish});
+assert(complete && visited.size === 12, 'survey timed out');
+assert(maxEast > 16 && minNorth < -1.3 && maxNorth > 1.3, 'vehicle missed one of the listed decks');
+assert(trackedFrames > frames * .5, 'too few frames matched camera features');
+assert(rmse < 1, 'pose RMS error exceeded one metre');
+assert(Math.hypot(atFinish[0] + 1.5, atFinish[1], atFinish[2]+9.8) < 1, 'physical sub missed the stern');

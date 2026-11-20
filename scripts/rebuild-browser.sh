@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# Rebuild the static runtime from a complete build.sh source FMU export.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+stage=$(mktemp -d build/browser-release.XXXXXX)
+trap 'rm -rf -- "$stage"' EXIT
+for class in Sailboat Hobie16 Rdd2Survey HullWake WakeSpectrum MarineWind Regatta Wreck.Plant Wreck.Navigation; do
+  model=${class//./_}
+  output=build/fmi3/$class
+  python3 scripts/browser-fmi3.py "$output/$model" "$stage"
+  cp "$output/$model.fmu" "$stage/"
+done
+cp "$stage"/* viewer/fmi3/
+scripts/package-pages.sh

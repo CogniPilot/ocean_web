@@ -38,6 +38,7 @@ export async function surveyDrone(T,scene){
     get drag(){return flight.get('dragBody');},
     select(value){active=value;flight.set('pilot',Number(value));input(new Set());},
     cut(value){flight.set('motorCut',Number(value));},
+    station(east,north){flight.set('stationEast',east);flight.set('stationNorth',north);},
     wind(velocity){flight.set('windENU',velocity);},
     input,step(dt){flight.advance(dt);},
     draw(){group.position.fromArray(flight.get('position'));

@@ -3,7 +3,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
   constant Real pi=3.141592653589793;
   parameter Real period=64,dt=.1,depth=14,decay=.04;
   input Real east,north,heading,heel,pitch,stations[7],separation,volume[2,6],beamHalf[7];
-  input Real currentEast,currentNorth,windEast,windNorth;
+  input Real currentEast,currentNorth,windEast,windNorth,seaAmplitude;
   Real driftE(start=0,fixed=true),driftN(start=0,fixed=true);
   discrete Real modesR[n,n](each start=0,each fixed=true),modesI[n,n](each start=0,each fixed=true);
   discrete Real displacementR[n,n](each start=0,each fixed=true),displacementI[n,n](each start=0,each fixed=true);
@@ -62,16 +62,18 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     end for;
   end transform;
   function step
-    input Real prevR[n,n],prevI[n,n],oldR[n,n],oldI[n,n],vol[2,6],xs[7],beams[7],sep,x,y,bearing,heel,pitch,ue,un,L,h,dt,loss,t;
+    input Real prevR[n,n],prevI[n,n],oldR[n,n],oldI[n,n],vol[2,6],xs[7],beams[7],sep,x,y,bearing,heel,pitch,ue,un,sea,L,h,dt,loss,t;
     input Boolean first;
     output Real wr[n,n],wi[n,n],displacedR[n,n],displacedI[n,n],tile[n,n],probe[3],load[3];
   protected
     Real rowR[n],rowI[n],windR[n],windI[n],sourceR[n],sourceI[n],dx,kx,ky,k,omega,c,s,atten,along,across,ex,ny,a,b,amplitude,phase,slope;
     Integer mx,my,strip;
+    Real km,peak,windSpeed,directional,seed,trial;
     Real sr,si,mr,mi,stripR,stripI,momentArm,crossTerm,forceScale;
     Real cx[12,n],sx[12,n],cy[12,n],sy[12,n],ka,kb,length,width,draft,weight;
     Real re[n,n],im[n,n],unused[n,n];
   algorithm
+    windSpeed:=sqrt(ue*ue+un*un);peak:=max(.19,1.4/max(2,windSpeed));
     dx:=L/n;probe:=zeros(3);load:=zeros(3);forceScale:=1025*9.80665*dx^2/n^2;
     // Fourier transform of six immersed strips on each hull. Separable phase
     // tables preserve the exact subcell locations and avoid a forward FFT.
@@ -137,10 +139,16 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
         crossTerm:=forceScale*(rowI[i]*sr-rowR[i]*si);
         load[1]:=load[1]+kx*crossTerm;load[2]:=load[2]+ky*crossTerm;
         load[3]:=load[3]+forceScale*(rowI[i]*mr-rowR[i]*mi);
-        // A bounded low-amplitude wind sea for the sheltered race course.
-        if abs(mx)+abs(my)>=3 and abs(mx)+abs(my)<=9 and mod(3*mx+5*my,7)==0 then
-          amplitude:=.00014*min(18,max(0,(kx*ue+ky*un)/k))^2/(1+.22*(mx^2+my^2));
-          phase:=mx*13.7+my*21.1-omega*t;
+        // Directional gravity-wave spectrum. Independent reproducible phase and
+        // Rayleigh amplitude per travelling mode break up parallel crest lines.
+        if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then
+          km:=k/peak;
+          directional:=max(0,(kx*ue+ky*un)/(k*max(.01,windSpeed)));
+          seed:=mod(sin(mx*127.1+my*311.7)*43758.5453,1);
+          trial:=mod(sin(mx*269.5+my*183.3)*43758.5453,1);
+          amplitude:=(.013*min(16,windSpeed)+sea*.85)*2*pi/(L*peak)
+            *exp(-.625/km^2-.035*k^2)/km^2*directional^2*sqrt(-2*log(max(.0001,trial)));
+          phase:=2*pi*seed-omega*t;
           windR[i]:=n*n*amplitude*cos(phase);
           windI[i]:=n*n*amplitude*sin(phase);
           phase:=phase+kx*x+ky*y;slope:=-amplitude*sin(phase);
@@ -157,6 +165,6 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
 equation
   der(driftE)=currentEast;der(driftN)=currentNorth;
   when sample(0,dt) then
-    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,period,depth,dt,decay,time,time<dt/2);
+    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time,time<dt/2);
   end when;
 end WakeSpectrum;

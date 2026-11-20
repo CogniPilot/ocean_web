@@ -2,9 +2,11 @@
 
 Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone, and explore a listed shipwreck with a survey submarine. The browser steps precompiled Rumoca FMI 3 models and draws their outputs with Three.js. [Open the simulator](https://cognipilot.github.io/ocean_web/)
 
+[Request tracker](TODO.md)
+
 ## Live build status
 
-Select **Control → RDD2 drone** to fly, or open `?control=drone`. W/S and A/D move horizontally, Q/E yaw, and R/F climb or descend. Releasing the keys holds position. Returning control to the boat sends the drone back to 5 m above the submarine launch coordinates. The flight FMU uses CogniPilot’s RDD2 plant and rotor geometry with a local position controller, ideal 10 Hz GNSS, and gyroscope integration. Linear and quadratic body-axis drag use airspeed relative to the local simulated wind. The horizontal gust field is sampled at the aircraft’s location. Drag areas and low-speed damping use the RDD2 template defaults. [CogniPilot RDD2 plant](https://github.com/CogniPilot/modelica_models/blob/main/Vehicles/Rdd2/Plant.mo)
+Select **Control → RDD2 drone** to fly, or open `?control=drone`. W/S and A/D move horizontally, Q/E yaw, and R/F climb or descend. Releasing the keys holds position. Returning control to the boat sends the drone back to an altitude of 5 m over the latest estimated submarine position. The flight FMU uses CogniPilot’s RDD2 plant and rotor geometry with a local position controller, ideal 10 Hz GNSS, and gyroscope integration. Linear and quadratic body-axis drag use airspeed relative to the local simulated wind. The horizontal gust field is sampled at the aircraft’s location. Drag areas and low-speed damping use the RDD2 template defaults. [CogniPilot RDD2 plant](https://github.com/CogniPilot/modelica_models/blob/main/Vehicles/Rdd2/Plant.mo)
 
 The live page runs the Pilothouse-inspired sloop and full-size Hobie 16 as Rumoca FMI 3 WebAssembly modules. The race committee runs rolling five-minute UTC starts. Cross westward between the committee launch and orange pin, enter the two mark zones in order, then cross the finish westward. These are proximity checks at the marks. Enable **Wind & signals** for apparent-wind audio and a synthesized start signal. **Multiplayer** joins the public regatta, or use `?room=NAME` for a separate room. Participating browsers discover one another via public Nostr relays and exchange boat states over WebRTC. Peer hull contact uses compliant contact sections and each browser's most recent peer snapshot. Delay affects contact timing. Rendering peers uses a separate camera layer. Multiplayer discovery requires reachable external relays.
 
@@ -34,7 +36,7 @@ The combined build targets Rumoca FMI 3 co-simulation. Body coordinates are forw
 
 * The ship has three deck levels, companionway openings, side cabins and a bridge. Its mesh boxes are exported into Modelica by `scripts/wreck-solids.mjs`. At 100 Hz six sphere proxies attached to the sub use MultiBodyLie.Collision.sphereBox and contactForce against those oriented boxes and the seabed. Normal load, damping, friction and off-centre moments act on the simulated rigid body.
 * The 5 Hz sensor exchange uses four downward-looking DVL beams, a forward sonar with a 49-ray centre fan and four 25-ray fans at −24°, −12°, +12° and +24° elevation, a 36 × 24 raycast navigation camera, a pressure sensor and inertial measurements. Three.js intersects the same structural meshes used in the viewer. Sensor outputs include slant ranges, signed beam velocities, sonar returns, pressure, angular rates, specific force and image-patch measurements. The navigation front end matches sonar scans against cells accumulated from prior measurements. It tracks a camera patch by its brightness pattern. Modelica uses upstream FAST corner scoring to gate the visual angular-rate estimate and upstream pose-edge residuals to combine the scan match with DVL and gyro odometry. Pressure closes the depth loop and accelerometers help level the vehicle.
-* The estimated map and pose start from a known launch pose. The accumulated map represents a horizontal slice. The 3D ping displays instantaneous body-frame hits; the pose estimator uses the centre fan. All 100 elevation ranges are passed to the FMU through elevationRanges. The full six-degree-of-freedom plant, camera, DVL and sonar use the simulated attitude. The three-dimensional pose-graph optimizer and the full RGB-D pipeline are available upstream. This mission uses the smaller sonar-led estimator.
+* Each survey keyframe stores 48 selected sonar returns across horizontal and elevated fans. Estimated attitude places those returns in 3D. Registration corrects horizontal translation and yaw, pressure constrains depth, and gravity helps level the estimate. The 12-station regression completed in 112.8 simulated seconds with 0.585 m translational RMS error, temporal feature matches on 558 of 565 frames, and a peak contact force of 45.1 N.
 
 ### Sensor vector
 
@@ -73,7 +75,7 @@ node scripts/check-luff.mjs
 node scripts/check-wake-spectrum.mjs
 ```
 
-The source build uses the pinned Rumoca compiler, Modelica Standard Library and CogniPilot modelica_models. Set `RUMOCA` to test a different compiler. The static distribution ships precompiled FMUs and browser modules.
+The source build uses the pinned Rumoca compiler, Modelica Standard Library and CogniPilot modelica_models. Set `RUMOCA` to test a different compiler. With Emscripten and Python 3 on PATH, run `scripts/rebuild-browser.sh` after `./build.sh` to link the generated C to WebAssembly and repackage the site.
 
 ## Sources and licenses
 
@@ -93,3 +95,9 @@ Original code, shaders and original assets are released under the [Apache Licens
 ### Calm-water tow study
 
 From the repository root, run `node scripts/tow-study.mjs 2 1.02 0 > tow.csv` for a 2 m/s tow with 1.02 m half-spacing and zero heading in radians. The test uses the loaded Hobie model’s section volumes, a fixed draft and trim, a two-second acceleration ramp, and zero wind and current. CSV output includes the signed wave resistance, side force, yaw moment, and wave-height extremes. Use short runs to limit contamination from the periodic boundary. Total resistance also includes viscous loads. Hull dimensions, wetted shape, speed, attitude and the measurement uncertainty must match the tow experiment before interpreting a design ranking. [Catamaran towing tests and interference measurements](https://eprints.soton.ac.uk/462776/) · [ITTC resistance-test uncertainty](https://www.ittc.info/media/8007/75-02-02-02.pdf)
+
+### Vehicle assets and underwater lighting
+
+Run `blender -b -P tools/build-vehicle-assets.py` to regenerate the three original textured vehicle shells. The embedded glTF materials carry base color, roughness and metallic response. Dynamic sails, sheets, rudders, thrusters and lights attach to the simulated vehicle frames. The RDD2 uses the upstream drone asset.
+
+A GPU pass refracts sunlight through the wave normals and accumulates flux on a reference seabed 13.7 m below mean water. A cached directional depth map of the wreck gates illumination on each receiver. Receiver depths away from the seabed use projection along the mean refracted ray. This approximation resolves blocked sunlight and deck openings but omits multiple scattering and a full volumetric photon solution.

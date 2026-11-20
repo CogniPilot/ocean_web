@@ -172,28 +172,57 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
     end for;
   end registration;
   function estimate "Pressure/gravity aided sonar keyframe graph; temporal optical features constrain yaw and verify revisits"
-    input Real t,raw[195],d[rays,3],image[864],previousImage[864],previous[20],history[keys,stride];
-    output Real s[20],graph[keys,stride],sensor[91],ft[24,5];
+    input Real t,raw[195],d[rays,3],image[864],previousImage[864],previous[21],history[keys,stride];
+    output Real s[21],graph[keys,stride],sensor[91],ft[24,5];
   protected
     Real ring[16],opticalRate,cloud[48,3],r,roll,pitch,cp,sp,cr,sr,x,y,z,kg,fix[3],rms,best,chosenFix[3],innovation[4],oldPose[4];
     Integer nf,nm,nk,beam,nearest,count,loopId,votes,idx,off,edgeIndex;
-    Real dist,bestDist,dt,measVar;
+    Real dist,bestDist,dt,measVar,bodyHeave,levelSurge,levelSway,bearing,oldBearing,axialRange,rateSum,correctedRate;
+    Integer rateCount;
     Boolean lock,newKey;
   algorithm
     s:=previous;graph:=history;sensor:=zeros(91);dt:=if t==0 then 0 else .2;
-    if t==0 then s[1]:=-5;s[3]:=-10;s[9:12]:={.04,.04,.04,.003};end if;
+    if t==0 then s[1]:=-5;s[3]:=-10;s[9:12]:={.04,.04,.04,.000225};
+      // Zero-rate measurement in the stationary launch cradle.
+      s[21]:=raw[161];
+    end if;
     (ft,ring,opticalRate,nf,nm):=features(image,previousImage);
     lock:=min(raw[1:4])>0;
-    if lock then s[5]:=(raw[154]-raw[155])/(2*sin(pi/8));s[6]:=(raw[156]-raw[157])/(2*sin(pi/8));end if;
+    if raw[1]>0 and raw[2]>0 then s[5]:=(raw[154]-raw[155])/(2*sin(pi/8));end if;
+    if raw[3]>0 and raw[4]>0 then s[6]:=(raw[156]-raw[157])/(2*sin(pi/8));end if;
     s[7]:=.85*(s[7]+dt*raw[159])+.15*atan2(raw[163],raw[164]);
     s[8]:=.85*(s[8]+dt*raw[160])+.15*atan2(-raw[162],sqrt(raw[163]^2+raw[164]^2));
     roll:=s[7];pitch:=s[8];cr:=cos(roll);sr:=sin(roll);cp:=cos(pitch);sp:=sin(pitch);
-    s[4]:=s[4]+dt*raw[161];s[12]:=s[12]+.000015;
-    if nm>=2 and abs(opticalRate-raw[161])<.16 then
-      kg:=s[12]/(s[12]+.012);s[4]:=s[4]+kg*dt*(opticalRate-raw[161]);s[12]:=(1-kg)*s[12];
+    correctedRate:=raw[161]-s[21];
+    s[4]:=s[4]+dt*correctedRate;s[12]:=s[12]+dt^2*.003^2;
+    // A forward translation produces optical flow even with zero yaw. Use
+    // the measured forward sonar profile and DVL to predict the old bearing
+    // of each matched corner in the absence of rotation.
+    rateSum:=0;rateCount:=0;
+    for k in 1:18 loop
+      if dt>0 and lock and ft[k,3]>=0 then
+        bearing:=atan((18-ft[k,1])/24);oldBearing:=atan((18-ft[k,3])/24);
+        beam:=29+integer(floor(bearing*72/pi+.5));
+        axialRange:=raw[beam]*cos(bearing)-.62;
+        if axialRange>.4 then
+          r:=(oldBearing-atan2(axialRange*tan(bearing)+dt*s[6],axialRange+dt*s[5]))/dt;
+          if abs(r-correctedRate)<.16 then rateSum:=rateSum+r;rateCount:=rateCount+1;end if;
+        end if;
+      end if;
+    end for;
+    opticalRate:=rateSum/max(1,rateCount);
+    if rateCount>=3 then
+      kg:=s[12]/(s[12]+.012);s[4]:=s[4]+kg*dt*(opticalRate-correctedRate);s[12]:=(1-kg)*s[12];
     end if;
-    s[1]:=s[1]+dt*(s[5]*cos(s[4])-s[6]*sin(s[4]));s[2]:=s[2]+dt*(s[5]*sin(s[4])+s[6]*cos(s[4]));
-    s[9]:=s[9]+(if lock then .00012 else .002);s[10]:=s[10]+(if lock then .00012 else .002);
+    bodyHeave:=if lock then -sum(raw[154:157])/(4*cos(pi/8)) else 0;
+    levelSurge:=cp*s[5]+sp*(sr*s[6]+cr*bodyHeave);
+    levelSway:=cr*s[6]-sr*bodyHeave;
+    s[1]:=s[1]+dt*(levelSurge*cos(s[4])-levelSway*sin(s[4]));
+    s[2]:=s[2]+dt*(levelSurge*sin(s[4])+levelSway*cos(s[4]));
+    // DVL radial noise is bounded by .009 m/s. Allow .02 m/s horizontal
+    // uncertainty per ping after beam inversion, and .11 m/s during coast.
+    s[9]:=s[9]+dt^2*(if lock then .02^2 else .11^2);
+    s[10]:=s[10]+dt^2*(if lock then .02^2 else .11^2);
     s[11]:=s[11]+.0025;kg:=s[11]/(s[11]+.0036);s[3]:=s[3]+kg*(.29-raw[158]/(rho*g)-s[3]);s[11]:=(1-kg)*s[11];
     for i in 1:48 loop
       beam:=5+3*(i-1);r:=raw[beam];x:=r*d[beam,1];y:=r*d[beam,2];z:=r*d[beam,3];
@@ -207,7 +236,9 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
     if nearest>0 and bestDist<4 then
       (fix,count,rms):=registration(cloud,graph[nearest,:],s[1:4]);
       if count>=10 and rms<.33 then
-        measVar:=max(.004,rms^2);
+        // Slant beams intersect a different patch of wall after translation.
+        // The sparse profile has angular sampling uncertainty even for a small residual.
+        measVar:=max(.12^2,rms^2);
         for k in 1:2 loop kg:=s[8+k]/(s[8+k]+measVar);s[k]:=s[k]+kg*fix[k];s[8+k]:=(1-kg)*s[8+k];end for;
         kg:=s[12]/(s[12]+.008);s[4]:=s[4]+kg*fix[3];s[12]:=(1-kg)*s[12];
         if nearest<nk-3 and t-s[15]>3 then
@@ -248,9 +279,9 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
       end if;
     end if;
     s[16:20]:={nf,nm,count,rms,nearest};
-    sensor[1:4]:=raw[154:157];sensor[5:8]:=raw[1:4];sensor[9:57]:=raw[5:53];sensor[58]:=raw[161];sensor[59]:=raw[158];
+    sensor[1:4]:=raw[154:157];sensor[5:8]:=raw[1:4];sensor[9:57]:=raw[5:53];sensor[58]:=correctedRate;sensor[59]:=raw[158];
     sensor[60:67]:={s[1],s[2],s[4],if lock then 1 else 0,s[5],s[6],nk,count};
-    sensor[68:83]:=ring;sensor[84]:=opticalRate;sensor[85]:=if nm>=2 then 1 else 0;
+    sensor[68:83]:=ring;sensor[84]:=opticalRate;sensor[85]:=if rateCount>=3 then 1 else 0;
     sensor[86:88]:=raw[162:164];sensor[89:91]:=raw[159:161];
   end estimate;
 
@@ -276,8 +307,8 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
   end boatEnvironment;
 
   function sampleFrame
-    input Real t,truth[18],d[rays,3],overrideDepth[rays],useRaster,oldImage[864],previous[20],history[keys,stride];
-    output Real sensor[91],elev[100],image[864],state[20],graph[keys,stride],ft[24,5];
+    input Real t,truth[18],d[rays,3],overrideDepth[rays],useRaster,oldImage[864],previous[21],history[keys,stride];
+    output Real sensor[91],elev[100],image[864],state[21],graph[keys,stride],ft[24,5];
   protected Real T[3,3],depth[rays],raw[195];
   algorithm
     T:=MultiBodyLie.Math.quaternionToT(truth[4:7]);

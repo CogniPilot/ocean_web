@@ -30,7 +30,7 @@ else
     echo "Rumoca checkout differs from compiler/rumoca-revision. Set RUMOCA to test another compiler." >&2
     exit 1
   fi
-  for name in marine state-initialization navigation scatter mesh sail-guard batten; do
+  for name in marine state-initialization navigation scatter mesh sail-guard batten div-bounds-test; do
     patch="$root/compiler/rumoca-$name.patch"
     if ! git -C "$compiler_dir" apply --reverse --check "$patch" 2>/dev/null; then
       git -C "$compiler_dir" apply --check "$patch"

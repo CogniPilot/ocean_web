@@ -5,7 +5,7 @@
    if(spectrumPeriod<=0.)return 0.;
    vec4 pair=texture2D(spectrumMap,(p-spectrumDrift)/spectrumPeriod+vec2(.5/64.));
    vec2 weights=vec2(65280.,255.);
-   return (mix(dot(pair.rg,weights),dot(pair.ba,weights),spectrumBlend)-32768.)/32768.;
+   return (mix(dot(pair.rg,weights),dot(pair.ba,weights),spectrumBlend)-32768.)/8192.;
  }
  float heightAt(vec2 p){
   vec4 data=texture2D(tile,p/64.+vec2(.5/32.));
@@ -84,7 +84,7 @@ function atmosphere(scene){
  }
  function updateSpectrum(heights,x,y,period){
    for(let i=0;i<heights.length;i++){
-     const packed=Math.round(32768+Math.max(-1,Math.min(.99996,heights[i]))*32768);
+     const packed=Math.round(32768+Math.max(-4,Math.min(3.99987,heights[i]))*8192);
      const k=i*4;
      spectrumBytes[k]=U.spectrumPeriod.value?spectrumBytes[k+2]:packed>>8;
      spectrumBytes[k+1]=U.spectrumPeriod.value?spectrumBytes[k+3]:packed&255;
@@ -152,8 +152,15 @@ function atmosphere(scene){
    color=mix(color,mix(vec3(.06,.10,.14),vec3(.79,.87,.85),day),foam*.86);
    if(under>.5){
      vec3 ray=normalize(wp-cameraPosition);
-     float window=smoothstep(.62,.76,dot(ray,n));
-     color=mix(vec3(.015,.105,.135),skyColor(ray)*.78,window)*(.22+.78*day);
+     // Trace the underwater viewing ray across the water/air interface.
+     vec3 skyRay=refract(ray,-n,1.333);
+     float incidence=clamp(dot(ray,n),0.,1.);
+     float transmissionGate=smoothstep(.653,.672,incidence);
+     vec3 through=skyColor(normalize(skyRay+vec3(0.,0.,.0001)));
+     vec3 underside=mix(vec3(.006,.040,.061),vec3(.015,.14,.17),incidence)*(.24+.76*day);
+     color=mix(underside,through,transmissionGate*(1.-pow(1.-incidence,5.)));
+     vec3 attenuation=exp(-vec3(.18,.057,.032)*length(wp-cameraPosition));
+     color=mix(vec3(.013,.105,.145)*(.22+.78*day),color,attenuation);
    }
    float haze=smoothstep(70.,430.,length(wp-cameraPosition));
    color=mix(color,skyColor(normalize(vec3(-eye.xy,.01))),haze*.90*(1.-under));

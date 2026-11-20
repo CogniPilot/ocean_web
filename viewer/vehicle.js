@@ -1,4 +1,4 @@
-function surveyVehicle(T){
+function surveyVehicle(T,housing){
  const sub=new T.Group();
  const mat=(color,metalness=.3,roughness=.54)=>new T.MeshStandardMaterial({color,metalness,roughness});
  const frame=mat(0x60747b),rubber=mat(0x182324),tube=mat(0x47545a,.16),bolt=mat(0xa6b6b5,.7),yellow=mat(0xe3aa3e);
@@ -14,9 +14,8 @@ function surveyVehicle(T){
    if(axis==='z')shape.rotation.x=Math.PI/2;
    return shape;
  }
- cylinder(0,0,.1,.17,1.05,'x',tube);
+ sub.add(housing);
  part(sphere,mat(0x80b8c8,.26,.12),[.52,0,.1],[.15,.168,.168]);
- for(const x of [-.5,-.26,.22,.49]) cylinder(x,0,.1,.178,.033,'x',rubber);
  for(const y of [-.23,.23]){
    part(cube,frame,[0,y,-.007],[1.22,.023,.105]);
    part(cube,frame,[0,y,-.172],[1.22,.023,.034]);

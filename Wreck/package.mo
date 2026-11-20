@@ -42,6 +42,13 @@ package Wreck
     mass=rho*volume;
   end Tank;
 
+  function stationReached
+    input Real station[3], east, north, depth;
+    output Boolean reached;
+  algorithm
+    reached:=abs(station[1]-east)<.32 and abs(station[2]-north)<.24 and abs(.29-depth-station[3])<.28;
+  end stationReached;
+
   model Plant
     inner MultiBodyLie.World world(n={0,0,-1});
     parameter Real dryMass=18, displaced=0.0184;
@@ -82,7 +89,18 @@ package Wreck
     discrete Real edge[6](each start=0,each fixed=true), Ji[6,6](each start=0,each fixed=true), Jj[6,6](each start=0,each fixed=true);
     discrete Boolean edgeValid(start=false,fixed=true);
     Real trackWeight;
-    Real xRef,yawRef,depthEst,surge,yawCmd,heave,rollCmd,pitchCmd,along,lat;
+    parameter Integer waypointCount=12;
+    parameter Real waypoints[waypointCount,3]=[
+      -1,0,-9.8; 3,0,-9.8; 6.5,0,-9.8; 6.5,-1.83,-9.41;
+      11,-1.83,-9.41; 17.5,-1.83,-9.41; 17.5,0,-9.8; 17.5,1.83,-10.19;
+      12,1.83,-10.19; 6.5,1.83,-10.19; 6.5,0,-9.8; -1.5,0,-9.8]
+      "ENU survey stations at the stern, companionways and three deck passages";
+    output Integer waypoint(start=1,fixed=true);
+    output Boolean surveyDone(start=false,fixed=true);
+    output Real surveyTelemetry[16]=cat(1,{waypoint,waypointCount,if surveyDone then 1 else 0},appliedThrust,buoy,contactForce)
+      "Survey station, total, completion, applied motor forces, body buoyancy and world contact";
+    Real goal[3],eastError,northError,verticalError,surgeRef,swayRef,depthEst,surge,yawCmd,heave,rollCmd,pitchCmd;
+    Real goalDepth;
     Real cmd[6], thrust[6](each stateSelect=StateSelect.always,each start=0,each fixed=true), rel[3], up[3], buoy[3], ballast[3], wet;
     parameter Real airDensity=1.225, windageCdA[3]={0.12,0.32,0.25} "Exposed hull drag areas [m2]";
     parameter Real windageCenter[3]={0.04,0,0.12} "Centre of wind pressure in body axes [m]";
@@ -112,17 +130,27 @@ package Wreck
     der(nav[1])=sensor[64]*cos(nav[3])-sensor[65]*sin(nav[3])+trackWeight*edge[1];
     der(nav[2])=sensor[64]*sin(nav[3])+sensor[65]*cos(nav[3])+trackWeight*edge[2];
     der(nav[3])=(1-visualWeight)*sensor[58]+visualWeight*sensor[84]+trackWeight*edge[6];
-    xRef=-5+min(28,min(0.52*time,max(0,(120-time)*0.52)));
-    along=xRef-nav[1];
-    lat=-nav[2];
-    yawRef=max(-0.65,min(0.65,lat*(if time<65 then 0.65 else -0.65)));
-    heading=nav[3];
+    goal=waypoints[waypoint,:];
+    eastError=goal[1]-sensor[60];
+    northError=goal[2]-sensor[61];
+    heading=sensor[62];
     depthEst=sensor[59]/(rho*g);
-    surge=if manual>0.5 then 18*(pilot[1]-sensor[64]) else max(-20,min(20,15*along-7*(if sensor[63]>0.5 then (sensor[1]-sensor[2])/(2*sin(pi/8)) else 0)));
-    yawCmd=if manual>0.5 then 4*(pilot[3]-sensor[58]) else 6*sin(yawRef-heading)-3*sensor[58];
-    swayCommand=if manual>0.5 then 22*(pilot[2]-sensor[65]) else 0;
+    goalDepth=if manual>.5 then 10.29 else .29-goal[3];
+    verticalError=depthEst-goalDepth;
+    // Waypoints advance only on measured arrival. Hold the final station.
+    when sample(.2,.2) then
+      waypoint=if manual<.5 and stationReached(waypoints[pre(waypoint),:],sensor[60],sensor[61],depthEst) then min(waypointCount,pre(waypoint)+1) else pre(waypoint);
+      surveyDone=pre(surveyDone) or (pre(waypoint)==waypointCount and manual<.5 and stationReached(waypoints[pre(waypoint),:],sensor[60],sensor[61],depthEst));
+    end when;
+    // The hovering sub can traverse a hatch sideways and reverse out of the stern.
+    // Keep the camera looking along the corridor while resolving guidance into body axes.
+    surgeRef=max(-.65,min(.65,eastError*cos(heading)+northError*sin(heading)));
+    swayRef=max(-.38,min(.38,-eastError*sin(heading)+northError*cos(heading)));
+    surge=if manual>.5 then 18*(pilot[1]-sensor[64]) else 24*(surgeRef-sensor[64]);
+    yawCmd=if manual>.5 then 4*(pilot[3]-sensor[58]) else -6*sin(heading)-3*sensor[58];
+    swayCommand=if manual>.5 then 22*(pilot[2]-sensor[65]) else 26*(swayRef-sensor[65]);
     der(lateralThrust)=(max(-16,min(16,swayCommand))-lateralThrust)/0.14;
-    heave=if manual>0.5 then 24*(pilot[4]-verticalSpeed) else 8*(depthEst-10.29)-9*verticalSpeed;
+    heave=if manual>0.5 then 24*(pilot[4]-verticalSpeed) else 12*verticalError-15*verticalSpeed;
     roll=attitude[1];
     pitch=attitude[2];
     rollCmd=-3*roll-sensor[89];
@@ -147,8 +175,8 @@ package Wreck
     end for;
     fore.pressure=ocean.gaugePressure;
     aft.pressure=ocean.gaugePressure;
-    fore.target=max(0,min(fore.capacity,0.00042-0.00010*(depthEst-10.29)-0.0002*pitch));
-    aft.target=max(0,min(aft.capacity,0.00042-0.00010*(depthEst-10.29)+0.0002*pitch));
+    fore.target=max(0,min(fore.capacity,0.00042-0.00010*verticalError-0.0002*pitch));
+    aft.target=max(0,min(aft.capacity,0.00042-0.00010*verticalError+0.0002*pitch));
     up=body.frame_a.R.T*{0,0,1};
     wet=max(0,min(1,(ocean.surface-body.r_0[3]+0.16)/0.32));
     buoy=rho*g*displaced*wet*up;

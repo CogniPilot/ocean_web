@@ -22,7 +22,7 @@ function batchScenery(T,group){
  return group;
 }
 const causticTime={value:0};
-function seabedMaterials(T){
+function seabedMaterials(T,illumination){
  function textured(base,kind){
    const m=new T.MeshStandardMaterial({color:0xffffff,roughness:.86,metalness:kind==='metal'?.22:0});
    m.onBeforeCompile=s=>{
@@ -31,7 +31,18 @@ function seabedMaterials(T){
      s.fragmentShader='uniform float causticTime;varying vec3 location;\n'+skyGLSL.slice(skyGLSL.indexOf('float hash'),skyGLSL.indexOf('vec3 skyColor'))+s.fragmentShader;
      const code=kind==='sand'?`vec2 p=location.xy;float ridge=sin(6.*p.x+2.4*sin(p.y*.81)+cloud(p*.7)*5.); diffuseColor.rgb=vec3(.26,.31,.27)*(.65+.12*ridge+.53*cloud(p*2.));`:
      `vec2 p=vec2(location.x+.34*location.y,location.z+.25*location.y);float oxidation=cloud(p*vec2(.75,.38))+.16*noise2(p*vec2(7.,1.2));vec3 brown=vec3(.35,.125,.046);diffuseColor.rgb=mix(vec3(${base}),brown,smoothstep(.43,.69,oxidation))*(.63+.47*noise2(p*43.));`;
-     s.fragmentShader=s.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\n'+code+'\nfloat rays=sin(location.x*2.9+sin(location.y*2.7+causticTime*.7))+sin(location.y*2.6+.65*cos(location.x*3.4-causticTime*.58));diffuseColor.rgb*=.83+.56*pow(1.-smoothstep(.02,.32,abs(rays)),2.);');
+     Object.assign(s.uniforms,illumination);
+     s.fragmentShader='uniform sampler2D wreckFlux,wreckDepth;uniform mat4 wreckProjection;uniform vec3 waterRay;uniform float sunStrength;\n'+s.fragmentShader;
+     s.fragmentShader=s.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n'+code+`
+       vec3 shadow=(wreckProjection*vec4(location,1.)).xyz*.5+.5;
+       float exposed=1.;
+       if(all(greaterThan(shadow,vec3(0.)))&&all(lessThan(shadow,vec3(1.))))
+         exposed=step(shadow.z-.00032,texture2D(wreckDepth,shadow.xy).r);
+       vec2 floorUV=(location.xy+waterRay.xy*((-13.7-location.z)/min(-.05,waterRay.z))-vec2(16.,0.))/64.+.5;
+       if(all(greaterThan(floorUV,vec2(0.)))&&all(lessThan(floorUV,vec2(1.)))){
+         float focus=max(0.,texture2D(wreckFlux,floorUV).r/.13-1.);
+         diffuseColor.rgb*=1.+min(focus,3.)*sunStrength*exposed*vec3(.55,.86,.77);
+       }`);
    };
    m.customProgramCacheKey=()=>kind+base;return m;
  }
@@ -48,6 +59,37 @@ function marineLife(T,scene){
    swimmers=fish.children;
  });
  let seed=992;function random(){seed=(1664525*seed+1013904223)>>>0;return seed/4294967296;}
+ // Rooted kelp beds flank the survey corridor. All fronds share one draw call.
+ const blades=[],bladeFaces=[],flex=[];
+ for(let bed=0;bed<50;bed++){
+   const x=-17+random()*62,y=(bed%2?1:-1)*(5+random()*18);
+   for(let blade=0;blade<11;blade++){
+     const rootX=x+2*(random()-.5),rootY=y+2*(random()-.5);
+     const h=.45+1.65*random(),az=random()*Math.PI*2,w=.055+random()*.09;
+     const offset=blades.length/3;
+     for(let j=0;j<=8;j++){
+       const u=j/8,width=w*(.11+Math.sin(Math.PI*u)**.7)*(1+.20*Math.sin(u*16));
+       const bend=h*.38*u*u+.08*Math.sin(7*u);
+       for(const side of [-1,1]){
+         blades.push(rootX+bend*Math.cos(az)-side*width*Math.sin(az),
+           rootY+bend*Math.sin(az)+side*width*Math.cos(az),-13.7+h*u);
+         flex.push(u*u);
+       }
+       if(j){const a=offset+2*j;bladeFaces.push(a-2,a-1,a,a,a-1,a+1);}
+     }
+   }
+ }
+ const kelp=new T.BufferGeometry();
+ kelp.setAttribute('position',new T.Float32BufferAttribute(blades,3));
+ kelp.setAttribute('flex',new T.Float32BufferAttribute(flex,1));
+ kelp.setIndex(bladeFaces);kelp.computeVertexNormals();
+ const frond=new T.MeshStandardMaterial({color:0x416047,side:T.DoubleSide,roughness:.74});
+ frond.onBeforeCompile=s=>{
+   s.uniforms.causticTime=causticTime;
+   s.vertexShader='attribute float flex;uniform float causticTime;\n'+s.vertexShader.replace('#include <begin_vertex>',
+     '#include <begin_vertex>\ntransformed.xy+=flex*vec2(.15*sin(.83*causticTime+.6*position.y),.09*cos(.6*causticTime+.45*position.x));');
+ };
+ scene.add(new T.Mesh(kelp,frond));
  const dust=new Float32Array(1500*3);
  for(let i=0;i<dust.length;i+=3){dust[i]=random()*58-14;dust[i+1]=random()*30-15;dust[i+2]=-13+random()*11;}
  const geo=new T.BufferGeometry();geo.setAttribute('position',new T.BufferAttribute(dust,3));

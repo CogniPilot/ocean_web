@@ -1,7 +1,14 @@
 export async function loadInstance(name,inputs,read=fetch){
   const url=new URL(name+'.json',import.meta.url);
-  const [{default:create},metadata]=await Promise.all([import('./'+name+'.mjs'),read(url).then(r=>r.json())]);
-  const m=await create();
+  const metadata=await read(url,{cache:'no-cache'}).then(r=>r.json());
+  const browser=url.protocol!=='file:';
+  function asset(file){
+    const path=new URL(file,url);
+    if(browser)path.searchParams.set('version',metadata.token);
+    return path.href;
+  }
+  const {default:create}=await import(asset(name+'.mjs'));
+  const m=await create(browser?{locateFile:asset}:{});
   function check(status){if(status>1)throw Error(name+' FMI status '+status);}
   check(m.ccall('create_instance','number',['string'],[metadata.token]));
   function set(name,value){const variable=metadata.variables[name];if(!variable)throw Error('Unknown FMI input '+name);if(variable[2]===1){check(m._set_real(variable[0],value));return;}

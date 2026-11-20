@@ -1,3 +1,4 @@
+import {vehicleShell} from '../vehicle-assets.mjs';
 import {loadInstance} from '../fmi3/instance.mjs';
 export function advanceHullWake(model,wake){
   for(const name of ['east','north','heading','surge','sway','sectionVolume'])wake.set(name,model.get(name));
@@ -87,25 +88,41 @@ export function sailboatMesh(T,cat=false){
    v.needsUpdate=true;
  }
  if(cat){
-   const size=[[-2.555,.09],[-1.9,.156],[-.9,.185],[.15,.184],[1.12,.155],[1.95,.093],[2.555,.009]];
+   // Loft the white blades through progressively narrower foil sections.
+   const sections=[[.10,-.06,.13],[.05,-.04,.20],[-.12,-.025,.25],[-.32,-.045,.26],
+     [-.49,-.072,.23],[-.62,-.10,.18],[-.68,-.127,.12],[-.705,-.158,.057],[-.712,-.18,.011]];
+   const vertices=[],faces=[],ring=24;
+   for(const [height,leadingEdge,chord] of sections){
+     for(let j=0;j<ring;j++){
+       const angle=2*Math.PI*j/ring,u=(1-Math.cos(angle))/2;
+       const thickness=.60*(.2969*Math.sqrt(u)-.126*u-.3516*u*u+.2843*u**3-.1036*u**4);
+       vertices.push(leadingEdge-chord*u,Math.sign(Math.sin(angle))*chord*thickness,height);
+     }
+   }
+   for(let i=0;i<sections.length-1;i++)for(let j=0;j<ring;j++){
+     const a=i*ring+j,b=i*ring+(j+1)%ring;
+     faces.push(a,b+ring,b,a,a+ring,b+ring);
+   }
+   for(let j=1;j<ring-1;j++){
+     const end=(sections.length-1)*ring;
+     faces.push(0,j,j+1,end,end+j+1,end+j);
+   }
+   const foilShape=new T.BufferGeometry();
+   foilShape.setAttribute('position',new T.Float32BufferAttribute(vertices,3));
+   foilShape.setIndex(faces);foilShape.computeVertexNormals();
+   const pin=paint(0xa7afb2);
+   group.add(vehicleShell('hobie-hulls'));
    for(const side of [-1,1]){
-     const positions=[],indices=[];
-     for(const [x,width] of size){
-       const rocker=.085*(x/2.555)**2;
-       for(const [f,z] of [[-1,.23],[-.93,-.04],[-.65,-.24],[-.25,-.35],[.38,-.32],[.82,-.19],[1,.23]]){
-         positions.push(x,side*(1.02+width*f),z+rocker);
-       }
+     const blade=new T.Group();group.add(blade);blade.position.set(-2.58,side*1.02,.16);
+     mesh(foilShape,white,blade);
+     for(const y of [-.025,.025]){
+       rod([-.18,y,.08],[-.035,y,.13],.027,black,blade);
+       rod([-.035,y,.13],[-.018,y,-.045],.024,black,blade);
+       rod([-.018,y,-.045],[-.18,y,.08],.022,black,blade);
      }
-     for(let i=0;i<6;i++)for(let j=0;j<7;j++){
-       const a=i*7+j,b=i*7+(j+1)%7;indices.push(a,b,a+7,b,b+7,a+7);
-     }
-     for(const off of [0,42])for(let j=1;j<6;j++)indices.push(off,off+j,off+j+1);
-     if(side<0)indices.reverse();
-     const shell=new T.BufferGeometry();shell.setAttribute('position',new T.Float32BufferAttribute(positions,3));shell.setIndex(indices);shell.computeVertexNormals();
-     white.side=T.DoubleSide;mesh(shell,white);
-     const blade=new T.Group();group.add(blade);blade.position.set(-2.44,side*1.02,.16);
-     const foil=mesh(new T.SphereGeometry(1,20,16),white,blade);foil.scale.set(.16,.032,.43);foil.rotation.y=.18;foil.position.set(-.08,0,-.23);
-     rod([0,0,.05],[.75,0,.23],.023,black,blade);
+     rod([-.15,-.06,.072],[-.15,.06,.072],.017,pin,blade);
+     rod([0,0,-.05],[0,0,.145],.018,pin,blade);
+     rod([-.16,0,.09],[.89,0,.23],.023,black,blade);
      if(side===1)rudder=blade;else otherRudder=blade;
      rod([2.1,side*1.02,.29],[2.26,0,.75],.013,black);
      rod([-.52,side*1.02,.34],[.44,0,5.85],.009,black);
@@ -124,25 +141,7 @@ export function sailboatMesh(T,cat=false){
    for(let i=0;i<10;i++)sheets.push(sheetRope(i<6?0xb63739:0x24768c));
  }else{
    sheets.push(sheetRope(0xad4045),sheetRope(0x2e7485));
- // Loft a narrow displacement hull between measured-style transverse stations.
- const stations=[[-1.1,.22],[-.82,.29],[-.3,.335],[.18,.32],[.63,.235],[.98,.12],[1.22,.01]];
- const pts=[],idx=[];
- for(const [x,w] of stations)for(const [y,z] of [[-1,.08],[-.86,-.05],[-.46,-.16],[0,-.19],[.46,-.16],[.86,-.05],[1,.08]])pts.push(x,y*w,z===.08?.077:z*(.48+1.55*w));
- for(let i=0;i<stations.length-1;i++)for(let k=0;k<6;k++){const j=i*7+k;idx.push(j,j+7,j+1,j+1,j+7,j+8);}
- for(const start of [0,(stations.length-1)*7]){
-   const base=pts.length/3;
-   pts.push(...pts.slice(start*3,(start+7)*3));
-   for(let j=1;j<6;j++){
-     if(start===0)idx.push(base,base+j+1,base+j);
-     else idx.push(base,base+j,base+j+1);
-   }
- }
- const hull=new T.BufferGeometry();hull.setAttribute('position',new T.Float32BufferAttribute(pts,3));hull.setIndex(idx);hull.computeVertexNormals();red.side=T.DoubleSide;
- red.onBeforeCompile=s=>{
-   s.vertexShader='varying vec3 hullPoint;\n'+s.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nhullPoint=position;');
-   s.fragmentShader='varying vec3 hullPoint;\n'+s.fragmentShader.replace('#include <color_fragment>','#include <color_fragment>\nfloat band=smoothstep(-.03,-.02,hullPoint.z)*(1.-smoothstep(.05,.065,hullPoint.z));float cut=hullPoint.x+1.6*hullPoint.z;float panel=1.-smoothstep(.35,.38,cut);float slash=step(.82,fract(cut*5.));diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.015,.018,.022),band*panel*(1.-slash));');
- };mesh(hull,red);
- const deckShape=new T.Shape();stations.forEach(([x,w],i)=>i?deckShape.lineTo(x,w):deckShape.moveTo(x,w));for(const [x,w] of stations.slice().reverse())deckShape.lineTo(x,-w);deckShape.closePath();mesh(new T.ShapeGeometry(deckShape),white).position.z=.077;
+ group.add(vehicleShell('sloop-hull'));
  const keel=mesh(new T.BoxGeometry(.28,.037,.64),black);keel.position.set(.40,0,-.43);
  const bulb=mesh(new T.SphereGeometry(1,24,12),red);bulb.position.set(.40,0,-.77);bulb.scale.set(.26,.075,.075);
  rudder=mesh(new T.BoxGeometry(.19,.026,.37),black);rudder.position.set(-.93,0,-.22);
@@ -233,7 +232,7 @@ export function sailboatMesh(T,cat=false){
      coords.needsUpdate=true;geo.computeVertexNormals();
    });
    if(cars){
-     crossTiller.position.set(-2.44+.75*Math.cos(s[7]),-.75*Math.sin(s[7]),.39);
+     crossTiller.position.set(-2.58+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.39);
      deckCars[0].position.y=cars[0];deckCars[1].position.y=cars[1];deckCars[2].position.y=-cars[1];
      // Attachment positions in the hull frame. The front clew follows the actual cloth.
      const top=new T.Vector3(-1.84*Math.cos(s[206]),0,1.84*Math.sin(s[206])).applyQuaternion(sails[0].pivot.quaternion).add(sails[0].pivot.position);

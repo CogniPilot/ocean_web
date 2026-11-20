@@ -1,6 +1,10 @@
 // Each fragment measures one calibrated ray against the same oriented boxes as the scene.
 export function createRangeScan(T, renderer, wreck, directions){
   const count=directions.length/3, boxes=wreck.children;
+  if(!boxes.length || boxes.some(mesh=>mesh.geometry?.type!=='BoxGeometry')){
+    throw new Error('Range acquisition requires the individual oriented wreck plates');
+  }
+  wreck.updateWorldMatrix(true,true);
   const inverse=new Float32Array(boxes.length*16);
   boxes.forEach((box,i)=>box.matrixWorld.clone().invert().toArray(inverse,i*16));
   const tex=(data,w,h,format)=>{

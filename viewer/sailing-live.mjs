@@ -1,3 +1,5 @@
+import {wreckCaustics} from './caustics.mjs';
+import {loadVehicleShells} from './vehicle-assets.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
 import {sailboatMesh,observeBoat} from './board/boat.mjs';
 import {splitCamera} from "./waterline.mjs";
@@ -18,14 +20,14 @@ async function run(){
   $('trampoline').hidden=!cat;$('vangControl').hidden=false;
   // Start at the default loaded waterline for each hull.
   const inputs={launchHeight:cat ? .20 : .069,windEast:10,windNorth:4,currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,vangInput:.5,manualHelm:0,rudderInput:0,trimInput:0};
-  const model=await loadInstance(vessel,inputs);
+  const [model]=await Promise.all([loadInstance(vessel,inputs),loadVehicleShells()]);
   const worker=new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
   let waterFrame,waterError;
   worker.onmessage=({data})=>{if(data.error)waterError=Error(data.error);else waterFrame=data;};
   worker.onerror=event=>{waterError=Error(event.message);};
   addEventListener('pagehide',()=>worker.terminate(),{once:true});
   function waveInputs(){
-    return {east:model.get('east'),north:model.get('north'),heading:model.get('heading'),
+    return {seaAmplitude:Number($('seaState').value),east:model.get('east'),north:model.get('north'),heading:model.get('heading'),
       heel:model.get('heel'),pitch:model.get('pitch'),volume:model.get('sectionVolume')};
   }
   worker.postMessage({init:{...waveInputs(),currentEast:inputs.currentEast,currentNorth:inputs.currentNorth,
@@ -33,6 +35,8 @@ async function run(){
     windEast:inputs.windEast,windNorth:inputs.windNorth}});
   let wakeTicks=0;
   const mobile=matchMedia('(pointer: coarse)').matches;
+  function settings(open){$('setup').hidden=!open;$('settings').setAttribute('aria-expanded',String(open));}
+  settings(!mobile);$('settings').onclick=()=>settings($('setup').hidden);
   const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
   renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
@@ -65,8 +69,9 @@ async function run(){
   if(mobile)ocean.setCaptureScale(.5);
   ocean.update(sea,sea);ocean.U.under.value=0;ocean.U.sunDir.value.copy(sun.position).normalize();
   ocean.U.moonDir.value.set(-.8,-.4,-.5);ocean.U.bearing.value=Math.atan2(inputs.windNorth,inputs.windEast);
-  const materials=seabedMaterials(T);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;scene.add(bottom);
-  const hull=makeWreck(T,materials);scene.add(batchScenery(T,hull.clone(true)));const life=marineLife(T,scene);
+  const caustics=wreckCaustics(T,renderer,ocean,mobile);
+  const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;scene.add(bottom);
+  const hull=makeWreck(T,materials);const wreckVisual=batchScenery(T,hull.clone(true));scene.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,scene);
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
   let angle=-.8,distance=cat?14:5.7,tilt=.16,drag=null,running=true,manual=false;
   $('view').onpointerdown=e=>{drag=[e.clientX,e.clientY];e.target.setPointerCapture(e.pointerId);};
@@ -97,7 +102,7 @@ async function run(){
     for(const id of ['autoDeck','mainCar','jibCar','jibSheet'])$(id).oninput=deck;
     deck();
   }
-  $('seaState').onchange=()=>model.set('swellAmplitude',Number($('seaState').value));
+  $('seaState').onchange=()=>model.set('swellAmplitude',.30*Number($('seaState').value));
   const keys=new Set();let drone;
   const sub=submarine(T,scene,renderer,hull), sensorCanvas=$('sensorCam').getContext('2d');
   const drawForces=forceDisplay(T,scene,sub.mesh,boat.group,cat);
@@ -137,7 +142,8 @@ async function run(){
     drone=vehicle;$('controlTarget').disabled=false;
     $('cutMotors').onclick=()=>{const cut=$('cutMotors').getAttribute('aria-pressed')!=='true';drone.cut(cut);$('cutMotors').setAttribute('aria-pressed',String(cut));$('cutMotors').textContent=cut?'Restore motors':'Cut motors';};
     $('controlTarget').onchange=()=>{
-      keys.clear();sub.active=$('controlTarget').value==='sub';$('subPanel').hidden=!sub.active;drone.select($('controlTarget').value==='drone');helm();touchControls();
+      if($('controlTarget').value==='sub'){angle=Math.PI-.48;tilt=.32;}
+      keys.clear();$('view').focus({preventScroll:true});sub.active=$('controlTarget').value==='sub';$('onboardOption').hidden=!sub.active;if(!sub.active&&$('cameraDepth').value==='onboard')$('cameraDepth').value='deck';$('subPanel').hidden=!sub.active;drone.select($('controlTarget').value==='drone');helm();touchControls();
       $('cutMotors').hidden=!drone.active;$('flightKeys').hidden=!drone.active;$('helm').textContent=(sub.active?sub.manual:manual)?'Manual helm':'Autopilot';document.querySelector('h1').textContent=sub.active?'Survey submarine':drone.active?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
     };
     if(['drone','sub'].includes(url.searchParams.get('control'))){$('controlTarget').value=url.searchParams.get('control');$('controlTarget').onchange();}
@@ -210,7 +216,7 @@ async function run(){
             windField.set('droneEast',east);windField.set('droneNorth',north);
           }
           windField.set('east',model.get('east'));windField.set('north',model.get('north'));windField.advance(.25);
-          if(drone)drone.wind(windField.get('droneWind'));
+          if(drone){drone.wind(windField.get('droneWind'));if(sub.frame)drone.station(sub.frame.estimate[0],sub.frame.estimate[1]);}
           model.set('windEast',windField.get('localEast'));model.set('windNorth',windField.get('localNorth'));ocean.updateWind(windField.get('field'));
         }
         if(wakeTicks%10===0){
@@ -241,7 +247,7 @@ async function run(){
       document.body.dataset.visiblePeers=remote.visible;
       boat.update(s,ballast,cat?[model.get('mainCar'),model.get('jibCar')]:null,model.get('linePaid'));const t=model.time;life(t);causticTime.value=t;
       ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
-      camera.position.set(s[0]+distance*Math.cos(angle),s[1]+distance*Math.sin(angle),s[3]+(cat?3:.9)+distance*Math.sin(tilt));if($('cameraDepth').value==='line')camera.position.z=0;
+      camera.up.set(0,0,1);camera.position.set(s[0]+distance*Math.cos(angle),s[1]+distance*Math.sin(angle),s[3]+(cat?3:.9)+distance*Math.sin(tilt));if($('cameraDepth').value==='line')camera.position.z=0;
       camera.position.z=Math.max(-13.1,camera.position.z);
       camera.lookAt(s[0],s[1],camera.position.z<.4?s[3]:s[3]+(cat?3.8:1.1));
       if(drone){
@@ -252,14 +258,21 @@ async function run(){
       if(running)sub.update(t,keys,ocean.U.wind.value,ocean.U.bearing.value);
       if(sub.active){
         const p=sub.mesh.position;
-        camera.position.set(p.x+.6*distance*Math.cos(angle),p.y+.6*distance*Math.sin(angle),p.z+.6*distance*Math.sin(tilt));camera.lookAt(p);
+        if($('cameraDepth').value==='onboard'){
+          const q=sub.mesh.quaternion;
+          camera.position.set(.70,0,.09).applyQuaternion(q).add(p);
+          camera.up.set(0,0,1).applyQuaternion(q);
+          camera.lookAt(new T.Vector3(1,0,0).applyQuaternion(q).add(camera.position));
+        }else{
+          camera.position.set(p.x+.6*distance*Math.cos(angle),p.y+.6*distance*Math.sin(angle),p.z+.6*distance*Math.sin(tilt));camera.lookAt(p);
+        }
         drawFeatures(sub.frame);
       }
-      ocean.dome.position.copy(camera.position);ocean.water.position.set(s[0],s[1],0);updateLight(t);
+      ocean.dome.position.copy(camera.position);ocean.water.position.set(s[0],s[1],0);updateLight(t);caustics.update(t);
       if(now-lastCapture>=(mobile?65:0)){
         ocean.capture(renderer,camera);lastCapture=now;
       }
-      const surfaceBand=.45+Math.abs(ocean.U.swell.value.x);
+      const surfaceBand=.55+1.8*Number($('seaState').value)+Math.abs(ocean.U.swell.value.x);
       if(Math.abs(camera.position.z)<surfaceBand){split(renderer,scene,camera,ocean,underwaterFog);}
       else{
         const submerged=camera.position.z<0;
