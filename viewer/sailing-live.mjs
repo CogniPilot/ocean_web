@@ -130,7 +130,25 @@ async function run(){
   const hemi=new T.HemisphereLight(0xe5f8fb,0x767266,1.8);hemi.position.z=1;scene.add(hemi);
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   const ocean=atmosphere(scene),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
-  if(mobile)ocean.setCaptureScale(.5);
+  const profiles={
+    low:{ratio:.75,min:.5,capture:.375,interval:150,mesh:88,sky:.5},
+    balanced:{ratio:1,min:.75,capture:.75,interval:65,mesh:120,sky:.75},
+    high:{ratio:1,min:1,capture:1,interval:0,mesh:144,sky:1}
+  };
+  let preferred;
+  try{preferred=localStorage.getItem('ocean-render-quality');}catch{}
+  const selector=$('quality');
+  selector.value=Object.hasOwn(profiles,preferred)?preferred:(mobile?'low':'high');
+  let profile,pixelScale;
+  function applyQuality(){
+    profile=profiles[selector.value];pixelScale=Math.min(devicePixelRatio,profile.ratio);
+    renderer.setPixelRatio(pixelScale);ocean.setQuality(profile,selector.value==='low');
+  }
+  applyQuality();
+  selector.onchange=()=>{
+    applyQuality();lastCapture=-Infinity;resize();
+    try{localStorage.setItem('ocean-render-quality',selector.value);}catch{}
+  };
   ocean.update(sea,sea);ocean.U.under.value=0;ocean.U.sunDir.value.copy(sun.position).normalize();
   ocean.U.moonDir.value.set(-.8,-.4,-.5);ocean.U.bearing.value=Math.atan2(inputs.windNorth,inputs.windEast);
   const rain=stormRain(T,scene,ocean,mobile);
@@ -292,7 +310,7 @@ async function run(){
   const capturePosition=new T.Vector3(),captureRotation=new T.Quaternion();
   let captureTime=-Infinity,captureSky,captureSea,captureAspect;
   let prev=performance.now(),acc=0,lastCapture=-Infinity;
-  let frameCost=1000/30,lastQualityCheck=0,pixelScale=mobile?.8:1;
+  let frameCost=1000/30,lastQualityCheck=0;
   let lastEnvironment,lastThunder;
   function updateLight(time){
     const sky=$('sky').value;
@@ -337,8 +355,8 @@ async function run(){
         model.set('traffic',remote.contacts(model.get('east'),model.get('north')));
       }
       frameCost=.94*frameCost+.06*Math.min(120,now-prev);
-      if(mobile&&now-lastQualityCheck>1500){
-        const next=Math.max(.5,Math.min(1,pixelScale+(frameCost>39?-.1:frameCost<23?.05:0)));
+      if(profile.min<profile.ratio&&now-lastQualityCheck>1500){
+        const next=Math.max(Math.min(devicePixelRatio,profile.min),Math.min(devicePixelRatio,profile.ratio,pixelScale+(frameCost>39?-.1:frameCost<23?.05:0)));
         if(Math.abs(next-pixelScale)>.01){pixelScale=next;renderer.setPixelRatio(pixelScale);resize();}
         lastQualityCheck=now;
       }
@@ -487,14 +505,14 @@ async function run(){
         }
         drawFeatures(sub.frame);
       }
-      ocean.dome.position.copy(camera.position);ocean.water.position.set(s[0],s[1],0);updateLight(t);caustics.update(t);
+      ocean.dome.position.copy(camera.position);ocean.water.position.set(s[0],s[1],0);updateLight(t);caustics.update(t,selector.value!=='low'||camera.position.z<ocean.U.tide.value+.5);
       const surfaceBand=.55+1.8*Number($('seaState').value)+Math.abs(ocean.U.swell.value.x);
       const storm=$('sky').value==='Storm';
       rain.visible=false; // Optical reflection and refraction targets exclude foreground streaks.
       // The underwater shader computes the view through the surface from the sky.
       // Its opaque submerged pass never samples the planar capture targets.
       if(camera.position.z<=-surfaceBand)lastCapture=-Infinity;
-      else if(now-lastCapture>=(mobile?65:0) && (lastCapture===-Infinity ||
+      else if(now-lastCapture>=profile.interval && (lastCapture===-Infinity ||
         t!==captureTime || camera.aspect!==captureAspect || remote.visible || captureSky!==$('sky').value || captureSea!==$('seaState').value ||
         !capturePosition.equals(camera.position) || !captureRotation.equals(camera.quaternion))){
         capturePosition.copy(camera.position);captureRotation.copy(camera.quaternion);

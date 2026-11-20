@@ -117,3 +117,5 @@ A checked item records the specific result described. Open items include partial
 - [x] Synchronize incident waves, weather settings and gust advection across peers and preserve phase through leader changes.
 - [x] Exchange the integrated catamaran’s submerged hull sections and drive nearby peer waves and hull loads in Modelica.
 - [ ] Restore earlier wake trails for late joiners, support the split-model sloop, and benchmark multiplayer wakes on phones.
+- [x] Ship Low, Balanced and High rendering settings, default Low on touch phones, and benchmark draw time independently of simulated time.
+- [ ] Verify sustained frame pacing on physical phones and reduce the CPU cost of the integrated FMU. Defer enhanced wake shading while frame pacing takes priority.

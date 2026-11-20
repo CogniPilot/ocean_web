@@ -94,3 +94,9 @@ Two Chromium windows joined one WebRTC room as a boat and a drone. The drone rec
 Three independent FMUs tested a real catamaran source replayed 3 m east and 1 m north of a second boat against a quiet control. The maximum surface difference reached 2.85 cm, and the receiving hull sections saw up to 2.30 cm. Existing waves continued after the sender left.
 
 On the development workstation, after 100 warm-up steps, 400 interleaved steps averaged 15.53 ms per 10 ms step on the preceding release and 16.33 ms on the candidate with no peers. A separate comparison on the same candidate averaged 14.47 ms with no source and 15.18 ms with one moving source. Median 200 ms events took 76.41 and 82.23 ms respectively. The tests measured physics alone. Physical phone frame times and multi-peer scaling remain open.
+
+## Mobile rendering presets
+
+Low defaults on devices with a coarse primary pointer. Settings can override it, and the browser remembers the selection. Low uses an 88 × 88 water grid and interpolates the Modelica surface slope from its vertices. It refreshes 192 × 120 reflection and transmission targets at most once per 150 ms, halves the sky-map dimensions, and skips the underwater caustic pass while the camera is above water. The adaptive drawing-buffer ratio ranges from 0.5 to 0.75. High uses a 144 × 144 water grid, per-pixel slope and 512 × 320 captures. All presets run the same FMU.
+
+A 393 × 852 touch viewport in Chromium with SwiftShader recorded 180 running frames per configuration on the workstation. The previous mobile default averaged 31.8 FPS with a 43.2 ms p95 frame. Low averaged 53.2 FPS with a 24.0 ms p95. Offscreen framebuffer binds fell from 0.75 to 0.24 per frame. Physics advanced at 0.49× and 0.40× real time in those runs. These are renderer measurements under shared CPU load, with physical phone performance still unmeasured.
