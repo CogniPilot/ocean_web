@@ -10,6 +10,6 @@ self.onmessage=async ({data})=>{
     }
     const height=Float32Array.from(model.get('height'));
     self.postMessage({height,origin:[model.get('driftE'),model.get('driftN')],period:model.get('period'),
-      incident:model.get('incident'),load:model.get('waveLoad')},[height.buffer]);
+      sections:model.get('sectionHeight'),incident:model.get('incident'),load:model.get('waveLoad')},[height.buffer]);
   }catch(error){self.postMessage({error:error.message});}
 };

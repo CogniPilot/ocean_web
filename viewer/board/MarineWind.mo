@@ -2,6 +2,8 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
   constant Integer n=48;
   parameter Real period=96,dt=.25,seed=1;
   input Real meanEast,meanNorth,east,north;
+  output Real strikeBearing,strikeFlash,thunderArrival "Atmospheric signal at the observer";
+  Real stormAge,stormRange,stormPhase;
   Real travelE(start=0,fixed=true),travelN(start=0,fixed=true);
   discrete output Real field[n,n,3](each start=0,each fixed=true) "East, north [m/s] and short-wave roughness proxy [m/s]";
   input Real droneEast,droneNorth;
@@ -57,6 +59,13 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
   end sampleWind;
   Real boatWind[3];
 equation
+  stormAge=mod(time,14);
+  stormPhase=floor(time/14);
+  strikeBearing=atan2(meanNorth,meanEast)+3.14159+.71*sin(stormPhase*13.58+seed);
+  stormRange=850+550*(1+sin(7.13*stormPhase+seed));
+  strikeFlash=if stormAge<.5 then 0 else exp(-13*(stormAge-.5))+
+    (if stormAge<.71 then 0 else .65*exp(-18*(stormAge-.71)));
+  thunderArrival=if stormAge>=.5+stormRange/343 then stormPhase else stormPhase-1;
   der(travelE)=.74*meanEast;der(travelN)=.74*meanNorth;
   when sample(0,dt) then
     field=fieldStep(pre(field),meanEast,meanNorth,travelE,travelN,time,seed,period,dt);

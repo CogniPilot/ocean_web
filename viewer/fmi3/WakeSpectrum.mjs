@@ -809,6 +809,8 @@ if (Module['wasmBinary']) wasmBinary = Module['wasmBinary'];
 
 // Imports from the Wasm binary.
 var _buffer,
+  _reference_buffer,
+  _read_batch,
   _create_instance,
   _initialize,
   _set_real,
@@ -826,6 +828,8 @@ var _buffer,
 
 function assignWasmExports(wasmExports) {
   _buffer = Module['_buffer'] = wasmExports['buffer'];
+  _reference_buffer = Module['_reference_buffer'] = wasmExports['reference_buffer'];
+  _read_batch = Module['_read_batch'] = wasmExports['read_batch'];
   _create_instance = Module['_create_instance'] = wasmExports['create_instance'];
   _initialize = Module['_initialize'] = wasmExports['initialize'];
   _set_real = Module['_set_real'] = wasmExports['set_real'];

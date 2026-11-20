@@ -42,3 +42,18 @@ for(const heading of [0,.73]){
     assert(Math.abs(spectra[2][0][i]-(re*Math.cos(phase)+im*Math.sin(phase)))<1e-10);
   }
 }
+
+// Each hull strip reads the same bilinear FFT surface as the water shader.
+const angle=.72,offset=[-4.3,5.2];
+const sampler=await loadInstance('WakeSpectrum',{...parameters,heading:angle,east:offset[0],north:offset[1],windEast:10},read);
+sampler.advance(.1);
+const grid=sampler.get('height'),sections=sampler.get('sectionHeight');
+const wrap=x=>(x%64+64)%64;
+for(let hull=0;hull<2;hull++)for(let panel=0;panel<6;panel++){
+  const x=.5*(parameters.stations[panel]+parameters.stations[panel+1]),y=(1-2*hull)*parameters.separation;
+  const u=wrap(offset[0]+x*Math.cos(angle)-y*Math.sin(angle)),v=wrap(offset[1]+x*Math.sin(angle)+y*Math.cos(angle));
+  const i=Math.floor(u),j=Math.floor(v),a=u-i,b=v-j;
+  const at=(r,c)=>grid[wrap(r)*64+wrap(c)];
+  const z=(1-b)*((1-a)*at(j,i)+a*at(j,i+1))+b*((1-a)*at(j+1,i)+a*at(j+1,i+1));
+  assert(Math.abs(z-sections[hull*6+panel])<1e-10);
+}

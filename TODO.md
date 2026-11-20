@@ -10,7 +10,7 @@ A checked item records the specific result described. Open items include partial
 ## Browser, performance and distribution
 
 - [x] Publish the static Three.js simulator on GitHub Pages with sailboat, survey submarine and RDD2 in one scene. Ship precompiled Rumoca FMI 3 WebAssembly modules.
-- [x] Add vehicle selection, manual and automatic control for the marine vehicles, keyboard and touch controls, and sailboat cameras that can go underwater.
+- [x] Add vehicle selection, independent manual startup and switchable autopilots for all three vehicles, keyboard and mobile thumbstick controls, and sailboat cameras that can go underwater.
 - [x] Add opt-in peer-to-peer ghosts and verify that two browser clients see each other. Add race marks, committee boat, fleet countdown, start signal and wind audio.
 - [ ] Verify remote vessel collisions, sensor visibility options, arbitrary internet peers, and race scoring through a full race.
 - [x] Reduce submarine collision broad-phase work. At 4,135 sampled poses all six force and moment components matched the exhaustive check.

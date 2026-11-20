@@ -10,6 +10,25 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
   discrete output Real height[n,n](each start=0,each fixed=true);
   discrete output Real waveLoad[3](each start=0,each fixed=true) "Wave resistance east, north [N] and yaw [Nm]";
   discrete output Real incident[3](each start=0,each fixed=true) "Wind-wave elevation, pitch and roll at hull";
+  discrete output Real sectionHeight[2,6](each start=0,each fixed=true) "Metres at each pontoon strip on the displayed FFT grid";
+  function sampleSections
+    input Real tile[n,n],x,y,bearing,roll,pitch,xs[7],sep,L;
+    output Real z[2,6];
+  protected Real a,b,u,v,along,across;
+    Integer i,j,ii,jj;
+  algorithm
+    for hull in 1:2 loop
+      for panel in 1:6 loop
+        across:=(3-2*hull)*sep*cos(roll);
+        along:=.5*(xs[panel]+xs[panel+1])*cos(pitch)+(3-2*hull)*sep*sin(roll)*sin(pitch);
+        u:=mod((x+along*cos(bearing)-across*sin(bearing))*n/L,n);
+        v:=mod((y+along*sin(bearing)+across*cos(bearing))*n/L,n);
+        i:=integer(floor(u))+1;j:=integer(floor(v))+1;ii:=mod(i,n)+1;jj:=mod(j,n)+1;
+        a:=u-floor(u);b:=v-floor(v);
+        z[hull,panel]:=(1-b)*((1-a)*tile[j,i]+a*tile[j,ii])+b*((1-a)*tile[jj,i]+a*tile[jj,ii]);
+      end for;
+    end for;
+  end sampleSections;
   function transform "Radix-two FFT in both dimensions. The inverse divides by n squared."
     input Real realPart[n,n],imagPart[n,n];
     input Boolean inverse;
@@ -160,11 +179,13 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
       displacedR[j,:]:=sourceR;displacedI[j,:]:=sourceI;
       wr[j,:]:=rowR;wi[j,:]:=rowI;re[j,:]:=rowR+windR;im[j,:]:=rowI+windI;
     end for;
+    probe[2]:=atan(probe[2]);probe[3]:=atan(probe[3]);
     (tile,unused):=transform(re,im,true);
   end step;
 equation
   der(driftE)=currentEast;der(driftN)=currentNorth;
   when sample(0,dt) then
     (modesR,modesI,displacementR,displacementI,height,incident,waveLoad)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time,time<dt/2);
+    sectionHeight=sampleSections(height,east-driftE,north-driftN,heading,heel,pitch,stations,separation,period);
   end when;
 end WakeSpectrum;

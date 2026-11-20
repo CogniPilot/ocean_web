@@ -2,7 +2,7 @@ import {GLTFLoader} from './vendor/gltf-loader.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
 export async function surveyDrone(T,scene){
   const [flight,{scene:model}]=await Promise.all([
-    loadInstance('Rdd2Survey',{stationEast:-5,stationNorth:0,currentENU:[.2,.04,0]}),
+    loadInstance('Rdd2Survey',{pilot:1,stationEast:-5,stationNorth:0,currentENU:[.2,.04,0]}),
     new GLTFLoader().loadAsync(new URL('./assets/drone.glb',import.meta.url).href)
   ]);
   const group=new T.Group(),props=[];
@@ -28,15 +28,15 @@ export async function surveyDrone(T,scene){
     group.add(pivot);pivot.attach(mesh);props.push(pivot);
   }
   scene.add(group);
-  let active=false;
-  function input(keys){
-    const axis=(a,b)=>Number(keys.has(a))-Number(keys.has(b));
+  let active=false,manual=true;
+  function input(axis){
     for(const [key,a,b] of [['forward','KeyW','KeyS'],['left','KeyA','KeyD'],['climb','KeyR','KeyF'],['turn','KeyQ','KeyE']])
-      flight.set(key,active?axis(a,b):0);
+      flight.set(key,active&&manual?axis(a,b):0);
   }
   return {group,get active(){return active;},get position(){return flight.get('position');},
     get drag(){return flight.get('dragBody');},
-    select(value){active=value;flight.set('pilot',Number(value));input(new Set());},
+    get manual(){return manual;},set manual(value){manual=value;flight.set('pilot',Number(value));input(()=>0);},
+    select(value){active=value;input(()=>0);},
     cut(value){flight.set('motorCut',Number(value));},
     station(east,north){flight.set('stationEast',east);flight.set('stationNorth',north);},
     wind(velocity){flight.set('windENU',velocity);},

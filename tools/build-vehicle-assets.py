@@ -1,5 +1,6 @@
 """Build the marine vehicle shells with Blender. Coordinates are metres (X forward, Z up)."""
 import math
+import re
 from pathlib import Path
 import bpy
 import numpy as np
@@ -80,10 +81,13 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 section=[(-1,0),(-.99,-.16),(-.90,-.47),(-.69,-.77),(-.37,-.94),(0,-1),
          (.37,-.94),(.69,-.77),(.9,-.47),(.99,-.16),(1,0),(.82,.018),(0,.036),(-.82,.018)]
 white=coating('Ivory gelcoat',(.89,.91,.88),stripes=True)
+# Read the physical pontoon offsets directly so the visual loft, beach contact
+# and displacement use the same upswept stem and rocker.
+shore = (DEST.parents[1]/'viewer/board/Shore.mo').read_text()
+table = re.search(r'constant Real pontoon\[12,4\]=\[(.*?)\];', shore, re.S)[1]
+offsets = [list(map(float,row.split(','))) for row in table.split(';')]
+stations = [(x,w,sheer-keel,sheer) for x,w,sheer,keel in offsets]
 for side in (-1,1):
-    stations=[(x,w,d,.23+.085*(x/2.555)**2) for x,w,d in [
-        (-2.555,.09,.35),(-2.2,.134,.45),(-1.9,.156,.52),(-.9,.185,.58),
-        (.15,.184,.58),(1.12,.155,.55),(1.95,.093,.47),(2.37,.043,.29),(2.555,.009,.15)]]
     hull('Port hull' if side==1 else 'Starboard hull',stations,section,white,side,side*1.02)
 export('hobie-hulls')
 red=coating('Vermilion gelcoat',(.80,.105,.08))

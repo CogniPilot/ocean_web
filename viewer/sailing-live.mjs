@@ -1,6 +1,6 @@
 import {wreckCaustics} from './caustics.mjs';
 import {loadVehicleShells} from './vehicle-assets.mjs';
-import {loadInstance} from './fmi3/instance.mjs';
+import {loadInstance} from './fmi3/instance.mjs?api=2';
 import {sailboatMesh,observeBoat} from './board/boat.mjs';
 import {splitCamera} from "./waterline.mjs";
 import {drawCompass} from './compass.mjs';
@@ -19,7 +19,7 @@ async function run(){
   document.querySelector('h1').textContent=cat?'Hobie 16':'Sailboat';
   $('trampoline').hidden=!cat;$('vangControl').hidden=false;
   // Start at the default loaded waterline for each hull.
-  const inputs={launchHeight:cat ? .20 : .069,windEast:10,windNorth:4,currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,vangInput:.5,manualHelm:0,rudderInput:0,trimInput:0};
+  const inputs={launchHeight:cat ? .20 : .069,windEast:10,windNorth:4,currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,vangInput:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const [model]=await Promise.all([loadInstance(vessel,inputs),loadVehicleShells()]);
   const worker=new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
   let waterFrame,waterError;
@@ -33,7 +33,7 @@ async function run(){
   worker.postMessage({init:{...waveInputs(),currentEast:inputs.currentEast,currentNorth:inputs.currentNorth,
     beamHalf:model.get('beamHalf'),stations:model.get('stationX'),separation:model.get('halfSpacing'),
     windEast:inputs.windEast,windNorth:inputs.windNorth}});
-  let wakeTicks=0;
+  let wakeTicks=0,lastSections;
   const mobile=matchMedia('(pointer: coarse)').matches;
   function settings(open){$('setup').hidden=!open;$('settings').setAttribute('aria-expanded',String(open));}
   settings(!mobile);$('settings').onclick=()=>settings($('setup').hidden);
@@ -73,7 +73,7 @@ async function run(){
   const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;scene.add(bottom);
   const wreckVisual=batchScenery(T,makeWreck(T,materials));scene.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,scene);
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
-  let angle=-.8,distance=cat?14:5.7,tilt=.16,drag=null,running=true,manual=false;
+  let angle=-.8,distance=cat?14:5.7,tilt=.16,drag=null,running=true,manual=true;
   $('view').onpointerdown=e=>{drag=[e.clientX,e.clientY];e.target.setPointerCapture(e.pointerId);};
   $('view').onpointermove=e=>{if(drag){angle-=(e.clientX-drag[0])*.008;tilt=Math.min(1.4,Math.max(-1.45,tilt+(e.clientY-drag[1])*.006));drag=[e.clientX,e.clientY];}};
   $('view').onlostpointercapture=()=>drag=null;
@@ -124,18 +124,39 @@ async function run(){
     sensorCanvas.putImageData(display,0,0);sensorCanvas.strokeStyle='#6aff96';
     for(let i=0;i<frame.estimate[15];i++)sensorCanvas.strokeRect(5*frame.features[5*i]-2,5*frame.features[5*i+1]-2,8,8);
   }
+  const analog=new Map();
+  const axis=(a,b)=>Math.max(-1,Math.min(1,Number(keys.has(a))-Number(keys.has(b))+(analog.get(a)||0)-(analog.get(b)||0)));
+  const panel=$('vehiclePanel'),togglePanel=$('collapsePanel');
+  togglePanel.onclick=()=>{panel.hidden=!panel.hidden;togglePanel.textContent=panel.hidden?'Show controls':'Hide controls';togglePanel.setAttribute('aria-expanded',String(!panel.hidden));};
+  new ResizeObserver(([entry])=>document.body.style.setProperty('--panel-height',entry.target.offsetHeight+'px')).observe(panel.parentElement);
+  const manualSelected=()=>sub.active?sub.manual:drone?.active?drone.manual:manual;
   function touchControls(){
-    const pad=$('touchHelm');pad.replaceChildren();pad.hidden=sub.active?!sub.manual:!manual&&!drone?.active;
-    if(!mobile||pad.hidden)return;
-    const labels=(drone?.active||sub.active)?
-      [['W','Forward'],['S','Back'],['A','Left'],['D','Right'],['Q','Yaw left'],['E','Yaw right'],['R','Climb'],['F','Descend']]:
-      [['A','Rudder left'],['D','Rudder right'],['S','Haul in'],['W','Ease sheets']];
-    for(const [key,label] of labels){
-      const button=document.createElement('button');button.textContent=label;button.type='button';
-      button.setAttribute('aria-pressed','false');
-      button.onpointerdown=e=>{e.preventDefault();button.setPointerCapture(e.pointerId);keys.add('Key'+key);button.setAttribute('aria-pressed','true');helm();};
-      button.onlostpointercapture=()=>{keys.delete('Key'+key);button.setAttribute('aria-pressed','false');helm();};
-      pad.append(button);
+    analog.clear();
+    const pad=$('sticks'),boatActive=!sub.active&&!drone?.active;
+    document.querySelectorAll('[data-boat]').forEach(el=>el.hidden=!boatActive);
+    $('trampoline').hidden=!cat||!boatActive;
+    $('helm').textContent=manualSelected()?'Manual':'Autopilot';
+    pad.replaceChildren();pad.hidden=!mobile || !manualSelected();
+    helm();
+    if(pad.hidden)return;
+    const layout=boatActive?[['Rudder','KeyD',null],['Ease / haul',null,'KeyW']]:
+      [['Sway / forward','KeyD','KeyW'],['Yaw / rise','KeyE','KeyR']];
+    for(const [label,horizontal,vertical] of layout){
+      const stick=document.createElement('div'),knob=document.createElement('span'),caption=document.createElement('small');
+      stick.className='stick';knob.className='knob';caption.textContent=label;stick.setAttribute('aria-label',label);
+      stick.append(knob,caption);pad.append(stick);
+      let finger=null;
+      function move(e){
+        const rect=stick.getBoundingClientRect(),half=rect.width/2;
+        let x=horizontal?(e.clientX-rect.left-half)/(half*.73):0,y=vertical?(rect.top+half-e.clientY)/(half*.73):0;
+        const scale=Math.max(1,Math.hypot(x,y));x/=scale;y/=scale;
+        if(horizontal)analog.set(horizontal,x);
+        if(vertical)analog.set(vertical,y);
+        knob.style.transform='translate('+x*half*.57+'px,'+(-y*half*.57)+'px)';helm();
+      }
+      stick.onpointerdown=e=>{if(finger!==null)return;e.preventDefault();finger=e.pointerId;stick.setPointerCapture(finger);move(e);};
+      stick.onpointermove=e=>{if(e.pointerId===finger)move(e);};
+      stick.onlostpointercapture=e=>{if(e.pointerId!==finger)return;finger=null;analog.delete(horizontal);analog.delete(vertical);knob.style.transform='';helm();};
     }
   }
   surveyDrone(T,scene).then(vehicle=>{
@@ -144,15 +165,21 @@ async function run(){
     $('controlTarget').onchange=()=>{
       if($('controlTarget').value==='sub'){angle=Math.PI-.48;tilt=.32;}
       keys.clear();$('view').focus({preventScroll:true});sub.active=$('controlTarget').value==='sub';$('onboardOption').hidden=!sub.active;if(!sub.active&&$('cameraDepth').value==='onboard')$('cameraDepth').value='deck';$('subPanel').hidden=!sub.active;drone.select($('controlTarget').value==='drone');helm();touchControls();
-      $('cutMotors').hidden=!drone.active;$('flightKeys').hidden=!drone.active;$('helm').textContent=(sub.active?sub.manual:manual)?'Manual helm':'Autopilot';document.querySelector('h1').textContent=sub.active?'Survey submarine':drone.active?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
+      $('cutMotors').hidden=!drone.active;$('flightKeys').hidden=!drone.active;document.querySelector('h1').textContent=sub.active?'Survey submarine':drone.active?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
     };
     if(['drone','sub'].includes(url.searchParams.get('control'))){$('controlTarget').value=url.searchParams.get('control');$('controlTarget').onchange();}
   }).catch(e=>{$('controlTarget').title=e.message;});
 
-  function helm(){drone?.input(keys);if(drone?.active||sub.active){model.set('rudderInput',0);model.set('trimInput',0);return;}model.set('rudderInput',Number(keys.has('KeyA'))-Number(keys.has('KeyD')));model.set('trimInput',Number(keys.has('KeyW'))-Number(keys.has('KeyS')));}
-  addEventListener('keydown',e=>{if((manual||drone?.active||sub.active&&sub.manual)&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){keys.add(e.code);helm();}});
-  addEventListener('keyup',e=>{keys.delete(e.code);helm();});addEventListener('blur',()=>{keys.clear();helm();});
-  $('helm').onclick=()=>{if(sub.active){sub.manual=!sub.manual;keys.clear();$('helm').textContent=sub.manual?'Manual helm':'Autopilot';touchControls();return;}manual=!manual;model.set('manualHelm',Number(manual));keys.clear();helm();$('helm').textContent=manual?'Manual helm':'Autopilot';touchControls();};
+  function helm(){drone?.input(axis);if(drone?.active||sub.active){model.set('rudderInput',0);model.set('trimInput',0);return;}model.set('rudderInput',axis('KeyA','KeyD'));model.set('trimInput',axis('KeyW','KeyS'));}
+  addEventListener('keydown',e=>{if(manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){keys.add(e.code);helm();}});
+  addEventListener('keyup',e=>{keys.delete(e.code);helm();});addEventListener('blur',()=>{keys.clear();analog.clear();helm();});
+  $('helm').onclick=()=>{
+    if(sub.active)sub.manual=!sub.manual;
+    else if(drone?.active)drone.manual=!drone.manual;
+    else{manual=!manual;model.set('manualHelm',Number(manual));}
+    keys.clear();touchControls();
+  };
+  touchControls();
   $('vang').oninput=()=>model.set('vangInput',Number($('vang').value)/100);
   $('play').onclick=()=>{running=!running;$('play').textContent=running?'Pause':'Resume';};
   $('wind').oninput=()=>{const w=+$('wind').value;windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));ocean.U.wind.value=w;$('windOut').textContent=w+' m/s';};
@@ -169,7 +196,7 @@ async function run(){
   };
   let prev=performance.now(),acc=0,lastCapture=-Infinity;
   let frameCost=1000/30,lastQualityCheck=0,pixelScale=mobile?.8:1;
-  let lastEnvironment;
+  let lastEnvironment,lastThunder;
   function updateLight(time){
     const sky=$('sky').value;
     const phase=sky==='Cycle'?time/240:sky==='Sunset'?.055:sky==='Moonlit'?-1:.9;
@@ -216,13 +243,20 @@ async function run(){
             windField.set('droneEast',east);windField.set('droneNorth',north);
           }
           windField.set('east',model.get('east'));windField.set('north',model.get('north'));windField.advance(.25);
+          const [strike,bearing,flash,travelE,travelN]=windField.getMany(['thunderArrival','strikeBearing','strikeFlash','travelE','travelN']);
+          if($('sky').value==='Storm'&&lastThunder!==undefined&&strike>lastThunder)audio.thunder();
+          lastThunder=strike;
+          ocean.U.lightning.value.set(bearing,flash);
+          ocean.U.cloudTravel.value.set(travelE,travelN);
           if(drone){drone.wind(windField.get('droneWind'));if(sub.frame)drone.station(sub.frame.estimate[0],sub.frame.estimate[1]);}
           model.set('windEast',windField.get('localEast'));model.set('windNorth',windField.get('localNorth'));ocean.updateWind(windField.get('field'));
         }
         if(wakeTicks%10===0){
-          const {height,incident,origin,period,load}=waterFrame;
+          const {height,incident,sections,origin,period,load}=waterFrame;
           waterFrame=null;
           worker.postMessage({...waveInputs(),windEast:windField.get('meanEast'),windNorth:windField.get('meanNorth')});
+          model.set('useSectionWater',1);model.set('previousWater',lastSections??sections);
+          model.set('sectionWater',sections);model.set('waterStamp',model.time);lastSections=sections;
           model.set('waveHeight',incident[0]);model.set('wavePitch',incident[1]);model.set('waveRoll',incident[2]);
           model.set('wakeEast',load[0]);model.set('wakeNorth',load[1]);model.set('wakeYaw',load[2]);
           ocean.updateSpectrum(height,...origin,period);
@@ -230,7 +264,7 @@ async function run(){
         wakeTicks++;
         model.advance(.01);if(drone){drone.step(.005);drone.step(.005);}acc-=.01;
       }
-      ocean.U.spectrumBlend.value=Math.min(1,((wakeTicks+9)%10+acc/.01)/10);
+      ocean.U.spectrumBlend.value=Math.min(1,((wakeTicks===0?0:(wakeTicks-1)%10+1)+acc/.01)/10);
       const s=observeBoat(model);
       if(!s.every(Number.isFinite))throw Error('Non-finite FMI state at '+model.time);
       const subFrame=sub.frame;
@@ -255,7 +289,7 @@ async function run(){
         if(drone.active){const [x,y,z]=drone.position;
           camera.position.set(x+distance*.6*Math.cos(angle),y+distance*.6*Math.sin(angle),z+distance*.6*Math.sin(tilt));camera.lookAt(x,y,z);}
       }
-      if(running)sub.update(t,keys,ocean.U.wind.value,ocean.U.bearing.value);
+      if(running)sub.update(t,axis,ocean.U.wind.value,ocean.U.bearing.value);
       if(sub.active){
         const p=sub.mesh.position;
         if($('cameraDepth').value==='onboard'){

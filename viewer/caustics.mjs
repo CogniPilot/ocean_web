@@ -1,19 +1,20 @@
 // Refract a regular bundle of sunlight rays through the live wave field onto a
 // reference depth. Flux per receiver area increases where the rays converge.
 export function wreckCaustics(T,renderer,water,mobile){
-  const size=mobile?256:512,span=64,bottom=-13.7;
+  const size=mobile?512:1024;
   const flux=new T.WebGLRenderTarget(size,size,{depthBuffer:false});
   const photons=new T.Scene(),eye=new T.OrthographicCamera(-1,1,1,-1,0,1);
   const material=new T.ShaderMaterial({
     uniforms:water.U,side:T.DoubleSide,transparent:true,blending:T.AdditiveBlending,
     depthTest:false,depthWrite:false,
-    vertexShader:oceanHeightGLSL+`
-      uniform vec3 sunDir;varying vec2 launch,landing;
+    vertexShader:oceanHeightGLSL+oceanRippleGLSL+`
+      uniform vec3 sunDir;uniform float tm,bearing,wind;varying vec2 launch,landing;
       void main(){
         launch=position.xy;
         float d=.35;
         vec2 grad=vec2(heightAt(launch+vec2(d,0.))-heightAt(launch-vec2(d,0.)),
                        heightAt(launch+vec2(0.,d))-heightAt(launch-vec2(0.,d)))/(2.*d);
+        grad+=rippleSlope(launch,tm,bearing,wind);
         vec3 ray=refract(-sunDir,normalize(vec3(-grad,1.)),1./1.333);
         landing=launch+ray.xy*((-13.7-heightAt(launch))/min(ray.z,-.05));
         gl_Position=vec4((landing-vec2(16.,0.))/32.,0.,1.);
@@ -23,7 +24,7 @@ export function wreckCaustics(T,renderer,water,mobile){
       void main(){float density=area(launch)/max(.000001,area(landing));
         gl_FragColor=vec4(vec3(.13*min(density,6.)),1.);}`
   });
-  const sheet=new T.PlaneGeometry(96,96,mobile?112:176,mobile?112:176);
+  const sheet=new T.PlaneGeometry(96,96,mobile?224:320,mobile?224:320);
   sheet.translate(16,0,0);
   const rays=new T.Mesh(sheet,material);rays.frustumCulled=false;photons.add(rays);
   const shadow=new T.WebGLRenderTarget(512,512);

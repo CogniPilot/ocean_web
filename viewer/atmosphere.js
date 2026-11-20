@@ -11,12 +11,25 @@
   vec4 data=texture2D(tile,p/64.+vec2(.5/32.));
   return tide+swell.x*sin(swell.y+dot(p-swellCenter,swell.zw))+spectralElevation(p)+mix(dot(data.rg,vec2(255.*256.,255.)),dot(data.ba,vec2(255.*256.,255.)),blend)*16./65535.-8.;
  }`;
+// Optical short-wave slopes shared by the surface BRDF and the sunlight rays.
+const oceanRippleGLSL=`
+vec2 rippleSlope(vec2 world,float clock,float bearing,float wind){
+  vec2 along=vec2(cos(bearing),sin(bearing)),crossSea=vec2(-along.y,along.x);
+  vec2 p=vec2(dot(world,along),dot(world,crossSea));
+  vec2 k1=vec2(3.4,.72),k2=vec2(4.75,-1.95),k3=vec2(7.1,2.65);
+  float spread=.68+.32*sin(dot(p,vec2(.41,.27))-.78*clock);
+  vec2 slope=spread*(.011*k1*cos(dot(k1,p)-5.82*clock+.65*sin(.55*p.y))
+             +.006*k2*cos(dot(k2,p)-7.09*clock+.8*sin(.32*p.x+.24*p.y))
+             +.003*k3*cos(dot(k3,p)-8.61*clock));
+  return min(1.7,wind/10.)*(along*slope.x+crossSea*slope.y);
+}`;
 // Shared sky radiance for the dome and the water reflection. World Z is up.
 const skyGLSL=`
 uniform vec3 sunDir;
 uniform vec3 moonDir;
 uniform float tm;
 uniform float storm;
+uniform vec2 cloudTravel,lightning;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.54);}
 float noise2(vec2 p){vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.),f.x),f.y);}
 float cloud(vec2 p){return noise2(p)*.53+noise2(p*2.1)*.27+noise2(p*4.3)*.13+noise2(p*8.9)*.07;}
@@ -31,25 +44,43 @@ vec3 skyColor(vec3 d){
  c+=vec3(5.,3.6,2.1)*smoothstep(.99991,.99997,sd);
  c+=vec3(.72,.81,1.)*smoothstep(.99989,.99996,md)*(0.65+0.35*noise2(d.xy*430.));
  c+=vec3(.6,.76,.96)*step(.9986,hash(floor(d.xy/(.7+abs(d.z))*650.)))*(1.-day)*smoothstep(.05,.3,d.z);
- vec2 field=d.xy/max(.045,d.z)*1.45+vec2(tm*.001,0.);
+ vec2 field=d.xy/max(.045,d.z)*1.45+-cloudTravel*.001;
  float clouds=smoothstep(.51-.14*storm,.72-.18*storm,cloud(field))*smoothstep(.025,.22,d.z);
  vec3 vapor=mix(vec3(.028,.04,.065),mix(vec3(.87,.91,.92),vec3(1.,.71,.48),dusk),day);
  vec3 fair=mix(c,vapor,clouds*.81);
- float front=cloud(field*.43+vec2(tm*.009,1.7));
- float shelf=smoothstep(.32,.65,front+max(d.z,0.)*.36);
- vec3 base=mix(vec3(.22,.29,.31),vec3(.018,.032,.046),shelf);
- base+=dusk*vec3(.83,.36,.08)*pow(max(0.,dot(d,sunDir)),8.)*(1.-.86*shelf);
- float epoch=floor(tm/11.),age=mod(tm,11.);
- float blink=exp(-120.*abs(age-.50))+.52*exp(-85.*abs(age-.68));
- float az=atan(d.y,d.x),strike=.42+1.2*(hash(vec2(epoch,9.))-.5);
+ if(storm<.001)return fair;
+ // Trace a curved layer. Finite grazing paths leave a misty horizon.
+ vec3 view=normalize(vec3(d.xy,max(0.,d.z)));
+ float earth=160.,mu=view.z*earth;
+ float entry=-mu+sqrt(mu*mu+2.*earth*.68+.68*.68);
+ float exitRay=-mu+sqrt(mu*mu+2.*earth*1.52+1.52*1.52);
+ float stepLen=(exitRay-entry)/12.,through=1.;
+ vec3 scatter=vec3(0.);
+ for(int i=0;i<12;i++){
+   vec3 q=view*(entry+(float(i)+.5)*stepLen);
+   float altitude=(length(q+vec3(0.,0.,earth))-earth-.68)/.84;
+   vec3 coord=q*vec3(.65,.65,1.7)+-vec3(cloudTravel*.001,0.);
+   float density=stormDensity(coord,altitude);
+   float shade=exp(-2.6*density-1.4*stormDensity(coord+sunDir*.32,altitude+.18));
+   vec3 light=mix(vec3(.036,.051,.071),vec3(.39,.43,.45)+dusk*vec3(.34,.14,.025),shade);
+   float absorbed=1.-exp(-density*stepLen*6.);
+   scatter+=through*absorbed*light;through*=1.-absorbed;
+ }
+ vec3 base=scatter+through*mix(horizon,zenith,.7*h);
+ float haze=exp(-max(d.z,0.)*15.);
+ base=mix(base,vec3(.22,.28,.30),haze*.79);
+ float shelf=1.-through;
+ float blink=lightning.y,az=atan(d.y,d.x),strike=lightning.x;
+ float epoch=floor(tm/14.);
  float line=strike+.034*sin(d.z*63.+epoch)+.009*sin(d.z*174.);
  float bolt=exp(-abs(atan(sin(az-line),cos(az-line)))*500.)*smoothstep(.004,.025,d.z)*(1.-smoothstep(.18,.24,d.z));
- base+=blink*(vec3(.39,.42,.48)*shelf+vec3(2.8,2.7,2.5)*bolt);
+ float arc=atan(sin(az-strike),cos(az-strike));
+ base+=blink*(vec3(.72,.76,.95)*exp(-5.*arc*arc-8.*pow(d.z-.22,2.))*shelf+vec3(2.8,2.7,2.5)*bolt);
  return mix(fair,base*(.45+.55*day),storm);
 }
 `;
 function atmosphere(scene){
- const U={storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
+ const U={cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  const skyTarget=new THREE.WebGLRenderTarget(512,192,{type:THREE.HalfFloatType});
  skyTarget.texture.wrapS=THREE.RepeatWrapping;
  U.skyMap={value:skyTarget.texture};
@@ -58,7 +89,17 @@ function atmosphere(scene){
  const skyPass=new THREE.Scene(),skyEye=new THREE.OrthographicCamera(-1,1,1,-1,0,1);
  skyPass.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),new THREE.ShaderMaterial({uniforms:U,depthTest:false,depthWrite:false,
  vertexShader:'varying vec2 p;void main(){p=uv;gl_Position=vec4(position.xy,0.,1.);}',
- fragmentShader:skyGLSL+'varying vec2 p;void main(){float a=(p.x-.5)*6.2831853,h=(p.y-.5)*3.14159265;gl_FragColor=vec4(skyColor(vec3(cos(a)*cos(h),sin(a)*cos(h),sin(h))),1.);}'})));
+ fragmentShader:skyGLSL.replace('vec3 skyColor',`
+ float cloudNoise(vec3 p){
+   float layer=floor(p.z),z=fract(p.z);
+   vec2 offset=vec2(31.19,17.71);
+   return mix(noise2(p.xy+layer*offset),noise2(p.xy+(layer+1.)*offset),z*z*(3.-2.*z));
+ }
+ float stormDensity(vec3 q,float h){
+   float v=.54*cloudNoise(q)+.27*cloudNoise(q*2.09+9.)+.13*cloudNoise(q*4.27-13.)+.06*cloudNoise(q*8.5+21.);
+   return smoothstep(.28,.70,v)*smoothstep(0.,.26,h)*(1.-smoothstep(.78,1.,h));
+ }
+ vec3 skyColor`)+'varying vec2 p;void main(){float a=(p.x-.5)*6.2831853,h=(p.y-.5)*3.14159265;gl_FragColor=vec4(skyColor(vec3(cos(a)*cos(h),sin(a)*cos(h),sin(h))),1.);}'})));
  let lastSky=-Infinity,skyKey='';
  function updateSky(renderer,time,key){
    if(key===skyKey && time-lastSky<(U.storm.value>.3?.075:.35))return;
@@ -107,23 +148,22 @@ function atmosphere(scene){
  vertexShader:field+`varying vec3 wp;
  void main(){wp=(modelMatrix*vec4(position,1.)).xyz;wp.z=heightAt(wp.xy);
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
- fragmentShader:lookup+skyGLSL.slice(skyGLSL.indexOf('float hash'),skyGLSL.indexOf('vec3 skyColor'))+field+`
+ fragmentShader:lookup+oceanRippleGLSL+skyGLSL.slice(skyGLSL.indexOf('float hash'),skyGLSL.indexOf('vec3 skyColor'))+field+`
  uniform sampler2D windMap; uniform float windFieldActive; uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;uniform vec4 boat;varying vec3 wp;
- float ripple(vec2 p){
-   float chop=sin(p.x*5.3+1.6*sin(p.y*2.2)+tm*2.8)+.42*sin(p.x*10.8+p.y*4.4+tm*4.5);
-   return chop*.007+noise2(p*1.9+tm*.3)*.05+noise2(p*6.6+tm*.55)*.014;
- }
+ uniform sampler2D transmissionDepth;uniform vec2 cameraRange;
+ float viewDepth(float z){return cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}
  void main(){
    vec3 eye=normalize(cameraPosition-wp);
    vec3 air=texture2D(windMap,wp.xy/96.+.5/48.).rgb;
    vec2 localAir=air.rg*64.-32.;
    vec2 dir=windFieldActive>.5 && length(localAir)>.4?normalize(localAir):vec2(cos(bearing),sin(bearing));
    vec2 crosswind=vec2(-dir.y,dir.x);float rippleWind=mix(wind,air.b*64.,windFieldActive);
-   vec2 p=vec2(dot(wp.xy,dir),dot(wp.xy,crosswind));float rip=ripple(p);
+   vec2 baseDir=vec2(cos(bearing),sin(bearing));
+   vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
    vec2 d=vec2((heightAt(wp.xy+vec2(.48,0))-heightAt(wp.xy-vec2(.48,0)))/.96,
                (heightAt(wp.xy+vec2(0,.48))-heightAt(wp.xy-vec2(0,.48)))/.96);
-   d+=fade*min(rippleWind/10.,2.5)*(dir*(ripple(p+vec2(.06,0))-rip)+crosswind*(ripple(p+vec2(0,.06))-rip))/.06;
+   d+=fade*rippleSlope(wp.xy,tm,bearing,rippleWind);
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    float day=smoothstep(-.12,.22,sunDir.z);
    float fres=.021+.979*pow(1.-clamp(abs(dot(n,eye)),0.,1.),5.);
@@ -135,9 +175,14 @@ function atmosphere(scene){
    vec2 uv=clamp(clip.xy/clip.w*.5+.5-d*normalOffset,.001,.999);
    vec4 objects=texture2D(reflection,uv,.65);
    vec3 reflected=mix(skyColor(ref),objects.rgb,objects.a);
-   float opticalDepth=clamp(4.2*pow(length((wp.xy-vec2(36.,40.))/vec2(17.,11.)),2.)-3.6+wp.z,0.,13.7);
-   vec3 below=texture2D(transmission,clamp(gl_FragCoord.xy/viewport+d*.013,.001,.999)).rgb;
-   vec3 trans=exp(-vec3(.51,.20,.12)*opticalDepth/max(.15,abs(eye.z)));
+   vec2 screen=gl_FragCoord.xy/viewport;
+   vec2 refrUV=clamp(screen+d*.009,.001,.999);
+   float surfaceDepth=viewDepth(gl_FragCoord.z);
+   float hitDepth=viewDepth(texture2D(transmissionDepth,refrUV).r);
+   if(hitDepth<surfaceDepth){refrUV=screen;hitDepth=viewDepth(texture2D(transmissionDepth,screen).r);}
+   float path=clamp((hitDepth-surfaceDepth)*length(cameraPosition-wp)/max(.01,surfaceDepth),0.,60.);
+   vec3 below=texture2D(transmission,refrUV).rgb;
+   vec3 trans=exp(-vec3(.22,.068,.040)*path);
    vec3 color=mix(waterColor*(1.-trans)+below*trans,reflected,fres);
    color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
    float crest=wp.z-tide-.4*length(d);
@@ -146,7 +191,7 @@ function atmosphere(scene){
    float foam=smoothstep(.40,.89,crest+(wind-9.)*.054)*smoothstep(.43,.67,scum);
    float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
    foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum));
-   color=mix(color,vec3(.024,.34,.32)*(.3+.7*day),.62*(1.-smoothstep(.9,1.32,shore)));
+
    color=mix(color,vec3(.018,.048,.051)+reflected*.22,storm*(.48+.20*(1.-fres)));
    foam=max(foam,storm*smoothstep(.43,1.1,crest)*smoothstep(.34,.61,scum));
    color=mix(color,mix(vec3(.06,.10,.14),vec3(.79,.87,.85),day),foam*.86);
@@ -182,9 +227,11 @@ function atmosphere(scene){
  // Mip-filter thin silhouettes as ripple distortion minifies the reflected image.
  reflectRT.texture.generateMipmaps=true;
  reflectRT.texture.minFilter=THREE.LinearMipmapLinearFilter;
+ throughRT.depthTexture=new THREE.DepthTexture(512,320,THREE.UnsignedIntType);
+ U.transmissionDepth={value:throughRT.depthTexture};U.cameraRange={value:new THREE.Vector2()};
  U.reflection.value=reflectRT.texture;U.transmission.value=throughRT.texture;
  function capture(renderer,camera){
-   renderer.getDrawingBufferSize(U.viewport.value);const oldBackground=scene.background,oldFog=scene.fog;
+   U.cameraRange.value.set(camera.near,camera.far);renderer.getDrawingBufferSize(U.viewport.value);const oldBackground=scene.background,oldFog=scene.fog;
    const target=new THREE.Vector3();camera.getWorldDirection(target);target.add(camera.position);
    mirrorCamera.copy(camera);mirrorCamera.position.z=2*U.tide.value-camera.position.z;target.z=2*U.tide.value-target.z;
    mirrorCamera.up.set(0,0,-1);mirrorCamera.lookAt(target);mirrorCamera.updateMatrixWorld();

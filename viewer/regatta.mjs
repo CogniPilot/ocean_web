@@ -74,5 +74,16 @@ export function raceAudio(){
     src.buffer=noise;gain.gain.setValueAtTime(.8,t);gain.gain.exponentialRampToValueAtTime(.0003,t+.52);
     src.connect(gain).connect(audio.destination);src.onended=()=>{src.disconnect();gain.disconnect();};src.start();src.stop(t+.53);
   }
-  return {toggle,update,signal};
+  function thunder(){
+    if(!enabled)return;
+    const src=audio.createBufferSource(),low=audio.createBiquadFilter(),gain=audio.createGain(),t=audio.currentTime;
+    src.buffer=noise;src.loop=true;low.type='lowpass';
+    low.frequency.setValueAtTime(210,t);low.frequency.exponentialRampToValueAtTime(57,t+2.6);
+    gain.gain.setValueAtTime(.001,t);gain.gain.linearRampToValueAtTime(1.2,t+.10);
+    gain.gain.exponentialRampToValueAtTime(.28,t+.6);gain.gain.linearRampToValueAtTime(.51,t+.95);
+    gain.gain.exponentialRampToValueAtTime(.001,t+3.5);
+    src.connect(low).connect(gain).connect(audio.destination);src.onended=()=>{src.disconnect();low.disconnect();gain.disconnect();};
+    src.start(t);src.stop(t+3.6);
+  }
+  return {toggle,update,signal,thunder};
 }

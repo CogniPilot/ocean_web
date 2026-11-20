@@ -22,8 +22,8 @@ export function submarine(T,scene){
   };
   worker.onerror=e=>{error=e.message;busy=false;};
   addEventListener('pagehide',()=>worker.terminate(),{once:true});
-  return {manual:false,active:false,mapVisible:false,get frame(){return frame;},get error(){return error;},mesh,
-    update(time,keys,wind,bearing){
+  return {manual:true,active:false,mapVisible:false,get frame(){return frame;},get error(){return error;},mesh,
+    update(time,axis,wind,bearing){
       map.group.visible=this.active&&this.mapVisible;
       if(frame){
         const blend=Math.min(1,(performance.now()-receivedAt)/blendMs);
@@ -35,7 +35,6 @@ export function submarine(T,scene){
       }
       if(error||busy||time<previous+.049)return;
       busy=true;
-      const axis=(a,b)=>Number(keys.has(a))-Number(keys.has(b));
       const pilot=this.active?[axis('KeyW','KeyS'),axis('KeyA','KeyD'),axis('KeyQ','KeyE'),axis('KeyR','KeyF')]:[0,0,0,0];
       worker.postMessage({manual:this.manual,pilot,wind,bearing,steps:Math.min(20,Math.floor((time-previous)*100+1e-6))});
     }};

@@ -1,9 +1,9 @@
-import {loadInstance} from './fmi3/instance.mjs';
+import {loadInstance} from './fmi3/instance.mjs?api=2';
 
 // The acquisition clock and plant step both use simulation time. Sensor history
 // belongs to this worker so a slow render never skips a navigation update.
 const ready=Promise.all([
-  loadInstance('Wreck_Plant',{windSpeed:11,windDirection:.45}),
+  loadInstance('Wreck_Plant',{manual:1,windSpeed:11,windDirection:.45}),
   loadInstance('Wreck_Navigation',{})
 ]);
 let tick=0, estimate, image, features;
@@ -13,9 +13,10 @@ function acquire(plant,nav){
   nav.set('truth',[...plant.get('position'),...plant.get('orientation'),
     ...plant.get('velocity'),plant.get('yawRate'),plant.get('pressure'),
     ...plant.get('specificForce'),...plant.get('rates')]);
-  const [sensor,ranges,pixels,corners,pose,history]=nav.getMany([
+  const names=[
     'sensor','elev','image','features','estimate','keyframes'
-  ]);
+  ];
+  const [sensor,ranges,pixels,corners,pose,history]=nav.getMany?nav.getMany(names):names.map(name=>nav.get(name));
   image=pixels;features=corners;estimate=pose;
   if(estimate[12]!==mappedKeys||estimate[13]!==closures){
     mappedKeys=estimate[12];closures=estimate[13];
