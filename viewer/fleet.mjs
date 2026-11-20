@@ -47,6 +47,9 @@ export function fleet(T,scene,roomName,status,weather){
     weatherRows[key]=[revision,selfId,value];
     weatherChanged=true;
   }
+  const gustReports=new Map();
+  const anchor=new Float64Array(5);
+  let appliedReport,gustChannel,lastGustSend=-Infinity;
   function report(){status.textContent=room?(participants.size+1)+' online':'Offline';}
   function remove(id){
     const peer=peers.get(id);
@@ -57,7 +60,7 @@ export function fleet(T,scene,roomName,status,weather){
       for(const item of [...textures,...geometries])item.dispose();
       peers.delete(id);}
   }
-  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;weatherChannel=null;weatherRows=null;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
+  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
   function join(){
     if(room)return;
     room=joinRoom({appId:'pelagic-sailing-v1',relayConfig:{urls:relays}},roomName);
@@ -89,9 +92,14 @@ export function fleet(T,scene,roomName,status,weather){
         if(Object.keys(changes).length)weather.apply(changes);
       };
     }
+    gustChannel=room.makeAction('wind-travel');
+    gustChannel.onMessage=(report,{peerId})=>{
+      if(room===active && Array.isArray(report) && report.length===3 && report.every(Number.isFinite))
+        gustReports.set(peerId,report);
+    };
     action=room.makeAction('sail-pose');
     room.onPeerJoin=id=>{if(room===active){participants.add(id);lastWeatherSend=-Infinity;report();}};
-    room.onPeerLeave=id=>{if(room===active){participants.delete(id);seaClock.peers.delete(id);remove(id);report();}};
+    room.onPeerLeave=id=>{if(room===active){participants.delete(id);seaClock.peers.delete(id);gustReports.delete(id);remove(id);report();}};
     action.onMessage=(packet,{peerId})=>{
       if(room!==active||!(packet instanceof Uint8Array)||
         (packet.byteLength!==4*packetFloats&&packet.byteLength!==36))return;
@@ -171,5 +179,21 @@ export function fleet(T,scene,roomName,status,weather){
     }
     return phase;
   }
-  return {join,leave,frame,contacts,seaTime,changeWeather,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
+  function windAnchor(phase,now,east,north,localEast,localNorth){
+    const report=room&&seaClock.leader!==selfId?gustReports.get(seaClock.leader):undefined;
+    if(report && report!==appliedReport){
+      anchor.set([phase-report[0],report[1],report[2],localEast,localNorth]);
+      appliedReport=report;
+    }else if(!report && appliedReport){
+      // Preserve the committed position on handover. The FMU keeps integrating wind travel.
+      anchor.set([0,east,north,localEast,localNorth]);
+      appliedReport=undefined;
+    }
+    if(room && seaClock.leader===selfId && participants.size && now-lastGustSend>=250){
+      gustChannel.send([phase,east,north]).catch(()=>{});
+      lastGustSend=now;
+    }
+    return anchor;
+  }
+  return {join,leave,frame,contacts,seaTime,changeWeather,windAnchor,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
 }

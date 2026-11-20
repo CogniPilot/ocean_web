@@ -24,6 +24,7 @@ export class FleetSeaClock {
         leader=id;joined=peer.joined;
       }
     }
+    this.leader=leader;
     if(leader!==this.id){
       const peer=this.peers.get(leader);
       this.offset=peer.phase+peer.rate*Math.min(500,Math.max(0,now-peer.now))/1000-local;

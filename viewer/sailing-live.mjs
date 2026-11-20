@@ -345,7 +345,12 @@ async function run(){
       if(running)acc+=Math.max(0,Math.min(.22,(now-prev)/1000));prev=now;
       if(waterError)throw waterError;
       if(world){
-        if(world.hasSeaClock)world.set('seaClockOffset',remote.seaTime(world.time,now)-world.time);
+        if(world.hasSeaClock){
+          const phase=remote.seaTime(world.time,now);
+          world.set('seaClockOffset',phase-world.time);
+          if(world.hasWindAnchor)world.set('windAnchor',remote.windAnchor(phase,now,
+            windField.get('gustEast'),windField.get('gustNorth'),windField.get('travelE'),windField.get('travelN')));
+        }
         const steps=Math.min(5,Math.floor(acc/.01));acc=Math.min(.1,acc);
         if(running)acc=Math.max(0,acc-world.advance(steps)*.01);
         const tick=Math.round(world.time*100),waveTick=model.get('waterStamp'),fieldTick=Math.floor(tick/25);
@@ -355,7 +360,7 @@ async function run(){
         }
         if(lastFieldTick!==fieldTick){
           ocean.updateWind(windField.get('field'));
-          ocean.U.cloudTravel.value.set(windField.get('travelE'),windField.get('travelN'));
+          ocean.U.cloudTravel.value.set(windField.get(world.hasWindAnchor?'gustEast':'travelE'),windField.get(world.hasWindAnchor?'gustNorth':'travelN'));
           ocean.U.lightning.value.set(windField.get('strikeBearing'),windField.get('strikeFlash'));
           const thunder=windField.get('thunderArrival');if($('sky').value==='Storm'&&lastThunder!==undefined&&thunder>lastThunder)audio.thunder();
           lastThunder=thunder;lastFieldTick=fieldTick;
