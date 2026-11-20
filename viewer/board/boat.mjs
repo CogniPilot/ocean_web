@@ -45,39 +45,38 @@ function sailMaterial(T,cat,count){
  for(let i=0;i<7;i++){const y=150+i*66;g.fillStyle=i%2?'#d82e32':'#f04838';g.beginPath();g.moveTo(0,y);g.lineTo(512,y-170);g.lineTo(512,y-165+i*4);g.lineTo(0,y+12+i*2);g.fill();}
  g.strokeStyle='rgba(110,125,130,.45)';g.lineWidth=2;for(let y=80;y<1024;y+=104){g.beginPath();g.moveTo(0,y);g.lineTo(512,y+28);g.stroke();}
  if(cat){
-   const classic=new URLSearchParams(location.search).get('sails')==='classic';
+   const classic=new URLSearchParams(location.search).get('sails')!=='modern';
    const luff=count===4?[.18,.38,.55,.73]:[.075,.185,.285,.395,.49,.575,.705,.80];
    const leech=count===4?luff:[.095,.205,.31,.42,.53,.605,.76,.90];
-   const colors=classic?['#e52f27','#e52f27','#fe7027','#fe7027','#ffbf29','#ffbf29','#ffbf29','#ffbf29','#ffbf29']:
+   const colors=classic?['#da2729','#da2729','#da2729','#fb5d18','#fb5d18','#ffca32','#ffca32','#ffca32','#ffca32']:
      ['#949397','#eeeae5','#ecebe8','#c5d833','#cadc36','#c9db37','#98989d','#f1efeb','#f5f1eb'];
    for(let i=0;i<=count;i++){
      const lower=i===0?0:luff[i-1],upper=i===count?1:luff[i];
      const tailLow=i===0?0:leech[i-1],tailHigh=i===count?1:leech[i];
-     g.fillStyle=count===4?(classic?colors[2*i]:'#cadb37'):colors[i];
+     g.fillStyle=count===4?(classic?['#da2729','#da2729','#fb5d18','#fb5d18','#ffca32'][i]:'#cadb37'):colors[i];
      g.beginPath();g.moveTo(0,1024*(1-lower));g.lineTo(512,1024*(1-tailLow));
      g.lineTo(512,1024*(1-tailHigh));g.lineTo(0,1024*(1-upper));g.fill();
    }
    // The vinyl inspection windows sit below the lowest batten on both sails.
    g.clearRect(110,963,124,34);g.fillStyle='rgba(155,184,185,.28)';g.fillRect(110,963,124,34);
    g.strokeStyle='#d8d6cb';g.lineWidth=3;g.strokeRect(110,963,124,34);
-   if(count===8){
-     g.fillStyle='#27292b';g.font='italic bold 76px sans-serif';
-     g.fillText('16026',116,809,300);
-   }
    for(let b=0;b<count;b++){
      const y0=1024*(1-luff[b]),y1=1024*(1-leech[b]);
-     function pocket(color,width){
+     function pocket(color,width,offset=0){
        g.strokeStyle=color;g.lineWidth=width;g.beginPath();
-       g.moveTo(0,y0);g.lineTo(512,y1);g.stroke();
+       g.moveTo(0,y0+offset);g.lineTo(512,y1+offset);g.stroke();
      }
-     pocket('rgba(63,64,56,.45)',7);pocket('rgba(255,251,231,.68)',4);
-     g.fillStyle='#534435';g.fillRect(502,y1-5,10,10);
+     // Shallow relief of a sewn cloth pocket over the fiberglass.
+     pocket('rgba(55,31,19,.12)',5);
+     pocket('rgba(255,232,179,.22)',1.4,-2);
+     pocket('rgba(55,31,19,.22)',1,2);
+     g.fillStyle='rgba(53,42,36,.5)';g.fillRect(508,y1-2,4,4);
    }
  }
  const tex=new T.CanvasTexture(c);tex.colorSpace=T.SRGBColorSpace;
  return new T.MeshStandardMaterial({map:tex,roughness:.74,side:T.DoubleSide,transparent:cat,forceSinglePass:true});
 }
-export function sailboatMesh(T,cat=false){
+export function sailboatMesh(T,cat=false,keelX=.06){
  const group=new T.Group();
  const paint=(c)=>new T.MeshStandardMaterial({color:c,roughness:.42,metalness:.12});
  const red=paint(0xca2526),white=paint(0xe3e5dd),black=paint(0x252c30);
@@ -89,9 +88,8 @@ export function sailboatMesh(T,cat=false){
    const geometry=new T.BufferGeometry().setAttribute('position',new T.Float32BufferAttribute(new Float32Array(9*3),3));
    const line=new T.Line(geometry,new T.LineBasicMaterial({color}));line.frustumCulled=false;group.add(line);return line;
  }
- function drawRope(line,from,to,paid){
+ function drawRope(line,from,to,sag){
    const v=line.geometry.attributes.position;
-   const sag=.5*Math.sqrt(Math.max(0,paid*paid-from.distanceToSquared(to)));
    for(let i=0;i<9;i++){
      const u=i/8;
      v.setXYZ(i,from.x+(to.x-from.x)*u,from.y+(to.y-from.y)*u,
@@ -134,7 +132,8 @@ export function sailboatMesh(T,cat=false){
      }
      rod([-.15,-.06,.072],[-.15,.06,.072],.017,pin,blade);
      rod([0,0,-.05],[0,0,.145],.018,pin,blade);
-     rod([-.16,0,.09],[.89,0,.23],.023,black,blade);
+     rod([-.16,0,.09],[-.13,0,.24],.027,black,blade);
+     rod([-.13,0,.24],[.89,0,.31],.023,black,blade);
      if(side===1)rudder=blade;else otherRudder=blade;
      rod([2.1,side*1.02,.29],[2.26,0,.75],.013,black);
      rod([-.52,side*1.02,.34],[.44,0,5.85],.009,black);
@@ -145,7 +144,7 @@ export function sailboatMesh(T,cat=false){
    carriage=mesh(new T.BoxGeometry(.34,.24,.16),new T.MeshStandardMaterial({color:0x17191a,roughness:.85,metalness:.08}));carriage.position.z=.52;
    rod([.44,0,.41],[.44,0,8.33],.043,black);
    rod([2.26,0,.75],[.44,0,5.85],.011,black);
-   crossTiller=rod([-1.69,-1.02,.39],[-1.69,1.02,.39],.021,black);
+   crossTiller=rod([-1.69,-1.02,.47],[-1.69,1.02,.47],.021,black);
    for(const x of [-1.4,.55])rod([x,-.94,.465],[x,.94,.465],.014,paint(0xbdc5c4));
    for(const x of [-1.4,.55,.55]){
      const car=mesh(new T.BoxGeometry(.095,.085,.075),black);car.position.set(x,0,.48);deckCars.push(car);
@@ -154,8 +153,8 @@ export function sailboatMesh(T,cat=false){
  }else{
    sheets.push(sheetRope(0xad4045),sheetRope(0x2e7485));
  group.add(vehicleShell('sloop-hull'));
- const keel=mesh(new T.BoxGeometry(.28,.037,.64),black);keel.position.set(.40,0,-.43);
- const bulb=mesh(new T.SphereGeometry(1,24,12),red);bulb.position.set(.40,0,-.77);bulb.scale.set(.26,.075,.075);
+ const keel=mesh(new T.BoxGeometry(.28,.037,.64),black);keel.position.set(keelX,0,-.43);
+ const bulb=mesh(new T.SphereGeometry(1,24,12),red);bulb.position.set(keelX,0,-.77);bulb.scale.set(.26,.075,.075);
  rudder=mesh(new T.BoxGeometry(.19,.026,.37),black);rudder.position.set(-.93,0,-.22);
  function block(x,y,z,l,w,h,material){
    const m=mesh(new T.BoxGeometry(l,w,h),material);m.position.set(x,y,z);return m;
@@ -180,7 +179,7 @@ export function sailboatMesh(T,cat=false){
  for(const [x,y,z] of [[1.16,0,.09],[-1.06,0,.09],[-.05,.31,.09],[-.05,-.31,.09]])rod([x,y,z],[.12,0,2.78],.0028,black);
  }
  const sheetMatrix=new T.Matrix4();
- const sails=(cat?[{width:2.78,z:.97},{width:1.98,z:.75}]:[{width:1.12,z:.19},{width:.70,z:.19}]).map((spec,index)=>{
+ const sails=(cat?[{width:2.78,z:.97},{width:1.98,z:.75}]:[{width:1.28,z:.19},{width:.60,z:.19}]).map((spec,index)=>{
    const pivot=new T.Group();pivot.position.z=spec.z;group.add(pivot);
    const geo=new T.BufferGeometry();
    const coords=new T.Float32BufferAttribute(new Float32Array(24*3),3);
@@ -244,7 +243,7 @@ export function sailboatMesh(T,cat=false){
      coords.needsUpdate=true;geo.computeVertexNormals();
    });
    if(cars){
-     crossTiller.position.set(-2.58+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.39);
+     crossTiller.position.set(-2.58+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.47);
      deckCars[0].position.y=cars[0];deckCars[1].position.y=cars[1];deckCars[2].position.y=-cars[1];
      // Attachment positions in the hull frame. The front clew follows the actual cloth.
      const top=new T.Vector3(-1.84*Math.cos(s[206]),0,1.84*Math.sin(s[206])).applyQuaternion(sails[0].pivot.quaternion).add(sails[0].pivot.position);
@@ -253,12 +252,12 @@ export function sailboatMesh(T,cat=false){
        const main=i<6,car=deckCars[main?0:i<8?1:2];
        const offset=(main?i-2.5:i%2-.5)*.014;
        const start=car.position.clone(),end=(main?top:jib).clone();start.x+=offset;end.x+=offset;
-       drawRope(sheets[i],start,end,rope?rope[main?0:i<8?1:2]:start.distanceTo(end));
+       drawRope(sheets[i],start,end,rope?rope[main?0:i<8?1:2]:0);
      }
    }else if(rope){
      for(let m=0;m<2;m++){
        const x=sails[m].pivot.position.x,z=sails[m].pivot.position.z;
-       const r=m===0?.44:.70,e=m===0?s[206]:0;
+       const r=m===0?.44:.60,e=m===0?s[206]:0;
        const start=new T.Vector3(x-r,0,z-.105);
        const end=new T.Vector3(-r*Math.cos(e),0,r*Math.sin(e)).applyQuaternion(sails[m].pivot.quaternion).add(sails[m].pivot.position);
        drawRope(sheets[m],start,end,rope[m]);

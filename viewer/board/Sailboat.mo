@@ -84,6 +84,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real sheetForce[3,3],lineDirection[3,3],ropeTorque[3,3],lineSpan[3],lineRate[3],lineTension[3],lineTarget[3];
   Real linePaid[3](each start=.32,each fixed=true),trimRate[2](each start=0,each fixed=true),hingeLoad[2],sheetYaw[3],sheetLift;
   Real mainTension,jibTension;
+  Real jibTrimTarget;
+  output Real exposedSheetSag[3] "Free-span deflection with excess line retained on deck";
   Real mainCarTarget,jibCarTarget,windSide;
   parameter Real swellK=.34,swellBearing=1.04159;
   Real swellPhase,swellLocal[2],waterDamping;
@@ -100,7 +102,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real bodyLoad[4,3],foilLoad[4,3],foilTorque[4,3],foilCL[4],foilOrbital[4,3],foilPhase[4];
   Real impact[2,3],deckWet[2],impactTorque[2];
   output Real deckImmersion,contactLoad;
-  parameter Real spans[2]={2.6,2.12},feet[2]={1.12,.70},footZ[2]={.19,.19},mainRoach=0;
+  parameter Real spans[2]={2.6,2.12},feet[2]={1.28,.60},footZ[2]={.19,.19},mainRoach=0;
   parameter Real yawInertia=19,rollInertia=28,pitchInertia=12, halfSpacing=0;
   parameter Real ballastMass=0;
   input Real ballastManual,ballastCmdX,ballastCmdY;
@@ -117,13 +119,13 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real footX[2]={.12,1.16-(.19-.09)*forestaySlope};
   parameter Real axisX[2]={0,-forestaySlope/sqrt(1+forestaySlope^2)},axisZ[2]={1,1/sqrt(1+forestaySlope^2)};
   output Real sheetRotation[2,3,3] "Sail frame to hull frame";
-  SailMembrane cloth[2](battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={0,spans[2]*forestaySlope},roach={mainRoach,0});
+  SailMembrane cloth[2](hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={0,spans[2]*forestaySlope},roach={mainRoach,0});
   Real rotation[3,3],rig[2,3,3],trim[2](each start=.17,each fixed=true), waterRelative[3],spin[3],origin[2,3];
   Real pitchRate(start=launchPitchRate,fixed=true),rigMoment[2,3],rigForce[2,3],surfaceNormal[3];
   output Real sailVertex[2,24,3],wettedArea[2],leechSpeed[2],sailMoment[3];
   Real ve,vn,awx,awy,beta,fx,fy;
   Real foilAlpha[4],foilLift[4],foilDrag[4],foilSide[4],foilAxial[4],inflow[4],forward[4],angle[4],wetFoil[4];
-  parameter Real foilX[4]={0.40,-0.93,0,0},foilY[4]={0,0,0,0},foilArea[4]={0.115,0.044,0,0},aspect[4]={3.5,2.6,1,1};
+  parameter Real foilX[4]={0.06,-0.93,0,0},foilY[4]={0,0,0,0},foilArea[4]={0.115,0.044,0,0},aspect[4]={3.5,2.6,1,1};
   output Real sailForward[2], sailPort[2], buoyancy;
   parameter Real fixInterval=0.2, gpsVariance=0.16;
   Real vane(start=0,fixed=true), vaneRate(start=0,fixed=true), cupSpeed(start=8,fixed=true);
@@ -283,7 +285,9 @@ equation
   jibCarTarget=if deckManual>.5 then jibCarInput else .30+.45*min(1,abs(vane)/2.4);
   der(mainCar)=if catamaran then max(-.40,min(.40,(min(.9,max(-.9,mainCarTarget))-mainCar)/.38)) else 0;
   der(jibCar)=if catamaran then max(-.40,min(.40,(min(.88,max(.18,jibCarTarget))-jibCar)/.38)) else 0;
-  der(jibSheet)=if catamaran then max(-.7,min(.7,((if deckManual>.5 then jibTrimInput else min(1,abs(sheetTarget)/1.5))-jibSheet)/.5)) else 0;
+  jibTrimTarget=if manualHelm>.5 then min(1,max(0,(payout-.012)/.578+
+    (if deckManual>.5 then jibTrimInput-.35 else 0))) elseif deckManual>.5 then jibTrimInput else min(1,abs(sheetTarget)/1.5);
+  der(jibSheet)=if catamaran then max(-.7,min(.7,(jibTrimTarget-jibSheet)/.5)) else 0;
   sheet=trim[1];
   fairlead[1,:]={-attachRadius[1],if catamaran then mainCar else 0,if catamaran then -.50 else -.105};
   fairlead[2,:]={if catamaran then -1.71 else -feet[2],if catamaran then jibCar else 0,if catamaran then -.32 else -.105};
@@ -293,12 +297,16 @@ equation
   leadVel[3,:]=-leadVel[2,:];
   lineTarget[1]=sqrt(fairlead[1,3]^2+(attachRadius[1]*payout/sheetArm)^2);
   for j in 2:3 loop
-    lineTarget[j]=if catamaran then (if (j==2 and windSide<0) or (j==3 and windSide>0) then 4.8
+    lineTarget[j]=if catamaran then (if (j==2 and windSide<0) or (j==3 and windSide>0) then lineSpan[j]+.035
       else .47+2.1*jibSheet) else sqrt(fairlead[2,3]^2+(.88*feet[2]*payout/sheetArm)^2);
   end for;
   for j in 1:3 loop
     der(linePaid[j])=max(-1.8,min(1.8,(lineTarget[j]-linePaid[j])/.22));
     lineSpan[j]=sqrt((fairlead[j,:]-attachment[sailOf[j],:])*(fairlead[j,:]-attachment[sailOf[j],:]));
+    // The sheets lead through deck blocks to the winch. A slack bight
+    // rests on deck once its free span reaches the trampoline or sloop deck.
+    exposedSheetSag[j]=min(max(0,footZ[sailOf[j]]+min(fairlead[j,3],attachment[sailOf[j],3])
+      -(if catamaran then .414 else .083)),.5*sqrt(max(0,linePaid[j]^2-lineSpan[j]^2)));
     lineDirection[j,:]=(fairlead[j,:]-attachment[sailOf[j],:])/max(.001,lineSpan[j]);
     lineRate[j]=lineDirection[j,:]*(leadVel[j,:]-tipVel[sailOf[j],:]);
     lineTension[j]=if (j==3 and not catamaran) or lineSpan[j]<=linePaid[j] then 0 else
@@ -349,6 +357,15 @@ equation
       axisX[m]*axisZ[m]*(1-cos(trim[m])), axisX[m]*sin(trim[m]), cos(trim[m])+axisZ[m]^2*(1-cos(trim[m]))];
     rig[m,:,:]=rotation*sheetRotation[m,:,:];
     origin[m,:]=rotation*{footX[m],0,footZ[m]};
+    for side in 1:2 loop
+      cloth[m].shroudFoot[side,:]=transpose(sheetRotation[m,:,:])*{
+        (if catamaran then -.52 else -.05)-footX[m],
+        (3-2*side)*(if catamaran then 1.02 else .31),
+        (if catamaran then .34 else .09)-footZ[m]};
+    end for;
+    cloth[m].shroudHead=transpose(sheetRotation[m,:,:])*{
+      (if catamaran then .44 else .12)-footX[m],0,
+      (if catamaran then 5.85 else 2.78)-footZ[m]};
     cloth[m].air=transpose(rig[m,:,:])*({awx,awy,-vertical}-cross(spin,origin[m,:]));
     cloth[m].water=transpose(rig[m,:,:])*(waterRelative-cross(spin,origin[m,:]));
     cloth[m].omega=transpose(rig[m,:,:])*spin+der(trim[m])*{axisX[m],0,axisZ[m]};

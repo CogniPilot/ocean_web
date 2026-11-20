@@ -32,8 +32,10 @@ A checked item records the specific result described. Open items include partial
 
 ## Sailboats
 
+- [x] Set a 200 m triangular course with a wind-square 40 m start line. Test crossings at three prevailing wind bearings.
+- [x] Move the Pilothouse fin, bulb and lateral force station amidships.
 - [x] Give the trampoline ballast carriage a matte black finish.
-- [ ] Verify linked main/jib manual trim (S hauls in, W eases), windward sheet take-up, on-deck slack and independent jib fine trim.
+- [x] Verify linked main/jib manual trim (S hauls in, W eases), windward sheet take-up, on-deck slack and independent jib fine trim.
 
 - [ ] Keep the eased mainsail, its full-length battens and boom inboard of both sidestays. Verify port and starboard contact, release on trimming in, and force transfer at the clew.
 
@@ -43,6 +45,8 @@ A checked item records the specific result described. Open items include partial
 - [ ] Validate sail lift, foil lift and drag, wet sail loading, ballast response, pitch stability and leeward helm against sailing data. Test luffing, tacking, flying a hull, jumping waves and pitchpoling.
 - [ ] Qualify GPS/IMU and vane-driven autopilot through a complete course under shifting wind. Validate mast-camera coverage and stitching, plus vision-based puff observations.
 - [ ] Compare speed polars, resistance, wake and righting moments with measured Hobie data before using results for hull optimization. Maintain RL observations, actions, repeatable scoring and baseline-controller comparisons.
+- [x] Raise both tiller arms above the stern deck and connect them to the moving crossbar. Use unlettered red, orange and gold sails with fabric-covered battens and monochrome hull stripes.
+- [ ] Qualify beach grounding, exposed rock contact, and one-pontoon impacts against the rendered shoreline.
 - [x] Shape both deployed Hobie rudders after the supplied photos and keep their tiller arms linked. Kick-up dynamics and multibody rope simulation are deferred by request.
 
 ## Submarine, wreck and drone

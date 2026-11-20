@@ -40,8 +40,8 @@ async function run(){
   const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
   renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
-  const boat=sailboatMesh(T,cat);scene.add(boat.group);coast(T,scene);
-  const race=await loadInstance('Regatta',{east:model.get('east'),north:model.get('north'),utc:Date.now()/1000});
+  const boat=sailboatMesh(T,cat,model.get("foilX")[0]);scene.add(boat.group);coast(T,scene);
+  const race=await loadInstance('Regatta',{windBearing:Math.atan2(inputs.windNorth,inputs.windEast),east:model.get('east'),north:model.get('north'),utc:Date.now()/1000});
   const windField=await loadInstance('MarineWind',{meanEast:inputs.windEast,meanNorth:inputs.windNorth,east:model.get('east'),north:model.get('north')});
   let captureMast;
   $('mastCapture').onclick=()=>{
@@ -129,7 +129,7 @@ async function run(){
     if(!mobile||pad.hidden)return;
     const labels=(drone?.active||sub.active)?
       [['W','Forward'],['S','Back'],['A','Left'],['D','Right'],['Q','Yaw left'],['E','Yaw right'],['R','Climb'],['F','Descend']]:
-      [['A','Rudder left'],['D','Rudder right'],['W','Sheet in'],['S','Sheet out']];
+      [['A','Rudder left'],['D','Rudder right'],['S','Haul in'],['W','Ease sheets']];
     for(const [key,label] of labels){
       const button=document.createElement('button');button.textContent=label;button.type='button';
       button.setAttribute('aria-pressed','false');
@@ -149,7 +149,7 @@ async function run(){
     if(['drone','sub'].includes(url.searchParams.get('control'))){$('controlTarget').value=url.searchParams.get('control');$('controlTarget').onchange();}
   }).catch(e=>{$('controlTarget').title=e.message;});
 
-  function helm(){drone?.input(keys);if(drone?.active||sub.active){model.set('rudderInput',0);model.set('trimInput',0);return;}model.set('rudderInput',Number(keys.has('KeyA'))-Number(keys.has('KeyD')));model.set('trimInput',Number(keys.has('KeyS'))-Number(keys.has('KeyW')));}
+  function helm(){drone?.input(keys);if(drone?.active||sub.active){model.set('rudderInput',0);model.set('trimInput',0);return;}model.set('rudderInput',Number(keys.has('KeyA'))-Number(keys.has('KeyD')));model.set('trimInput',Number(keys.has('KeyW'))-Number(keys.has('KeyS')));}
   addEventListener('keydown',e=>{if((manual||drone?.active||sub.active&&sub.manual)&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){keys.add(e.code);helm();}});
   addEventListener('keyup',e=>{keys.delete(e.code);helm();});addEventListener('blur',()=>{keys.clear();helm();});
   $('helm').onclick=()=>{if(sub.active){sub.manual=!sub.manual;keys.clear();$('helm').textContent=sub.manual?'Manual helm':'Autopilot';touchControls();return;}manual=!manual;model.set('manualHelm',Number(manual));keys.clear();helm();$('helm').textContent=manual?'Manual helm':'Autopilot';touchControls();};
@@ -245,7 +245,7 @@ async function run(){
       if(cat)$('weightPos').textContent='X '+ballast[0].toFixed(2)+' m · Y '+ballast[1].toFixed(2)+' m';
       remote.frame(now,s,cat,[...(ballast||[0,0]),model.get('mainCar'),model.get('jibCar'),model.get('ve'),model.get('vn'),model.get('yawRate'),0],sub.mesh,drone?.group);
       document.body.dataset.visiblePeers=remote.visible;
-      boat.update(s,ballast,cat?[model.get('mainCar'),model.get('jibCar')]:null,model.get('linePaid'));const t=model.time;life(t);causticTime.value=t;
+      boat.update(s,ballast,cat?[model.get('mainCar'),model.get('jibCar')]:null,model.get('exposedSheetSag'));const t=model.time;life(t);causticTime.value=t;
       ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
       camera.up.set(0,0,1);camera.position.set(s[0]+distance*Math.cos(angle),s[1]+distance*Math.sin(angle),s[3]+(cat?3:.9)+distance*Math.sin(tilt));if($('cameraDepth').value==='line')camera.position.z=0;
       camera.position.z=Math.max(-13.1,camera.position.z);

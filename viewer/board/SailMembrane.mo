@@ -15,6 +15,8 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     for b in 1:battenCount) for c in 1:cols,r in 1:rows};
   parameter Real span=2.6,foot=1.12,rake=0,stepSize=.01,arealMass=.17;
   input Real boomElevation;
+  parameter Boolean hasShrouds=false;
+  input Real shroudFoot[2,3],shroudHead[3] "Two finite sidestays in the rotating sail frame";
   input Real air[3], water[3], omega[3], gravity[3], waterPlane[4] "Signed immersion = plane[4]+plane[1:3]*p";
   // Rows run from the tack toward the head. The luff is attached to the stay.
   // The clew at the other end of the foot is attached to the boom.
@@ -27,11 +29,14 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   discrete output Real fluidForce[3],fluidMoment[3],wetArea,leechSpeed,clewForce[3];
   function advanceCloth
     input Real rest[n,3], old[n,3], oldV[n,3],air[3],water[3],omega[3],gravity[3],plane[4],dt,mu,t,elevation,battenRows[rows,cols],EI,lineMass;
+    input Boolean contact;
+    input Real footStay[2,3],headStay[3];
     output Real p[n,3],v[n,3],force[3],moment[3],wetArea,leechSpeed,clewForce[3];
   protected
     Real mass[n],nodal[n,3],normal[3],a[3],b[3],c[3],center[3],dv[3],q[3],load[3],relative[3];
     Real implicitFactor,gust,d[3],low,mid,high,wet,area,u,vn,dist,reference,extension,wa,wb,correction,restArea;
     Real spacing,stiffness,wCenter;
+    Real wire[3],offset[3],denom,along,edge,penetration,loadY,totalInv,direction;
     Integer left,j,k,c1,c2,c3;
   algorithm
     p:=old;v:=oldV;mass:=fill(.0001,n);nodal:=zeros(n,3);force:=zeros(3);moment:=zeros(3);wetArea:=0;
@@ -137,11 +142,51 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
         end if;
       end for;
     end for;
+    // Intersect the projected shroud with all three edges of every cloth
+    // triangle in the sail XZ plane. Signed separation varies linearly over
+    // the intersection interval, so its extrema occur on those edges.
+    if contact then
+      for pass in 1:3 loop
+        for side in 1:2 loop
+          wire:=headStay-footStay[side,:];
+          direction:=if side==1 then 1 else -1;
+          for j in 1:n loop
+            for link in 1:3 loop
+              k:=if link==1 then j+1 elseif link==2 then j+cols else j+cols+1;
+              if k<=n and (link==2 or mod(j,cols)<>0) then
+                d:=p[k,:]-p[j,:];offset:=footStay[side,:]-p[j,:];
+                denom:=d[1]*wire[3]-d[3]*wire[1];
+                if abs(denom)>1e-9 then
+                  edge:=(offset[1]*wire[3]-offset[3]*wire[1])/denom;
+                  along:=(offset[1]*d[3]-offset[3]*d[1])/denom;
+                  if edge>=0 and edge<=1 and along>=0 and along<=1 then
+                    penetration:=direction*(p[j,2]+edge*d[2]-footStay[side,2]-along*wire[2])+.009;
+                    if penetration>0 then
+                      wa:=if mod(j-1,cols)==0 or j==cols then 0 else 1/mass[j];
+                      wb:=if mod(k-1,cols)==0 or k==cols then 0 else 1/mass[k];
+                      totalInv:=wa*(1-edge)^2+wb*edge^2;
+                      if totalInv>1e-8 then
+                        loadY:=-direction*penetration/totalInv;
+                        p[j,2]:=p[j,2]+wa*(1-edge)*loadY;
+                        p[k,2]:=p[k,2]+wb*edge*loadY;
+                        if j==cols or k==cols then
+                          clewForce[2]:=clewForce[2]+(if j==cols then 1-edge else edge)*loadY/dt^2;
+                        end if;
+                      end if;
+                    end if;
+                  end if;
+                end if;
+              end if;
+            end for;
+          end for;
+        end for;
+      end for;
+    end if;
     v:=(p-old)/dt;
     leechSpeed:=sqrt(v[3*cols,:]*v[3*cols,:]);
   end advanceCloth;
 equation
   when sample(0,stepSize) then
-    (vertex,velocity,fluidForce,fluidMoment,wetArea,leechSpeed,clewForce)=advanceCloth(mesh,pre(vertex),pre(velocity),air,water,omega,gravity,waterPlane,stepSize,arealMass,time,boomElevation,battenWeight,battenEI,battenLinearMass);
+    (vertex,velocity,fluidForce,fluidMoment,wetArea,leechSpeed,clewForce)=advanceCloth(mesh,pre(vertex),pre(velocity),air,water,omega,gravity,waterPlane,stepSize,arealMass,time,boomElevation,battenWeight,battenEI,battenLinearMass,hasShrouds,shroudFoot,shroudHead);
   end when;
 end SailMembrane;

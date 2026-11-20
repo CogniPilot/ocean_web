@@ -11,7 +11,7 @@ export function courseScene(T,scene,race){
     const o=mesh(parent,new T.CylinderGeometry(r,r,d.length(),8),material,0,0,0);
     o.position.copy(v).lerp(w,.5);o.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return o;
   }
-  const boat=new T.Group();boat.position.set(race.get('gateEast'),race.get('committeeNorth')+1.1,0);group.add(boat);
+  const boat=new T.Group();boat.position.set(race.get('committeeEast'),race.get('committeeNorth'),0);boat.rotation.z=race.get('windBearing')+Math.PI;group.add(boat);
   const vertices=[],indices=[];
   const stations=[[-3,.88],[-2.7,1.02],[-.7,1.10],[1,1.01],[2.1,.72],[3.2,.025]];
   for(const [x,w] of stations){
@@ -43,7 +43,7 @@ export function courseScene(T,scene,race){
     const buoy=mesh(group,new T.ConeGeometry(.85,1.75,3,1),orange,x,y,.77);buoy.rotation.x=Math.PI/2;
     const collar=mesh(group,new T.CylinderGeometry(.76,.81,.14,3),navy,x,y,.04);collar.rotation.x=Math.PI/2;
   }
-  mark(race.get('gateEast'),race.get('pinNorth'));
+  mark(race.get('pinEast'),race.get('pinNorth'));
   race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i]));
   let previous;
   return label=>{

@@ -23,10 +23,10 @@ def coating(name, rgb, metal=0, rough=.38, stripes=False):
         if channel == "Base Color":
             data[:, :, :3] = np.asarray(rgb) * (1 + grain[:, :, None]) + .05*scuff[:, :, None]
             if stripes:
-                # Hull number panel and two canted color bars on each outboard flank.
+                # Unlettered graphite stern flash with three silver leading stripes.
                 flank = ((y > 8) & (y < 27)) | ((y > 65) & (y < 85))
                 stripe = x + .35*(y % 57)
-                for lo,hi,color in [(12,101,(.105,.12,.14)),(105,118,(.12,.65,.75)),(122,136,(.66,.76,.15))]:
+                for lo,hi,color in [(12,70,(.16,.17,.18)),(74,88,(.35,.36,.37)),(92,105,(.47,.48,.49)),(109,122,(.60,.61,.62))]:
                     data[flank & (stripe>lo) & (stripe<hi), :3] = color
         else:
             image.colorspace_settings.name = 'Non-Color'
