@@ -409,7 +409,7 @@ async function run(){
         ocean.U.swell.value.set(amplitude,phase,k*Math.cos(direction),k*Math.sin(direction));
       }
       if(cat)$('weightPos').textContent='X '+ballast[0].toFixed(2)+' m · Y '+ballast[1].toFixed(2)+' m';
-      remote.frame(now,s,cat,[...(ballast||[0,0]),mainCar,jibCar,ve,vn,yawRate,0],sub.mesh,drone?.group);
+      remote.frame(now,s,cat,[...(ballast||[0,0]),mainCar,jibCar,ve,vn,yawRate,0],sub.mesh,drone?.group,$('controlTarget').value);
       document.body.dataset.visiblePeers=remote.visible;
       const t=model.time;
       if(t!==meshTime){
