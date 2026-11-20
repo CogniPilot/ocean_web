@@ -328,6 +328,7 @@ async function run(){
       if(running)acc+=Math.max(0,Math.min(.22,(now-prev)/1000));prev=now;
       if(waterError)throw waterError;
       if(world){
+        if(world.hasSeaClock)world.set('seaClockOffset',remote.seaTime(world.time,now)-world.time);
         const steps=Math.min(5,Math.floor(acc/.01));acc=Math.min(.1,acc);
         if(running)acc=Math.max(0,acc-world.advance(steps)*.01);
         const tick=Math.round(world.time*100),waveTick=model.get('waterStamp'),fieldTick=Math.floor(tick/25);

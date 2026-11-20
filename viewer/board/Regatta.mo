@@ -7,6 +7,7 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   final parameter Real rightE=upN,rightN=-upE "Starboard when facing the wind";
   output Real pinEast,pinNorth,committeeEast,committeeNorth,markEast[2],markNorth[2];
   input Real wakeTile[64,64],backgroundTile[32,32],driftEast,driftNorth,tide,swellHeight;
+  input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
   parameter Real swellK=.34,swellBearing=1.04159;
   parameter Real launchMass=1150,waterplaneArea=7.2,rollInertia=650,pitchInertia=3100;
   final parameter Real stationX[4]={1.65,1.65,-1.65,-1.65},stationY[4]={.65,-.65,.65,-.65};
@@ -91,13 +92,13 @@ equation
     for k in 1:4 loop
       water[k]=tide+elevationAt(backgroundTile,stationE[k],stationN[k],64)
         +elevationAt(wakeTile,stationE[k]-driftEast,stationN[k]-driftNorth,64)
-        +swellHeight*sin(swellK*(stationE[k]*cos(swellBearing)+stationN[k]*sin(swellBearing))-sqrt(9.80665*swellK)*time);
+        +swellHeight*sin(swellK*(stationE[k]*cos(swellBearing)+stationN[k]*sin(swellBearing))-sqrt(9.80665*swellK)*(time+seaClockOffset));
     end for;
     for b in 1:3 loop
       for j in 1:3 loop
         buoyWater[b,j]=tide+elevationAt(backgroundTile,buoyEast[b]+bx[j],buoyNorth[b]+by[j],64)
           +elevationAt(wakeTile,buoyEast[b]+bx[j]-driftEast,buoyNorth[b]+by[j]-driftNorth,64)
-          +swellHeight*sin(swellK*((buoyEast[b]+bx[j])*cos(swellBearing)+(buoyNorth[b]+by[j])*sin(swellBearing))-sqrt(9.80665*swellK)*time);
+          +swellHeight*sin(swellK*((buoyEast[b]+bx[j])*cos(swellBearing)+(buoyNorth[b]+by[j])*sin(swellBearing))-sqrt(9.80665*swellK)*(time+seaClockOffset));
       end for;
     end for;
     lastBuoyWater=if initial() then buoyWater else pre(buoyWater);

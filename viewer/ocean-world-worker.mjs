@@ -46,7 +46,7 @@ async function handle(request){
         names=names.filter(name=>!selected.includes(name));
       }
     }
-    const reads=expand(names,variables),writes=expand(request.inputs,variables);
+    const reads=expand(names,variables),writes=expand([...request.inputs,...(request.optionalInputs??[]).filter(name=>variables.has(name))],variables);
     observations=session.bind_outputs(JSON.stringify(reads.elements));
     if(request.surveyMap){
       const estimate=reads.layout.find(v=>v.name==='estimate');

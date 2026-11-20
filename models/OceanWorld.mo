@@ -1,11 +1,12 @@
 model OceanWorld "Single-clock marine world, with onboard perception and guidance"
   parameter Boolean hobie=true "Choose the hull configuration at translation";
   parameter Real prevailingBearing=atan2(4,10);
+  input Real seaClockOffset(start=0) "Shared incident sea time minus vehicle simulation time [s]";
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
   input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),deckManual,mainCar,jibCar,jibSheet;
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
   input Real subManual(start=1),subPilot[4],flightManual(start=1),flightPilot[4],motorCut;
-  Sailboat boat(catamaran=hobie,droneLoad=drone.sailWrench[7:12],mass=if hobie then 205 else 64,
+  Sailboat boat(seaClockOffset=seaClockOffset,catamaran=hobie,droneLoad=drone.sailWrench[7:12],mass=if hobie then 205 else 64,
     launchHeight=if hobie then .2 else .069,ballastMass=if hobie then 60 else 0,
     halfSpacing=if hobie then 1.02 else 0,deckZ=if hobie then .23 else .077,
     centerMassX=if hobie then -.28 else -.14846,
@@ -30,15 +31,15 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
     swellAmplitude=.3*seaState,wakeEast=waves.waveLoad[1],wakeNorth=waves.waveLoad[2],wakeYaw=waves.waveLoad[3]);
   MarineWind wind(meanEast=windSpeed*cos(windBearing),meanNorth=windSpeed*sin(windBearing),
     east=boat.east,north=boat.north,droneEast=drone.position[1],droneNorth=drone.position[2]);
-  WakeSpectrum waves(east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
+  WakeSpectrum waves(seaClockOffset=seaClockOffset,east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
     stations=boat.stationX,separation=boat.halfSpacing,volume=boat.sectionVolume,beamHalf=boat.beamHalf,
     currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],windEast=wind.meanEast,windNorth=wind.meanNorth,seaAmplitude=seaState);
-  Wreck.Ocean boatWater(pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
-  Regatta race(landingReaction=drone.deckWrench[7:12],wakeTile=waves.height,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
+  Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
+  Regatta race(seaClockOffset=seaClockOffset,landingReaction=drone.deckWrench[7:12],wakeTile=waves.height,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
     tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north);
-  Wreck.Plant sub(windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,
+  Wreck.Plant sub(seaClockOffset=seaClockOffset,windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,
     manual=subManual,pilot=subPilot,hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:8]);
-  Wreck.Ocean droneWater(pos=drone.position,windSpeed=windSpeed,windDirection=windBearing);
+  Wreck.Ocean droneWater(seaClockOffset=seaClockOffset,pos=drone.position,windSpeed=windSpeed,windDirection=windBearing);
   Rdd2Survey drone(sailDeckEnabled=1,sailDeckState=boat.landingDeck,isCatamaran=if hobie then 1 else 0,deckEnabled=1,deckState=race.deckState,windENU=wind.droneWind,currentENU=droneWater.velocity,waterLevel=droneWater.surface+receiverWater[9],
     pilot=flightManual,forward=flightPilot[1],left=flightPilot[2],climb=flightPilot[3],turn=flightPilot[4],
     stationEast=estimate[1],stationNorth=estimate[2],motorCut=motorCut);

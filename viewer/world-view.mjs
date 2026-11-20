@@ -27,7 +27,7 @@ export async function openWorld(){
  const inputs=[...new Set([...Object.keys(initial),...Object.values(boatInputs),'seaState','subPilot','flightPilot','motorCut'])];
  const parameters={prevailingBearing:windBearing};
  for(const [key,value] of Object.entries(sailingStart(true)))parameters['boat.'+key]=value;
- const frame=await send({type:'open',outputs,inputs,initial,parameters,surveyMap:true,sampledFields:true,surveyView});
+ const frame=await send({type:'open',outputs,inputs,initial,parameters,surveyMap:true,sampledFields:true,surveyView,optionalInputs:['seaClockOffset']});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
@@ -69,5 +69,5 @@ export async function openWorld(){
  const axes=['forward','left','climb','turn'];
  const flight=view('drone',(n,v)=>{const i=axes.indexOf(n);if(i>=0)controls[offsets.get('flightPilot')+i]=v;
    else set(n==='pilot'?'flightManual':n,v);});
- return {advance,setSurveyView(camera,map){surveyView.camera=camera;surveyView.map=map;},clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
+ return {advance,hasSeaClock:offsets.has('seaClockOffset'),setSurveyView(camera,map){surveyView.camera=camera;surveyView.map=map;},clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }
