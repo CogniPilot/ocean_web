@@ -32,7 +32,18 @@ The sailing camera orbits through the surface. **Waterline** straddles it and **
 
 Foil forces use local angular velocity, wave orbital motion, wet span, aspect ratio and induced drag. Hull viscous resistance uses the immersed skin and the ITTC-1957 correlation above the transition Reynolds number. The laminar-to-turbulent transition, form factor and foil coefficients are assumptions. Speed, leeway, turning radius and wave resistance still require validation against measured data for each hull. [ITTC resistance procedure](https://www.ittc.info/media/1575/75-02-02-01.pdf)
 
-Run `scripts/package-pages.sh` to assemble the static release in `build/pages`. The GitHub Pages workflow uploads these precompiled files. The browser needs no local compiler or simulation service.
+The GitHub Pages workflow packages the viewer and generates a browser host from the released LS-WASM archive. To serve that same integrated build locally, run these commands from the repository root with Node.js 22, npm and Git available.
+
+```sh
+git clone https://github.com/CogniPilot/microduck_web .deps/microduck_web
+git -C .deps/microduck_web checkout f567b8c452d5c759436a568ffad5632dc1046916
+npm install --prefix .deps/ocean-component --no-save @bytecodealliance/jco-transpile@0.23.0
+scripts/package-pages.sh
+node scripts/prepare-world-runtime.mjs build/pages/world
+SERVE_DIR=build/pages ./serve.sh
+```
+
+On an existing checkout, reuse the pinned microduck_web dependency. Open `http://127.0.0.1:8074/?runtime=world` for the integrated scene. All vehicle physics and sensor sampling run in the browser worker.
 
 ## Run
 
