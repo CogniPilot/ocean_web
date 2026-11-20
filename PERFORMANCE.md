@@ -102,3 +102,5 @@ Each timing below measured 400 steps of 10 ms per FMU after 100 warmup steps. Ru
 | Released build initialized first | 15.93 ms | 17.64 ms | 78.36 ms | 80.94 ms |
 
 Sharing the tile did not consistently reduce total step time. The coincident wave and sensor event became slightly slower in all three trials. Retain the deployed kernel pending a repeatable improvement. A CPU profile of the released guest attributed approximately 15% of sampled stepping time, including callees, to the 64 × 64 hull wake update and 6% to the 48 × 48 wind-field update. Those are separate kernels from the incoming spectrum tested here.
+
+The shared-tile FMU completed all 12 wreck survey stations in 108.8 simulated seconds at the browser's 10 ms step size. The onboard position estimate had 0.459 m RMS error against the simulated vehicle trajectory. Physics stepping took 195.6 wall-clock seconds in this workstation run.
