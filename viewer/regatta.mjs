@@ -55,22 +55,30 @@ export function courseScene(T,scene,race){
   };
 }
 export function raceAudio(){
-  let audio,wind,filter,noise,enabled=false;
+  let audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
   async function toggle(){
     if(!audio){
       audio=new AudioContext();noise=audio.createBuffer(1,2*audio.sampleRate,audio.sampleRate);
       const data=noise.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=2*Math.random()-1;
       const blower=audio.createBufferSource();blower.buffer=noise;blower.loop=true;
       filter=audio.createBiquadFilter();filter.type='lowpass';wind=audio.createGain();wind.gain.value=0;
+      const rainfall=audio.createBufferSource(),rainFilter=audio.createBiquadFilter();
+      rainfall.buffer=noise;rainfall.loop=true;rainfall.playbackRate.value=1.19;
+      rainFilter.type="highpass";rainFilter.frequency.value=1350;
+      weather=audio.createGain();weather.gain.value=0;rain=audio.createGain();rain.gain.value=.16;
+      rainfall.connect(rainFilter).connect(rain).connect(weather).connect(audio.destination);rainfall.start();
       blower.connect(filter).connect(wind).connect(audio.destination);blower.start();
     }
     if(enabled)await audio.suspend();else await audio.resume();
     enabled=audio.state==='running';return enabled;
   }
-  function update(speed){
-    if(!enabled)return;
+  function update(speed,storm,height){
+    if(!enabled || audio.currentTime-lastMix<.05)return;
+    lastMix=audio.currentTime;
+    const exposure=Math.max(0,Math.min(1,(height+.35)/.7));
+    weather.gain.setTargetAtTime(storm?exposure:0,lastMix,.20);
     filter.frequency.setTargetAtTime(180+Math.min(30,speed)*53,audio.currentTime,.4);
-    wind.gain.setTargetAtTime(Math.min(.28,.009*speed),audio.currentTime,.35);
+    wind.gain.setTargetAtTime(exposure*Math.min(.28,.009*speed),audio.currentTime,.35);
   }
   function signal(){
     if(!enabled)return;const src=audio.createBufferSource(),gain=audio.createGain(),t=audio.currentTime;
@@ -85,7 +93,7 @@ export function raceAudio(){
     gain.gain.setValueAtTime(.001,t);gain.gain.linearRampToValueAtTime(1.2,t+.10);
     gain.gain.exponentialRampToValueAtTime(.28,t+.6);gain.gain.linearRampToValueAtTime(.51,t+.95);
     gain.gain.exponentialRampToValueAtTime(.001,t+3.5);
-    src.connect(low).connect(gain).connect(audio.destination);src.onended=()=>{src.disconnect();low.disconnect();gain.disconnect();};
+    src.connect(low).connect(gain).connect(weather);src.onended=()=>{src.disconnect();low.disconnect();gain.disconnect();};
     src.start(t);src.stop(t+3.6);
   }
   return {toggle,update,signal,thunder};

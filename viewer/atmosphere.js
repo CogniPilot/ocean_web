@@ -11,6 +11,35 @@
   vec4 data=texture2D(tile,p/64.+vec2(.5/32.));
   return tide+swell.x*sin(swell.y+dot(p-swellCenter,swell.zw))+spectralElevation(p)+mix(dot(data.rg,vec2(255.*256.,255.)),dot(data.ba,vec2(255.*256.,255.)),blend)*16./65535.-8.;
  }`;
+// A single camera-centred batch. The two vertices of each streak share a seed
+// and wrap together, so drops never stretch across the edge of the rain volume.
+function stormRain(T,scene,water,mobile){
+ const count=mobile?700:1800,points=new Float32Array(count*6),ends=new Float32Array(count*2);
+ let seed=83121;
+ function random(){seed=(Math.imul(1664525,seed)+1013904223)>>>0;return seed/4294967296;}
+ for(let i=0;i<count;i++){
+   const x=random(),y=random(),z=random();
+   points.set([x,y,z,x,y,z],i*6);ends[2*i+1]=1;
+ }
+ const geometry=new T.BufferGeometry();
+ geometry.setAttribute('position',new T.BufferAttribute(points,3));geometry.setAttribute('tail',new T.BufferAttribute(ends,1));
+ const material=new T.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{...water.U,rainWind:{value:new T.Vector2()}},
+ vertexShader:`attribute float tail;varying float opacity;uniform float tm,under;uniform vec2 cloudTravel,lightning,rainWind;
+ ${oceanHeightGLSL}
+ void main(){
+   vec3 span=vec3(28.,28.,18.);
+   float speed=9.+4.*position.x;
+   vec3 drift=vec3(cloudTravel,-tm*speed);
+   vec3 p=cameraPosition+mod(position*span+drift-cameraPosition+.5*span,span)-.5*span;
+   p+=tail*vec3(-rainWind*.017,speed*.017);
+   float distanceFade=1.-smoothstep(10.,14.,distance(p,cameraPosition));
+   opacity=(1.-under)*distanceFade*smoothstep(0.,.12,p.z-heightAt(p.xy))*(.23+.16*position.y+.25*lightning.y);
+   gl_Position=projectionMatrix*viewMatrix*vec4(p,1.);
+ }`,
+ fragmentShader:`varying float opacity;void main(){gl_FragColor=vec4(.67,.76,.83,opacity);}`});
+ const rain=new T.LineSegments(geometry,material);rain.frustumCulled=false;rain.visible=false;rain.renderOrder=2;
+ scene.add(rain);return rain;
+}
 // Optical short-wave slopes shared by the surface BRDF and the sunlight rays.
 const oceanRippleGLSL=`
 vec2 rippleSlope(vec2 world,float clock,float bearing,float wind){

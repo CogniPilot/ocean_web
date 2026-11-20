@@ -69,13 +69,14 @@ async function run(){
   addEventListener('pagehide',remote.leave);
   $('invite').onclick=async()=>{const link=new URL(location.href);link.searchParams.set('room',roomName);
     try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Race room link',link.href);}};
-  $('sound').onclick=async()=>{try{$('sound').setAttribute('aria-pressed',String(await audio.toggle()));}catch(e){$('online').textContent=e.message;}};
+  $('sound').onclick=async()=>{try{const on=await audio.toggle(),button=$('sound');button.setAttribute('aria-pressed',String(on));button.title=on?'Mute sound':'Turn sound on';button.firstElementChild.textContent=on?'🔊':'🔇';}catch(e){$('online').textContent=e.message;}};
   const hemi=new T.HemisphereLight(0xe5f8fb,0x767266,1.8);hemi.position.z=1;scene.add(hemi);
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   const ocean=atmosphere(scene),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   if(mobile)ocean.setCaptureScale(.5);
   ocean.update(sea,sea);ocean.U.under.value=0;ocean.U.sunDir.value.copy(sun.position).normalize();
   ocean.U.moonDir.value.set(-.8,-.4,-.5);ocean.U.bearing.value=Math.atan2(inputs.windNorth,inputs.windEast);
+  const rain=stormRain(T,scene,ocean,mobile);
   const caustics=wreckCaustics(T,renderer,ocean,mobile);
   const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;scene.add(bottom);
   const wreckVisual=batchScenery(T,makeWreck(T,materials));scene.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,scene);
@@ -237,7 +238,7 @@ async function run(){
         lastCountdown=left;const label=left>298?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
         boardClock(label);$('countdown').textContent=label;
         $('raceStatus').textContent=['Prestart','Cross the line','Mark 1','Mark 2','Cross finish','Finished'][stage]+(stage>=2?' · '+race.get('elapsed').toFixed(1)+' s':'');
-        audio.update(model.get('cupSpeed'));model.set('traffic',remote.contacts(model.get('east'),model.get('north')));
+        model.set('traffic',remote.contacts(model.get('east'),model.get('north')));
       }
       frameCost=.94*frameCost+.06*Math.min(120,now-prev);
       if(mobile&&now-lastQualityCheck>1500){
@@ -357,6 +358,8 @@ async function run(){
       }
       ocean.dome.position.copy(camera.position);ocean.water.position.set(s[0],s[1],0);updateLight(t);caustics.update(t);
       const surfaceBand=.55+1.8*Number($('seaState').value)+Math.abs(ocean.U.swell.value.x);
+      const storm=$('sky').value==='Storm';
+      rain.visible=false; // Optical reflection and refraction targets exclude foreground streaks.
       // The underwater shader computes the view through the surface from the sky.
       // Its opaque submerged pass never samples the planar capture targets.
       if(camera.position.z<=-surfaceBand)lastCapture=-Infinity;
@@ -367,6 +370,9 @@ async function run(){
         captureTime=t;captureAspect=camera.aspect;captureSky=$('sky').value;captureSea=$('seaState').value;
         ocean.capture(renderer,camera);lastCapture=now;
       }
+      rain.visible=storm && camera.position.z>=-surfaceBand;
+      if(rain.visible)rain.material.uniforms.rainWind.value.set(model.get('windEast'),model.get('windNorth'));
+      audio.update(model.get('cupSpeed'),storm,camera.position.z-ocean.U.tide.value);
       if(Math.abs(camera.position.z)<surfaceBand){split(renderer,scene,camera,ocean,underwaterFog);}
       else{
         const submerged=camera.position.z<0;
