@@ -15,7 +15,11 @@ async function sail(tack,vang,trim=0){
 const port=await sail(1,.5),starboard=await sail(-1,.5);
 // At most six degrees of lee helm or twelve degrees of weather helm.
 assert(port.turn > -6 && port.turn < 12 && starboard.turn < 6 && starboard.turn > -12);
-const eased=await sail(1,0,1),tight=await sail(1,1,1);
+// Hold the sheet at its initial payout to load the leech under sail.
+const eased=await sail(1,0),tight=await sail(1,1);
+// Also exercise the fully eased point, where the boom approaches its lower stop.
+const looseSheet=await sail(1,0,1),looseSheetVang=await sail(1,1,1);
+assert(looseSheet.elevation>looseSheetVang.elevation && looseSheetVang.tension>looseSheet.tension+5);
 // A loaded vang must depress the boom measurably (> one degree) at the same payout.
 assert(eased.elevation>tight.elevation+Math.PI/180 && tight.tension>eased.tension+5);
 console.log({port,starboard,eased,tight});

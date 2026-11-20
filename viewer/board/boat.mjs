@@ -40,6 +40,7 @@ export async function loadBoat(read=fetch){
 }
 function sailMaterial(T,cat,count){
  const c=document.createElement('canvas');c.width=512;c.height=1024;
+ let pocketRelief;
  const g=c.getContext('2d');g.fillStyle='#e9edef';g.fillRect(0,0,512,1024);
  g.fillStyle='#20282c';g.beginPath();g.moveTo(0,0);g.lineTo(512,0);g.lineTo(512,660);g.lineTo(0,805);g.fill();
  for(let i=0;i<7;i++){const y=150+i*66;g.fillStyle=i%2?'#d82e32':'#f04838';g.beginPath();g.moveTo(0,y);g.lineTo(512,y-170);g.lineTo(512,y-165+i*4);g.lineTo(0,y+12+i*2);g.fill();}
@@ -60,8 +61,14 @@ function sailMaterial(T,cat,count){
    // The vinyl inspection windows sit below the lowest batten on both sails.
    g.clearRect(110,963,124,34);g.fillStyle='rgba(155,184,185,.28)';g.fillRect(110,963,124,34);
    g.strokeStyle='#d8d6cb';g.lineWidth=3;g.strokeRect(110,963,124,34);
+   const relief=document.createElement('canvas');relief.width=256;relief.height=512;
+   const height=relief.getContext('2d');height.fillStyle='#808080';height.fillRect(0,0,256,512);
    for(let b=0;b<count;b++){
      const y0=1024*(1-luff[b]),y1=1024*(1-leech[b]);
+     for(const [width,gray] of [[4,146],[2.8,171],[1.5,193]]){
+       height.strokeStyle='rgb('+gray+' '+gray+' '+gray+')';height.lineWidth=width;
+       height.beginPath();height.moveTo(0,y0/2);height.lineTo(256,y1/2);height.stroke();
+     }
      function pocket(color,width,offset=0){
        g.strokeStyle=color;g.lineWidth=width;g.beginPath();
        g.moveTo(0,y0+offset);g.lineTo(512,y1+offset);g.stroke();
@@ -72,9 +79,10 @@ function sailMaterial(T,cat,count){
      pocket('rgba(55,31,19,.22)',1,2);
      g.fillStyle='rgba(53,42,36,.5)';g.fillRect(508,y1-2,4,4);
    }
+   pocketRelief=new T.CanvasTexture(relief);
  }
  const tex=new T.CanvasTexture(c);tex.colorSpace=T.SRGBColorSpace;
- return new T.MeshStandardMaterial({map:tex,roughness:.74,side:T.DoubleSide,transparent:cat,forceSinglePass:true});
+ return new T.MeshStandardMaterial({map:tex,bumpMap:pocketRelief??null,bumpScale:.001,roughness:.74,side:T.DoubleSide,transparent:cat,forceSinglePass:true});
 }
 export function sailboatMesh(T,cat=false,keelX=.06){
  const group=new T.Group();
