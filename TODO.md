@@ -43,7 +43,7 @@ A checked item records the specific result described. Open items include partial
 - [x] Move the Pilothouse fin, bulb and lateral force station amidships.
 - [x] Give the trampoline ballast carriage a matte black finish.
 - [x] Transmit leech tension through the mainsail mesh and verify loaded-edge motion with the sheet hauled.
-- [x] Lead the automated catamaran vang from the mast foot to the boom and check its effect with the main eased.
+- [x] Replace the catamaran vang with a downhaul. Verify the fixed head, moving tack, tracked foot and reversible luff load through an ease–haul–ease cycle.
 - [ ] Compare eased-sail leech speeds during hard trim releases against measured rig motion. Investigate the short, large spikes in the release transient.
 - [x] Render generic triple mainsheet blocks, shackles, routed sheet and cam hardware on the moving jib travelers.
 - [x] Add pairs of local-flow telltales to both faces of the main and jib at two heights.
@@ -56,7 +56,7 @@ A checked item records the specific result described. Open items include partial
 
 - [x] Add selectable Pelagic sloop and full-size Hobie 16 with two shallow hulls, twin steering blades, mainsail and jib. Give the Hobie adjustable fore–aft and transverse trampoline ballast.
 - [x] Model sail deformation in Rumoca and place full-length battens across the Hobie main and jib following the supplied sail plan.
-- [x] Add main/jib sheets, travellers and vang controls, a forestay-mounted jib, masthead wind vane, compass and camera float. Represent sheet tension and slack.
+- [x] Add main/jib sheets, travellers and vehicle-specific downhaul or vang controls, a forestay-mounted jib, masthead wind vane, compass and camera float. Represent sheet tension and slack.
 - [ ] Validate sail lift, foil lift and drag, wet sail loading, ballast response, pitch stability and leeward helm against sailing data. Test luffing, tacking, flying a hull, jumping waves and pitchpoling.
 - [x] Verify that the four fisheye lenses and stitched panorama return image pixels and export their synchronized wind field labels.
 - [ ] Qualify GPS/IMU and vane-driven autopilot through a complete course under shifting wind. Validate mast-camera coverage and stitching, plus vision-based puff observations.
@@ -91,4 +91,4 @@ A checked item records the specific result described. Open items include partial
 - [x] Pin the lower mainsheet block directly to the traveler car and align the Modelica fairlead with the pin.
 - [x] Give full-length batten segments axial compression resistance and damp changes in pocket curvature.
 - [ ] Calibrate batten stiffness and damping against measured bend and tack-reversal motion. Check peak leech speed during the first haul-in.
-- [ ] Reconcile the full-trim rig after lowering the traveler attachment. The close-hauled regression leaves about 9 mm between the blocks and the vang unloads when the sheet pulls the boom below its set angle.
+- [ ] Reconcile the full-trim rig after lowering the traveler attachment. Check block clearance and peak sheet loads across the downhaul range.

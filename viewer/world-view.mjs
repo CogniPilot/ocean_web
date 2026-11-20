@@ -3,7 +3,7 @@ import {sailingStart,windBearing,windSpeed} from './sailing-start.mjs';
 import {boatFields} from './board/boat.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
 const outputs=[
- ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail stayPath vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
+ ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
  ...group('race','countdown stage elapsed launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
  ...group('drone','position quaternion rotorAngle dragBody aircraft.rotorGeometry.positionBodyFlu_m'),
  ...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),
@@ -12,7 +12,7 @@ const outputs=[
  ...group('boatWater','tile tide wind'),
  'estimate','features','image'
 ];
-const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',deckManual:'deckManual',
+const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
 export async function openWorld(){
  const worker=new Worker(new URL('./world/ocean-world-worker.mjs',import.meta.url),{type:'module'});
@@ -22,7 +22,7 @@ export async function openWorld(){
  worker.onmessage=({data})=>{if(data.error)pending.reject(Error(data.error));else pending.resolve(data);};
  worker.onerror=e=>{error=Error(e.message);pending?.reject(error);};
  function send(message){return new Promise((resolve,reject)=>{pending={resolve,reject};worker.postMessage({...message,id:++id});});}
- const initial={sailingManual:1,subManual:1,flightManual:1,windSpeed,windBearing,epoch:Date.now()/1000,vang:.5};
+ const initial={sailingManual:1,subManual:1,flightManual:1,windSpeed,windBearing,epoch:Date.now()/1000,vang:.5,downhaul:.5};
  const inputs=[...new Set([...Object.keys(initial),...Object.values(boatInputs),'seaState','subPilot','flightPilot','motorCut'])];
  const parameters={prevailingBearing:windBearing};
  for(const [key,value] of Object.entries(sailingStart(true)))parameters['boat.'+key]=value;

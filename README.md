@@ -2,6 +2,8 @@
 
 Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone, and explore a listed shipwreck with a survey submarine. The browser steps precompiled Rumoca FMI 3 models and draws their outputs with Three.js. [Open the simulator](https://cognipilot.github.io/ocean_web/)
 
+Watch the submarine navigate the wreck using its onboard estimate, with the sonar map visible and the drone following overhead. Select **Autopilot** to take manual control. [Launch the wreck survey](https://cognipilot.github.io/ocean_web/?demo=wreck)
+
 [Request tracker](TODO.md)
 
 On the Hobie 16, the red port and green starboard sidestay ribbons stream in the direction the apparent wind is going. A ribbon pointing aft means wind is coming over the bow. They hang down when the air is still relative to the boat. Paired telltales on the main and jib follow local cloth motion and apparent flow. A lifting or reversing ribbon indicates possible separation. The incidence-based response is an approximation for sail trim. Rumoca calculates each ribbon direction using local rig velocity and gravity.
@@ -84,7 +86,7 @@ The combined build targets Rumoca FMI 3 co-simulation. Body coordinates are forw
 
 `viewer/board/Sailboat.mo` runs the dynamics and autopilot in the precompiled **Rumoca FMI 3** WebAssembly module. The waypoint coordinates, no-go angle and cross-track switching band are in the Modelica source. A leg advances inside a 2.5 m capture radius. When the next mark is upwind, the controller chooses a close-hauled heading and changes tack using cross-track hysteresis. 
 
-Select **Head into wind** on the live page to swing the wind onto the current bow, switch to manual helm, and haul in the sheet. Orbit behind the rig to see the trailing edges cross the boom plane. The header reports mainsail leech speed relative to the boom. S hauls in the main and working jib together. W eases them. The Vang slider adjusts tackle length and displays line tension in newtons. The loaded clew can lift the boom, changing leech tension independently of the sheet.
+Select **Head into wind** on the live page to swing the wind onto the current bow, switch to manual helm, and haul in the sheet. Orbit behind the rig to see the trailing edges cross the boom plane. The header reports mainsail leech speed relative to the boom. S hauls in the main and working jib together. W eases them. On the catamaran, Downhaul lowers the tack and tensions the mainsail luff. The display gives luff load in newtons. The sloop has a separate Vang control. The loaded clew can lift the boom, changing leech tension independently of the sheet.
 
 Each sail has 24 material points and 30 triangular panels. Wind and water loads act on the moving panels, and tension-only fabric links couple adjacent points. The luff and clew attach to the rig while the leech moves freely. Three.js draws the positions exported by the model. Crosswind fluctuations are prescribed, and the panel pressure law and cloth parameters have not been calibrated against sail measurements. Run `node scripts/check-luff.mjs` to check the headwind maneuver against the browser FMU.
 

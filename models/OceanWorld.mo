@@ -2,7 +2,7 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   parameter Boolean hobie=true "Choose the hull configuration at translation";
   parameter Real prevailingBearing=atan2(4,10);
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
-  input Real sailingManual(start=1),rudder,trim,vang(start=.5),deckManual,mainCar,jibCar,jibSheet;
+  input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),deckManual,mainCar,jibCar,jibSheet;
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
   input Real subManual(start=1),subPilot[4],flightManual(start=1),flightPilot[4],motorCut;
   Sailboat boat(catamaran=hobie,mass=if hobie then 205 else 64,
@@ -20,7 +20,7 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
     foilY=if hobie then {1.02,1.02,-1.02,-1.02} else zeros(4),
     foilArea=if hobie then {.62,.11,.62,.11} else {.115,.044,0,0},
     aspect=if hobie then {.65,3.4,.65,3.4} else {3.5,2.6,1,1},
-    manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,
+    manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,
     deckManual=deckManual,mainCarInput=mainCar,jibCarInput=jibCar,jibTrimInput=jibSheet,reachTrial=0,
     ballastManual=ballastManual,ballastCmdX=ballastX,ballastCmdY=ballastY,traffic=traffic,
     windEast=wind.localEast,windNorth=wind.localNorth,currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],

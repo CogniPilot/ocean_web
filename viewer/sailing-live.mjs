@@ -24,8 +24,9 @@ async function run(){
   $('vessel').onchange=()=>{url.searchParams.set('boat',$('vessel').value);if($('vessel').value!=='Hobie16')url.searchParams.delete('runtime');location.assign(url);};
   document.querySelector('h1').textContent=cat?'Hobie 16':'Sailboat';
   $('trampoline').hidden=!cat;$('vangControl').hidden=false;
+  $('luffControlName').textContent=cat?'Downhaul':'Vang';
   // Start at the default loaded waterline for each hull.
-  const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,vangInput:.5,manualHelm:1,rudderInput:0,trimInput:0};
+  const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const [model]=await Promise.all([world?.boat??loadInstance(vessel,inputs),loadVehicleShells()]);
   const worker=world?null:new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
   let waterFrame,waterError;
@@ -227,7 +228,18 @@ async function run(){
       keys.clear();$('view').focus({preventScroll:true});sub.active=$('controlTarget').value==='sub';$('onboardOption').hidden=!sub.active;if(!sub.active&&$('cameraDepth').value==='onboard')$('cameraDepth').value='deck';$('subPanel').hidden=!sub.active;drone.select($('controlTarget').value==='drone');helm();touchControls();
       $('cutMotors').hidden=!drone.active;$('flightKeys').hidden=!drone.active;document.querySelector('h1').textContent=sub.active?'Survey submarine':drone.active?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
     };
-    if(['drone','sub'].includes(url.searchParams.get('control'))){$('controlTarget').value=url.searchParams.get('control');$('controlTarget').onchange();}
+    const wreckSurvey=url.searchParams.get('demo')==='wreck';
+    const target=wreckSurvey?'sub':url.searchParams.get('control');
+    if(wreckSurvey){
+      sub.manual=false;
+      drone.manual=false;
+      $('sonarMap').checked=true;
+      sub.mapVisible=true;
+    }
+    if(target==='drone'||target==='sub'){
+      $('controlTarget').value=target;
+      $('controlTarget').onchange();
+    }
   }).catch(e=>{$('controlTarget').title=e.message;});
 
   function helm(){drone?.input(axis);if(drone?.active||sub.active){model.set('rudderInput',0);model.set('trimInput',0);return;}model.set('rudderInput',axis('KeyA','KeyD'));model.set('trimInput',axis('KeyW','KeyS'));}
@@ -240,7 +252,7 @@ async function run(){
     keys.clear();touchControls();
   };
   touchControls();
-  $('vang').oninput=()=>model.set('vangInput',Number($('vang').value)/100);
+  $('vang').oninput=()=>model.set(cat?'downhaulInput':'vangInput',Number($('vang').value)/100);
   $('play').onclick=()=>{running=!running;if(!running)world?.clearQueued();$('play').textContent=running?'Pause':'Resume';};
   $('wind').oninput=()=>{const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;$('windOut').textContent=w+' m/s';};
   function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
@@ -370,7 +382,7 @@ async function run(){
       if(!$('dial').hidden)drawCompass($('dial'),Math.hypot(model.get('windEast'),model.get('windNorth')),Math.atan2(model.get('windNorth'),model.get('windEast')),sub.active&&subFrame?subFrame.flow:[model.get('currentEast'),model.get('currentNorth')],sub.active&&subFrame?subFrame.estimate[3]:s[2],sub.active?'sub':'surface',noGo);
       drawForces(!drone?.active&&$('showForces').getAttribute('aria-pressed')==='true',s,subFrame,sub.active);
       const [ballastX,ballastY,k,direction,amplitude,phase,mainCar,jibCar,ve,vn,yawRate,sag,vang,leech,tension]=model.getMany(
-        ['ballastX','ballastY','swellK','swellBearing','swellAmplitude','swellPhase','mainCar','jibCar','ve','vn','yawRate','exposedSheetSag','vangTension','leechSpeed','mainTension']);
+        ['ballastX','ballastY','swellK','swellBearing','swellAmplitude','swellPhase','mainCar','jibCar','ve','vn','yawRate','exposedSheetSag',cat?'downhaulTension':'vangTension','leechSpeed','mainTension']);
       const ballast=cat?[ballastX,ballastY]:null;
       {
         ocean.U.swellCenter.value.set(s[0],s[1]);

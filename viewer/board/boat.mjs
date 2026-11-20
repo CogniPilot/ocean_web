@@ -346,7 +346,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  for(const [x,y,z] of [[1.16,0,.09],[-1.06,0,.09],[-.05,.31,.09],[-.05,-.31,.09]])rod([x,y,z],[.12,0,2.78],.0028,black);
  }
  const sheetMatrix=new T.Matrix4();
- const vangReach=cat?.95:.42,vangDrop=cat?.56:.115;
+ const vangReach=.42,vangDrop=.115;
  const sails=(cat?[{width:2.78,z:.97},{width:1.98,z:.75}]:[{width:1.28,z:.19},{width:.60,z:.19}]).map((spec,index)=>{
    const pivot=new T.Group();pivot.position.z=spec.z;group.add(pivot);
    const geo=new T.BufferGeometry();
@@ -361,7 +361,16 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    mesh(geo,sailMaterial(T,cat,index===0?8:4),pivot).frustumCulled=false;
    const boomHinge=new T.Group();pivot.add(boomHinge);
    if(!cat||index===0)rod([0,0,0],[-spec.width,0,0],.012,black,boomHinge);
-   const vang=index===0?rod([0,0,-vangDrop],[-vangReach,0,0],cat?.011:.005,black,pivot):null;
+   const vang=!cat&&index===0?rod([0,0,-vangDrop],[-vangReach,0,0],.005,black,pivot):null;
+   const downhaul=[];
+   if(cat && index===0){
+     const line=paint(0x9c282a);
+     for(const y of [-.009,0,.009]){
+       downhaul.push(rod([-.055,y,-.38],[-.055,y,-.03],.0028,line,pivot));
+     }
+     rod([-.055,-.014,-.38],[-.055,.014,-.38],.012,black,pivot);
+     rod([-.055,-.014,-.03],[-.055,.014,-.03],.013,black,boomHinge);
+   }
    const tufts=[];
    if(cat){
      for(let k=0;k<4;k++){
@@ -370,7 +379,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
        pivot.add(tuft);tufts.push(tuft);
      }
    }
-   return {pivot,geo,coords,boomHinge,vang,tufts};
+   return {pivot,geo,coords,boomHinge,vang,downhaul,tufts};
  });
  const podRadius=cat?.17:.075,podHeight=cat?8.44:3.02,podX=cat?.44:.12;
  const halfLength=cat?.29:podRadius;
@@ -417,12 +426,19 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    if(otherRudder)otherRudder.rotation.z=-s[7];
    if(carriage && ballast)carriage.position.set(-.425+ballast[0],ballast[1],.52);
    group.position.set(s[0],s[1],s[3]);group.rotation.set(s[4],s[5],s[2],'ZYX');rudder.rotation.z=-s[7];
-   sails.forEach(({pivot,geo,coords,boomHinge,vang,tufts},m)=>{
+   sails.forEach(({pivot,geo,coords,boomHinge,vang,downhaul,tufts},m)=>{
      const r=42+2*24*3+m*9;
      sheetMatrix.set(s[r],s[r+1],s[r+2],0,s[r+3],s[r+4],s[r+5],0,s[r+6],s[r+7],s[r+8],0,0,0,0,1);
      pivot.quaternion.setFromRotationMatrix(sheetMatrix);
      pivot.position.x=s[42+2*24*3+18+m];
-     if(m===0)boomHinge.rotation.y=s[206];
+     if(m===0){
+       boomHinge.rotation.y=s[206];
+       boomHinge.position.z=cat?s[44]:0;
+       for(const line of downhaul){
+         line.position.z=(-.41+boomHinge.position.z)/2;
+         line.scale.y=(.35+boomHinge.position.z)/.35;
+       }
+     }
      if(vang){
        const elevation=s[206];boomHinge.rotation.y=elevation;
        const line=new T.Vector3(-vangReach*Math.cos(elevation),0,vangDrop+vangReach*Math.sin(elevation));
@@ -467,7 +483,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      crossTiller.position.set(-2.58+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.47);
      deckCars[0].position.y=cars[0];deckCars[1].position.y=cars[1];deckCars[2].position.y=-cars[1];
      // Attachment positions in the hull frame. The front clew follows the actual cloth.
-     const top=new T.Vector3(-1.84*Math.cos(s[206]),0,1.84*Math.sin(s[206])).applyQuaternion(sails[0].pivot.quaternion).add(sails[0].pivot.position);
+     const top=new T.Vector3(-1.84*Math.cos(s[206]),0,1.84*Math.sin(s[206])+sails[0].boomHinge.position.z).applyQuaternion(sails[0].pivot.quaternion).add(sails[0].pivot.position);
      const lowerBlock=deckCars[0].position.clone();lowerBlock.z+=.04;
      const axis=new T.Vector3().subVectors(top,lowerBlock).normalize();
      sheetBlocks.forEach((block,i)=>{

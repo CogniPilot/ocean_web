@@ -156,7 +156,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     clewForce:=zeros(3);
     for i in 2:cols loop
       if boomArm[i]>0 then
-        p[i,:]:={rest[i,1]*cos(elevation),0,-rest[i,1]*sin(elevation)};
+        p[i,:]:={rest[i,1]*cos(elevation),0,-rest[i,1]*sin(elevation)}+(if trackedFoot then shift[1,:] else zeros(3));
         clewForce:=clewForce+boomArm[i]*(nodal[i,:]+mass[i]*gravity);
       end if;
     end for;

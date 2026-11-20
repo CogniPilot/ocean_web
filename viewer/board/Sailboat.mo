@@ -114,9 +114,11 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   input Real vangInput "Tackle adjustment, 0 eased to 1 tight";
   Real boomElevation(start=.04,fixed=true),boomLiftRate(start=0,fixed=true);
   Real vangLength,vangTension,vangArm,clewTorque;
-  parameter Real vangAttachment=if catamaran then .95 else .42,vangDrop=if catamaran then .56 else .115;
-  parameter Real vangHaulLimit(unit="N")=2000 "Total load limit of the automated catamaran tackle";
-  Real vangPaid(start=sqrt(vangAttachment^2+vangDrop^2),fixed=true),vangTarget;
+  parameter Real vangAttachment=.42,vangDrop=.115;
+  input Real downhaulInput "Catamaran luff adjustment, 0 eased to 1 hauled";
+  parameter Real downhaulTravel(unit="m")=.10 "Available shortening at the tack";
+  parameter Real luffRigidity(unit="N")=45000, downhaulStiffness(unit="N/m")=40000;
+  Real downhaulShortening(start=0,fixed=true),tackDrop,downhaulTension;
   Real payout(start=.12,fixed=true),drumAngle,lineSpeed,boomLimit;
   parameter Real drumRadius=.043, sheetArm=.44;
   parameter Boolean catamaran=false;
@@ -417,7 +419,7 @@ equation
   blockContact=if catamaran and lineSpan[1]<blockStack then max(0,65000*(blockStack-lineSpan[1])-180*lineRate[1]) else 0;
   // Head-to-clew reinforcement transfers boom downhaul into an aft spar load.
   // Its stretch is measured between the moving masthead and the rotating boom.
-  leechDelta={mastTip,0,spans[1]}-sheetRotation[1,:,:]*
+  leechDelta={mastTip,0,spans[1]+tackDrop}-sheetRotation[1,:,:]*
     {-feet[1]*cos(boomElevation),0,feet[1]*sin(boomElevation)};
   leechLength=sqrt(leechDelta*leechDelta);
   leechDirection=leechDelta/leechLength;
@@ -439,7 +441,7 @@ equation
   end when;
   for row in 1:6 loop
     cloth[1].luffShift[row,:]=if catamaran then transpose(sheetRotation[1,:,:])*
-      {stayPath[1,3,1]-tang[1],stayPath[1,3,2],0}*((row-1)/5/stayFraction) else zeros(3);
+      {stayPath[1,3,1]-tang[1],stayPath[1,3,2],0}*((row-1)/5/stayFraction)-{0,0,tackDrop*(6-row)/5} else zeros(3);
     cloth[2].luffShift[row,:]=if catamaran then transpose(sheetRotation[2,:,:])*(
       (if row<=3 then (1-2*(row-1)/5)*stayPath[3,1,:]+2*(row-1)/5*stayPath[3,2,:]
        else (2-2*(row-1)/5)*stayPath[3,2,:]+(2*(row-1)/5-1)*stayPath[3,3,:])
@@ -448,15 +450,15 @@ equation
   cloth[1].mastOffset=transpose(sheetRotation[1,:,:])*{mastTip,0,0};
   cloth[2].mastOffset=zeros(3);
   mainTension=lineTension[1];jibTension=sum(lineTension[2:3]);
-  sheetLift=ropeTorque[1,:]*sheetRotation[1,:,2];
+  sheetLift=cross(attachment[1,:]+{0,0,tackDrop},sheetForce[1,:])*sheetRotation[1,:,2];
   vangLength=sqrt(vangAttachment^2+vangDrop^2+2*vangAttachment*vangDrop*sin(boomElevation));
   vangArm=vangAttachment*vangDrop*cos(boomElevation)/vangLength;
-  // The winch pays out enough line for a raised boom; hauling shortens the
-  // diagonal between the mast foot and the underside of the boom.
-  vangTarget=sqrt(vangAttachment^2+vangDrop^2+2*vangAttachment*vangDrop*
-    sin(.36-.49*max(0,min(1,vangInput))));
-  der(vangPaid)=if catamaran then min(.22,max(-.22,(vangTarget-vangPaid)/.15)) else 0;
-  vangTension=if catamaran then min(vangHaulLimit,max(0,48000*(vangLength-vangPaid))) else max(0,3200*(vangLength-(.49-.065*max(0,min(1,vangInput)))));
+  vangTension=if catamaran then 0 else max(0,3200*(vangLength-(.49-.065*max(0,min(1,vangInput)))));
+  // The tackle and reinforced luff are elastic elements in series. The head
+  // is fixed while the tack slide travels down the mast under the downhaul.
+  der(downhaulShortening)=if catamaran then (downhaulTravel*max(0,min(1,downhaulInput))-downhaulShortening)/.25 else 0;
+  tackDrop=downhaulShortening/(1+luffRigidity/(spans[1]*downhaulStiffness));
+  downhaulTension=luffRigidity*tackDrop/spans[1];
   clewTorque=feet[1]*(sin(boomElevation)*cloth[1].clewForce[1]+cos(boomElevation)*cloth[1].clewForce[3]);
   der(boomElevation)=boomLiftRate;
   der(boomLiftRate)=(clewTorque+leechLift-vangTension*vangArm+sheetLift-(if catamaran then 26 else .95)*cos(boomElevation)-(if catamaran then 90 else 3)*boomLiftRate
@@ -487,9 +489,9 @@ equation
   for m in 1:2 loop
     tipLocal[m,:]=if m==1 then {-attachRadius[m]*cos(boomElevation),0,attachRadius[m]*sin(boomElevation)}
       else {-attachRadius[m],0,0};
-    attachment[m,:]=sheetRotation[m,:,:]*tipLocal[m,:];
+    attachment[m,:]=sheetRotation[m,:,:]*tipLocal[m,:]-(if m==1 then {0,0,tackDrop} else zeros(3));
     tipVel[m,:]=cross(trimRate[m]*{axisX[m],0,axisZ[m]},attachment[m,:])+
-      (if m==1 then sheetRotation[m,:,:]*cross({0,boomLiftRate,0},tipLocal[m,:]) else zeros(3));
+      (if m==1 then sheetRotation[m,:,:]*cross({0,boomLiftRate,0},tipLocal[m,:])-{0,0,der(tackDrop)} else zeros(3));
     rigWaterMass[m]=1025*.04*wettedArea[m];
     hingeWaterInertia[m]=rigWaterMass[m]*feet[m]^2/6;
     hingeLoad[m]=cross(cloth[m].vertex[4,:],cloth[m].clewForce)*{axisX[m],0,axisZ[m]};

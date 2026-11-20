@@ -14,6 +14,7 @@ const index = JSON.parse(await readFile(new URL(manifest.index, base)));
 const world = await openFmuSession({index, base, fetch: fileFetch, instanceName: 'wreck-survey'});
 
 try {
+  const browserSteps = process.argv.includes('--browser-steps');
   const follow = process.argv.includes('--follow');
   const controls = {subManual: 0, sailingManual: 1, flightManual: follow ? 0 : 1, windSpeed: 11, windBearing: .45};
   world.set_inputs(JSON.stringify(Object.entries(controls)));
@@ -26,7 +27,9 @@ try {
   let followSquared = 0, altitudeSquared = 0, peakOffset = 0;
   while (world.time() < 240) {
     const start = performance.now();
-    world.step(.2);
+    if (browserSteps) {
+      for (let tick=0; tick<20; tick++) world.step(.01);
+    } else world.step(.2);
     const stepped = performance.now();
     const [station, done, x, y, z, east, north, up, droneEast, droneNorth, altitude] = world.read_bound(binding);
     stepMs += stepped - start;
@@ -54,7 +57,7 @@ try {
   }
 
   const rms = Math.sqrt(squaredError / frames);
-  console.log({finished, lastStation, rms, seconds: world.time(), stepMs, readMs});
+  console.log({finished, browserSteps, lastStation, rms, seconds: world.time(), stepMs, readMs});
   if (follow) {
     const horizontalRms = Math.sqrt(followSquared / frames);
     const altitudeRms = Math.sqrt(altitudeSquared / frames);
