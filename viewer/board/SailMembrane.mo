@@ -29,7 +29,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   input Real luffShift[rows,3],shroudMid[2,3],wireK[2];
   discrete output Real wireReaction[2](each start=0,each fixed=true);
   input Real boomElevation;
-  parameter Boolean hasShrouds=false;
+  parameter Boolean hasShrouds=false, footInTrack=false;
   input Real shroudFoot[2,3],shroudHead[3] "Two finite sidestays in the rotating sail frame";
   input Real air[3], water[3], omega[3], gravity[3], waterPlane[4] "Signed immersion = plane[4]+plane[1:3]*p";
   // Rows run from the tack toward the head. The luff is attached to the stay.
@@ -77,11 +77,11 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   end sailTelltales;
   function advanceCloth
     input Real rest[n,3], old[n,3], oldV[n,3],air[3],water[3],omega[3],gravity[3],plane[4],dt,mu,t,elevation,battenRows[rows,cols],EI,lineMass;
-    input Boolean contact;
+    input Boolean contact,trackedFoot;
     input Real footStay[2,3],headStay[3],tipOffset[3],shape[rows],edgeTension,shift[rows,3],wireMid[2,3],contactK[2];
     output Real p[n,3],v[n,3],force[3],moment[3],wetArea,leechSpeed,clewForce[3],mastLoad[3],wireForce[2];
   protected
-    Real mass[n],nodal[n,3],normal[3],a[3],b[3],c[3],center[3],dv[3],q[3],load[3],relative[3];
+    Real invMass[n],boomArm[n],mass[n],nodal[n,3],normal[3],a[3],b[3],c[3],center[3],dv[3],q[3],load[3],relative[3];
     Real implicitFactor,gust,d[3],low,mid,high,wet,area,u,vn,dist,reference,extension,wa,wb,correction,restArea;
     Real spacing,stiffness,wCenter,relaxation;
     Real upper[rows],rhs[rows],leftK,rightK,pivot;
@@ -140,7 +140,9 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
       end for;
     end for;
     for i in 1:n loop
-      if mod(i-1,cols)<>0 and i<>cols then
+      invMass[i]:=if mod(i-1,cols)==0 or i==cols or (trackedFoot and i<=cols) then 0 else 1/mass[i];
+      boomArm[i]:=if i==cols or (trackedFoot and i<=cols) then (i-1)/(cols-1) else 0;
+      if invMass[i]>0 then
         p[i,:]:=old[i,:]+dt*((1-.7*dt)*oldV[i,:]+dt*(gravity+nodal[i,:]/mass[i]));
       end if;
     end for;
@@ -150,8 +152,14 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
       p[j,:]:=rest[j,:]+shape[r]*tipOffset+shift[r,:];
       mastLoad:=mastLoad+shape[r]*(nodal[j,:]+mass[j]*gravity);
     end for;
-    p[cols,:]:={rest[cols,1]*cos(elevation),0,-rest[cols,1]*sin(elevation)};
-    clewForce:=nodal[cols,:]+mass[cols]*gravity;
+    // Transfer each track reaction at its own lever arm as an equivalent clew load.
+    clewForce:=zeros(3);
+    for i in 2:cols loop
+      if boomArm[i]>0 then
+        p[i,:]:={rest[i,1]*cos(elevation),0,-rest[i,1]*sin(elevation)};
+        clewForce:=clewForce+boomArm[i]*(nodal[i,:]+mass[i]*gravity);
+      end if;
+    end for;
     // Position-based cloth: tension-only warp, weft and bias links. A small
     // sewing allowance permits wrinkling and collapse when pressure falls.
     for pass in 1:6 loop
@@ -170,8 +178,8 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
             else
               extension:=max(0,dist-reference);
             end if;
-            wa:=if mod(j-1,cols)==0 or j==cols then 0 else 1/mass[j];
-            wb:=if mod(k-1,cols)==0 or k==cols then 0 else 1/mass[k];
+            wa:=invMass[j];
+            wb:=invMass[k];
             correction:=extension/(max(1e-8,dist)*(wa+wb+.00005/dt^2));
             if mod(j-1,cols)==0 then
               mastLoad:=mastLoad+shape[div(j-1,cols)+1]*correction*q/dt^2;
@@ -179,11 +187,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
             if mod(k-1,cols)==0 then
               mastLoad:=mastLoad-shape[div(k-1,cols)+1]*correction*q/dt^2;
             end if;
-            if j==cols then
-              clewForce:=clewForce+correction*q/dt^2;
-            elseif k==cols then
-              clewForce:=clewForce-correction*q/dt^2;
-            end if;
+            clewForce:=clewForce+(boomArm[j]-boomArm[k])*correction*q/dt^2;
             p[j,:]:=p[j,:]+wa*correction*q;p[k,:]:=p[k,:]-wb*correction*q;
           end if;
         end for;
@@ -192,7 +196,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     // Implicit discrete beam bending energy EI/2 * integral(curvature^2 ds).
     for r in 1:rows loop
       for col in 2:cols-1 loop
-        if battenRows[r,col]>0 then
+        if battenRows[r,col]>0 and not (trackedFoot and r==1) then
           j:=(r-1)*cols+col;
           d:=rest[j+1,:]-rest[j-1,:];
           spacing:=max(.001,.5*sqrt(d*d));
@@ -236,6 +240,26 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
       d:=rest[n,:]-rest[n-cols,:];
       mastLoad[2]:=mastLoad[2]+edgeTension*(rhs[rows-1]-rhs[rows])/max(.001,sqrt(d*d));
     end if;
+    // The leech tension solve moves the ends of the battens. Equilibrate
+    // the axial bar constraints with those updated endpoints before contact.
+    for pass in 1:4 loop
+      for r in 2:rows loop
+        for col in 1:cols-1 loop
+          k:=if mod(pass,2)==1 then col else cols-col;
+          j:=(r-1)*cols+k;
+          if battenRows[r,k]+battenRows[r,k+1]>0 then
+            d:=rest[j+1,:]-rest[j,:];reference:=sqrt(d*d);
+            q:=p[j+1,:]-p[j,:];dist:=sqrt(q*q);
+            correction:=(dist-reference)/(max(1e-8,dist)*(invMass[j]+invMass[j+1]+.000005/dt^2));
+            p[j,:]:=p[j,:]+invMass[j]*correction*q;
+            p[j+1,:]:=p[j+1,:]-invMass[j+1]*correction*q;
+            if k==1 then
+              mastLoad:=mastLoad+shape[r]*correction*q/dt^2;
+            end if;
+          end if;
+        end for;
+      end for;
+    end for;
     // Intersect the projected shroud with all three edges of every cloth
     // triangle in the sail XZ plane. Signed separation varies linearly over
     // the intersection interval, so its extrema occur on those edges.
@@ -258,17 +282,15 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
                   if edge>=0 and edge<=1 and along>=0 and along<=1 then
                     penetration:=direction*(p[j,2]+edge*d[2]-wireStart[2]-along*wire[2])+.009;
                     if penetration>0 then
-                      wa:=if mod(j-1,cols)==0 or j==cols then 0 else 1/mass[j];
-                      wb:=if mod(k-1,cols)==0 or k==cols then 0 else 1/mass[k];
+                      wa:=invMass[j];
+                      wb:=invMass[k];
                       totalInv:=wa*(1-edge)^2+wb*edge^2;
                       if totalInv>1e-8 then
                         loadY:=-direction*penetration/(totalInv+1/(max(1,contactK[side])*dt^2));
                         wireForce[side]:=wireForce[side]-loadY/dt^2;
                         p[j,2]:=p[j,2]+wa*(1-edge)*loadY;
                         p[k,2]:=p[k,2]+wb*edge*loadY;
-                        if j==cols or k==cols then
-                          clewForce[2]:=clewForce[2]+(if j==cols then 1-edge else edge)*loadY/dt^2;
-                        end if;
+                        clewForce[2]:=clewForce[2]+(boomArm[j]*(1-edge)+boomArm[k]*edge)*loadY/dt^2;
                       end if;
                     end if;
                   end if;
@@ -285,7 +307,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   end advanceCloth;
 equation
   when sample(0,stepSize) then
-    (vertex,velocity,fluidForce,fluidMoment,wetArea,leechSpeed,clewForce,mastLoad,wireReaction)=advanceCloth(mesh,pre(vertex),pre(velocity),air,water,omega,gravity,waterPlane,stepSize,arealMass,time,boomElevation,battenWeight,battenEI,battenLinearMass,hasShrouds,shroudFoot,shroudHead,mastOffset,modeShape,leechTension,luffShift,shroudMid,wireK);
+    (vertex,velocity,fluidForce,fluidMoment,wetArea,leechSpeed,clewForce,mastLoad,wireReaction)=advanceCloth(mesh,pre(vertex),pre(velocity),air,water,omega,gravity,waterPlane,stepSize,arealMass,time,boomElevation,battenWeight,battenEI,battenLinearMass,hasShrouds,footInTrack,shroudFoot,shroudHead,mastOffset,modeShape,leechTension,luffShift,shroudMid,wireK);
     (faceTail,separated)=sailTelltales(vertex,velocity,air,omega,gravity,time);
   end when;
 end SailMembrane;
