@@ -118,3 +118,11 @@ A 300-step sampling profile with the survey camera idle found 253 of 3,748 sampl
 Two interleaved WASM runs each measured 400 steps after 100 warm-up steps per model. With the previous release first, mean time per 10 ms step was 14.58 ms versus 14.30 ms with the bounds. With initialization order reversed, means were 16.39 ms versus 13.18 ms. Variability under shared workstation load limits the precision of the timing gain.
 
 An independent OpenModelica comparison evaluated the old and new force and moment functions at 5,940 positions across the six faces of all 165 oriented collision solids, with six offsets, varying hull yaw and nonzero linear and angular velocity. Forces and moments matched exactly, including 4,115 positions with nonzero contact force.
+
+### Low preset with hull wakes disabled
+
+Low skips the local and received hull displacement spectrum and associated wave resistance. The Modelica solver still computes the directional wind sea, swell, water heights at the hull sections and buoyancy. The boat continues publishing its immersed sections so peers using Balanced or High can see its wake. Switching to a higher preset starts a fresh wake history on the next spectral sample.
+
+Two workstation WASM benchmarks interleaved the previous release and both wake settings on the new release, alternating execution order and reversing session initialization for the second run. Each session warmed up for 100 steps and measured 400 steps of 10 ms. Median wave-only event steps fell from 32.5 and 33.5 ms on the previous release to 20.5 and 19.6 ms on Low. With wakes enabled they took 32.8 and 31.9 ms. Low averaged 12.24 and 11.20 ms across all steps. The 200 ms sensor events still took 55.1 and 50.4 ms on Low.
+
+A 393 × 852 touch viewport in Chromium using SwiftShader selected Low on a fresh origin. Across 180 running frames it averaged 48.4 FPS with a 25.9 ms p95 frame and advanced 0.525 simulated seconds per wall second. Physical handset timing remains unmeasured.

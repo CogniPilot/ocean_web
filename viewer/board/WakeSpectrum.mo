@@ -1,6 +1,8 @@
 model WakeSpectrum "World-referenced periodic gravity-wave field with a moving displacement source"
   constant Integer n=64;
   constant Real pi=3.141592653589793;
+  input Real omitWake=0 "Low performance preset: solve incident waves only";
+  discrete Boolean wakeActive(start=false,fixed=true);
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
   parameter Real period=64,dt=.1,depth=14,decay=.04;
   input Real east,north,heading,heel,pitch,stations[7],separation,volume[2,6],beamHalf[7];
@@ -152,6 +154,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     input Real prevR[n,n],prevI[n,n],oldR[n,n],oldI[n,n],vol[2,6],xs[7],beams[7],sep,x,y,bearing,heel,pitch,ue,un,sea,L,h,dt,loss,t;
     input Boolean first;
     input Real peers[4,38],oldPeers[4,38],driftE,driftN,oldDrift[4,2];
+    input Boolean active=true;
     output Real wr[n,n],wi[n,n],displacedR[n,n],displacedI[n,n],tile[n,n],probe[3],load[3];
   protected
     Real rowR[n],rowI[n],windR[n],windI[n],sourceR[n],sourceI[n],dx,kx,ky,k,omega,c,s,atten,along,across,ex,ny,a,b,amplitude,phase,slope;
@@ -163,29 +166,35 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     Real armAlong[12],armAcross[12];
     Real re[n,n],im[n,n],unused[n,n];
   algorithm
-    (peerR,peerI):=peerForcing(peers,oldPeers,driftE,driftN,oldDrift,x+driftE,y+driftN,L);
+    if active then
+      (peerR,peerI):=peerForcing(peers,oldPeers,driftE,driftN,oldDrift,x+driftE,y+driftN,L);
+    else
+      peerR:=zeros(n,n);peerI:=zeros(n,n);
+    end if;
     windSpeed:=sqrt(ue*ue+un*un);peak:=max(.19,1.4/max(2,windSpeed));
     dx:=L/n;probe:=zeros(3);load:=zeros(3);forceScale:=1025*9.80665*dx^2/n^2;
     // Fourier transform of six immersed strips on each hull. Separable phase
     // tables preserve the exact subcell locations and avoid a forward FFT.
     armAlong:=zeros(12);armAcross:=zeros(12);
     cx:=zeros(12,n);sx:=zeros(12,n);cy:=zeros(12,n);sy:=zeros(12,n);
-    for hull in 1:2 loop
-      for panel in 1:6 loop
-        strip:=(hull-1)*6+panel;
-        // Horizontal projection of the same body-fixed strip that samples the water.
-        along:=.5*(xs[panel]+xs[panel+1])*cos(pitch)+(3-2*hull)*sep*sin(heel)*sin(pitch);
-        across:=(3-2*hull)*sep*cos(heel);
-        armAlong[strip]:=along;armAcross[strip]:=across;
-        ex:=x+along*cos(bearing)-across*sin(bearing);
-        ny:=y+along*sin(bearing)+across*cos(bearing);
-        for i in 1:n loop
-          k:=2*pi*(if i<=div(n,2) then i-1 else i-1-n)/L;
-          cx[strip,i]:=cos(k*ex);sx[strip,i]:=sin(k*ex);
-          cy[strip,i]:=cos(k*ny);sy[strip,i]:=sin(k*ny);
+    if active then
+      for hull in 1:2 loop
+        for panel in 1:6 loop
+          strip:=(hull-1)*6+panel;
+          // Horizontal projection of the same body-fixed strip that samples the water.
+          along:=.5*(xs[panel]+xs[panel+1])*cos(pitch)+(3-2*hull)*sep*sin(heel)*sin(pitch);
+          across:=(3-2*hull)*sep*cos(heel);
+          armAlong[strip]:=along;armAcross[strip]:=across;
+          ex:=x+along*cos(bearing)-across*sin(bearing);
+          ny:=y+along*sin(bearing)+across*cos(bearing);
+          for i in 1:n loop
+            k:=2*pi*(if i<=div(n,2) then i-1 else i-1-n)/L;
+            cx[strip,i]:=cos(k*ex);sx[strip,i]:=sin(k*ex);
+            cy[strip,i]:=cos(k*ny);sy[strip,i]:=sin(k*ny);
+          end for;
         end for;
       end for;
-    end for;
+    end if;
     re:=zeros(n,n);im:=zeros(n,n);displacedR:=oldR;displacedI:=oldI;
     wr:=prevR;wi:=prevI;
     for j in 1:n loop
@@ -196,41 +205,46 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
         my:=if j<=div(n,2) then j-1 else j-1-n;
         kx:=2*pi*mx/L;ky:=2*pi*my/L;k:=sqrt(kx^2+ky^2);
         sr:=0;si:=0;mr:=0;mi:=0;
-        ka:=kx*cos(bearing)+ky*sin(bearing);kb:=-kx*sin(bearing)+ky*cos(bearing);
-        for hull in 1:2 loop
-          for panel in 1:6 loop
-            strip:=(hull-1)*6+panel;
-            length:=max(.001,xs[panel+1]-xs[panel]);
-            width:=max(.001,beams[panel]+beams[panel+1]);
-            draft:=vol[hull,panel]/(length*width);
-            // Match each strip's volume and rectangular second moments.
-            // Submerged sources radiate less energy at short wavelengths.
-            weight:=vol[hull,panel]/dx^2*exp(-.5*k*draft-((ka*length)^2+(kb*width)^2)/24);
-            stripR:=weight*(cx[strip,i]*cy[strip,j]-sx[strip,i]*sy[strip,j]);
-            stripI:=-weight*(sx[strip,i]*cy[strip,j]+cx[strip,i]*sy[strip,j]);
-            sr:=sr+stripR;si:=si+stripI;
-            momentArm:=armAlong[strip]*kb-armAcross[strip]*ka;
-            mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
+        omega:=sqrt(9.80665*k*tanh(k*h));
+        if active then
+          ka:=kx*cos(bearing)+ky*sin(bearing);kb:=-kx*sin(bearing)+ky*cos(bearing);
+          for hull in 1:2 loop
+            for panel in 1:6 loop
+              strip:=(hull-1)*6+panel;
+              length:=max(.001,xs[panel+1]-xs[panel]);
+              width:=max(.001,beams[panel]+beams[panel+1]);
+              draft:=vol[hull,panel]/(length*width);
+              // Match each strip's volume and rectangular second moments.
+              // Submerged sources radiate less energy at short wavelengths.
+              weight:=vol[hull,panel]/dx^2*exp(-.5*k*draft-((ka*length)^2+(kb*width)^2)/24);
+              stripR:=weight*(cx[strip,i]*cy[strip,j]-sx[strip,i]*sy[strip,j]);
+              stripI:=-weight*(sx[strip,i]*cy[strip,j]+cx[strip,i]*sy[strip,j]);
+              sr:=sr+stripR;si:=si+stripI;
+              momentArm:=armAlong[strip]*kb-armAcross[strip]*ka;
+              mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
+            end for;
           end for;
-        end for;
-        // The signed wavevector is ambiguous on a Nyquist row or column.
-        // Omit it so a symmetric tow cannot acquire a spurious lateral load.
-        if abs(mx)==div(n,2) or abs(my)==div(n,2) then
-          sr:=0;si:=0;mr:=0;mi:=0;
-        end if;
-        sourceR[i]:=sr;sourceI[i]:=si;
-        omega:=sqrt(9.80665*k*tanh(k*h));c:=cos(omega*dt);s:=sin(omega*dt);
-        atten:=exp(-dt*loss*(1+.08*k^2));
-        // Complex travelling waves encode elevation and its quadrature.
-        // A real spatial displacement increment excites both travel directions.
-        rowR[i]:=atten*(c*prevR[j,i]+s*prevI[j,i])+(if first or k==0 then 0 else sourceR[i]-oldR[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerR[j,i] else 0);
-        rowI[i]:=atten*(c*prevI[j,i]-s*prevR[j,i])+(if first or k==0 then 0 else sourceI[i]-oldI[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerI[j,i] else 0);
+          // The signed wavevector is ambiguous on a Nyquist row or column.
+          // Omit it so a symmetric tow cannot acquire a spurious lateral load.
+          if abs(mx)==div(n,2) or abs(my)==div(n,2) then
+            sr:=0;si:=0;mr:=0;mi:=0;
+          end if;
+          sourceR[i]:=sr;sourceI[i]:=si;
+          c:=cos(omega*dt);s:=sin(omega*dt);
+          atten:=exp(-dt*loss*(1+.08*k^2));
+          // Complex travelling waves encode elevation and its quadrature.
+          // A real spatial displacement increment excites both travel directions.
+          rowR[i]:=atten*(c*prevR[j,i]+s*prevI[j,i])+(if first or k==0 then 0 else sourceR[i]-oldR[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerR[j,i] else 0);
+          rowI[i]:=atten*(c*prevI[j,i]-s*prevR[j,i])+(if first or k==0 then 0 else sourceI[i]-oldI[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerI[j,i] else 0);
 
-        // Integral of -rho*g*displacement*grad(elevation), evaluated by
-        // Parseval on the same modes used to reconstruct the displayed wake.
-        crossTerm:=forceScale*(rowI[i]*sr-rowR[i]*si);
-        load[1]:=load[1]+kx*crossTerm;load[2]:=load[2]+ky*crossTerm;
-        load[3]:=load[3]+forceScale*(rowI[i]*mr-rowR[i]*mi);
+          // Integral of -rho*g*displacement*grad(elevation), evaluated by
+          // Parseval on the same modes used to reconstruct the displayed wake.
+          crossTerm:=forceScale*(rowI[i]*sr-rowR[i]*si);
+          load[1]:=load[1]+kx*crossTerm;load[2]:=load[2]+ky*crossTerm;
+          load[3]:=load[3]+forceScale*(rowI[i]*mr-rowR[i]*mi);
+        else
+          rowR[i]:=0;rowI[i]:=0;
+        end if;
         // Directional gravity-wave spectrum. Independent reproducible phase and
         // Rayleigh amplitude per travelling mode break up parallel crest lines.
         if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then
@@ -258,6 +272,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
 equation
   der(driftE)=currentEast;der(driftN)=currentNorth;
   when sample(0,dt) then
+    wakeActive=omitWake<.5;
     sourceStrips=hullSource(east,north,heading,heel,pitch,stations,separation,volume);
     priorPeers=peers;
     for peer in 1:4 loop
@@ -266,7 +281,7 @@ equation
           then (if axis==1 then driftE else driftN) else pre(priorDrift[peer,axis]);
       end for;
     end for;
-    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time+seaClockOffset,time<dt/2,peers,pre(priorPeers),driftE,driftN,pre(priorDrift));
+    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time+seaClockOffset,time<dt/2 or not pre(wakeActive),peers,pre(priorPeers),driftE,driftN,pre(priorDrift),wakeActive);
     sectionHeight=sampleSections(height,east-driftE,north-driftN,heading,heel,pitch,stations,separation,period);
   end when;
 end WakeSpectrum;
