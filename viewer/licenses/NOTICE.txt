@@ -1,0 +1,32 @@
+Pelagic ocean robotics simulator
+Original simulations, water shaders, vessel geometry, sail graphics and application code
+are licensed under Apache License 2.0. See Apache-2.0.txt.
+
+Submarine inspiration: Piccard, https://piccard.science/
+Sailboat inspiration: Pilothouse, https://srlm.io/2015/07/02/introducing-pilothouse-a-robotic-sailboat/
+Water presentation reference: Three.js Water Pro, https://threejsroadmap.com/assets/threejs-water-pro
+Spectral synthesis reference: Jerry Tessendorf, Simulating Ocean Water,
+https://people.computing.clemson.edu/~jtessen/reports/papers_files/simdoc.pdf
+
+Fish mesh and swim motion by Quaternius, CC0 1.0. Baked from its animated GLB
+to eight morph targets, resized and reoriented. See CC0.txt.
+https://quaternius.com/packs/animatedfish.html
+https://poly.pizza/m/XWl86YFtpF
+
+Three.js r160, MIT, see ../vendor/THREE-LICENSE.
+CogniPilot modelica_models, Apache-2.0, see CogniPilot-NOTICE.txt. The build adds
+a derivative annotation and analytic derivative to the staged quaternionToT function.
+Modelica Standard Library 4.1.0, BSD-3-Clause, see MSL-BSD.txt.
+Rumoca 0.10.4, Apache-2.0, see ../board/LICENSE and ../board/THIRD-PARTY-NOTICES.txt.
+See also ../board/THIRD-PARTY-CRATES.json and ../board/UPSTREAM-NOTICES.md.
+OpenModelica simulation runtime, BSD New License option. See OpenModelica.txt
+and OpenModelica-BSD.txt. The browser port corrects the bundled f2c s_copy prototype.
+FMI interface headers, Modelica Association Project FMI, BSD-2-Clause.
+Linear algebra and numerical solvers include LAPACK, f2c and MINPACK.
+This product includes software developed by the University of Chicago, as
+Operator of Argonne National Laboratory. See LAPACK.txt, f2c.txt and MINPACK.txt.
+Emscripten runtime, MIT option. See Emscripten.txt, musl.txt and LLVM.txt.
+
+Dolphin mesh and swim motion by Quaternius, CC0 1.0. Resized and baked to eight swim poses.
+https://quaternius.com/packs/animatedfish.html
+https://poly.pizza/m/3LzFgI3GLO

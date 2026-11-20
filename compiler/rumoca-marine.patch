@@ -1,0 +1,667 @@
+diff --git a/crates/rumoca-compile/src/codegen_target/feature_analysis.rs b/crates/rumoca-compile/src/codegen_target/feature_analysis.rs
+index ef25e23..17569e0 100644
+--- a/crates/rumoca-compile/src/codegen_target/feature_analysis.rs
++++ b/crates/rumoca-compile/src/codegen_target/feature_analysis.rs
+@@ -182,10 +182,15 @@ pub(super) fn solve_requires_residual_equations(
+ }
+ 
+ fn dynamic_subscript<'dae>(view: dae::DaeView<'dae>, subscript: dae::SubscriptView<'dae>) -> bool {
+-    let dae::SubscriptView::Index { expression, .. } = subscript else {
+-        return true;
+-    };
+-    !static_index(view, expression)
++    match subscript {
++        dae::SubscriptView::Whole { .. } => false,
++        dae::SubscriptView::Index { expression, .. } => !static_index(view, expression),
++        dae::SubscriptView::Slice { expression, .. } => !view.expression(expression).is_some_and(|slice| match slice.operation() {
++            dae::ExpressionOperation::Range(_) => true,
++            dae::ExpressionOperation::Array(elements) => elements.iter().all(|element| static_index(view, element)),
++            _ => false,
++        }),
++    }
+ }
+ 
+ /// Whether an integer subscript is fixed at every point it is evaluated: a
+diff --git a/crates/rumoca-compile/src/session/tests/bounded_function_domains_tests.rs b/crates/rumoca-compile/src/session/tests/bounded_function_domains_tests.rs
+index bbe0f03..46c40e0 100644
+--- a/crates/rumoca-compile/src/session/tests/bounded_function_domains_tests.rs
++++ b/crates/rumoca-compile/src/session/tests/bounded_function_domains_tests.rs
+@@ -164,3 +164,61 @@ fn full14400_selection_refuses_a_tunable_border_floor() {
+         "{error}"
+     );
+ }
++
++#[test]
++fn backward_interpolation_search_bounds_the_index_on_continuing_passes() {
++    let source = r#"
++function search
++  input Real x[4];
++  input Real xi;
++  input Integer last;
++  output Real y;
++protected
++  Integer i;
++algorithm
++  i := min(max(last, 1), size(x,1)-1);
++  while i > 1 and xi < x[i] loop
++    i := i - 1;
++  end while;
++  y := x[i];
++end search;
++model Ordered
++  parameter Real u=1;
++  Real y;
++equation
++  y = search({1,2,3,4},u,3);
++end Ordered;
++"#;
++    assert_eq!(evaluate(source, 1.0), 1.0);
++    assert_eq!(evaluate(source, 2.5), 2.0);
++    assert_eq!(evaluate(source, 4.0), 3.0);
++}
++
++#[test]
++fn indexed_tuple_receivers_count_only_the_selected_elements() {
++    let source = r#"
++function loads
++  input Real u;
++  output Real wet;
++  output Real force[3];
++algorithm
++  wet := u;
++  force := {u, 2*u, 3*u};
++end loads;
++model Ordered
++  input Real u;
++  Real wet[2], force[2,3];
++equation
++  for i in 1:2 loop
++    (wet[i],force[i,:]) = loads(u+i);
++  end for;
++end Ordered;
++"#;
++    let compiled = compile(source).expect("MLS 12.4.3 permits indexed tuple receivers");
++    assert!(compiled.is_balanced());
++    let bad = source.replace("force[2,3]", "force[2,4]");
++    assert!(
++        compile(&bad).is_err(),
++        "a mismatched selected extent must be rejected"
++    );
++}
+diff --git a/crates/rumoca-core/src/structured_domain/interval.rs b/crates/rumoca-core/src/structured_domain/interval.rs
+index f1169c5..4a3e08a 100644
+--- a/crates/rumoca-core/src/structured_domain/interval.rs
++++ b/crates/rumoca-core/src/structured_domain/interval.rs
+@@ -124,6 +124,19 @@ impl IntegerInterval {
+         }
+     }
+ 
++    /// Hull of div(a, b) for a proven positive Integer interval b. With a
++    /// fixed numerator the extrema lie at the endpoints of b, including
++    /// when the numerator is negative (MLS §3.7.1.1).
++    pub fn divided_by_positive_interval(self, divisor: Self) -> Self {
++        let Some(minimum) = divisor.lower.filter(|value| *value > 0) else {
++            return Self::UNBOUNDED;
++        };
++        self.divided_by(minimum).hull(match divisor.upper {
++            Some(maximum) => self.divided_by(maximum),
++            None => Self::exact(0),
++        })
++    }
++
+     fn constant(self) -> Option<i64> {
+         self.bounds()
+             .and_then(|(lower, upper)| (lower == upper).then_some(lower))
+@@ -276,6 +289,32 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn integer_division_over_positive_divisors_contains_all_quotients() {
++        let divisors = IntegerInterval::finite(2, 7);
++        for lo in -9..=9 {
++            for hi in lo..=9 {
++                let hull = IntegerInterval::finite(lo, hi).divided_by_positive_interval(divisors);
++                let values = (lo..=hi).flat_map(|n| (2..=7).map(move |d| n / d));
++                assert_eq!(
++                    hull.bounds(),
++                    Some((values.clone().min().unwrap(), values.max().unwrap()))
++                );
++            }
++        }
++        assert_eq!(
++            IntegerInterval::exact(32)
++                .divided_by_positive_interval(half(Some(2), None))
++                .bounds(),
++            Some((0, 16))
++        );
++        assert!(
++            IntegerInterval::exact(32)
++                .divided_by_positive_interval(IntegerInterval::finite(0, 2))
++                .is_unbounded()
++        );
++    }
++
+     #[test]
+     fn an_overflowing_endpoint_becomes_unconstrained() {
+         let near_max = IntegerInterval::finite(0, i64::MAX);
+diff --git a/crates/rumoca-ir-dae/src/model.rs b/crates/rumoca-ir-dae/src/model.rs
+index 08a4330..667560b 100644
+--- a/crates/rumoca-ir-dae/src/model.rs
++++ b/crates/rumoca-ir-dae/src/model.rs
+@@ -1091,6 +1091,21 @@ pub struct FunctionBody<'dae> {
+     scope: Option<u32>,
+ }
+ 
++impl<'dae> FunctionBody<'dae> {
++    /// Check reads in a comprehension element against its own binder domain,
++    /// retaining the enclosing SSA definitions and function identity.
++    pub fn with_comprehension_domain<T>(
++        &mut self,
++        domain: DomainId<'dae>,
++        lower: impl FnOnce(&Self) -> T,
++    ) -> T {
++        let enclosing = self.domain.replace(domain);
++        let result = lower(self);
++        self.domain = enclosing;
++        result
++    }
++}
++
+ /// Non-owning linear capability for one compact function-loop transition.
+ pub struct FunctionLoop<'dae> {
+     fold: FunctionFoldId<'dae>,
+diff --git a/crates/rumoca-ir-solve/src/fmi/parameter_updates.rs b/crates/rumoca-ir-solve/src/fmi/parameter_updates.rs
+index 6c12463..400107b 100644
+--- a/crates/rumoca-ir-solve/src/fmi/parameter_updates.rs
++++ b/crates/rumoca-ir-solve/src/fmi/parameter_updates.rs
+@@ -141,6 +141,7 @@ pub(super) fn validate(
+             {
+                 Some(index)
+             }
++            ScalarSlot::P { index, .. } if problem.discrete.update_targets.contains(slot) => Some(index),
+             ScalarSlot::Y { .. } if owns(problem, SolveVariableStorageRole::State, slot) => None,
+             _ => return Err("C initialization can only assign parameters and state starts"),
+         };
+@@ -169,16 +170,32 @@ pub(super) fn validate(
+     if cursor != targets.len() {
+         return Err("missing parameter binding output");
+     }
+-    let candidates = (0..programs.len()).collect::<Vec<_>>();
++    // Discrete event-memory starts can depend on inputs supplied in initialization mode.
++    // Settle parameter bindings first to preserve their stricter variability contract.
++    let (event_rows, parameter_rows): (Vec<_>, Vec<_>) = (0..programs.len()).partition(|i| {
++        let written: &Vec<usize> = &outputs[*i];
++        !written.is_empty() && written.iter().all(|index| {
++            problem.discrete.update_targets.iter().any(|s| matches!(s, ScalarSlot::P { index: d, .. } if d == index))
++        })
++    });
+     use super::static_assertions::scalar_dependencies::{OrderError, dependency_order};
+-    dependency_order(calls, programs, &candidates, &outputs, &y, &mut p).map_err(
+-        |error| match error {
++    let explain = |error| match error {
+             OrderError::Unsupported => "unsupported parameter binding dependency operation",
+             OrderError::Unsettled => {
+                 "parameter binding depends on unsettled or non-parameter values"
+             }
+-        },
+-    )
++        };
++    let (mut order, levels) = dependency_order(calls, programs, &parameter_rows, &outputs, &y, &mut p).map_err(explain)?;
++    for run in &problem.solve_layout.variable_storage_runs {
++        if run.role == SolveVariableStorageRole::ExternalInput
++            && let ScalarSlot::P { index, .. } = run.base
++        {
++            p[index..index + run.scalar_count].fill(true);
++        }
++    }
++    let (events, event_levels) = dependency_order(calls, programs, &event_rows, &outputs, &y, &mut p).map_err(explain)?;
++    order.extend(events);
++    Ok((order, levels + event_levels))
+ }
+ 
+ /// Whether `slot` lies in a storage run of `role`.
+diff --git a/crates/rumoca-ir-solve/src/fmi/scalar_events.rs b/crates/rumoca-ir-solve/src/fmi/scalar_events.rs
+index 85b419e..4828ae5 100644
+--- a/crates/rumoca-ir-solve/src/fmi/scalar_events.rs
++++ b/crates/rumoca-ir-solve/src/fmi/scalar_events.rs
+@@ -27,6 +27,7 @@ use crate::{
+ pub(super) struct ScalarEventProfile {
+     /// Per root output: whether and how it is evaluated in Event Mode.
+     roots: Vec<ScalarEventRoot>,
++    has_quotient_memory: bool,
+     /// Destination and source of every pre binding, in binding order.
+     pre_bindings: Vec<PreLane>,
+     /// The pre bindings (indices into `pre_bindings`) an event pass advances
+@@ -156,7 +157,7 @@ pub(super) fn validate(model: &SolveModel) -> Result<ScalarEventProfile, &'stati
+             _ => Err("a discrete row writes outside the parameters"),
+         })
+         .collect::<Result<Vec<_>, _>>()?;
+-    validate_scalar_discrete_rows(discrete)?;
++    validate_scalar_discrete_rows(discrete, problem.initialization.update_targets())?;
+     let layout = &problem.solve_layout;
+     let pre_bindings = layout
+         .pre_param_bindings
+@@ -193,6 +194,7 @@ pub(super) fn validate(model: &SolveModel) -> Result<ScalarEventProfile, &'stati
+     }
+     let (pulse_rows, pulse_programs) = pulse_producers(discrete)?;
+     Ok(ScalarEventProfile {
++        has_quotient_memory: discrete.row_roles.iter().any(|role| matches!(role, DiscreteRowRole::QuotientMemory { .. })),
+         roots,
+         pre_bindings,
+         iteration_lanes,
+@@ -226,8 +228,10 @@ pub(super) fn validate(model: &SolveModel) -> Result<ScalarEventProfile, &'stati
+ 
+ fn validate_scalar_discrete_rows(
+     discrete: &crate::DiscreteSolveSystem,
++    initialized: &[ScalarSlot],
+ ) -> Result<(), &'static str> {
+-    if discrete.row_roles.iter().any(|role| {
++    if discrete.row_roles.iter().enumerate().any(|(index, role)| {
++        if matches!(role, DiscreteRowRole::QuotientMemory { .. }) && initialized.contains(&discrete.update_targets[index]) { return false; }
+         !matches!(
+             role,
+             DiscreteRowRole::Equation
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
+index e6cb74e..c679960 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
+@@ -860,6 +860,11 @@ static {{ prefix }}Status rmc_events_initialize(ModelInstance* m) {
+     bool changed = false;
+     m->rmc_override_count = 0;
+     rmc_clear_clock_lanes(m);
++{%- if ev.has_quotient_memory %}
++    /* Seed the unclocked discrete equations that supply array subscripts to
++       the first algebraic refresh. A guarded sample is still inactive here. */
++    if (rmc_discrete_owners(m, &changed, false) != {{ prefix }}OK) return {{ prefix }}Error;
++{%- endif %}
+     if (settle_values(m) != {{ prefix }}OK || rmc_relation_refresh(m, false, &changed) != {{ prefix }}OK) return {{ prefix }}Error;
+     for (size_t k = 0; k < RMC_PRE_LANES; ++k) m->p[rmc_pre_dest[k]] = rmc_pre_source(m->y, m->p, k);
+     if (rmc_discrete_owners(m, &changed, true) != {{ prefix }}OK) return {{ prefix }}Error;
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+index 0e4e825..874af09 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+@@ -43,8 +43,25 @@ return status;
+ {% endif -%}
+ {% endmacro %}
+ 
++{%- macro input_count(program) -%}{{ program.slots|selectattr("storage","equalto","input")|list|length }}{%- endmacro %}
++{%- macro output_count(program) -%}{{ program.slots|selectattr("storage","equalto","output")|list|length }}{%- endmacro %}
+ {%- macro operation(op, program, region_name, prefix="rumoca_pure_", assertion_outputs=[], source_predicate_outputs={}) -%}
+-{% if op.operation == "check_assertion" -%}
++{% if op.operation == "assigned_state" -%}
++{% set x = op.state_operation -%}
++{% if x.state == "absent" %}present{{ x.destination }}=false;
++{% elif x.state == "present" %}present{{ x.destination }}=true; {{ copy("v" ~ x.destination,"r" ~ x.source) }}
++{% elif x.state == "input" %}present{{ x.destination }}=*(const bool*)in[{{ input_count(program) }}+2*{{ x.input }}]; if(present{{ x.destination }}) {{ copy("v" ~ x.destination, "in[" ~ input_count(program) ~ "+2*" ~ x.input ~ "+1]") }}
++{% elif x.state == "output" %}*(bool*)out[{{ output_count(program) }}+2*{{ x.output }}]=present{{ x.source }}; if(present{{ x.source }}) memcpy(out[{{ output_count(program) }}+2*{{ x.output }}+1],v{{ x.source }},sizeof(v{{ x.source }}));
++{% elif x.state == "is_present" %}r{{ x.destination }}[0]=present{{ x.source }};
++{% elif x.state == "all_present" %}r{{ x.destination }}[0]=true{% for i in x.sources %} && present{{ i }}{% endfor %};
++{% elif x.state == "project_checked" %}if(!present{{ x.source }})return 1; {{ copy("r" ~ x.destination,"v" ~ x.source) }}
++{% else %}{{ fail("unsupported assigned operation") }}{% endif -%}
++{% elif op.operation == "assigned_conditional" -%}
++{% set c=op.program -%}
++{ int status=(r{{ c.condition }}[0] ? {{ region_name }}_true : {{ region_name }}_false)((const void*[]){ {% for i in c.captures %}r{{ i }},{% endfor %}{% for i in c.state_captures %}&present{{ i }},v{{ i }},{% endfor %}NULL }, (void*[]){ {% for i in c.destinations %}r{{ i }},{% endfor %}{% for i in c.state_destinations %}&present{{ i }},v{{ i }},{% endfor %}NULL },observer); if(status)return status; }
++{% elif op.operation == "check_finite" -%}
++for (size_t k=0; k<{{ program.register_types[op.operand].scalar_count }}; ++k) if (!isfinite(r{{ op.operand }}[k])) return 1;
++{% elif op.operation == "check_assertion" -%}
+ if (!r{{ op.condition }}[0]) {
+ {% if op.message.kind == "captures" -%}
+ {{ call(region_name ~ "_message", op.captures, op.destinations) -}}
+@@ -94,7 +111,7 @@ if (i{{ loop.index0 }}) b{{ loop.index0 }}[0]+={{ integer(binder.step) }};
+ { bool fold_continue[1]; int status={{ region_name }}_continue((const void*[]){ {% for input in op.destinations + op.captures %}r{{ input }},{% endfor %}{% for binder in op.domain.binders %}b{{ loop.index0 }},{% endfor %}{% if not op.destinations and not op.captures and not op.domain.binders %}NULL{% endif %} }, (void*[]){ fold_continue }, observer); if (status) return status; fold_done = !fold_continue[0]; }
+ if (!fold_done)
+ {% endif -%}
+-{ int status={{ region_name }}_fold((const void*[]){ {% for input in op.destinations + op.captures %}r{{ input }},{% endfor %}{% for binder in op.domain.binders %}b{{ loop.index0 }},{% endfor %} }, (void*[]){ {% for output in op.destinations %}r{{ output }},{% else %}NULL{% endfor %} }, observer); if (status) return status; }
++{ int status={{ region_name }}_fold((const void*[]){ {% for input in op.destinations + op.captures %}r{{ input }},{% endfor %}{% for binder in op.domain.binders %}b{{ loop.index0 }},{% endfor %}{% for i in op.state_captures %}&present{{ i }},v{{ i }},{% endfor %} }, (void*[]){ {% for output in op.destinations %}r{{ output }},{% else %}NULL{% endfor %} }, observer); if (status) return status; }
+ {% for binder in op.domain.binders %} } {% endfor %}
+ }
+ {% elif op.operation == "map" -%}
+@@ -112,6 +129,7 @@ if (i{{ loop.index0 }}) b{{ loop.index0 }}[0]+={{ integer(binder.step) }};
+ {% for binder in op.domain.binders %} } {% endfor %}
+ }
+ {% else -%}
++{% if op.destination is undefined %}{{ fail("unsupported-feature:fmi.c.pure-call: " ~ op.operation) }}{% endif -%}
+ {{ tensor(op, program) -}}
+ {% endif -%}
+ {% endmacro %}
+@@ -122,6 +140,9 @@ if (i{{ loop.index0 }}) b{{ loop.index0 }}[0]+={{ integer(binder.step) }};
+ {% set child = name ~ "_region_" ~ loop.index0 -%}
+ {% if op.operation == "check_assertion" and op.message.kind == "captures" -%}
+ {{ definition(op.message.program.body, child ~ "_message", prefix, assertion_outputs, source_predicate_outputs) -}}
++{% elif op.operation == "assigned_conditional" -%}
++{{ definition(op.program.if_true.body, child ~ "_true", prefix, assertion_outputs, source_predicate_outputs) -}}
++{{ definition(op.program.if_false.body, child ~ "_false", prefix, assertion_outputs, source_predicate_outputs) -}}
+ {% elif op.operation == "conditional" -%}
+ {{ definition(op.if_true.body, child ~ "_true", prefix, assertion_outputs, source_predicate_outputs) -}}
+ {{ definition(op.if_false.body, child ~ "_false", prefix, assertion_outputs, source_predicate_outputs) -}}
+@@ -165,6 +186,7 @@ memcpy(s{{ slot.id }}, in[{{ input.index }}], sizeof(s{{ slot.id }}));
+ {% set op = issued.operation -%}
+ {% if op.operation == "load" and op.slot in input.pointers and written.ids|select("equalto", op.destination)|list|length == 1 %}{% set alias.ids = alias.ids + [op.destination] %}{% endif -%}
+ {% endfor -%}
++{% for ty in program.assigned_states.types|default([]) %}bool present{{ loop.index0 }}=false; (void)present{{ loop.index0 }}; {{ declaration("v" ~ loop.index0, ty) }}{% endfor %}
+ {% for ty in program.register_types %}{% if loop.index0 not in alias.ids %}{{ declaration("r" ~ loop.index0, ty) }}{% endif %}{% endfor %}
+ {% for issued in program.operations %}{% set op = issued.operation %}{% if op.operation == "load" and op.destination in alias.ids %}const {{ ctype(program.register_types[op.destination]) }}* r{{ op.destination }} = s{{ op.slot }}; (void)r{{ op.destination }};
+ {% else %}{{ operation(op, program, name ~ "_region_" ~ loop.index0, prefix, assertion_outputs, source_predicate_outputs) }}{% endif %}{% endfor -%}
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/guard_facts/intervals.rs b/crates/rumoca-phase-dae/src/construction/analysis/guard_facts/intervals.rs
+index c1e2556..fd2b1a3 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/guard_facts/intervals.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/guard_facts/intervals.rs
+@@ -82,12 +82,8 @@ impl GuardFacts {
+                 }
+             }
+             (BuiltinFunction::Div, [lhs, rhs]) => self
+-                .integer_interval(rhs, scope)
+-                .bounds()
+-                .filter(|(lower, upper)| lower == upper && *lower > 0)
+-                .map_or(IntegerInterval::UNBOUNDED, |(divisor, _)| {
+-                    self.integer_interval(lhs, scope).divided_by(divisor)
+-                }),
++                .integer_interval(lhs, scope)
++                .divided_by_positive_interval(self.integer_interval(rhs, scope)),
+             _ => IntegerInterval::UNBOUNDED,
+         }
+     }
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/bounded_while/progress.rs b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/bounded_while/progress.rs
+index f958a22..7dc4c2c 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/bounded_while/progress.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/bounded_while/progress.rs
+@@ -145,7 +145,13 @@ pub(super) fn progress_bound(
+         .filter_map(|conjunct| exit_flag(conjunct))
+         .filter(|flag| !scope.integers.contains(flag.name) && !scope.reals.contains(flag.name));
+     let mut pass = head.clone();
+-    pass.observe_accesses(&block.cond, scope);
++    // MLS §11.2.3: on entry to the body every top-level conjunct is
++    // true. A successful indexed read in such a conjunct bounds its
++    // index even when the loop head lost its entry interval. Preserve
++    // short-circuit alternatives inside a conjunct (e.g. an OR).
++    for condition in &conjuncts {
++        pass.observe_accesses(condition, scope);
++    }
+     let pass = pass.assuming(&block.cond, true, scope);
+     let mut counters = Vec::new();
+     collect_written_integers(&block.stmts, scope, &mut counters);
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/multi_output_equations.rs b/crates/rumoca-phase-dae/src/construction/analysis/multi_output_equations.rs
+index f346960..a91852e 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/multi_output_equations.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/multi_output_equations.rs
+@@ -5,6 +5,8 @@ pub(in crate::construction) struct MultiOutputEquationPlan {
+     /// One receiving slot per function result ordinal; `None` is an omitted
+     /// receiver in the source tuple, or a whole record that `records` owns.
+     pub(in crate::construction) outputs: Vec<Option<VarName>>,
++    /// Scalar sizes of selected continuous receivers (MLS §10.6, §12.4.3).
++    pub(super) selected_sizes: HashMap<VarName, usize>,
+     /// The whole records that receive one record-valued result: each leaf
+     /// coordinate reads its field projection of the result.
+     pub(in crate::construction) records: Vec<MultiOutputRecord>,
+@@ -191,9 +193,11 @@ fn validate_multi_output_equation(
+     }
+     let mut outputs = Vec::with_capacity(source.receivers.len());
+     let mut records = Vec::new();
++    let mut selected_sizes = HashMap::new();
+     let mut claimed = HashSet::new();
+     let receiver_context = ReceiverValidation {
+         flat,
++        shapes,
+         roles,
+         function,
+         call_prefix: &call.prefix,
+@@ -217,13 +221,24 @@ fn validate_multi_output_equation(
+             outputs.push(None);
+             continue;
+         }
+-        outputs.push(validate_receiver(
++        let target = validate_receiver(
+             receiver_context,
+             receiver,
+             result_shape,
+             ordinal,
+             &mut claimed,
+-        )?);
++        )?;
++        if let Some(target) = &target
++            && matches!(receiver, Expression::VarRef { subscripts, .. } if !subscripts.is_empty())
++        {
++            let shape = shapes.expression_shape(receiver, shapes.model_values())?;
++            let count = shape
++                .into_iter()
++                .try_fold(1usize, |n, size| n.checked_mul(size as usize))
++                .ok_or_else(|| invalid_receiver(receiver, source.span, "has too many elements"))?;
++            selected_sizes.insert(target.clone(), count);
++        }
++        outputs.push(target);
+     }
+     if outputs.iter().all(Option::is_none) && records.is_empty() {
+         return Err(ToDaeError::unsupported_flat(
+@@ -241,12 +256,17 @@ fn validate_multi_output_equation(
+             shapes.model_values(),
+         )?;
+     }
+-    Ok(MultiOutputEquationPlan { outputs, records })
++    Ok(MultiOutputEquationPlan {
++        outputs,
++        records,
++        selected_sizes,
++    })
+ }
+ 
+ #[derive(Clone, Copy)]
+ struct ReceiverValidation<'scope> {
+     flat: &'scope flat::Model,
++    shapes: &'scope FunctionShapeAnalysis,
+     roles: &'scope HashMap<VarName, PlannedRole>,
+     function: &'scope rumoca_core::Function,
+     call_prefix: &'scope [u32],
+@@ -277,7 +297,12 @@ fn validate_receiver(
+             "must be a direct variable reference",
+         ));
+     };
+-    if !subscripts.is_empty() {
++    if !subscripts.is_empty()
++        && !matches!(
++            context.roles.get(name.var_name()),
++            Some(PlannedRole::State | PlannedRole::Output | PlannedRole::Algebraic)
++        )
++    {
+         return Err(invalid_receiver(
+             receiver,
+             context.equation_span,
+@@ -424,18 +449,9 @@ fn validate_receiver_type_and_shape(
+     span: Span,
+ ) -> Result<(), ToDaeError> {
+     let variable = &context.flat.variables[target];
+-    let declared_shape = variable
+-        .dims
+-        .iter()
+-        .map(|extent| u32::try_from(*extent))
+-        .collect::<Result<Vec<_>, _>>()
+-        .map_err(|_| {
+-            invalid_receiver(
+-                receiver,
+-                context.equation_span,
+-                "has a non-concrete declared shape",
+-            )
+-        })?;
++    let declared_shape = context
++        .shapes
++        .expression_shape(receiver, context.shapes.model_values())?;
+     let actual_shape = context
+         .call_prefix
+         .iter()
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/source_balance.rs b/crates/rumoca-phase-dae/src/construction/analysis/source_balance.rs
+index a06671e..c417082 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/source_balance.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/source_balance.rs
+@@ -79,7 +79,13 @@ pub(super) fn source_balance(input: SourceBalanceInput<'_>) -> Result<BalanceDet
+                 detail.discrete_value_definitions += plans.len();
+             }
+             EquationPartition::MultiOutput { receivers, .. } => {
+-                add_multi_output_receivers(&mut detail, flat, roles, &receivers)?;
++                add_multi_output_receivers(
++                    &mut detail,
++                    flat,
++                    roles,
++                    &receivers,
++                    multi_output_equations.get(&row),
++                )?;
+             }
+             EquationPartition::ConsumedDiscreteValue => {}
+         }
+@@ -103,9 +109,13 @@ fn add_multi_output_receivers(
+     flat: &flat::Model,
+     roles: &HashMap<VarName, PlannedRole>,
+     receivers: &[VarName],
++    plan: Option<&MultiOutputEquationPlan>,
+ ) -> Result<(), ToDaeError> {
+     for receiver in receivers {
+-        let scalar_count = checked_shape_size(receiver, &flat.variables[receiver])?;
++        let scalar_count = match plan.and_then(|plan| plan.selected_sizes.get(receiver)) {
++            Some(count) => *count,
++            None => checked_shape_size(receiver, &flat.variables[receiver])?,
++        };
+         match roles[receiver] {
+             PlannedRole::DiscreteReal => detail.discrete_real_equations += scalar_count,
+             PlannedRole::DiscreteValue => detail.discrete_value_definitions += scalar_count,
+@@ -130,7 +140,10 @@ fn multi_output_equation_scalar_count(
+         .chain(records)
+         .try_fold(0usize, |count, target| {
+             count
+-                .checked_add(checked_shape_size(target, &flat.variables[target])?)
++                .checked_add(match plan.selected_sizes.get(target) {
++                    Some(count) => *count,
++                    None => checked_shape_size(target, &flat.variables[target])?,
++                })
+                 .ok_or_else(|| {
+                     ToDaeError::unsupported_flat(
+                         "multi-output equation",
+diff --git a/crates/rumoca-phase-dae/src/construction/expression.rs b/crates/rumoca-phase-dae/src/construction/expression.rs
+index e15f1bb..6df9455 100644
+--- a/crates/rumoca-phase-dae/src/construction/expression.rs
++++ b/crates/rumoca-phase-dae/src/construction/expression.rs
+@@ -350,7 +350,7 @@ fn lower_expression_event<'dae>(
+     }
+     match plan {
+         Some(ExpressionEventPlan::StateRelation) => {
+-            lower_state_relation_root(construction, lowered, provenance)
++            lower_model_relation_root(construction, lowered, provenance)
+         }
+         Some(ExpressionEventPlan::DynamicTimeEvent(operand)) => {
+             if construction
+@@ -386,6 +386,13 @@ fn lower_model_relation_root<'dae>(
+ ) -> Result<(), dae::DaeConstructionError> {
+     let domain =
+         construction.expressions(|expressions| expressions.binder_domain(lowered, provenance))?;
++    // A binder-independent relation can still be activated by a particular
++    // loop iteration (for example i == 2 and wind < 0). Its activation and
++    // comparison must be owned by the same structured root.
++    let domain = match (domain, construction.model_activation_guard(lowered, provenance)?) {
++        (None, Some(guard)) => construction.expressions(|e| e.binder_domain(guard, provenance))?,
++        (domain, _) => domain,
++    };
+     match domain {
+         Some(domain) => construction
+             .conditions(|conditions| conditions.structured_root(domain, lowered, provenance))
+diff --git a/crates/rumoca-phase-dae/src/construction/function_body.rs b/crates/rumoca-phase-dae/src/construction/function_body.rs
+index f2539e1..bfa0cf8 100644
+--- a/crates/rumoca-phase-dae/src/construction/function_body.rs
++++ b/crates/rumoca-phase-dae/src/construction/function_body.rs
+@@ -411,7 +411,7 @@ fn lower_one_total_function_array_definition<'dae>(
+         unreachable!("analysis proves total array-definition statements")
+     };
+     require_proven_function_reads(construction, input.symbols, body, assignment.proven_reads())?;
+-    let element = lower_function_expression_scoped(
++    let element = body.with_comprehension_domain(input.domain, |body| lower_function_expression_scoped(
+         construction,
+         input.symbols.coordinates,
+         input.symbols.functions,
+@@ -419,7 +419,7 @@ fn lower_one_total_function_array_definition<'dae>(
+         body,
+         input.binders,
+         value,
+-    )?;
++    ))?;
+     let generated = dae::DaeProvenance::generated(
+         dae::DaeGeneration::FunctionLoopLowering,
+         input.owner.span(),
+diff --git a/crates/rumoca-phase-dae/src/construction/function_shapes/integer_bounds.rs b/crates/rumoca-phase-dae/src/construction/function_shapes/integer_bounds.rs
+index 0127d77..85a7cd5 100644
+--- a/crates/rumoca-phase-dae/src/construction/function_shapes/integer_bounds.rs
++++ b/crates/rumoca-phase-dae/src/construction/function_shapes/integer_bounds.rs
+@@ -66,6 +66,10 @@ impl ShapeEnvironment {
+                         .unwrap_or(IntegerInterval::UNBOUNDED)
+                 }
+             }
++            Expression::If { branches, else_branch, .. } => branches.iter().fold(
++                self.proven_integer_interval(else_branch),
++                |bounds, (_, arm)| bounds.hull(self.proven_integer_interval(arm)),
++            ),
+             Expression::Unary { op, rhs, .. } => match op {
+                 OpUnary::Plus => self.proven_integer_interval(rhs),
+                 OpUnary::Minus => self.proven_integer_interval(rhs).negate(),
+diff --git a/crates/rumoca-phase-dae/src/construction/function_shapes/integer_bounds/operations.rs b/crates/rumoca-phase-dae/src/construction/function_shapes/integer_bounds/operations.rs
+index 933ccf3..aef3bcd 100644
+--- a/crates/rumoca-phase-dae/src/construction/function_shapes/integer_bounds/operations.rs
++++ b/crates/rumoca-phase-dae/src/construction/function_shapes/integer_bounds/operations.rs
+@@ -20,7 +20,7 @@ pub(super) fn builtin(
+     match (function, positive_constant) {
+         (BuiltinFunction::Min, _) => lhs.minimum(rhs),
+         (BuiltinFunction::Max, _) => lhs.maximum(rhs),
+-        (BuiltinFunction::Div, Some(divisor)) => lhs.divided_by(divisor),
++        (BuiltinFunction::Div, _) => lhs.divided_by_positive_interval(rhs),
+         (BuiltinFunction::Mod, Some(divisor)) => IntegerInterval::finite(0, divisor - 1),
+         _ => IntegerInterval::UNBOUNDED,
+     }
+diff --git a/crates/rumoca-phase-flatten/src/equations/mod.rs b/crates/rumoca-phase-flatten/src/equations/mod.rs
+index 01de9dd..fa6a634 100644
+--- a/crates/rumoca-phase-flatten/src/equations/mod.rs
++++ b/crates/rumoca-phase-flatten/src/equations/mod.rs
+@@ -1158,7 +1158,15 @@ fn expand_for_equation(
+         &mut result,
+         cheapen_plan.as_ref(),
+     )?;
+-    if iterations.is_empty() {
++    // A tuple equation defines one residual per retained result (MLS §12.4.3).
++    // Its materialized rows carry the receivers and ordinal projections; a
++    // structured arithmetic residual would try to subtract a call from a tuple.
++    let projected_results = interiors.materialized()
++        && result.equations.iter().any(|row| {
++            matches!(&row.residual, rumoca_core::Expression::Binary { lhs, .. }
++            if matches!(lhs.as_ref(), rumoca_core::Expression::Tuple { .. }))
++        });
++    if iterations.is_empty() || projected_results {
+         return Ok(result);
+     }
+     let domain = compact_domain_from_iterations(indices, &iterations, span)?;
+diff --git a/crates/rumoca-phase-solve/src/lib.rs b/crates/rumoca-phase-solve/src/lib.rs
+index e08d2d5..b83b37a 100644
+--- a/crates/rumoca-phase-solve/src/lib.rs
++++ b/crates/rumoca-phase-solve/src/lib.rs
+@@ -117,6 +117,7 @@ pub(crate) fn lower_selection(
+     package.problem.continuous.reduced_chart_set.exchanges = selection.exchanges.clone();
+     attach_alternate_chart_plans(
+         &mut package.problem,
++        &package.pure_calls,
+         &selection.alternates,
+         overrides,
+         profile,
+@@ -138,6 +139,7 @@ pub(crate) fn lower_selection(
+ /// relies on. A first-integral mirror keeps its existing failure semantics.
+ fn attach_alternate_chart_plans(
+     problem: &mut solve::SolveProblem,
++    primary_calls: &solve::SolvePureCallTable,
+     alternates: &[Option<rumoca_phase_structural::PreparedDae<'_>>],
+     overrides: &std::collections::HashMap<String, f64>,
+     profile: RefreshProfile,
+@@ -180,7 +182,10 @@ fn attach_alternate_chart_plans(
+             }
+             Err(error) => return Err(error),
+         };
+-        if exchange && !same_solver_layout(&lowered, &base) {
++        // Alternate plans execute under the primary's call table after the local
++        // lowering package is dropped. Site ABIs are part of that shared layout.
++        if exchange && (!same_solver_layout(&lowered, &base)
++            || solve::validate_problem_pure_call_sites(&lowered, primary_calls).is_err()) {
+             withheld.push((offset + 1, solve::ChartExchangeStatus::WithheldByLayout));
+             continue;
+         }

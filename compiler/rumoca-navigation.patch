@@ -1,0 +1,415 @@
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots.rs b/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots.rs
+index b285083..5fe6954 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots.rs
+@@ -76,8 +76,30 @@ impl Snapshots<'_> {
+         active: Option<&Expression>,
+     ) -> Result<Vec<rumoca_core::Statement>, ToDaeError> {
+         let mut normalized = Vec::with_capacity(statements.len());
+-        for statement in statements {
+-            self.statement(statement, active, &mut normalized)?;
++        let mut remaining = statements;
++        while let Some((first, rest)) = remaining.split_first() {
++            if let Some(selection) = active {
++                // A straight-line region executes under one captured selection.
++                // Keeping its definitions and uses together preserves dominance.
++                let length = remaining.iter().take_while(|stmt|
++                    !statement_contains_loop(stmt) && !matches!(stmt,
++                        rumoca_core::Statement::Empty { generated_boolean: Some(_), .. })
++                ).count();
++                if length > 0 {
++                    normalized.push(rumoca_core::Statement::If {
++                        cond_blocks: vec![rumoca_core::StatementBlock {
++                            cond: selection.clone(),
++                            stmts: remaining[..length].to_vec(),
++                        }],
++                        else_block: None,
++                        span: expression_span(selection)?,
++                    });
++                    remaining = &remaining[length..];
++                    continue;
++                }
++            }
++            self.statement(first, active, &mut normalized)?;
++            remaining = rest;
+         }
+         Ok(normalized)
+     }
+@@ -89,6 +111,28 @@ impl Snapshots<'_> {
+         normalized: &mut Vec<rumoca_core::Statement>,
+     ) -> Result<(), ToDaeError> {
+         match statement {
++            // Each generated exit state is reset before the loop that owns it.
++            // If an enclosing selection moves into that loop, its reset must
++            // dominate the selected iteration as well. A false initialization
++            // only initializes that private exit state; true exit stores still
++            // execute under their original branch selection.
++            rumoca_core::Statement::Empty {
++                generated_boolean: Some(_),
++                ..
++            } if super::function_returns::generated_boolean_definition(statement, self.guards)?
++                .is_some_and(|guard| {
++                    guard.mutable
++                        && matches!(
++                            guard.value,
++                            Expression::Literal {
++                                value: Literal::Boolean(false),
++                                ..
++                            }
++                        )
++                }) =>
++            {
++                normalized.push(statement.clone());
++            }
+             // The selection is invariant in the loop and the static range is
+             // evaluated by no runtime path, so `if g then for .. B` is
+             // `for .. if g then B`, and B's own conditionals are captured on
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots/tests.rs b/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots/tests.rs
+index ab44b00..7a1a85b 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots/tests.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots/tests.rs
+@@ -305,3 +305,33 @@ fn lexical_loop_binding_refuses_missing_normalizer_decisions() {
+         snapshot_loop_conditionals_with_entries(&nested_mutable_gate(), &mut guards).unwrap();
+     bind_loop_selections(&normalized, &[]);
+ }
++
++#[test]
++fn selected_nested_loop_resets_its_private_break_state_before_reading_it() {
++    let inner = for_loop("k", vec![Statement::Break { span: span(40) }], span(41));
++    let outer = for_loop("j", vec![inner], span(42));
++    let body = vec![Statement::If {
++        cond_blocks: vec![rumoca_core::StatementBlock {
++            cond: read("visible", span(30)),
++            stmts: vec![outer],
++        }],
++        else_block: None,
++        span: span(31),
++    }];
++    let mut exits = normalize_function_returns(&body, span(0)).unwrap();
++    let normalized = snapshot_loop_conditionals(&exits.statements, &mut exits.guards).unwrap();
++    let Statement::For { equations, .. } = &normalized[1] else {
++        panic!("expected outer loop");
++    };
++    let reset = super::function_returns::generated_boolean_definition(&equations[0], &exits.guards)
++        .unwrap()
++        .unwrap();
++    assert!(reset.mutable);
++    assert!(matches!(
++        reset.value,
++        Expression::Literal {
++            value: Literal::Boolean(false),
++            ..
++        }
++    ));
++}
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/dependent_domains.rs b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/dependent_domains.rs
+index 388122a..9e492d4 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/dependent_domains.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/dependent_domains.rs
+@@ -110,9 +110,16 @@ fn rectangularize_statement(
+             continue;
+         }
+         range_facts.refine(&mut index_shapes);
+-        let Some(envelope) =
++        let envelope = if let Some(envelope) =
+             dependent_range_envelope(&index.range, &index_static, &index_shapes, &bounds)?
+-        else {
++        {
++            envelope
++        } else if indices.len() == 1
++            && let Some(envelope) =
++                indexed_loop_envelope(index, equations, &index_static, &index_shapes)?
++        {
++            envelope
++        } else {
+             rectangular.push(index.clone());
+             continue;
+         };
+@@ -157,6 +164,198 @@ fn rectangularize_statement(
+     })
+ }
+ 
++/// An unconditional array read in the iteration's first expression bounds
++/// every successful ascending, unit-step iteration. Keep one extra iteration
++/// to diagnose an oversized domain at the original point in execution. A
++/// prior break/return may legitimately exit before this first invalid index.
++fn indexed_loop_envelope(
++    index: &rumoca_core::ForIndex,
++    equations: &[rumoca_core::Statement],
++    static_integers: &HashMap<VarName, i64>,
++    shapes: &ShapeEnvironment,
++) -> Result<Option<DependentEnvelope>, ToDaeError> {
++    let Expression::Range {
++        start, step: None, ..
++    } = &index.range
++    else {
++        return Ok(None);
++    };
++    let Some(lower) = static_shape_integer_expression(start, static_integers, shapes)? else {
++        return Ok(None);
++    };
++    let first = match equations.first() {
++        Some(rumoca_core::Statement::Assignment { value, .. }) => Some(value),
++        Some(rumoca_core::Statement::If { cond_blocks, .. }) => {
++            cond_blocks.first().map(|b| &b.cond)
++        }
++        _ => None,
++    };
++    let extent = first
++        .and_then(|expr| eager_index_extent(expr, index, shapes))
++        .or_else(|| guarded_effect_extent(equations, index, shapes, static_integers));
++    let Some(extent) = extent else {
++        return Ok(None);
++    };
++    if lower < 1 || lower > extent + 1 {
++        return Ok(None);
++    }
++    Ok(Some(DependentEnvelope {
++        lower,
++        upper: extent + 1,
++        step: 1,
++    }))
++}
++
++/// A scan guarded by `invariant && row[i] == ...` may perform no read at
++/// all. Beyond the axis extent its first iteration either diagnoses a checked
++/// read or performs no writes. In the latter case every subsequent iteration
++/// follows the same invariant path from the same state.
++fn guarded_effect_extent(
++    statements: &[rumoca_core::Statement],
++    index: &rumoca_core::ForIndex,
++    shapes: &ShapeEnvironment,
++    static_integers: &HashMap<VarName, i64>,
++) -> Option<i64> {
++    use rumoca_core::Statement;
++    match statements {
++        [
++            Statement::For {
++                indices, equations, ..
++            },
++        ] if indices.iter().all(|inner| {
++            inner.ident != index.ident
++                && static_function_range(&inner.range, static_integers, shapes)
++                    .ok()
++                    .flatten()
++                    .is_some()
++        }) =>
++        {
++            guarded_effect_extent(equations, index, shapes, static_integers)
++        }
++        [
++            Statement::If {
++                cond_blocks,
++                else_block: None,
++                ..
++            },
++        ] => {
++            let [branch] = cond_blocks.as_slice() else {
++                return None;
++            };
++            let Expression::Binary {
++                op: OpBinary::And,
++                lhs,
++                rhs,
++                ..
++            } = &branch.cond
++            else {
++                return None;
++            };
++            if !repeatable_guard(lhs) || expression_reads_name(lhs, &VarName::new(&index.ident)) {
++                return None;
++            }
++            eager_index_extent(rhs, index, shapes)
++        }
++        _ => None,
++    }
++}
++
++/// Only compare existing locals and literals. A function call could have a
++/// side effect or read external state even when the iterator does not occur.
++fn repeatable_guard(expr: &Expression) -> bool {
++    let simple_subscripts = |subscripts: &[Subscript]| {
++        subscripts.iter().all(|s| match s {
++            Subscript::Expr { expr, .. } => repeatable_guard(expr),
++            Subscript::Index { .. } => true,
++            _ => false,
++        })
++    };
++    match expr {
++        Expression::Literal { .. } => true,
++        Expression::VarRef { subscripts, .. } => simple_subscripts(subscripts),
++        Expression::Index {
++            base, subscripts, ..
++        } => repeatable_guard(base) && simple_subscripts(subscripts),
++        Expression::Binary { lhs, rhs, .. } => repeatable_guard(lhs) && repeatable_guard(rhs),
++        Expression::Unary { rhs, .. } => repeatable_guard(rhs),
++        _ => false,
++    }
++}
++
++fn eager_index_extent(
++    expr: &Expression,
++    index: &rumoca_core::ForIndex,
++    shapes: &ShapeEnvironment,
++) -> Option<i64> {
++    match expr {
++        Expression::VarRef {
++            name, subscripts, ..
++        } => indexed_axis_extent(name, subscripts, index, shapes),
++        Expression::Index {
++            base, subscripts, ..
++        } => {
++            let Expression::VarRef {
++                name,
++                subscripts: inner,
++                ..
++            } = base.as_ref()
++            else {
++                return None;
++            };
++            if !inner.is_empty() {
++                return None;
++            }
++            indexed_axis_extent(name, subscripts, index, shapes)
++        }
++        Expression::Unary { rhs, .. } => eager_index_extent(rhs, index, shapes),
++        Expression::BuiltinCall {
++            function: BuiltinFunction::Abs,
++            args,
++            ..
++        } if args.len() == 1 => eager_index_extent(&args[0], index, shapes),
++        Expression::Binary { op, lhs, rhs, .. } => {
++            eager_index_extent(lhs, index, shapes).or_else(|| {
++                if matches!(op, OpBinary::And | OpBinary::Or) {
++                    None
++                } else {
++                    eager_index_extent(rhs, index, shapes)
++                }
++            })
++        }
++        _ => None,
++    }
++}
++
++fn indexed_axis_extent(
++    name: &Reference,
++    subscripts: &[Subscript],
++    index: &rumoca_core::ForIndex,
++    shapes: &ShapeEnvironment,
++) -> Option<i64> {
++    let shape = shapes.get(name.var_name())?;
++    subscripts
++        .iter()
++        .zip(shape)
++        .find_map(|(subscript, extent)| {
++            let Subscript::Expr { expr, .. } = subscript else {
++                return None;
++            };
++            let Expression::VarRef {
++                name, subscripts, ..
++            } = expr.as_ref()
++            else {
++                return None;
++            };
++            let bound = match index.binder {
++                rumoca_core::IndexBinderProvenance::Source(id) => name.target_def_id() == Some(id),
++                rumoca_core::IndexBinderProvenance::Generated => {
++                    name.is_generated() && name.as_str() == index.ident
++                }
++            };
++            (bound && subscripts.is_empty()).then_some(i64::from(*extent))
++        })
++}
++
+ fn rectangularize_loop_body(
+     equations: &[rumoca_core::Statement],
+     scope: Scope<'_>,
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/dependent_domains/tests.rs b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/dependent_domains/tests.rs
+index 91fa46b..3b43e1d 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/dependent_domains/tests.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/loop_compaction/dependent_domains/tests.rs
+@@ -484,3 +484,84 @@ fn membership_guard_comprehension_preserves_body_read_admission_and_issued_ident
+         assert_guard_identity(&branches[0].0, issued);
+     }
+ }
++
++#[test]
++fn indexed_runtime_domain_preserves_empty_short_and_invalid_iterations() {
++    use super::super::preservation_values::Value;
++    let body = vec![dynamic_loop(
++        integer(1),
++        None,
++        var("n"),
++        vec![assign(
++            "y",
++            binary(
++                OpBinary::Add,
++                var("y"),
++                element(
++                    "r",
++                    Expression::VarRef {
++                        name: Reference::generated("j"),
++                        subscripts: vec![],
++                        span: span(),
++                    },
++                ),
++            ),
++        )],
++    )];
++    let mut shapes = ShapeEnvironment::default();
++    shapes.insert(VarName::new("r"), vec![3]);
++    let normalized =
++        rectangularize_dependent_loops(&body, &HashMap::new(), &shapes, &ValueKinds::default())
++            .unwrap();
++    assert_ne!(normalized, body);
++    for count in [-1, 0, 1, 3, 4, 10] {
++        let mut values = ENTRY_VALUES[0].environment();
++        values.insert(VarName::new("n"), Value::Integer(count));
++        let expected = interpret(&body, &values);
++        let actual = interpret(&normalized, &values);
++        assert_eq!(expected.is_err(), count > 3);
++        assert_eq!(expected, actual);
++    }
++}
++
++#[test]
++fn guarded_indexed_scan_requires_a_repeatable_iterator_independent_predicate() {
++    let iterator = Expression::VarRef {
++        name: Reference::generated("j"),
++        subscripts: vec![],
++        span: span(),
++    };
++    let mut shapes = ShapeEnvironment::default();
++    shapes.insert(VarName::new("r"), vec![3]);
++    let condition = |lhs| rumoca_core::Statement::If {
++        cond_blocks: vec![rumoca_core::StatementBlock {
++            cond: binary(
++                OpBinary::And,
++                lhs,
++                binary(OpBinary::Gt, element("r", iterator.clone()), real(2.0)),
++            ),
++            stmts: vec![assign("y", real(7.0))],
++        }],
++        else_block: None,
++        span: span(),
++    };
++    for (lhs, accepted) in [
++        (var("enabled"), true),
++        (binary(OpBinary::Gt, iterator.clone(), integer(7)), false),
++    ] {
++        let source = vec![dynamic_loop(
++            integer(1),
++            None,
++            var("n"),
++            vec![for_loop("i", 3, vec![condition(lhs)])],
++        )];
++        let actual = rectangularize_dependent_loops(
++            &source,
++            &HashMap::new(),
++            &shapes,
++            &ValueKinds::default(),
++        )
++        .unwrap();
++        assert_eq!(source != actual, accepted);
++    }
++}

@@ -1,0 +1,16 @@
+{
+  "name": "pelagic-peer-bundle",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "esbuild entry.mjs --bundle --format=esm --minify --outfile=../../viewer/vendor/trystero.mjs"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@trystero-p2p/nostr": "0.25.3",
+    "esbuild": "0.28.2"
+  },
+  "private": "true",
+  "devDependencies": {
+    "three": "0.160.1"
+  }
+}

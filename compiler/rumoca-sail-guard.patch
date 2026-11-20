@@ -1,0 +1,37 @@
+diff --git a/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots.rs b/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots.rs
+index b285083..5fe6954 100644
+--- a/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots.rs
++++ b/crates/rumoca-phase-dae/src/construction/analysis/branch_snapshots.rs
+@@ -76,8 +76,30 @@ impl Snapshots<'_> {
+         active: Option<&Expression>,
+     ) -> Result<Vec<rumoca_core::Statement>, ToDaeError> {
+         let mut normalized = Vec::with_capacity(statements.len());
+-        for statement in statements {
+-            self.statement(statement, active, &mut normalized)?;
++        let mut remaining = statements;
++        while let Some((first, rest)) = remaining.split_first() {
++            if let Some(selection) = active {
++                // A straight-line region executes under one captured selection.
++                // Keeping its definitions and uses together preserves dominance.
++                let length = remaining.iter().take_while(|stmt|
++                    !statement_contains_loop(stmt) && !matches!(stmt,
++                        rumoca_core::Statement::Empty { generated_boolean: Some(_), .. })
++                ).count();
++                if length > 0 {
++                    normalized.push(rumoca_core::Statement::If {
++                        cond_blocks: vec![rumoca_core::StatementBlock {
++                            cond: selection.clone(),
++                            stmts: remaining[..length].to_vec(),
++                        }],
++                        else_block: None,
++                        span: expression_span(selection)?,
++                    });
++                    remaining = &remaining[length..];
++                    continue;
++                }
++            }
++            self.statement(first, active, &mut normalized)?;
++            remaining = rest;
+         }
+         Ok(normalized)
+     }

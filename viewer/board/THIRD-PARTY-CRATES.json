@@ -1,0 +1,3163 @@
+[
+ {
+  "name": "addr2line",
+  "version": "0.25.1",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "e99d88d232bf57d7"
+  ]
+ },
+ {
+  "name": "adler2",
+  "version": "2.0.1",
+  "license": "0BSD OR MIT OR Apache-2.0",
+  "authors": [
+   "Jonas Schievink <jonasschievink@gmail.com>",
+   "oyvindln <oyvindln@users.noreply.github.com>"
+  ],
+  "notices": [
+   "8ada45cd9f843acf",
+   "23f18e03dc49df91",
+   "861399f8c21c042b"
+  ]
+ },
+ {
+  "name": "aho-corasick",
+  "version": "1.1.4",
+  "license": "Unlicense OR MIT",
+  "authors": [
+   "Andrew Gallant <jamslam@gmail.com>"
+  ],
+  "notices": [
+   "0f96a83840e146e4",
+   "01c266bced4a434d",
+   "7e12e5df4bae12cb"
+  ]
+ },
+ {
+  "name": "anstream",
+  "version": "1.0.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "anstyle",
+  "version": "1.0.14",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "anstyle-parse",
+  "version": "1.0.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "anstyle-query",
+  "version": "1.1.5",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "anyhow",
+  "version": "1.0.103",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "approx",
+  "version": "0.5.1",
+  "license": "Apache-2.0",
+  "authors": [
+   "Brendan Zabarauskas <bjzaba@yahoo.com.au>"
+  ],
+  "notices": [
+   "cfc7749b96f63bd3"
+  ]
+ },
+ {
+  "name": "arrayref",
+  "version": "0.3.9",
+  "license": "BSD-2-Clause",
+  "authors": [
+   "David Roundy <roundyd@physics.oregonstate.edu>"
+  ],
+  "notices": [
+   "1bc7e6f475b3ec99"
+  ]
+ },
+ {
+  "name": "arrayvec",
+  "version": "0.7.8",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "bluss"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "4da95ec4ecb65b73"
+  ]
+ },
+ {
+  "name": "assert_cmd",
+  "version": "2.2.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Pascal Hertleif <killercup@gmail.com>",
+   "Ed Page <eopage@gmail.com>"
+  ],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "autocfg",
+  "version": "1.5.1",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [
+   "Josh Stone <cuviper@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "27995d58ad5c1145"
+  ]
+ },
+ {
+  "name": "backtrace",
+  "version": "0.3.76",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "backtrace-ext",
+  "version": "0.2.1",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "be4d7e0da123494b"
+  ]
+ },
+ {
+  "name": "bincode",
+  "version": "1.3.3",
+  "license": "MIT",
+  "authors": [
+   "Ty Overby <ty@pre-alpha.com>",
+   "Francesco Mazzoli <f@mazzo.li>",
+   "David Tolnay <dtolnay@gmail.com>",
+   "Zoey Riordan <zoey@dos.cafe>"
+  ],
+  "notices": [
+   "90d7e062634054e6"
+  ]
+ },
+ {
+  "name": "bitflags",
+  "version": "1.3.2",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6485b8ed310d3f03"
+  ]
+ },
+ {
+  "name": "bitflags",
+  "version": "2.13.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6485b8ed310d3f03"
+  ]
+ },
+ {
+  "name": "blake3",
+  "version": "1.8.5",
+  "license": "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception",
+  "authors": [
+   "Jack O'Connor <oconnor663@gmail.com>",
+   "Samuel Neves"
+  ],
+  "notices": [
+   "37eb920117b5b75d"
+  ]
+ },
+ {
+  "name": "block-buffer",
+  "version": "0.10.4",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "RustCrypto Developers"
+  ],
+  "notices": [
+   "a9040321c3712d8f",
+   "d5c22aa3118d240e"
+  ]
+ },
+ {
+  "name": "bstr",
+  "version": "1.12.3",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Andrew Gallant <jamslam@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6b7374c39a57e57f",
+   "68653aaa727a2bfa"
+  ]
+ },
+ {
+  "name": "bumpalo",
+  "version": "3.20.3",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Nick Fitzgerald <fitzgen@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "65f94e99ddaf4f5d"
+  ]
+ },
+ {
+  "name": "bytemuck",
+  "version": "1.25.0",
+  "license": "Zlib OR Apache-2.0 OR MIT",
+  "authors": [
+   "Lokathor <zefria@gmail.com>"
+  ],
+  "notices": [
+   "e3ba223bb1423f0a",
+   "9df9ba60a11af705",
+   "84b34dd7608f7fb9"
+  ]
+ },
+ {
+  "name": "cc",
+  "version": "1.2.66",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Alex Crichton <alex@alexcrichton.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "cfg-if",
+  "version": "1.0.4",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Alex Crichton <alex@alexcrichton.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "clap",
+  "version": "4.6.1",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "clap_builder",
+  "version": "4.6.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "clap_derive",
+  "version": "4.6.1",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "clap_lex",
+  "version": "1.1.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "codespan-reporting",
+  "version": "0.13.1",
+  "license": "Apache-2.0",
+  "authors": [
+   "Brendan Zabarauskas <bjzaba@yahoo.com.au>"
+  ],
+  "notices": [
+   "c71d239df91726fc"
+  ]
+ },
+ {
+  "name": "colorchoice",
+  "version": "1.0.5",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "console_error_panic_hook",
+  "version": "0.1.7",
+  "license": "Apache-2.0/MIT",
+  "authors": [
+   "Nick Fitzgerald <fitzgen@gmail.com>"
+  ],
+  "notices": [
+   "353b508bbc50274d",
+   "77674336af8ded21"
+  ]
+ },
+ {
+  "name": "constant_time_eq",
+  "version": "0.4.2",
+  "license": "CC0-1.0 OR MIT-0 OR Apache-2.0",
+  "authors": [
+   "Cesar Eduardo Barros <cesarb@cesarb.eti.br>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "a2010f343487d3f7",
+   "9a3aeb3f63659c4c"
+  ]
+ },
+ {
+  "name": "crc32fast",
+  "version": "1.5.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Sam Rijs <srijs@airpost.net>",
+   "Alex Crichton <alex@alexcrichton.com>"
+  ],
+  "notices": [
+   "c6596eb7be8581c1",
+   "61d383b05b87d78f"
+  ]
+ },
+ {
+  "name": "crossbeam-deque",
+  "version": "0.8.6",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "5734ed989dfca1f6"
+  ]
+ },
+ {
+  "name": "crossbeam-epoch",
+  "version": "0.9.18",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "5734ed989dfca1f6"
+  ]
+ },
+ {
+  "name": "crossbeam-utils",
+  "version": "0.8.21",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "5734ed989dfca1f6"
+  ]
+ },
+ {
+  "name": "crypto-common",
+  "version": "0.1.7",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "RustCrypto Developers"
+  ],
+  "notices": [
+   "a9040321c3712d8f",
+   "3521672491a34794"
+  ]
+ },
+ {
+  "name": "darling",
+  "version": "0.20.11",
+  "license": "MIT",
+  "authors": [
+   "Ted Driggs <ted.driggs@outlook.com>"
+  ],
+  "notices": [
+   "8ea93490d74a5a1b"
+  ]
+ },
+ {
+  "name": "darling_core",
+  "version": "0.20.11",
+  "license": "MIT",
+  "authors": [
+   "Ted Driggs <ted.driggs@outlook.com>"
+  ],
+  "notices": [
+   "8ea93490d74a5a1b"
+  ]
+ },
+ {
+  "name": "darling_macro",
+  "version": "0.20.11",
+  "license": "MIT",
+  "authors": [
+   "Ted Driggs <ted.driggs@outlook.com>"
+  ],
+  "notices": [
+   "8ea93490d74a5a1b"
+  ]
+ },
+ {
+  "name": "deranged",
+  "version": "0.5.8",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Jacob Pratt <jacob@jhpratt.dev>"
+  ],
+  "notices": [
+   "231c837c45eb53f1",
+   "edd65bdd88957a20"
+  ]
+ },
+ {
+  "name": "derive_builder",
+  "version": "0.20.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Colin Kiegel <kiegel@gmx.de>",
+   "Pascal Hertleif <killercup@gmail.com>",
+   "Jan-Erik Rediger <janerik@fnordig.de>",
+   "Ted Driggs <ted.driggs@outlook.com>"
+  ],
+  "notices": [
+   "c6596eb7be8581c1",
+   "8c9612877aacfa1b"
+  ]
+ },
+ {
+  "name": "derive_builder_core",
+  "version": "0.20.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Colin Kiegel <kiegel@gmx.de>",
+   "Pascal Hertleif <killercup@gmail.com>",
+   "Jan-Erik Rediger <janerik@fnordig.de>",
+   "Ted Driggs <ted.driggs@outlook.com>"
+  ],
+  "notices": [
+   "c6596eb7be8581c1",
+   "8c9612877aacfa1b"
+  ]
+ },
+ {
+  "name": "derive_builder_macro",
+  "version": "0.20.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Colin Kiegel <kiegel@gmx.de>",
+   "Pascal Hertleif <killercup@gmail.com>",
+   "Jan-Erik Rediger <janerik@fnordig.de>",
+   "Ted Driggs <ted.driggs@outlook.com>"
+  ],
+  "notices": [
+   "c6596eb7be8581c1",
+   "8c9612877aacfa1b"
+  ]
+ },
+ {
+  "name": "difflib",
+  "version": "0.4.0",
+  "license": "MIT",
+  "authors": [
+   "Dima Kudosh <dimakudosh@gmail.com>"
+  ],
+  "notices": []
+ },
+ {
+  "name": "digest",
+  "version": "0.10.7",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "RustCrypto Developers"
+  ],
+  "notices": [
+   "a9040321c3712d8f",
+   "9e0dfd2dd4173a53"
+  ]
+ },
+ {
+  "name": "displaydoc",
+  "version": "0.2.6",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Jane Lusby <jlusby@yaah.dev>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "dyn-stack",
+  "version": "0.13.2",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "bf5a93d1014429b4"
+  ]
+ },
+ {
+  "name": "dyn-stack-macros",
+  "version": "0.1.3",
+  "license": "MIT",
+  "authors": [
+   "sarah qui\u00f1ones<sarah@veganb.tw>"
+  ],
+  "notices": [
+   "4263a9907c8e8d79"
+  ]
+ },
+ {
+  "name": "either",
+  "version": "1.16.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "7576269ea71f767b"
+  ]
+ },
+ {
+  "name": "env_filter",
+  "version": "2.0.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "env_logger",
+  "version": "0.11.11",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "equator",
+  "version": "0.2.2",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "3477627e4a66b980"
+  ]
+ },
+ {
+  "name": "equator",
+  "version": "0.6.0",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "97d3424e347e8fa2"
+  ]
+ },
+ {
+  "name": "equator-macro",
+  "version": "0.2.1",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "3477627e4a66b980"
+  ]
+ },
+ {
+  "name": "equator-macro",
+  "version": "0.6.0",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "97d3424e347e8fa2"
+  ]
+ },
+ {
+  "name": "equivalent",
+  "version": "1.0.2",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "7365cc8878a1d7ce"
+  ]
+ },
+ {
+  "name": "faer",
+  "version": "0.24.4",
+  "license": "MIT",
+  "authors": [
+   "sarah qui\u00f1ones <sarah@veganb.tw>"
+  ],
+  "notices": [
+   "748448bad56ee129",
+   "0e92b7bb3e216b8a",
+   "7e4bc07b4d1691c7",
+   "1905e1009a9d8444"
+  ]
+ },
+ {
+  "name": "faer-traits",
+  "version": "0.24.0",
+  "license": "MIT",
+  "authors": [
+   "sarah qui\u00f1ones <sarah@veganb.tw>"
+  ],
+  "notices": [
+   "9d4408740dff1b9e"
+  ]
+ },
+ {
+  "name": "fastrand",
+  "version": "2.4.1",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [
+   "Stjepan Glavina <stjepang@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "find-msvc-tools",
+  "version": "0.1.9",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "fixedbitset",
+  "version": "0.5.7",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "bluss"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "ce592787ff2321fe"
+  ]
+ },
+ {
+  "name": "flate2",
+  "version": "1.1.9",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Alex Crichton <alex@alexcrichton.com>",
+   "Josh Triplett <josh@joshtriplett.org>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "025436edff4cfcdd"
+  ]
+ },
+ {
+  "name": "fnv",
+  "version": "1.0.7",
+  "license": "Apache-2.0 / MIT",
+  "authors": [
+   "Alex Crichton <alex@alexcrichton.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "65fdb6c76cd61612"
+  ]
+ },
+ {
+  "name": "foldhash",
+  "version": "0.1.5",
+  "license": "Zlib",
+  "authors": [
+   "Orson Peters <orsonpeters@gmail.com>"
+  ],
+  "notices": [
+   "b1181a40b2a7b25c"
+  ]
+ },
+ {
+  "name": "form_urlencoded",
+  "version": "1.2.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The rust-url developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "20c7855c364d57ea"
+  ]
+ },
+ {
+  "name": "function_name",
+  "version": "0.3.0",
+  "license": "MIT",
+  "authors": [
+   "Daniel Henry-Mantilla <daniel.henry.mantilla@gmail.com>"
+  ],
+  "notices": [
+   "514bc1d45725e4f9"
+  ]
+ },
+ {
+  "name": "function_name-proc-macro",
+  "version": "0.3.0",
+  "license": "MIT",
+  "authors": [
+   "Daniel Henry-Mantilla <daniel.henry.mantilla@gmail.com>"
+  ],
+  "notices": []
+ },
+ {
+  "name": "futures-core",
+  "version": "0.3.32",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "275c491d6d116055",
+   "6652c868f35dfe5e"
+  ]
+ },
+ {
+  "name": "futures-task",
+  "version": "0.3.32",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "275c491d6d116055",
+   "6652c868f35dfe5e"
+  ]
+ },
+ {
+  "name": "futures-util",
+  "version": "0.3.32",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "275c491d6d116055",
+   "6652c868f35dfe5e"
+  ]
+ },
+ {
+  "name": "gemm",
+  "version": "0.19.0",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "d64f878c89bd5f1e"
+  ]
+ },
+ {
+  "name": "gemm-c32",
+  "version": "0.19.0",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "d64f878c89bd5f1e"
+  ]
+ },
+ {
+  "name": "gemm-c64",
+  "version": "0.19.0",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "d64f878c89bd5f1e"
+  ]
+ },
+ {
+  "name": "gemm-common",
+  "version": "0.19.0",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "d64f878c89bd5f1e"
+  ]
+ },
+ {
+  "name": "gemm-f32",
+  "version": "0.19.0",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "d64f878c89bd5f1e"
+  ]
+ },
+ {
+  "name": "gemm-f64",
+  "version": "0.19.0",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "d64f878c89bd5f1e"
+  ]
+ },
+ {
+  "name": "generativity",
+  "version": "1.2.1",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "cfc7749b96f63bd3",
+   "7230950be2113ed0"
+  ]
+ },
+ {
+  "name": "generic-array",
+  "version": "0.14.7",
+  "license": "MIT",
+  "authors": [
+   "Bart\u0142omiej Kami\u0144ski <fizyk20@gmail.com>",
+   "Aaron Trent <novacrazy@gmail.com>"
+  ],
+  "notices": [
+   "ad4fcfaf8d5b12b9"
+  ]
+ },
+ {
+  "name": "getrandom",
+  "version": "0.3.4",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rand Project Developers"
+  ],
+  "notices": [
+   "aaff376532ea30a0",
+   "29e9fe5074bd27e0"
+  ]
+ },
+ {
+  "name": "getrandom",
+  "version": "0.4.3",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rand Project Developers"
+  ],
+  "notices": [
+   "aaff376532ea30a0",
+   "523a42c25d245dde"
+  ]
+ },
+ {
+  "name": "gimli",
+  "version": "0.32.3",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "7b63ecd5f1902af1"
+  ]
+ },
+ {
+  "name": "hashbrown",
+  "version": "0.15.5",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Amanieu d'Antras <amanieu@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "ff8f68cb076caf8c"
+  ]
+ },
+ {
+  "name": "hashbrown",
+  "version": "0.17.1",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "ff8f68cb076caf8c"
+  ]
+ },
+ {
+  "name": "heck",
+  "version": "0.5.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "7b63ecd5f1902af1"
+  ]
+ },
+ {
+  "name": "icu_collections",
+  "version": "2.2.0",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "icu_locale_core",
+  "version": "2.2.0",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "icu_normalizer",
+  "version": "2.2.0",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "icu_normalizer_data",
+  "version": "2.2.0",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "icu_properties",
+  "version": "2.2.0",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "icu_properties_data",
+  "version": "2.2.0",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "icu_provider",
+  "version": "2.2.0",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "ident_case",
+  "version": "1.0.1",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "Ted Driggs <ted.driggs@outlook.com>"
+  ],
+  "notices": [
+   "508a77d2e7b51d98"
+  ]
+ },
+ {
+  "name": "idna",
+  "version": "1.1.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The rust-url developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "b38f11f6096706e6"
+  ]
+ },
+ {
+  "name": "idna_adapter",
+  "version": "1.2.2",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [
+   "The rust-url developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "8b43ce8accd61e9d"
+  ]
+ },
+ {
+  "name": "indexmap",
+  "version": "2.14.0",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "ecc269ef87fd38a1"
+  ]
+ },
+ {
+  "name": "instant",
+  "version": "0.1.13",
+  "license": "BSD-3-Clause",
+  "authors": [
+   "sebcrozet <developer@crozet.re>"
+  ],
+  "notices": [
+   "cafd574024390a2f"
+  ]
+ },
+ {
+  "name": "is_ci",
+  "version": "1.2.0",
+  "license": "ISC",
+  "authors": [
+   "Kat March\u00e1n <kzm@zkat.tech>"
+  ],
+  "notices": [
+   "23232f634e079478"
+  ]
+ },
+ {
+  "name": "is_terminal_polyfill",
+  "version": "1.70.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "itoa",
+  "version": "1.0.18",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "jiff",
+  "version": "0.2.31",
+  "license": "Unlicense OR MIT",
+  "authors": [
+   "Andrew Gallant <jamslam@gmail.com>"
+  ],
+  "notices": [
+   "0f96a83840e146e4",
+   "01c266bced4a434d",
+   "7e12e5df4bae12cb"
+  ]
+ },
+ {
+  "name": "js-sys",
+  "version": "0.3.103",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The wasm-bindgen Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "lalry",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Geoffry Song <goffrie@gmail.com>",
+   "J\u00f6rg Singer <singer.joerg@gmx.de>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "40935489714dfca1",
+   "5a052887d6b923ee"
+  ]
+ },
+ {
+  "name": "leb128fmt",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Bryant Luk <code@bryantluk.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "libc",
+  "version": "0.2.186",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "123a331b5dbf04c3"
+  ]
+ },
+ {
+  "name": "libm",
+  "version": "0.2.16",
+  "license": "MIT",
+  "authors": [
+   "Alex Crichton <alex@alexcrichton.com>",
+   "Amanieu d'Antras <amanieu@gmail.com>",
+   "Jorge Aparicio <japaricious@gmail.com>",
+   "Trevor Gross <tg@trevorgross.com>"
+  ],
+  "notices": [
+   "3823dda7cf046602"
+  ]
+ },
+ {
+  "name": "linux-raw-sys",
+  "version": "0.12.1",
+  "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+  "authors": [
+   "Dan Gohman <dev@sunfishcode.online>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "23f18e03dc49df91",
+   "3290ae0fbc9ddb77",
+   "268872b9816f90fd"
+  ]
+ },
+ {
+  "name": "litemap",
+  "version": "0.8.2",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "log",
+  "version": "0.4.33",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6485b8ed310d3f03"
+  ]
+ },
+ {
+  "name": "lsp-types",
+  "version": "0.94.1",
+  "license": "MIT",
+  "authors": [
+   "Markus Westerlind <marwes91@gmail.com>",
+   "Bruno Medeiros <bruno.do.medeiros@gmail.com>"
+  ],
+  "notices": [
+   "a11232911aa0d746"
+  ]
+ },
+ {
+  "name": "matrixmultiply",
+  "version": "0.3.10",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "bluss",
+   "R. Janis Goldschmidt"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "792d075c7bad6dac"
+  ]
+ },
+ {
+  "name": "memchr",
+  "version": "2.8.2",
+  "license": "Unlicense OR MIT",
+  "authors": [
+   "Andrew Gallant <jamslam@gmail.com>",
+   "bluss"
+  ],
+  "notices": [
+   "0f96a83840e146e4",
+   "01c266bced4a434d",
+   "7e12e5df4bae12cb"
+  ]
+ },
+ {
+  "name": "memo-map",
+  "version": "0.3.3",
+  "license": "Apache-2.0",
+  "authors": [
+   "Armin Ronacher <armin.ronacher@active-4.com>"
+  ],
+  "notices": [
+   "a60eea8175145316"
+  ]
+ },
+ {
+  "name": "miette",
+  "version": "7.6.0",
+  "license": "Apache-2.0",
+  "authors": [
+   "Kat March\u00e1n <kzm@zkat.tech>"
+  ],
+  "notices": [
+   "cfc7749b96f63bd3"
+  ]
+ },
+ {
+  "name": "miette-derive",
+  "version": "7.6.0",
+  "license": "Apache-2.0",
+  "authors": [
+   "Kat March\u00e1n <kzm@zkat.tech>"
+  ],
+  "notices": [
+   "02872c3ff23e11da"
+  ]
+ },
+ {
+  "name": "minijinja",
+  "version": "2.21.0",
+  "license": "Apache-2.0",
+  "authors": [
+   "Armin Ronacher <armin.ronacher@active-4.com>"
+  ],
+  "notices": [
+   "a60eea8175145316"
+  ]
+ },
+ {
+  "name": "miniz_oxide",
+  "version": "0.8.9",
+  "license": "MIT OR Zlib OR Apache-2.0",
+  "authors": [
+   "Frommi <daniil.liferenko@gmail.com>",
+   "oyvindln <oyvindln@users.noreply.github.com>",
+   "Rich Geldreich richgel99@gmail.com"
+  ],
+  "notices": [
+   "4108245a1f2df9d4",
+   "0a54e647fe541046",
+   "799e9ca9d179295e",
+   "0d542e0c8804e39a"
+  ]
+ },
+ {
+  "name": "nalgebra",
+  "version": "0.34.2",
+  "license": "Apache-2.0",
+  "authors": [
+   "S\u00e9bastien Crozet <developer@crozet.re>"
+  ],
+  "notices": [
+   "ceacfa4d7fa67df6"
+  ]
+ },
+ {
+  "name": "nalgebra-macros",
+  "version": "0.3.0",
+  "license": "Apache-2.0",
+  "authors": [
+   "Andreas Longva",
+   "S\u00e9bastien Crozet <developer@crozet.re>"
+  ],
+  "notices": [
+   "ceacfa4d7fa67df6"
+  ]
+ },
+ {
+  "name": "nano-gemm",
+  "version": "0.2.2",
+  "license": "MIT",
+  "authors": [],
+  "notices": [
+   "428befbbac79d370"
+  ]
+ },
+ {
+  "name": "nano-gemm-c32",
+  "version": "0.2.1",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "428befbbac79d370"
+  ]
+ },
+ {
+  "name": "nano-gemm-c64",
+  "version": "0.2.1",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "428befbbac79d370"
+  ]
+ },
+ {
+  "name": "nano-gemm-codegen",
+  "version": "0.2.1",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "428befbbac79d370"
+  ]
+ },
+ {
+  "name": "nano-gemm-core",
+  "version": "0.2.1",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "428befbbac79d370"
+  ]
+ },
+ {
+  "name": "nano-gemm-f32",
+  "version": "0.2.1",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "428befbbac79d370"
+  ]
+ },
+ {
+  "name": "nano-gemm-f64",
+  "version": "0.2.1",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "428befbbac79d370"
+  ]
+ },
+ {
+  "name": "num-complex",
+  "version": "0.4.6",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6485b8ed310d3f03"
+  ]
+ },
+ {
+  "name": "num-conv",
+  "version": "0.2.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Jacob Pratt <jacob@jhpratt.dev>"
+  ],
+  "notices": [
+   "e2e245f2b566d0bf",
+   "0d542e0c8804e39a"
+  ]
+ },
+ {
+  "name": "num-integer",
+  "version": "0.1.46",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6485b8ed310d3f03"
+  ]
+ },
+ {
+  "name": "num-rational",
+  "version": "0.4.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6485b8ed310d3f03"
+  ]
+ },
+ {
+  "name": "num-traits",
+  "version": "0.2.19",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6485b8ed310d3f03"
+  ]
+ },
+ {
+  "name": "num_cpus",
+  "version": "1.17.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Sean McArthur <sean@seanmonstar.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "391a5396cec6230b"
+  ]
+ },
+ {
+  "name": "object",
+  "version": "0.37.3",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "0b74dfa0bcee5c42"
+  ]
+ },
+ {
+  "name": "once_cell",
+  "version": "1.21.4",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Aleksey Kladov <aleksey.kladov@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "owo-colors",
+  "version": "4.3.0",
+  "license": "MIT",
+  "authors": [
+   "jam1garner <8260240+jam1garner@users.noreply.github.com>"
+  ],
+  "notices": [
+   "267afe8db5697b4b"
+  ]
+ },
+ {
+  "name": "parol",
+  "version": "4.2.2",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "J\u00f6rg Singer <singer.joerg@gmx.de>"
+  ],
+  "notices": [
+   "685dd4534774e31f"
+  ]
+ },
+ {
+  "name": "parol-macros",
+  "version": "1.0.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "J\u00f6rg Singer <singer.joerg@gmx.de>"
+  ],
+  "notices": [
+   "b03aff4ad9bd9bcf"
+  ]
+ },
+ {
+  "name": "parol_runtime",
+  "version": "4.2.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "J\u00f6rg Singer <singer.joerg@gmx.de>"
+  ],
+  "notices": [
+   "6b24918ff97ee275"
+  ]
+ },
+ {
+  "name": "paste",
+  "version": "1.0.15",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "percent-encoding",
+  "version": "2.3.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The rust-url developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "b38f11f6096706e6"
+  ]
+ },
+ {
+  "name": "petgraph",
+  "version": "0.8.3",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "bluss",
+   "mitchmindtree"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "7576269ea71f767b"
+  ]
+ },
+ {
+  "name": "pin-project-lite",
+  "version": "0.2.17",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [],
+  "notices": [
+   "0d542e0c8804e39a",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "potential_utf",
+  "version": "0.1.5",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "powerfmt",
+  "version": "0.2.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Jacob Pratt <jacob@jhpratt.dev>"
+  ],
+  "notices": [
+   "070dbc7dda03a292",
+   "155420c6403d4e0f"
+  ]
+ },
+ {
+  "name": "ppv-lite86",
+  "version": "0.2.21",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The CryptoCorrosion Contributors"
+  ],
+  "notices": [
+   "0218327e7a480793",
+   "4cada0bd02ea3692"
+  ]
+ },
+ {
+  "name": "predicates",
+  "version": "3.1.4",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Nick Stevens <nick@bitcurry.com>"
+  ],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "predicates-core",
+  "version": "1.0.10",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "predicates-tree",
+  "version": "1.0.13",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "proc-macro2",
+  "version": "1.0.106",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>",
+   "Alex Crichton <alex@alexcrichton.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "pulp",
+  "version": "0.22.3",
+  "license": "MIT",
+  "authors": [
+   "sarah qui\u00f1ones <sarah@veganb.tw>"
+  ],
+  "notices": [
+   "d64f878c89bd5f1e"
+  ]
+ },
+ {
+  "name": "pulp-wasm-simd-flag",
+  "version": "0.1.1",
+  "license": "MIT",
+  "authors": [
+   "sarah qui\u00f1ones <sarah@veganb.tw>"
+  ],
+  "notices": [
+   "f70e0976c7bedfe3"
+  ]
+ },
+ {
+  "name": "qd",
+  "version": "0.8.0",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "4263a9907c8e8d79"
+  ]
+ },
+ {
+  "name": "quote",
+  "version": "1.0.46",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "rand",
+  "version": "0.9.4",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rand Project Developers",
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "35242e7a83f69875",
+   "209fbbe0ad52d923",
+   "90eb64f0279b0d94"
+  ]
+ },
+ {
+  "name": "rand_chacha",
+  "version": "0.9.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rand Project Developers",
+   "The Rust Project Developers",
+   "The CryptoCorrosion Contributors"
+  ],
+  "notices": [
+   "35242e7a83f69875",
+   "209fbbe0ad52d923",
+   "90eb64f0279b0d94"
+  ]
+ },
+ {
+  "name": "rand_core",
+  "version": "0.9.5",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rand Project Developers",
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "6df43f6f4b5d4587",
+   "209fbbe0ad52d923",
+   "90eb64f0279b0d94"
+  ]
+ },
+ {
+  "name": "rand_regex",
+  "version": "0.18.1",
+  "license": "MIT",
+  "authors": [
+   "kennytm <kennytm@gmail.com>"
+  ],
+  "notices": [
+   "60f8fc6a89a5d2d1"
+  ]
+ },
+ {
+  "name": "raw-cpuid",
+  "version": "11.6.0",
+  "license": "MIT",
+  "authors": [
+   "Gerd Zellweger <mail@gerdzellweger.com>"
+  ],
+  "notices": [
+   "cdd45f4d0c552c3a"
+  ]
+ },
+ {
+  "name": "rawpointer",
+  "version": "0.2.1",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "bluss"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "7576269ea71f767b"
+  ]
+ },
+ {
+  "name": "rayon",
+  "version": "1.12.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "0621878e61f0d0fd"
+  ]
+ },
+ {
+  "name": "rayon-core",
+  "version": "1.13.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a60eea8175145316",
+   "0621878e61f0d0fd"
+  ]
+ },
+ {
+  "name": "reborrow",
+  "version": "0.5.5",
+  "license": "MIT",
+  "authors": [
+   "sarah <>"
+  ],
+  "notices": [
+   "bf5a93d1014429b4"
+  ]
+ },
+ {
+  "name": "regex",
+  "version": "1.12.4",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers",
+   "Andrew Gallant <jamslam@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6485b8ed310d3f03"
+  ]
+ },
+ {
+  "name": "regex-automata",
+  "version": "0.4.14",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers",
+   "Andrew Gallant <jamslam@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6485b8ed310d3f03"
+  ]
+ },
+ {
+  "name": "regex-syntax",
+  "version": "0.8.11",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Rust Project Developers",
+   "Andrew Gallant <jamslam@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "6485b8ed310d3f03"
+  ]
+ },
+ {
+  "name": "rumoca-bind-wasm",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-compile",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-core",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-eval-ast",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-eval-dae",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-eval-flat",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-eval-solve",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-exec-wasm",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-ir-ast",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-ir-dae",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-ir-flat",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-ir-galec",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-ir-solve",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-autodiff",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-codegen",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-dae",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-flatten",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-galec",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-instantiate",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-parse",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-resolve",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-solve",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-structural",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-phase-typecheck",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-sim",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-solver",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-solver-rk45",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-tool-build-info",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-tool-fmt",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-tool-lint",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rumoca-tool-lsp",
+  "version": "0.10.4",
+  "license": "Apache-2.0",
+  "authors": [],
+  "notices": [
+   "a4ef2d32e8242536"
+  ]
+ },
+ {
+  "name": "rustc-demangle",
+  "version": "0.1.27",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "Alex Crichton <alex@alexcrichton.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "rustc-hash",
+  "version": "2.1.3",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [
+   "The Rust Project Developers"
+  ],
+  "notices": [
+   "95bd3988beee069f",
+   "30fefc3a7d6a0041"
+  ]
+ },
+ {
+  "name": "rustix",
+  "version": "1.1.4",
+  "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+  "authors": [
+   "Dan Gohman <dev@sunfishcode.online>",
+   "Jakub Konka <kubkon@jakubkonka.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "23f18e03dc49df91",
+   "377c2e7c53250cc5",
+   "268872b9816f90fd"
+  ]
+ },
+ {
+  "name": "rustversion",
+  "version": "1.0.22",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "safe_arch",
+  "version": "0.7.4",
+  "license": "Zlib OR Apache-2.0 OR MIT",
+  "authors": [
+   "Lokathor <zefria@gmail.com>"
+  ],
+  "notices": [
+   "c43b9a9b1387ed53",
+   "e57011537d230b14",
+   "e3ba223bb1423f0a"
+  ]
+ },
+ {
+  "name": "scnr2",
+  "version": "0.3.3",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "J\u00f6rg Singer <singer.joerg@gmx.de>"
+  ],
+  "notices": [
+   "347f45b5e35e3df9"
+  ]
+ },
+ {
+  "name": "scnr2_generate",
+  "version": "0.3.3",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "J\u00f6rg Singer <singer.joerg@gmx.de>"
+  ],
+  "notices": [
+   "347f45b5e35e3df9"
+  ]
+ },
+ {
+  "name": "scnr2_macro",
+  "version": "0.3.3",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "J\u00f6rg Singer <singer.joerg@gmx.de>"
+  ],
+  "notices": [
+   "347f45b5e35e3df9"
+  ]
+ },
+ {
+  "name": "self_cell",
+  "version": "1.3.0",
+  "license": "Apache-2.0 OR GPL-2.0-only",
+  "authors": [
+   "Lukas Bergdoll <lukas.bergdoll@gmail.com>"
+  ],
+  "notices": [
+   "c71d239df91726fc",
+   "f9c375a1be4a41f7"
+  ]
+ },
+ {
+  "name": "seq-macro",
+  "version": "0.3.6",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "serde",
+  "version": "1.0.228",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "serde-wasm-bindgen",
+  "version": "0.6.5",
+  "license": "MIT",
+  "authors": [
+   "Ingvar Stepanyan <me@rreverser.com>"
+  ],
+  "notices": [
+   "62f78cf0242220d7"
+  ]
+ },
+ {
+  "name": "serde_core",
+  "version": "1.0.228",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "serde_derive",
+  "version": "1.0.228",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "serde_json",
+  "version": "1.0.150",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Erick Tryzelaar <erick.tryzelaar@gmail.com>",
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "serde_repr",
+  "version": "0.1.20",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "serde_spanned",
+  "version": "0.6.9",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "sha2",
+  "version": "0.10.9",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "RustCrypto Developers"
+  ],
+  "notices": [
+   "a9040321c3712d8f",
+   "b4eb00df6e2a4d22"
+  ]
+ },
+ {
+  "name": "shlex",
+  "version": "2.0.1",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "comex <comexk@gmail.com>",
+   "Fenhl <fenhl@fenhl.net>",
+   "Adrian Taylor <adetaylor@chromium.org>",
+   "Alex Touchet <alextouchet@outlook.com>",
+   "Daniel Parks <dp+git@oxidized.org>",
+   "Garrett Berg <googberg@gmail.com>"
+  ],
+  "notices": [
+   "553fffcd9b1cb158",
+   "4455bf75a9115410"
+  ]
+ },
+ {
+  "name": "simba",
+  "version": "0.9.1",
+  "license": "Apache-2.0",
+  "authors": [
+   "sebcrozet <developer@crozet.re>"
+  ],
+  "notices": [
+   "ceacfa4d7fa67df6"
+  ]
+ },
+ {
+  "name": "simd-adler32",
+  "version": "0.3.9",
+  "license": "MIT",
+  "authors": [
+   "Marvin Countryman <me@maar.vin>"
+  ],
+  "notices": [
+   "42a35170233e83e1"
+  ]
+ },
+ {
+  "name": "slab",
+  "version": "0.4.12",
+  "license": "MIT",
+  "authors": [
+   "Carl Lerche <me@carllerche.com>"
+  ],
+  "notices": [
+   "8ce0830173fdac60"
+  ]
+ },
+ {
+  "name": "smallvec",
+  "version": "1.15.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The Servo Project Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "0b28172679e0009b"
+  ]
+ },
+ {
+  "name": "stable_deref_trait",
+  "version": "1.2.1",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Robert Grosse <n210241048576@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "5e05b024f653a5ce"
+  ]
+ },
+ {
+  "name": "strsim",
+  "version": "0.11.1",
+  "license": "MIT",
+  "authors": [
+   "Danny Guo <danny@dannyguo.com>",
+   "maxbachmann <oss@maxbachmann.de>"
+  ],
+  "notices": [
+   "1e697ce8d21401fb"
+  ]
+ },
+ {
+  "name": "supports-color",
+  "version": "3.0.2",
+  "license": "Apache-2.0",
+  "authors": [
+   "Kat March\u00e1n <kzm@zkat.tech>"
+  ],
+  "notices": [
+   "02872c3ff23e11da"
+  ]
+ },
+ {
+  "name": "supports-hyperlinks",
+  "version": "3.2.0",
+  "license": "Apache-2.0",
+  "authors": [
+   "Kat March\u00e1n <kzm@zkat.tech>"
+  ],
+  "notices": [
+   "02872c3ff23e11da"
+  ]
+ },
+ {
+  "name": "supports-unicode",
+  "version": "3.0.0",
+  "license": "Apache-2.0",
+  "authors": [
+   "Kat March\u00e1n <kzm@zkat.tech>"
+  ],
+  "notices": [
+   "02872c3ff23e11da"
+  ]
+ },
+ {
+  "name": "syn",
+  "version": "2.0.118",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "synstructure",
+  "version": "0.13.2",
+  "license": "MIT",
+  "authors": [
+   "Nika Layzell <nika@thelayzells.com>"
+  ],
+  "notices": [
+   "219920e865eee70b"
+  ]
+ },
+ {
+  "name": "syntree",
+  "version": "0.18.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "John-John Tedro <udoprog@tedro.se>"
+  ],
+  "notices": [
+   "9c88bf4e4d0514f1"
+  ]
+ },
+ {
+  "name": "syntree_layout",
+  "version": "0.4.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "J\u00f6rg Singer <singer.joerg@gmx.de>"
+  ],
+  "notices": [
+   "a6cba85bc92e0cff",
+   "52293e988b165d67"
+  ]
+ },
+ {
+  "name": "tempfile",
+  "version": "3.27.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Steven Allen <steven@stebalien.com>",
+   "The Rust Project Developers",
+   "Ashley Mannix <ashleymannix@live.com.au>",
+   "Jason White <me@jasonwhite.io>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "8b427f5bc5017645"
+  ]
+ },
+ {
+  "name": "termcolor",
+  "version": "1.4.1",
+  "license": "Unlicense OR MIT",
+  "authors": [
+   "Andrew Gallant <jamslam@gmail.com>"
+  ],
+  "notices": [
+   "0f96a83840e146e4",
+   "01c266bced4a434d",
+   "7e12e5df4bae12cb"
+  ]
+ },
+ {
+  "name": "terminal_size",
+  "version": "0.4.4",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Andrew Chin <achin@eminence32.net>"
+  ],
+  "notices": [
+   "c6596eb7be8581c1",
+   "bc8dcbbd559a61b8"
+  ]
+ },
+ {
+  "name": "termtree",
+  "version": "0.5.1",
+  "license": "MIT",
+  "authors": [],
+  "notices": [
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "textwrap",
+  "version": "0.16.2",
+  "license": "MIT",
+  "authors": [
+   "Martin Geisler <martin@geisler.net>"
+  ],
+  "notices": [
+   "ce93600c49fbb3e1"
+  ]
+ },
+ {
+  "name": "thiserror",
+  "version": "2.0.18",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "thiserror-impl",
+  "version": "2.0.18",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "time",
+  "version": "0.3.53",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Jacob Pratt <open-source@jhpratt.dev>",
+   "Time contributors"
+  ],
+  "notices": [
+   "2537228d9a1b44a5",
+   "0d542e0c8804e39a"
+  ]
+ },
+ {
+  "name": "time-core",
+  "version": "0.1.9",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Jacob Pratt <open-source@jhpratt.dev>",
+   "Time contributors"
+  ],
+  "notices": [
+   "2537228d9a1b44a5",
+   "0d542e0c8804e39a"
+  ]
+ },
+ {
+  "name": "time-macros",
+  "version": "0.2.31",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "Jacob Pratt <open-source@jhpratt.dev>",
+   "Time contributors"
+  ],
+  "notices": [
+   "2537228d9a1b44a5",
+   "0d542e0c8804e39a"
+  ]
+ },
+ {
+  "name": "tinystr",
+  "version": "0.8.3",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "toml",
+  "version": "0.8.23",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "toml_datetime",
+  "version": "0.6.11",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "toml_edit",
+  "version": "0.22.27",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "toml_write",
+  "version": "0.1.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "c6596eb7be8581c1",
+   "6efb0476a1cc0850"
+  ]
+ },
+ {
+  "name": "tracing",
+  "version": "0.1.44",
+  "license": "MIT",
+  "authors": [
+   "Eliza Weisman <eliza@buoyant.io>",
+   "Tokio Contributors <team@tokio.rs>"
+  ],
+  "notices": [
+   "898b1ae9821e98da"
+  ]
+ },
+ {
+  "name": "tracing-attributes",
+  "version": "0.1.31",
+  "license": "MIT",
+  "authors": [
+   "Tokio Contributors <team@tokio.rs>",
+   "Eliza Weisman <eliza@buoyant.io>",
+   "David Barsky <dbarsky@amazon.com>"
+  ],
+  "notices": [
+   "898b1ae9821e98da"
+  ]
+ },
+ {
+  "name": "tracing-core",
+  "version": "0.1.36",
+  "license": "MIT",
+  "authors": [
+   "Tokio Contributors <team@tokio.rs>"
+  ],
+  "notices": [
+   "898b1ae9821e98da"
+  ]
+ },
+ {
+  "name": "ts-rs",
+  "version": "11.1.0",
+  "license": "MIT",
+  "authors": [
+   "Moritz Bischof <moritz.bischof1@gmail.com>"
+  ],
+  "notices": [
+   "4ee1beffafeae0a3"
+  ]
+ },
+ {
+  "name": "ts-rs-macros",
+  "version": "11.1.0",
+  "license": "MIT",
+  "authors": [
+   "Moritz Bischof <moritz.bischof1@gmail.com>"
+  ],
+  "notices": []
+ },
+ {
+  "name": "typenum",
+  "version": "1.20.1",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "516b24e051bf5630",
+   "a825bd853ab71619",
+   "db11fec9946737df"
+  ]
+ },
+ {
+  "name": "ume",
+  "version": "0.1.0",
+  "license": "MIT OR Apache-2.0",
+  "authors": [],
+  "notices": [
+   "d606a599adfaa1d8"
+  ]
+ },
+ {
+  "name": "unicode-ident",
+  "version": "1.0.24",
+  "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "f7db81051789b729",
+   "23f18e03dc49df91"
+  ]
+ },
+ {
+  "name": "unicode-linebreak",
+  "version": "0.1.5",
+  "license": "Apache-2.0",
+  "authors": [
+   "Axel Forsman <axelsfor@gmail.com>"
+  ],
+  "notices": [
+   "c71d239df91726fc"
+  ]
+ },
+ {
+  "name": "unicode-width",
+  "version": "0.1.14",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "kwantam <kwantam@gmail.com>",
+   "Manish Goregaokar <manishsmail@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "7b63ecd5f1902af1",
+   "23860c2a7b5d96b2"
+  ]
+ },
+ {
+  "name": "unicode-width",
+  "version": "0.2.2",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "kwantam <kwantam@gmail.com>",
+   "Manish Goregaokar <manishsmail@gmail.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "7b63ecd5f1902af1",
+   "23860c2a7b5d96b2"
+  ]
+ },
+ {
+  "name": "url",
+  "version": "2.5.8",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The rust-url developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "b38f11f6096706e6"
+  ]
+ },
+ {
+  "name": "utf8_iter",
+  "version": "1.0.4",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [
+   "Henri Sivonen <hsivonen@hsivonen.fi>"
+  ],
+  "notices": [
+   "cfc7749b96f63bd3",
+   "3fa4ca83dcc92378",
+   "c30152c94a6d75e0"
+  ]
+ },
+ {
+  "name": "utf8parse",
+  "version": "0.2.2",
+  "license": "Apache-2.0 OR MIT",
+  "authors": [
+   "Joe Wilm <joe@jwilm.com>",
+   "Christian Duerr <contact@christianduerr.com>"
+  ],
+  "notices": [
+   "62c7a1e35f564068",
+   "e4c9b06fa850cb9b"
+  ]
+ },
+ {
+  "name": "version_check",
+  "version": "0.9.5",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "Sergio Benitez <sb@sergio.bz>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "b7e650f3fce5c532"
+  ]
+ },
+ {
+  "name": "wait-timeout",
+  "version": "0.2.1",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "Alex Crichton <alex@alexcrichton.com>"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "wasm-bindgen",
+  "version": "0.2.126",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The wasm-bindgen Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "wasm-bindgen-futures",
+  "version": "0.4.76",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The wasm-bindgen Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "wasm-bindgen-macro",
+  "version": "0.2.126",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The wasm-bindgen Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "wasm-bindgen-macro-support",
+  "version": "0.2.126",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The wasm-bindgen Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "wasm-bindgen-shared",
+  "version": "0.2.126",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The wasm-bindgen Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "wasm-encoder",
+  "version": "0.241.2",
+  "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
+  "authors": [
+   "Nick Fitzgerald <fitzgen@gmail.com>"
+  ],
+  "notices": [
+   "c65cc523cd465163"
+  ]
+ },
+ {
+  "name": "web-sys",
+  "version": "0.3.103",
+  "license": "MIT OR Apache-2.0",
+  "authors": [
+   "The wasm-bindgen Developers"
+  ],
+  "notices": [
+   "a60eea8175145316",
+   "378f5840b258e277"
+  ]
+ },
+ {
+  "name": "wide",
+  "version": "0.7.33",
+  "license": "Zlib OR Apache-2.0 OR MIT",
+  "authors": [
+   "Lokathor <zefria@gmail.com>"
+  ],
+  "notices": [
+   "c43b9a9b1387ed53"
+  ]
+ },
+ {
+  "name": "winnow",
+  "version": "0.7.15",
+  "license": "MIT",
+  "authors": [],
+  "notices": [
+   "cb5aedb296c5246d"
+  ]
+ },
+ {
+  "name": "writeable",
+  "version": "0.6.3",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "xml_writer",
+  "version": "0.4.0",
+  "license": "MIT/Apache-2.0",
+  "authors": [
+   "Piotr Zolnierek <pzolnierek@gmail.com>"
+  ],
+  "notices": [
+   "7c9605eb09452a16"
+  ]
+ },
+ {
+  "name": "yoke",
+  "version": "0.8.3",
+  "license": "Unicode-3.0",
+  "authors": [
+   "Manish Goregaokar <manishsmail@gmail.com>"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "yoke-derive",
+  "version": "0.8.2",
+  "license": "Unicode-3.0",
+  "authors": [
+   "Manish Goregaokar <manishsmail@gmail.com>"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "zerocopy",
+  "version": "0.8.52",
+  "license": "BSD-2-Clause OR Apache-2.0 OR MIT",
+  "authors": [
+   "Joshua Liebow-Feeser <joshlf@google.com>",
+   "Jack Wrenn <jswrenn@amazon.com>"
+  ],
+  "notices": [
+   "9d185ac6703c4b04",
+   "1a2f5c12ddc934d5",
+   "83c1763356e822ad"
+  ]
+ },
+ {
+  "name": "zerofrom",
+  "version": "0.1.8",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "zerofrom-derive",
+  "version": "0.1.7",
+  "license": "Unicode-3.0",
+  "authors": [
+   "Manish Goregaokar <manishsmail@gmail.com>"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "zerotrie",
+  "version": "0.2.4",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "zerovec",
+  "version": "0.11.6",
+  "license": "Unicode-3.0",
+  "authors": [
+   "The ICU4X Project Developers"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "zerovec-derive",
+  "version": "0.11.3",
+  "license": "Unicode-3.0",
+  "authors": [
+   "Manish Goregaokar <manishsmail@gmail.com>"
+  ],
+  "notices": [
+   "f367c1b8e1aa2624"
+  ]
+ },
+ {
+  "name": "zmij",
+  "version": "1.0.21",
+  "license": "MIT",
+  "authors": [
+   "David Tolnay <dtolnay@gmail.com>"
+  ],
+  "notices": [
+   "23f18e03dc49df91"
+  ]
+ }
+]

@@ -1,0 +1,72 @@
+--- a/crates/rumoca-ir-solve/src/fmi/parameter_updates.rs
++++ b/crates/rumoca-ir-solve/src/fmi/parameter_updates.rs
+@@ -292,13 +292,21 @@
+     Ok(())
+ }
+ 
+-/// A scalar row reading only parameters, constants and importer inputs that
+-/// the binding/discrete refresh does not write has the same value before and after
++/// A scalar row reading only states, parameters, constants and importer inputs
++/// preserved by the binding/discrete refresh has the same value before and after
+ /// settling. The existing full Y|P JVP initialization kernel therefore needs no declaration-Y isolation
+ /// for these rows. Hidden pre/history lanes are not ordinary P declarations.
+-/// Compact tensor/Y/time/history cases retain their existing admission rule.
++/// Algebraics, compact tensors, time, and history retain their existing admission rule.
+ fn parameter_input_residuals(problem: &SolveProblem, calls: &SolvePureCallTable) -> bool {
+     let mut p = stable_parameters(problem);
++    // State coordinates precede algebraics in Solve storage. An algebraic
++    // refresh preserves them. Initialization/discrete assignments are removed
++    // below since they can overwrite a state or a parameter before evaluation.
++    let mut y = vec![false; problem.layout.y_scalars()];
++    let Some(states) = y.get_mut(..problem.solve_layout.state_scalar_count()) else {
++        return false;
++    };
++    states.fill(true);
+     for run in &problem.solve_layout.variable_storage_runs {
+         if run.role != SolveVariableStorageRole::ExternalInput {
+             continue;
+@@ -326,14 +334,14 @@
+         .iter()
+         .chain(problem.discrete.update_targets.iter())
+     {
+-        if let ScalarSlot::P { index, .. } = *target {
+-            let Some(value) = p.get_mut(index) else {
+-                return false;
+-            };
+-            *value = false;
+-        }
++        let slot = match *target {
++            ScalarSlot::P { index, .. } => p.get_mut(index),
++            ScalarSlot::Y { index, .. } => y.get_mut(index),
++            _ => return false,
++        };
++        let Some(value) = slot else { return false };
++        *value = false;
+     }
+-    let y = vec![false; problem.layout.y_scalars()];
+     residuals_over_stable_storage(problem.initialization.residual(), calls, &y, &p)
+ }
+ 
+diff --git a/crates/rumoca/tests/suite_template_runtime/cli_target_fmi/projection.rs b/crates/rumoca/tests/suite_template_runtime/cli_target_fmi/projection.rs
+index d1ac63b..5853e3b 100644
+--- a/crates/rumoca/tests/suite_template_runtime/cli_target_fmi/projection.rs
++++ b/crates/rumoca/tests/suite_template_runtime/cli_target_fmi/projection.rs
+@@ -54,6 +54,18 @@ fn affine_chain() -> String {
+ 
+ fn fixtures() -> Vec<Fixture> {
+     vec![
++        Fixture {
++            model: "StateStart",
++            source: "model StateStart
++  output Real q(start=0, fixed=false);
++initial equation
++  q = 2;
++equation
++  der(q) = -q;
++end StateStart;".to_string(),
++            outputs: &["q"],
++            marker: None,
++        },
+         Fixture {
+             model: "TornLoop",
+             source: "model TornLoop
