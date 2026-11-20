@@ -56,7 +56,11 @@ export function courseScene(T,scene,race){
 }
 export function raceAudio(){
   let audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
-  let submerged,surface;
+  let submerged,surface,effects,level=.25;
+  function setVolume(value){
+    level=value;
+    if(effects)effects.gain.setTargetAtTime(level,audio.currentTime,.025);
+  }
   const loading=new Set();
   function startAmbience(file,destination){
     if(loading.has(file))return;
@@ -77,16 +81,17 @@ export function raceAudio(){
     if(!audio){
       audio=new AudioContext();noise=audio.createBuffer(1,2*audio.sampleRate,audio.sampleRate);
       const data=noise.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=2*Math.random()-1;
-      submerged=audio.createGain();submerged.gain.value=0;submerged.connect(audio.destination);
-      surface=audio.createGain();surface.gain.value=0;surface.connect(audio.destination);
+      effects=audio.createGain();effects.gain.value=level;effects.connect(audio.destination);
+      submerged=audio.createGain();submerged.gain.value=0;submerged.connect(effects);
+      surface=audio.createGain();surface.gain.value=0;surface.connect(effects);
       const blower=audio.createBufferSource();blower.buffer=noise;blower.loop=true;
       filter=audio.createBiquadFilter();filter.type='lowpass';wind=audio.createGain();wind.gain.value=0;
       const rainfall=audio.createBufferSource(),rainFilter=audio.createBiquadFilter();
       rainfall.buffer=noise;rainfall.loop=true;rainfall.playbackRate.value=1.19;
       rainFilter.type="highpass";rainFilter.frequency.value=1350;
       weather=audio.createGain();weather.gain.value=0;rain=audio.createGain();rain.gain.value=.16;
-      rainfall.connect(rainFilter).connect(rain).connect(weather).connect(audio.destination);rainfall.start();
-      blower.connect(filter).connect(wind).connect(audio.destination);blower.start();
+      rainfall.connect(rainFilter).connect(rain).connect(weather).connect(effects);rainfall.start();
+      blower.connect(filter).connect(wind).connect(effects);blower.start();
     }
     if(enabled)await audio.suspend();else await audio.resume();
     enabled=audio.state==='running';return enabled;
@@ -108,7 +113,7 @@ export function raceAudio(){
   function signal(){
     if(!enabled)return;const src=audio.createBufferSource(),gain=audio.createGain(),t=audio.currentTime;
     src.buffer=noise;gain.gain.setValueAtTime(.8,t);gain.gain.exponentialRampToValueAtTime(.0003,t+.52);
-    src.connect(gain).connect(audio.destination);src.onended=()=>{src.disconnect();gain.disconnect();};src.start();src.stop(t+.53);
+    src.connect(gain).connect(effects);src.onended=()=>{src.disconnect();gain.disconnect();};src.start();src.stop(t+.53);
   }
   function thunder(){
     if(!enabled)return;
@@ -121,5 +126,5 @@ export function raceAudio(){
     src.connect(low).connect(gain).connect(weather);src.onended=()=>{src.disconnect();low.disconnect();gain.disconnect();};
     src.start(t);src.stop(t+3.6);
   }
-  return {toggle,update,signal,thunder};
+  return {toggle,update,signal,thunder,setVolume};
 }

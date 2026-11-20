@@ -70,7 +70,22 @@ async function run(){
   $('invite').onclick=async()=>{const link=new URL(location.href);link.searchParams.set('room',roomName);
     try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Race room link',link.href);}};
   const theme=$('theme'),music=$('music');
-  theme.volume=.32;
+  let musicContext,musicGain;
+  function volumeControl(id,apply){
+    const slider=$(id),key='ocean_web.'+id;
+    try{
+      const stored=localStorage.getItem(key);
+      if(stored!==null && /^\d{1,3}$/.test(stored) && Number(stored)<=100)slider.value=stored;
+    }catch{}
+    const update=()=>{
+      $(id+'Text').value=slider.value+'%';
+      apply(slider.valueAsNumber/100);
+    };
+    update();
+    slider.oninput=()=>{update();try{localStorage.setItem(key,slider.value);}catch{}};
+  }
+  volumeControl('effectsVolume',audio.setVolume);
+  volumeControl('musicVolume',value=>musicGain?.gain.setTargetAtTime(value,musicContext.currentTime,.025));
   function showMusicState(){
     music.setAttribute('aria-pressed',String(!theme.paused));
     music.title=theme.paused?'Play music by Olivier Bérubé':'Pause music by Olivier Bérubé';
@@ -79,7 +94,14 @@ async function run(){
   theme.addEventListener('pause',showMusicState);
   music.onclick=async()=>{
     if(!theme.paused){theme.pause();return;}
-    try{await theme.play();}catch(error){$('online').textContent='Music: '+error.message;}
+    try{
+      if(!musicContext){
+        musicContext=new AudioContext();musicGain=musicContext.createGain();
+        musicGain.gain.value=$('musicVolume').valueAsNumber/100;
+        musicContext.createMediaElementSource(theme).connect(musicGain).connect(musicContext.destination);
+      }
+      await Promise.all([musicContext.resume(),theme.play()]);
+    }catch(error){$('online').textContent='Music: '+error.message;}
   };
   $('sound').onclick=async()=>{try{const on=await audio.toggle(),button=$('sound');button.setAttribute('aria-pressed',String(on));button.title=on?'Mute sound':'Turn sound on';button.firstElementChild.textContent=on?'🔊':'🔇';}catch(e){$('online').textContent=e.message;}};
   const hemi=new T.HemisphereLight(0xe5f8fb,0x767266,1.8);hemi.position.z=1;scene.add(hemi);
