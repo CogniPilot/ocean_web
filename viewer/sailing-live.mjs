@@ -276,6 +276,7 @@ async function run(){
     }
     ocean.updateSky(renderer,time,sky);
   }
+  const noGo=model.get('noGo');
   let meshTime,observedBoat;
   let lastWorldTick=-1,lastFieldTick=-1,lastSurfaceTick=-1,previousSurface;
   function draw(now){
@@ -366,7 +367,7 @@ async function run(){
       }
       const s=observedBoat;
       const subFrame=sub.frame;
-      if(!$('dial').hidden)drawCompass($('dial'),Math.hypot(model.get('windEast'),model.get('windNorth')),Math.atan2(model.get('windNorth'),model.get('windEast')),sub.active&&subFrame?subFrame.flow:[model.get('currentEast'),model.get('currentNorth')],sub.active&&subFrame?subFrame.estimate[3]:s[2],sub.active?'sub':'surface');
+      if(!$('dial').hidden)drawCompass($('dial'),Math.hypot(model.get('windEast'),model.get('windNorth')),Math.atan2(model.get('windNorth'),model.get('windEast')),sub.active&&subFrame?subFrame.flow:[model.get('currentEast'),model.get('currentNorth')],sub.active&&subFrame?subFrame.estimate[3]:s[2],sub.active?'sub':'surface',noGo);
       drawForces(!drone?.active&&$('showForces').getAttribute('aria-pressed')==='true',s,subFrame,sub.active);
       const [ballastX,ballastY,k,direction,amplitude,phase,mainCar,jibCar,ve,vn,yawRate,sag,vang,leech,tension]=model.getMany(
         ['ballastX','ballastY','swellK','swellBearing','swellAmplitude','swellPhase','mainCar','jibCar','ve','vn','yawRate','exposedSheetSag','vangTension','leechSpeed','mainTension']);
