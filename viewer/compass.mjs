@@ -54,21 +54,34 @@ function drawSailingDial(canvas,wind,bearing,current,heading,noGo){
     ctx.fillStyle='#ffd091';ctx.beginPath();ctx.moveTo(r-14,0);ctx.lineTo(r+3,-4);ctx.lineTo(r+3,4);ctx.closePath();ctx.fill();
     ctx.restore();
   }
-  ctx.strokeStyle='#85a4ab';ctx.lineWidth=1;
-  for(let i=0;i<24;i++){
-    const a=i*Math.PI/12;ctx.beginPath();ctx.moveTo((r+2)*Math.sin(a),-(r+2)*Math.cos(a));
-    ctx.lineTo((r+(i%2?4:7))*Math.sin(a),-(r+(i%2?4:7))*Math.cos(a));ctx.stroke();
+  // True compass card rotates beneath a fixed bow index.
+  const bowBearing=Math.PI/2-heading;
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  for(let i=0;i<72;i++){
+    const a=i*Math.PI/36-bowBearing,major=i%6===0;
+    ctx.strokeStyle=major?'#d2e4e8':'#77949c';ctx.lineWidth=major?1.5:1;
+    ctx.beginPath();ctx.moveTo((r-1)*Math.sin(a),-(r-1)*Math.cos(a));
+    ctx.lineTo((r-(major?7:3))*Math.sin(a),-(r-(major?7:3))*Math.cos(a));ctx.stroke();
+    if(major){
+      ctx.fillStyle=i===0?'#ffc46e':'#e2eff0';
+      ctx.font='bold 10px monospace';
+      const cardinal={0:'N',18:'E',36:'S',54:'W'}[i];
+      ctx.fillText(cardinal||String(i*5),(r-15)*Math.sin(a),-(r-15)*Math.cos(a));
+    }
   }
+  ctx.fillStyle='#fff';ctx.beginPath();ctx.moveTo(0,-r+2);
+  ctx.lineTo(-4,-r-7);ctx.lineTo(4,-r-7);ctx.closePath();ctx.fill();
   ctx.beginPath();ctx.moveTo(0,-21);ctx.quadraticCurveTo(11,-7,7,15);ctx.lineTo(-7,15);ctx.quadraticCurveTo(-11,-7,0,-21);
   ctx.fillStyle=inside?'#ffb6a4':'#f0f8f6';ctx.fill();
   ctx.restore();
   function label(msg,y,color,size,bold=false){
     ctx.font=(bold?'bold ':'')+size+'px system-ui,sans-serif';ctx.fillStyle=color;ctx.fillText(msg,141,y);
   }
-  label(hasWind?(inside?'IN NO-GO ZONE':'TRUE WIND FROM'):'CALM',25,inside?'#ffae96':'#c1d5da',12,true);
-  label(hasWind?angle+'° '+(angle===0||angle===180?'':side):'—',49,'#ffffff',18,true);
-  label(wind.toFixed(1)+' m/s   HDG '+compass(heading),69,'#e0eaec',12);
-  label('No-go ±'+Math.round(noGo*180/Math.PI)+'°',90,'#ffbd97',12);
-  label('Set '+(currentSpeed>.005?compass(Math.atan2(current[1],current[0])):'—')+' · '+currentSpeed.toFixed(2)+' m/s',112,'#84d9df',12);
+  label('TRUE HEADING',15,'#c1d5da',10,true);
+  label(compass(heading)+'T',42,'#fff',26,true);
+  label(hasWind?(inside?'IN NO-GO ZONE':'TRUE WIND FROM'):'CALM',63,inside?'#ffae96':'#c1d5da',11,true);
+  label(hasWind?angle+'° '+(angle===0||angle===180?'':side):'—',81,'#fff',15,true);
+  label(wind.toFixed(1)+' m/s · No-go ±'+Math.round(noGo*180/Math.PI)+'°',101,'#ffbd97',11);
+  label('Set '+(currentSpeed>.005?compass(Math.atan2(current[1],current[0])):'—')+' · '+currentSpeed.toFixed(2)+' m/s',120,'#84d9df',11);
   canvas.setAttribute('aria-label','Bow-up sailing dial. '+(hasWind?'True wind from '+angle+' degrees'+(angle===0||angle===180?'':' '+side)+'. '+(inside?'Inside':'Outside')+' the no-go sector.':'Calm.')+' Heading '+compass(heading)+'.');
 }

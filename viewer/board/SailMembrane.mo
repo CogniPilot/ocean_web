@@ -1,6 +1,6 @@
 model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   constant Integer cols=4,rows=6,n=cols*rows;
-  parameter Real roach=0;
+  parameter Real roach=0,cutAngle=0 "Foot angle in the unstrained sail pattern";
   parameter Integer battenCount=0;
   parameter Real battenEI(unit="N.m2")=.8 "Effective chordwise fiberglass flexural rigidity";
   parameter Real battenLinearMass(unit="kg/m")=.045;
@@ -37,7 +37,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   final parameter Real mesh[n,3]={
     {-rake*div(i-1,cols)/(rows-1)-(foot*(1-.985*div(i-1,cols)/(rows-1))+roach*4*div(i-1,cols)/(rows-1)*(1-div(i-1,cols)/(rows-1)))*mod(i-1,cols)/(cols-1),
      -.025*sin(3.14159*mod(i-1,cols)/(cols-1))*(1-div(i-1,cols)/(rows-1)),
-     span*div(i-1,cols)/(rows-1)} for i in 1:n};
+     span*div(i-1,cols)/(rows-1)+foot*sin(cutAngle)*(1-div(i-1,cols)/(rows-1))*mod(i-1,cols)/(cols-1)} for i in 1:n};
   discrete output Real vertex[n,3](start=mesh,each fixed=true);
   discrete Real velocity[n,3](each start=0,each fixed=true);
   discrete output Real fluidForce[3],fluidMoment[3],wetArea,leechSpeed,clewForce[3],mastLoad[3];

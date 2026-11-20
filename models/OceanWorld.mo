@@ -11,7 +11,7 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
     centerMassX=if hobie then -.28 else -.14846,
     stationX=if hobie then {-2.555,-1.9,-.9,.15,1.12,1.95,2.555} else {-1.1,-.82,-.3,.18,.63,.98,1.22},
     beamHalf=if hobie then {.09,.156,.185,.184,.155,.093,.009} else {.22,.29,.335,.32,.235,.12,.01},
-    spans=if hobie then {7.15,5.10} else {2.6,2.12},feet=if hobie then {2.78,1.98} else {1.28,.60},
+    spans=if hobie then {7.15,4.56} else {2.6,2.12},feet=if hobie then {2.78,1.98} else {1.28,.60},
     mainRoach=if hobie then .82 else 0,forestaySlope=if hobie then 1.82/5.1 else 1.04/2.69,
     footX=if hobie then {.44,2.26} else {.12,1.16-.10*1.04/2.69},
     footZ=if hobie then {.97,.75} else {.19,.19},yawInertia=if hobie then 315 else 19,

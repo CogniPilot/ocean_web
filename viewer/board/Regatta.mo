@@ -35,6 +35,8 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   output Real countdown;
   discrete output Integer stage(start=0,fixed=true) "0 prestart, 1 start open, 2/3 marks, 4 finish, 5 finished";
   discrete output Real elapsed(start=0,fixed=true);
+  discrete output Real lapTime(start=0,fixed=true) "Time from the boat crossing the start until it crosses the finish";
+  discrete Real crossed(start=0,fixed=true);
   Real along,across;
   discrete Real lastAlong(start=0,fixed=true),lastAcross(start=0,fixed=true),heat(start=-1,fixed=true),started(start=0,fixed=true);
   discrete Real boundary,crossingAt;
@@ -88,6 +90,8 @@ equation
           elseif pre(stage)==4 and finishCross then 5 else pre(stage);
     started=if boundary>pre(heat) and (pre(stage)<=1 or pre(stage)==5) then boundary else pre(started);
     elapsed=if stage>=2 and pre(stage)<>5 then utc-started elseif stage==5 then pre(elapsed) else 0;
+    crossed=if stage==2 and pre(stage)<>2 then utc else pre(crossed);
+    lapTime=if stage>=2 and pre(stage)<>5 then utc-crossed elseif stage==5 then pre(lapTime) else 0;
     lastAlong=along;
     lastAcross=across;
   end when;

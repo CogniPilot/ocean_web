@@ -23,3 +23,25 @@ for (let i = 0; i < 800; i++) {
 }
 assert(worst < 1e-9 && maxSwing > .4, JSON.stringify({worst,maxSwing}));
 console.log({worst,maxSwing});
+
+// The catamaran's jib head attaches partway along the moving upper forestay.
+const cat = await loadInstance('Hobie16', {manualHelm:1, windNorth:8},
+  async url => new Response(await readFile(url)));
+let shortestStrop = Infinity;
+for (let i=0; i<400; i++) {
+  cat.advance(.01);
+  const [vertices,rotations,paths,stations] = cat.getMany(['sailVertex','sheetRotation','stayPath','jibStation']);
+  const head = vertices.slice(132,135);
+  const rotation = rotations.slice(9);
+  const station = stations[5];
+  const worldHead = [2.26,0,.75].map((origin,j) =>
+    origin + head.reduce((v,x,k) => v+rotation[3*j+k]*x,0));
+  const midway = paths.slice(21,24), tang = paths.slice(24,27);
+  for (let axis=0; axis<3; axis++) {
+    const expected = midway[axis]+(2*station-1)*(tang[axis]-midway[axis]);
+    assert(Math.abs(expected-worldHead[axis])<1e-6, 'jib head drifted off forestay');
+  }
+  shortestStrop = Math.min(shortestStrop, Math.hypot(...tang.map((x,j)=>x-worldHead[j])));
+}
+assert(shortestStrop>.45 && shortestStrop<.7);
+console.log({shortestStrop});

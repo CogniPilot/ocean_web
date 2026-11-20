@@ -92,3 +92,10 @@ A checked item records the specific result described. Open items include partial
 - [x] Give full-length batten segments axial compression resistance and damp changes in pocket curvature.
 - [ ] Calibrate batten stiffness and damping against measured bend and tack-reversal motion. Check peak leech speed during the first haul-in.
 - [ ] Reconcile the full-trim rig after lowering the traveler attachment. Check block clearance and peak sheet loads across the downhaul range.
+
+- [x] Shorten the catamaran jib on the live forestay and show the exposed head halyard. Assumed 4.56 m of cloth rise from the reference photos.
+- [x] Reproduce runaway wet sail loads in compiled pitchpole and beam-capsize tests. Include wet rig inertia and transverse stay damping.
+- [ ] Calibrate sheet tail effort and wet-rig coefficients against measured data.
+- [x] Show the triangle designation, port roundings and true first-leg bearing aboard the committee boat. Time each boat from its own start to the finish.
+- [x] Give the bow-up sailing compass a rotating true-bearing card, fixed bow index and prominent numeric true heading.
+- [ ] Benchmark a local short-wave bow field driven by hull wetting and pressure, with long waves in the existing spectral solver, on physical phones.

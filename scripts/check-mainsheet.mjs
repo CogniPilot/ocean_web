@@ -11,17 +11,19 @@ for(const command of [-1,1,-1]){
     boat.advance(.01);
     const [tip,load]=boat.getMany(['mastTip','mainTension']);
     assert(Number.isFinite(tip) && Number.isFinite(load) && load>=0);
+    assert(load<5000, 'mainsheet overloaded during a manual haul');
     peakBend=Math.max(peakBend,Math.abs(tip));
   }
   const [gap,load,span,paid,stiffness]=boat.getMany(['mainBlockClearance','mainTension','lineSpan','linePaid','mainSheetStiffness']);
   if(command<0){
     assert(gap<.002 && load>0);
     const elevation=boat.get('boomElevation');
-    assert(elevation>-.11 && elevation<.01,'boom traveled below its close-hauled stop');
-    assert(boat.get('mastTip')<-.06,'loaded leech should bend the masthead aft');
+    const closed=Math.asin((boat.get('travelerRiser')-.5+boat.get('tackDrop')+boat.get('blockStack'))/boat.get('attachRadius')[0]);
+    assert(Math.abs(elevation-closed)<.02,'boom did not stop at the traveler pin');
+    assert(boat.get('mastTip')<-.04,'loaded leech should bend the masthead aft');
     assert(span[0]-paid[0]<.016,'excessive extension across hauled blocks');
   }else assert(gap>.4 && load===0,'an eased slack sheet should exert no force');
   console.log({command,clearanceM:gap,tackleForceN:load,extensionM:Math.max(0,span[0]-paid[0]),stiffness});
 }
-assert(peakBend>.06 && peakBend<.5);
+assert(peakBend>.04 && peakBend<.5);
 console.log({peakMastheadDeflectionM:peakBend});

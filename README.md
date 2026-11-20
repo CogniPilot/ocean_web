@@ -144,3 +144,7 @@ For the default Hobie strip geometry and 1.02 m half-spacing, the level-tow mode
 Run `blender -b -P tools/build-vehicle-assets.py` to regenerate the three original textured vehicle shells. The embedded glTF materials carry base color, roughness and metallic response. Dynamic sails, sheets, rudders, thrusters and lights attach to the simulated vehicle frames. The RDD2 uses the upstream drone asset.
 
 A GPU pass refracts sunlight through the wave normals and accumulates flux on a reference seabed 13.7 m below mean water. A cached directional depth map of the wreck gates illumination on each receiver. Receiver depths away from the seabed use projection along the mean refracted ray. This approximation resolves blocked sunlight and deck openings but omits multiple scattering and a full volumetric photon solution.
+
+### Sailing the triangle
+
+The committee board identifies the local one-lap course as **TRI 1**. Its first-leg bearing is measured clockwise from true north at the midpoint of the start line. After the five-minute fleet signal, cross between the committee boat and pin toward mark 1. Tack to mark 1, then sail to mark 2, leaving both marks to port. The scorer registers each mark within 2.5 m of its centre. Return through the same gate from the course side. Each leg is 200 m. The lap clock starts at your own crossing and freezes at the finish. The race panel retains your last time until another finish or page reload.

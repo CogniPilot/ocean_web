@@ -167,6 +167,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  function mesh(geo,mat,parent=group){const m=new T.Mesh(geo,mat);parent.add(m);return m;}
  function rod(a,b,r,mat,parent=group){a=new T.Vector3(...a);b=new T.Vector3(...b);const d=b.clone().sub(a);const m=mesh(new T.CylinderGeometry(r,r,d.length(),10),mat,parent);m.position.copy(a).lerp(b,.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return m;}
  let vane,drum,rudder,otherRudder,carriage,crossTiller;
+ let jibHalyard;
  const deckCars=[],sheets=[],sheetBlocks=[],podParts=[],streamers=[],staySegments=[[],[],[]];
  let mastGeometry,mastRest,mastWeights;
  const braids=new Map();
@@ -309,6 +310,8 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    group.add(lower,upper);sheetBlocks.push(lower,upper);
    rod([2.29,0,.65],[2.26,0,.75],.009,pin);
    installStay(2,[2.26,0,.75]);
+   jibHalyard=rod([0,0,0],[0,1,0],.004,paint(0xe7c85c));
+   jibHalyard.name="Jib head halyard";
    crossTiller=rod([-1.69,-1.02,.47],[-1.69,1.02,.47],.021,black);
    for(const x of [-1.4,.55])rod([x,-.94,.465],[x,.94,.465],.014,paint(0xbdc5c4));
    for(const x of [-1.4,.55,.55]){
@@ -449,6 +452,16 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      for(let i=0;i<24;i++){
        const offset=42+m*72+i*3;
        coords.setXYZ(i,s[offset],s[offset+1],s[offset+2]);
+     }
+     if(m===1 && jibHalyard && stayPath){
+       const head=side.fromBufferAttribute(coords,20).applyQuaternion(pivot.quaternion).add(pivot.position);
+       const tang=binormal.fromArray(stayPath,24);
+       head.y+=.012;
+       tang.y+=.012;
+       tangent.subVectors(tang,head);
+       jibHalyard.position.copy(head).lerp(tang,.5);
+       jibHalyard.scale.y=tangent.length();
+       jibHalyard.quaternion.setFromUnitVectors(stayUp,tangent.normalize());
      }
      coords.needsUpdate=true;geo.computeVertexNormals();
      for(let k=0;k<tufts.length;k++){

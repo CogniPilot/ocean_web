@@ -29,6 +29,9 @@ for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
   assert.equal(move(marks[1],360),4);
   assert.equal(move(gate(-1,0),390),5);
   near(race.get('elapsed'),90);
+  near(race.get('lapTime'),87);
+  assert.equal(move(gate(-2,0),399),5);
+  near(race.get('lapTime'),87);
 }
 console.log('Three wind bearings passed course geometry, start, both marks, finish and elapsed time.');
 const launch=await loadInstance('Regatta',{windBearing:-Math.PI},read);

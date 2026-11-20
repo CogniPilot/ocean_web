@@ -9,7 +9,7 @@ import {forceDisplay} from './instrumentation.mjs';
 import {submarine} from './submarine.mjs';
 import {surveyDrone} from "./drone.mjs";
 import {mastCamera} from "./mast-camera.mjs";
-import {courseScene,raceAudio} from "./regatta.mjs";
+import {courseScene,raceAudio,firstLeg,trueBearing} from "./regatta.mjs";
 import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
 async function run(){
@@ -59,7 +59,7 @@ async function run(){
     const a=document.createElement('a'),href=URL.createObjectURL(new Blob([JSON.stringify(file)],{type:'application/json'}));a.href=href;a.download='mast-'+model.time.toFixed(2)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(href),10000);
   };
   const boardClock=courseScene(T,scene,race),audio=raceAudio();
-  let lastCountdown=null,raceTick=0;
+  let lastCountdown=null,raceTick=0,lastLap;
   const roomName=(url.searchParams.get('room')||'regatta').slice(0,64);
   const remote=fleet(T,scene,roomName,$('online'));camera.layers.enable(1);
   function multiplayer(on){
@@ -299,7 +299,18 @@ async function run(){
         if(lastCountdown!==null&&lastCountdown<5&&left>295)audio.signal();
         lastCountdown=left;const label=left>298?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
         boardClock(label);$('countdown').textContent=label;
-        $('raceStatus').textContent=['Prestart','Cross the line','Mark 1','Mark 2','Cross finish','Finished'][stage]+(stage>=2?' · '+race.get('elapsed').toFixed(1)+' s':'');
+        const lap=race.get('lapTime');
+        const tenths=Math.round(lap*10);
+        const timer=Math.floor(tenths/600)+':'+((tenths%600)/10).toFixed(1).padStart(4,'0');
+        if(stage===5)lastLap=timer;
+        let cue=['Wait for start','Cross upwind','Mark 1','Mark 2','Cross finish downwind','Finished'][stage];
+        if(stage===2 || stage===3){
+          const e=race.get('markEast')[stage-2]-model.get('east');
+          const n=race.get('markNorth')[stage-2]-model.get('north');
+          cue+=' · '+trueBearing(e,n)+' · '+Math.round(Math.hypot(e,n))+' m';
+        }
+        $('raceCourse').textContent='TRI 1 · First leg '+firstLeg(race)+' · 1 & 2 to port';
+        $('raceStatus').textContent=cue+(stage>=2?' · Lap '+timer:lastLap?' · Last lap '+lastLap:'');
         model.set('traffic',remote.contacts(model.get('east'),model.get('north')));
       }
       frameCost=.94*frameCost+.06*Math.min(120,now-prev);
