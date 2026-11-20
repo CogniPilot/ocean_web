@@ -132,3 +132,9 @@ A 393 × 852 touch viewport in Chromium using SwiftShader selected Low on a fres
 The viewer starts loading vehicle meshes alongside the integrated world and prepares the renderer and shoreline before awaiting both. When the tide is at or above mean sea level, the planar reflection pass can skip the submerged wreck, seabed and animals. The transmission pass still draws these objects.
 
 In a cache-disabled Chromium touch viewport (393 × 852, SwiftShader, localhost), two candidate launches first reported positive simulation time at 2.821 and 2.822 seconds. The interleaved previous release took 2.934 seconds. The first catamaran hull request began at 157–160 ms on the candidate and 735 ms on the previous release. In a paired render of the same orbit view, all 23,040 pixels in the Low reflection target matched with submerged scenery included and excluded.
+
+### Wind update cost on Low
+
+The generated kernel carried the entire 48 × 48 × 3 output array through a nested loop that assigned three entries at a time. Expressing the Modelica field as a map of independent cells lets Rumoca emit a contiguous three-value output per cell. A standalone WASM comparison across 80 changing-wind updates returned identical fields, including the roughness channel. Median update time fell from 13.9 to 4.1 ms after eight warm-up updates.
+
+Two interleaved coupled-world Low benchmarks measured 400 steps per model after 100 warm-up steps, reversing initialization order on the second run. Median steps with a wind event alone fell from 29.4 and 29.7 ms to 9.2 and 8.8 ms. Across all steps the respective means changed from 12.36 to 12.33 ms and from 13.19 to 11.33 ms. The compiled worlds returned identical values on 55,344 comparisons of wind fields, boat position and local boat and drone wind. Combined wave and sensor events remain the largest stalls.
