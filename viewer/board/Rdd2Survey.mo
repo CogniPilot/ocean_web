@@ -16,6 +16,11 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
   Real target[3](start={-5,0,5},each fixed=true),yawTarget(start=0,fixed=true);
   Real attitude[3](each start=0,each fixed=true);
   discrete Real gps[3](start={-5,0,5},each fixed=true),gpsVelocity[3](each start=0,each fixed=true);
+  parameter Real holdIntegralGain=.36 "Position-loop integral gain [1/s3]";
+  parameter Real maxIntegralAcceleration=6 "Bound on sustained disturbance rejection [m/s2]";
+  parameter Real tiltLimit=.72 "Maximum roll or pitch for station keeping [rad]";
+  Real integralAcceleration[3](each start=0,each fixed=true);
+  Real forwardAcceleration,leftAcceleration,upAcceleration;
   Real desired[3],acceleration[3],rollTarget,pitchTarget,collective,torque[3],motorThrust[4];
 
 equation
@@ -39,9 +44,18 @@ equation
     else {max(-2,min(2,stationEast-target[1])),max(-2,min(2,stationNorth-target[2])),max(-1,min(1,5-target[3]))};
   der(target[1:2])=desired[1:2];
   der(target[3])=if target[3]<1 and desired[3]<0 then 0 else desired[3];
-  acceleration=1.4*(target-gps)+2.4*(desired-gpsVelocity);
-  pitchTarget=max(-.32,min(.32,(cos(attitude[3])*acceleration[1]+sin(attitude[3])*acceleration[2])/9.80665));
-  rollTarget=max(-.32,min(.32,(sin(attitude[3])*acceleration[1]-cos(attitude[3])*acceleration[2])/9.80665));
+  for i in 1:3 loop
+    der(integralAcceleration[i])=if motorCut>.5 or immersed>.5 then -integralAcceleration[i]
+      elseif (integralAcceleration[i]>=maxIntegralAcceleration and target[i]>gps[i]) or
+             (integralAcceleration[i]<=-maxIntegralAcceleration and target[i]<gps[i]) then 0
+      else holdIntegralGain*(target[i]-gps[i]);
+  end for;
+  acceleration=1.4*(target-gps)+2.4*(desired-gpsVelocity)+integralAcceleration;
+  forwardAcceleration=cos(attitude[3])*acceleration[1]+sin(attitude[3])*acceleration[2];
+  leftAcceleration=-sin(attitude[3])*acceleration[1]+cos(attitude[3])*acceleration[2];
+  upAcceleration=max(1,9.80665+acceleration[3]);
+  pitchTarget=max(-tiltLimit,min(tiltLimit,atan2(forwardAcceleration,upAcceleration)));
+  rollTarget=max(-tiltLimit,min(tiltLimit,atan2(-leftAcceleration,sqrt(forwardAcceleration^2+upAcceleration^2))));
   collective=aircraft.vehicleMass_kg*(9.80665+acceleration[3])/max(.5,cos(attitude[1])*cos(attitude[2]));
   torque={.86*(rollTarget-attitude[1]),.86*(pitchTarget-attitude[2]),.42*atan2(sin(yawTarget-attitude[3]),cos(yawTarget-attitude[3]))}-
     {.23*aircraft.imu.angularVelocityBodyFlu_rad_s[1],.23*aircraft.imu.angularVelocityBodyFlu_rad_s[2],.18*aircraft.imu.angularVelocityBodyFlu_rad_s[3]};

@@ -39,3 +39,24 @@ const bottom=sinking.get('position')[2];
 console.log({lowest,bottom});
 assert(Math.abs(bottom+13.61)<.03 && lowest>-13.71);
 assert(sinking.get('immersed')>.99 && Math.max(...sinking.get('rotorSpeed'))<.01);
+
+// Track a moving survey station across a rotating 8–14 m/s wind.
+const follower=await loadInstance('Rdd2Survey',{pilot:0,stationEast:-5,stationNorth:0,windENU:[10,4,0]},
+  async u=>new Response(await readFile(u)));
+let horizontalSquared=0,altitudeSquared=0,samples=0;
+for(let k=0;k<20000;k++){
+  const t=k*.005,east=-5+10*Math.sin(t/14),north=6*Math.sin(t/9);
+  if(k%40===0){
+    const speed=11+3*Math.sin(t/8),bearing=.45+.23*Math.sin(t/15);
+    follower.set('stationEast',east);follower.set('stationNorth',north);
+    follower.set('windENU',[speed*Math.cos(bearing),speed*Math.sin(bearing),0]);
+  }
+  follower.advance(.005);
+  if(k%40===0){
+    const [x,y,z]=follower.get('position');
+    horizontalSquared+=(x-east)**2+(y-north)**2;altitudeSquared+=(z-5)**2;samples++;
+  }
+}
+const horizontalRms=Math.sqrt(horizontalSquared/samples),altitudeRms=Math.sqrt(altitudeSquared/samples);
+console.log({horizontalRms,altitudeRms});
+assert(horizontalRms<1 && altitudeRms<.25,'Aircraft lost its moving station in crosswind');
