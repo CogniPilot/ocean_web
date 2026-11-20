@@ -336,10 +336,13 @@ async function run(){
         drawFeatures(sub.frame);
       }
       ocean.dome.position.copy(camera.position);ocean.water.position.set(s[0],s[1],0);updateLight(t);caustics.update(t);
-      if(now-lastCapture>=(mobile?65:0)){
+      const surfaceBand=.55+1.8*Number($('seaState').value)+Math.abs(ocean.U.swell.value.x);
+      // The underwater shader computes the view through the surface from the sky.
+      // Its opaque submerged pass never samples the planar capture targets.
+      if(camera.position.z<=-surfaceBand)lastCapture=-Infinity;
+      else if(now-lastCapture>=(mobile?65:0)){
         ocean.capture(renderer,camera);lastCapture=now;
       }
-      const surfaceBand=.55+1.8*Number($('seaState').value)+Math.abs(ocean.U.swell.value.x);
       if(Math.abs(camera.position.z)<surfaceBand){split(renderer,scene,camera,ocean,underwaterFog);}
       else{
         const submerged=camera.position.z<0;

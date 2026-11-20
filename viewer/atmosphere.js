@@ -166,35 +166,7 @@ function atmosphere(scene){
    d+=fade*rippleSlope(wp.xy,tm,bearing,rippleWind);
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    float day=smoothstep(-.12,.22,sunDir.z);
-   float fres=.021+.979*pow(1.-clamp(abs(dot(n,eye)),0.,1.),5.);
-   float back=pow(max(0.,dot(-eye,sunDir)),3.)*smoothstep(-.45,.9,wp.z-tide);
-   vec3 waterColor=mix(vec3(.001,.008,.019),vec3(.004,.061,.093)+back*vec3(.012,.13,.10),day);
-   vec4 clip=mirrorMatrix*vec4(wp,1.);
-   // A distant reflected canopy occupies just a few pixels near the horizon.
-   float normalOffset=.023*mix(.16,1.,smoothstep(.025,.24,abs(eye.z)));
-   vec2 uv=clamp(clip.xy/clip.w*.5+.5-d*normalOffset,.001,.999);
-   vec4 objects=texture2D(reflection,uv,.65);
-   vec3 reflected=mix(skyColor(ref),objects.rgb,objects.a);
-   vec2 screen=gl_FragCoord.xy/viewport;
-   vec2 refrUV=clamp(screen+d*.009,.001,.999);
-   float surfaceDepth=viewDepth(gl_FragCoord.z);
-   float hitDepth=viewDepth(texture2D(transmissionDepth,refrUV).r);
-   if(hitDepth<surfaceDepth){refrUV=screen;hitDepth=viewDepth(texture2D(transmissionDepth,screen).r);}
-   float path=clamp((hitDepth-surfaceDepth)*length(cameraPosition-wp)/max(.01,surfaceDepth),0.,60.);
-   vec3 below=texture2D(transmission,refrUV).rgb;
-   vec3 trans=exp(-vec3(.22,.068,.040)*path);
-   vec3 color=mix(waterColor*(1.-trans)+below*trans,reflected,fres);
-   color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
-   float crest=wp.z-tide-.4*length(d);
-   waterColor=mix(waterColor,vec3(.012,.037,.043),storm*.85);
-   float scum=cloud(p*vec2(1.8,3.8)+vec2(-.9*tm,0.));
-   float foam=smoothstep(.40,.89,crest+(wind-9.)*.054)*smoothstep(.43,.67,scum);
-   float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
-   foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum));
-
-   color=mix(color,vec3(.018,.048,.051)+reflected*.22,storm*(.48+.20*(1.-fres)));
-   foam=max(foam,storm*smoothstep(.43,1.1,crest)*smoothstep(.34,.61,scum));
-   color=mix(color,mix(vec3(.06,.10,.14),vec3(.79,.87,.85),day),foam*.86);
+   vec3 color;
    if(under>.5){
      vec3 ray=normalize(wp-cameraPosition);
      // Trace the underwater viewing ray across the water/air interface.
@@ -206,9 +178,39 @@ function atmosphere(scene){
      color=mix(underside,through,transmissionGate*(1.-pow(1.-incidence,5.)));
      vec3 attenuation=exp(-vec3(.18,.057,.032)*length(wp-cameraPosition));
      color=mix(vec3(.013,.105,.145)*(.22+.78*day),color,attenuation);
+   }else{
+     float fres=.021+.979*pow(1.-clamp(abs(dot(n,eye)),0.,1.),5.);
+     float back=pow(max(0.,dot(-eye,sunDir)),3.)*smoothstep(-.45,.9,wp.z-tide);
+     vec3 waterColor=mix(vec3(.001,.008,.019),vec3(.004,.061,.093)+back*vec3(.012,.13,.10),day);
+     vec4 clip=mirrorMatrix*vec4(wp,1.);
+     // A distant reflected canopy occupies just a few pixels near the horizon.
+     float normalOffset=.023*mix(.16,1.,smoothstep(.025,.24,abs(eye.z)));
+     vec2 uv=clamp(clip.xy/clip.w*.5+.5-d*normalOffset,.001,.999);
+     vec4 objects=texture2D(reflection,uv,.65);
+     vec3 reflected=mix(skyColor(ref),objects.rgb,objects.a);
+     vec2 screen=gl_FragCoord.xy/viewport;
+     vec2 refrUV=clamp(screen+d*.009,.001,.999);
+     float surfaceDepth=viewDepth(gl_FragCoord.z);
+     float hitDepth=viewDepth(texture2D(transmissionDepth,refrUV).r);
+     if(hitDepth<surfaceDepth){refrUV=screen;hitDepth=viewDepth(texture2D(transmissionDepth,screen).r);}
+     float path=clamp((hitDepth-surfaceDepth)*length(cameraPosition-wp)/max(.01,surfaceDepth),0.,60.);
+     vec3 below=texture2D(transmission,refrUV).rgb;
+     vec3 trans=exp(-vec3(.22,.068,.040)*path);
+     color=mix(waterColor*(1.-trans)+below*trans,reflected,fres);
+     color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
+     float crest=wp.z-tide-.4*length(d);
+     waterColor=mix(waterColor,vec3(.012,.037,.043),storm*.85);
+     float scum=cloud(p*vec2(1.8,3.8)+vec2(-.9*tm,0.));
+     float foam=smoothstep(.40,.89,crest+(wind-9.)*.054)*smoothstep(.43,.67,scum);
+     float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
+     foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum));
+
+     color=mix(color,vec3(.018,.048,.051)+reflected*.22,storm*(.48+.20*(1.-fres)));
+     foam=max(foam,storm*smoothstep(.43,1.1,crest)*smoothstep(.34,.61,scum));
+     color=mix(color,mix(vec3(.06,.10,.14),vec3(.79,.87,.85),day),foam*.86);
+     float haze=smoothstep(70.,430.,length(wp-cameraPosition));
+     color=mix(color,skyColor(normalize(vec3(-eye.xy,.01))),haze*.90);
    }
-   float haze=smoothstep(70.,430.,length(wp-cameraPosition));
-   color=mix(color,skyColor(normalize(vec3(-eye.xy,.01))),haze*.90*(1.-under));
    gl_FragColor=vec4(color,1.);
    #include <tonemapping_fragment>
    #include <colorspace_fragment>
