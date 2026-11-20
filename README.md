@@ -4,7 +4,7 @@ Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone
 
 [Request tracker](TODO.md)
 
-On the Hobie 16, the red port and green starboard sidestay ribbons stream in the direction the apparent wind is going. A ribbon pointing aft means wind is coming over the bow. They hang down when the air is still relative to the boat. Rumoca calculates each ribbon direction using local rig velocity and gravity.
+On the Hobie 16, the red port and green starboard sidestay ribbons stream in the direction the apparent wind is going. A ribbon pointing aft means wind is coming over the bow. They hang down when the air is still relative to the boat. Paired telltales on the main and jib follow local cloth motion and apparent flow. A lifting or reversing ribbon indicates possible separation. The incidence-based response is an approximation for sail trim. Rumoca calculates each ribbon direction using local rig velocity and gravity.
 
 ## Combined simulation component
 

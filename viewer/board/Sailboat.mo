@@ -62,6 +62,47 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       end if;
     end for;
   end contactWrench;
+  function standingRig "One loaded midpoint per elastic cable, mast step fixed"
+    input Real anchors[3,3],tang[3],previous[2],rate[2],sailMomentBody[3],jibLoad[3],clothReaction[2,3],gravityBody[3];
+    input Real dt,EA,preload;
+    output Real lean[2],velocity[2],path[3,3,3],tension[3],lateralK[3];
+  protected
+    Real direction[3],head[3],force[3],q[3],weight[3],drive[2],rest,L,L0,P,lo,hi,sag,halfSpan,Tline;
+  algorithm
+    // Boom/mast share the overturning moment. The headsail load below is
+    // already carried by the forestay and is omitted from this applied moment.
+    drive:={sailMomentBody[2],-sailMomentBody[1]}/(tang[3]-.41);
+    head:=tang+{previous[1],previous[2],0};
+    for i in 1:3 loop
+      direction:=head-anchors[i,:];L:=sqrt(direction*direction);direction:=direction/L;
+      q:=tang-anchors[i,:];L0:=sqrt(q*q);
+      P:=if i<=2 then preload else preload*(2*.96/1.82)*L0/sqrt(.96^2+1.02^2+5.51^2);
+      rest:=L0/(1+P/EA);
+      weight:=.045*L0*.5*gravityBody;
+      force:=weight+(if i<=2 then clothReaction[min(i,2),:] else jibLoad);
+      force:=force-direction*(force*direction);
+      P:=sqrt(force*force);
+      // Midpoint transverse force balance. Either half may carry tension
+      // only. Cable length and geometric stiffness grow as it deflects.
+      lo:=0;hi:=.5*sqrt(max(0,rest^2-L^2))+.02+L*(P/EA)^(1/3);
+      for iteration in 1:16 loop
+        sag:=(lo+hi)/2;halfSpan:=sqrt(.25*L^2+sag^2);
+        Tline:=EA*max(0,2*halfSpan/rest-1);
+        if 2*Tline*sag<P*halfSpan then lo:=sag;else hi:=sag;end if;
+      end for;
+      sag:=(lo+hi)/2;halfSpan:=sqrt(.25*L^2+sag^2);
+      path[i,1,:]:=anchors[i,:];path[i,3,:]:=head;
+      path[i,2,:]:=(head+anchors[i,:])/2+sag*force/max(1e-10,P);
+      tension[i]:=EA*max(0,2*halfSpan/rest-1);
+      q:=(path[i,2,:]-head)*tension[i]/halfSpan;
+      drive:=drive+q[1:2];
+      lateralK[i]:=2*tension[i]/halfSpan+2*EA/rest*sag^2/halfSpan^2;
+    end for;
+    // First fore-aft and athwartship hounds sway mode. Backward damping
+    // accounts for rig losses without a high-frequency cable time step.
+    velocity:=(rate+dt*(drive-850*previous)/14)/(1+dt*350/14);
+    lean:=previous+dt*velocity;
+  end standingRig;
   input Real traffic[4,9] "Active, east, north, yaw, east/north velocity, yaw rate, height, twin hull";
   output Real peerForce[3] "World east/north force and yaw moment";
   input Real wakeEast,wakeNorth,wakeYaw "Free-surface pressure reaction from the local wave FMU";
@@ -73,7 +114,9 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   input Real vangInput "Tackle adjustment, 0 eased to 1 tight";
   Real boomElevation(start=.04,fixed=true),boomLiftRate(start=0,fixed=true);
   Real vangLength,vangTension,vangArm,clewTorque;
-  parameter Real vangAttachment=.42,vangDrop=.115;
+  parameter Real vangAttachment=if catamaran then .95 else .42,vangDrop=if catamaran then .56 else .115;
+  parameter Real vangHaulLimit(unit="N")=2000 "Total load limit of the automated catamaran tackle";
+  Real vangPaid(start=sqrt(vangAttachment^2+vangDrop^2),fixed=true),vangTarget;
   Real payout(start=.12,fixed=true),drumAngle,lineSpeed,boomLimit;
   parameter Real drumRadius=.043, sheetArm=.44;
   parameter Boolean catamaran=false;
@@ -84,7 +127,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real attachRadius[2]={if catamaran then 1.84 else .44,feet[2]};
   Real fairlead[3,3],attachment[2,3],tipLocal[2,3],tipVel[2,3],leadVel[3,3];
   Real sheetForce[3,3],lineDirection[3,3],ropeTorque[3,3],lineSpan[3],lineRate[3],lineTension[3],lineTarget[3];
-  parameter Real travelerRiser(unit="m")=.20 "Height of the lower block strop above the traveler car";
+  parameter Real travelerRiser(unit="m")=.05 "Traveler pin height above the rail datum";
   final parameter Real mainInitialSpan=sqrt((attachRadius[1]*(1-cos(.04)*cos(.17)))^2+
     (attachRadius[1]*cos(.04)*sin(.17))^2+(.50-travelerRiser+attachRadius[1]*sin(.04))^2);
   Real linePaid[3](start={if catamaran then mainInitialSpan else .32,.32,.32},each fixed=true),trimRate[2](each start=0,each fixed=true),hingeLoad[2],sheetYaw[3],sheetLift;
@@ -105,6 +148,13 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real blockContact,mainTension,jibTension;
   Real jibTrimTarget;
   output Real exposedSheetSag[3] "Free-span deflection with excess line retained on deck";
+  parameter Real stayEA(unit="N")=520000,shroudPreload(unit="N")=220;
+  final parameter Real stayAnchors[3,3]=[-.52,1.02,.34;-.52,-1.02,.34;2.26,0,.75];
+  final parameter Real tang[3]={.44,0,5.85};
+  discrete output Real stayPath[3,3,3],stayTension[3],stayStiffness[3];
+  discrete Real tangLean[2](each start=0,each fixed=true),tangRate[2](each start=0,each fixed=true);
+  Real contactBody[2,3],mainMomentBody[3],jibWireLoad[3];
+  output Real sailTail[2,4,3] "Paired face telltales on main and jib";
   output Real shroudTail[2,3] "Direction of each sidestay streamer in hull coordinates, port first";
   function streamerDirection
     input Real relativeVelocity[3],gravityDown[3],density;
@@ -377,17 +427,42 @@ equation
   der(mastTip)=mastTipRate;
   mastModalMass*der(mastTipRate)=(if catamaran then sheetRotation[1,1,:]*cloth[1].mastLoad else 0)
     -leechLoad*leechDirection[1]-mastStiffness*mastTip-2*mastDampingRatio*sqrt(mastModalMass*mastStiffness)*mastTipRate;
+  mainMomentBody=sheetRotation[1,:,:]*cloth[1].fluidMoment;
+  jibWireLoad=.5*sheetRotation[2,:,:]*cloth[2].fluidForce;
+  for wire in 1:2 loop
+    contactBody[wire,:]=sheetRotation[1,:,:]*{0,cloth[1].wireReaction[wire],0};
+  end for;
+  when sample(0,.01) then
+    (tangLean,tangRate,stayPath,stayTension,stayStiffness)=standingRig(stayAnchors,tang,
+      pre(tangLean),pre(tangRate),if catamaran then pre(mainMomentBody) else zeros(3),
+      if catamaran then pre(jibWireLoad) else zeros(3),pre(contactBody),transpose(rotation)*{0,0,-9.80665},.01,stayEA,shroudPreload);
+  end when;
+  for row in 1:6 loop
+    cloth[1].luffShift[row,:]=if catamaran then transpose(sheetRotation[1,:,:])*
+      {stayPath[1,3,1]-tang[1],stayPath[1,3,2],0}*((row-1)/5/stayFraction) else zeros(3);
+    cloth[2].luffShift[row,:]=if catamaran then transpose(sheetRotation[2,:,:])*(
+      (if row<=3 then (1-2*(row-1)/5)*stayPath[3,1,:]+2*(row-1)/5*stayPath[3,2,:]
+       else (2-2*(row-1)/5)*stayPath[3,2,:]+(2*(row-1)/5-1)*stayPath[3,3,:])
+        -((1-(row-1)/5)*stayAnchors[3,:]+(row-1)/5*tang)) else zeros(3);
+  end for;
   cloth[1].mastOffset=transpose(sheetRotation[1,:,:])*{mastTip,0,0};
   cloth[2].mastOffset=zeros(3);
   mainTension=lineTension[1];jibTension=sum(lineTension[2:3]);
   sheetLift=ropeTorque[1,:]*sheetRotation[1,:,2];
   vangLength=sqrt(vangAttachment^2+vangDrop^2+2*vangAttachment*vangDrop*sin(boomElevation));
   vangArm=vangAttachment*vangDrop*cos(boomElevation)/vangLength;
-  vangTension=if catamaran then max(0,2200*(vangLength-(.50-.073*max(0,min(1,vangInput))))) else max(0,3200*(vangLength-(.49-.065*max(0,min(1,vangInput)))));
+  // The winch pays out enough line for a raised boom; hauling shortens the
+  // diagonal between the mast foot and the underside of the boom.
+  vangTarget=sqrt(vangAttachment^2+vangDrop^2+2*vangAttachment*vangDrop*
+    sin(.36-.49*max(0,min(1,vangInput))));
+  der(vangPaid)=if catamaran then min(.22,max(-.22,(vangTarget-vangPaid)/.15)) else 0;
+  vangTension=if catamaran then min(vangHaulLimit,max(0,48000*(vangLength-vangPaid))) else max(0,3200*(vangLength-(.49-.065*max(0,min(1,vangInput)))));
   clewTorque=feet[1]*(sin(boomElevation)*cloth[1].clewForce[1]+cos(boomElevation)*cloth[1].clewForce[3]);
   der(boomElevation)=boomLiftRate;
   der(boomLiftRate)=(clewTorque+leechLift-vangTension*vangArm+sheetLift-(if catamaran then 26 else .95)*cos(boomElevation)-(if catamaran then 90 else 3)*boomLiftRate
     +900*max(0,(if catamaran then -.25 else -.035)-boomElevation)-900*max(0,boomElevation-.65))/((if catamaran then 11 else .28)+hingeWaterInertia[1]);
+  cloth[1].leechTension=leechLoad;
+  cloth[2].leechTension=0;
   cloth[1].boomElevation=boomElevation;
   cloth[2].boomElevation=0;
   der(rudder)=((if manualHelm>.5 then .54*rudderInput else max(-0.56,min(0.56,1.35*error-0.45*gyro)))-rudder)/0.2;
@@ -402,7 +477,7 @@ equation
        -orbitalEast*sin(heading)+orbitalNorth*cos(heading)-sway,orbitalUp-vertical};
   surfaceNormal={-tan(wavePitch),tan(waveRoll),-1};
   for side in 1:2 loop
-    tailArm[side,:]=rotation*(.72*{-.52,(3-2*side)*1.02,.34}+.28*{.44,0,5.85});
+    tailArm[side,:]=rotation*(.44*stayPath[side,1,:]+.56*stayPath[side,2,:]);
     tailImmersion[side]=noEvent(max(0,min(1,.5+(waveHeight-heave+surfaceNormal*tailArm[side,:]+
       swellAmplitude*sin(swellPhase+swellLocal*tailArm[side,1:2]))/.03)));
     tailFluid[side,:]=transpose(rotation)*((1-tailImmersion[side])*{awx,awy,-vertical}+tailImmersion[side]*waterRelative-cross(spin,tailArm[side,:]));
@@ -436,7 +511,12 @@ equation
         (3-2*side)*(if catamaran then 1.02 else .31),
         (if catamaran then .34 else .09)-footZ[m]};
     end for;
-    cloth[m].shroudHead=transpose(sheetRotation[m,:,:])*{
+    cloth[m].wireK=if catamaran then stayStiffness[1:2] else {1e8,1e8};
+    for side in 1:2 loop
+      cloth[m].shroudMid[side,:]=if catamaran then transpose(sheetRotation[m,:,:])*
+        (stayPath[side,2,:]-{footX[m],0,footZ[m]}) else (cloth[m].shroudHead+cloth[m].shroudFoot[side,:])/2;
+    end for;
+    cloth[m].shroudHead=if catamaran then transpose(sheetRotation[m,:,:])*(stayPath[1,3,:]-{footX[m],0,footZ[m]}) else transpose(sheetRotation[m,:,:])*{
       (if catamaran then .44 else .12)-footX[m],0,
       (if catamaran then 5.85 else 2.78)-footZ[m]};
     cloth[m].air=transpose(rig[m,:,:])*({awx,awy,-vertical}-cross(spin,origin[m,:]));
@@ -447,6 +527,7 @@ equation
     sailVertex[m,:,:]=cloth[m].vertex;
     wettedArea[m]=cloth[m].wetArea;
     leechSpeed[m]=cloth[m].leechSpeed;
+    sailTail[m,:,:]=cloth[m].faceTail;
     rigForce[m,:]=rig[m,:,:]*cloth[m].fluidForce;
     rigMoment[m,:]=rig[m,:,:]*cloth[m].fluidMoment+cross(origin[m,:],rigForce[m,:]);
     sailForward[m]=rigForce[m,1];sailPort[m]=rigForce[m,2];

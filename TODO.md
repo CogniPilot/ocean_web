@@ -42,8 +42,13 @@ A checked item records the specific result described. Open items include partial
 - [x] Set a 200 m triangular course with a wind-square 40 m start line. Test crossings at three prevailing wind bearings.
 - [x] Move the Pilothouse fin, bulb and lateral force station amidships.
 - [x] Give the trampoline ballast carriage a matte black finish.
+- [x] Transmit leech tension through the mainsail mesh and verify loaded-edge motion with the sheet hauled.
+- [x] Lead the automated catamaran vang from the mast foot to the boom and check its effect with the main eased.
+- [ ] Compare eased-sail leech speeds during hard trim releases against measured rig motion. Investigate the short, large spikes in the release transient.
+- [x] Render generic triple mainsheet blocks, shackles, routed sheet and cam hardware on the moving jib travelers.
+- [x] Add pairs of local-flow telltales to both faces of the main and jib at two heights.
 - [x] Mount apparent-wind telltales on both catamaran shrouds and verify calm, crosswind and boat-induced flow in the compiled model.
-- [x] Allow the mainsheet blocks to meet, with tension-only low-stretch purchase and elastic fore–aft mast bend.
+- [ ] Allow the mainsheet blocks to meet, with tension-only low-stretch purchase and elastic fore–aft mast bend.
 - [ ] Calibrate mast flexural rigidity and loaded tackle extension against measured hardware.
 - [x] Verify linked main/jib manual trim (S hauls in, W eases), windward sheet take-up, on-deck slack and independent jib fine trim.
 
@@ -82,3 +87,8 @@ A checked item records the specific result described. Open items include partial
 - [x] Add reproducible Blender-to-GLB sources for both boat hulls and the submarine pressure housing with embedded PBR maps. Keep the requested upstream RDD2 GLB.
 - [ ] Review hulls, rudders and submerged geometry from the supplied photo angles. Extend material detail to rigging, deck hardware, thruster housings and cameras. Preserve mesh pivots, sensor transforms and force application frames.
 - [ ] Compare above-water and below-water image sequences on desktop and mobile, including sunset, swell, storm and the wreck approach.
+
+- [x] Pin the lower mainsheet block directly to the traveler car and align the Modelica fairlead with the pin.
+- [x] Give full-length batten segments axial compression resistance and damp changes in pocket curvature.
+- [ ] Calibrate batten stiffness and damping against measured bend and tack-reversal motion. Check peak leech speed during the first haul-in.
+- [ ] Reconcile the full-trim rig after lowering the traveler attachment. The close-hauled regression leaves about 9 mm between the blocks and the vang unloads when the sheet pulls the boom below its set angle.

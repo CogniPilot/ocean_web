@@ -380,7 +380,7 @@ async function run(){
       document.body.dataset.visiblePeers=remote.visible;
       const t=model.time;
       if(t!==meshTime){
-        boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag,cat?model.get('shroudTail'):null);
+        boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag,cat?model.get('shroudTail'):null,cat?model.get('sailTail'):null,cat?model.get('stayPath'):null);
         life(t);causticTime.value=t;meshTime=t;
       }
       ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);

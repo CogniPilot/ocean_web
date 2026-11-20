@@ -85,6 +85,81 @@ function sailMaterial(T,cat,count){
  const tex=new T.CanvasTexture(c);tex.colorSpace=T.SRGBColorSpace;
  return new T.MeshStandardMaterial({map:tex,bumpMap:pocketRelief??null,bumpScale:.001,roughness:.74,side:T.DoubleSide,transparent:cat,forceSinglePass:true});
 }
+// Bake the small fixed fittings by material so each swivel moves as one unit.
+function deckHardware(T,traveler=false){
+ const group=new T.Group(),batches=new Map();
+ function part(g,color,metal,x=0,y=0,z=0){
+   g.translate(x,y,z);
+   if(!batches.has(color))batches.set(color,{positions:[],normals:[],metal});
+   const batch=batches.get(color),p=g.attributes.position,n=g.attributes.normal;
+   for(let i=0;i<(g.index?.count??p.count);i++){
+     const j=g.index?g.index.getX(i):i;
+     batch.positions.push(p.getX(j),p.getY(j),p.getZ(j));
+     batch.normals.push(n.getX(j),n.getY(j),n.getZ(j));
+   }
+   g.dispose();
+ }
+ const dark=0x242a30,steel=0xacb7bb,wheel=0x41494b,rope=0xc65845;
+ function pin(x,y,z,r,length){
+   const g=new T.CylinderGeometry(r,r,length,12);g.rotateZ(Math.PI/2);part(g,steel,.65,x,y,z);
+ }
+ function eye(x,y,z,r,tube){
+   const g=new T.TorusGeometry(r,tube,6,16);g.rotateY(Math.PI/2);part(g,steel,.65,x,y,z);
+ }
+ if(traveler){
+   const deck=new T.Shape();
+   deck.moveTo(-.042,-.038);deck.quadraticCurveTo(-.040,-.062,-.018,-.061);
+   deck.lineTo(.035,-.031);deck.quadraticCurveTo(.062,0,.035,.031);
+   deck.lineTo(-.018,.061);deck.quadraticCurveTo(-.040,.062,-.042,.038);deck.closePath();
+   part(new T.ExtrudeGeometry(deck,{depth:.005,bevelEnabled:true,bevelSize:.002,bevelThickness:.002,bevelSegments:1}),steel,.48);
+   for(const y of [-.036,.036]){
+     const cam=new T.Shape();
+     for(let j=0;j<=36;j++){
+       const a=j*Math.PI/18,teeth=Math.sin(a)*Math.sign(y)<-.25;
+       const r=.022*(teeth&&j%2?.87:1);
+       const x=r*Math.cos(a),v=r*Math.sin(a);
+       if(!j)cam.moveTo(x,v);else cam.lineTo(x,v);
+     }
+     part(new T.ExtrudeGeometry(cam,{depth:.023,bevelEnabled:true,bevelSize:.0018,bevelThickness:.002,bevelSegments:1}),dark,.12,-.023,y,.009);
+     part(new T.CylinderGeometry(.009,.009,.003,10).rotateX(Math.PI/2),steel,.50,-.023,y,.035);
+   }
+   part(new T.CylinderGeometry(.027,.027,.025,16).rotateX(Math.PI/2),wheel,.15,.031,0,.026);
+   eye(.026,0,.05,.021,.004);
+ }else{
+   const outline=new T.Shape();
+   outline.moveTo(-.010,-.024);outline.quadraticCurveTo(0,-.029,.010,-.024);
+   outline.lineTo(.022,.001);outline.absarc(0,.004,.022,-.14,Math.PI+.14,false);outline.closePath();
+   const hole=new T.Path();hole.absellipse(0,-.010,.006,.009,0,2*Math.PI,true,0);outline.holes.push(hole);
+   for(const y of [-.011,.011]){
+     const slot=new T.Path();slot.absellipse(y,.0005,.0027,.007,0,2*Math.PI,true,y>0?.24:-.24);outline.holes.push(slot);
+   }
+   for(const x of [-.024,-.008,.008,.024]){
+     const plate=new T.ExtrudeGeometry(outline,{depth:.002,bevelEnabled:true,bevelThickness:.0006,bevelSize:.00065,bevelSegments:1,curveSegments:8});
+     // Map profile XY onto YZ, leaving extrusion along the axle.
+     plate.rotateX(Math.PI/2);plate.rotateZ(Math.PI/2);
+     part(plate,dark,.14,x-.0015,0,.034);
+   }
+   for(const x of [-.016,0,.016]){
+     part(new T.CylinderGeometry(.019,.019,.012,16).rotateZ(Math.PI/2),wheel,.14,x,0,.038);
+     const wrap=new T.TorusGeometry(.019,.0038,6,16,Math.PI);
+     wrap.rotateZ(Math.PI);wrap.rotateX(Math.PI/2);wrap.rotateZ(Math.PI/2);
+     part(wrap,rope,.04,x,0,.038);
+   }
+   pin(0,0,.038,.006,.054);pin(0,0,.013,.003,.055);
+   for(const x of [-.028,.028]){
+     const inset=new T.TorusGeometry(.010,.0013,5,16);inset.rotateY(Math.PI/2);part(inset,wheel,.14,x,0,.038);
+   }
+   eye(0,0,.005,.010,.0027);
+ }
+ for(const [color,{positions,normals,metal}] of batches){
+   const g=new T.BufferGeometry();
+   g.setAttribute('position',new T.Float32BufferAttribute(positions,3));
+   g.setAttribute('normal',new T.Float32BufferAttribute(normals,3));
+   group.add(new T.Mesh(g,new T.MeshStandardMaterial({color,metalness:metal,roughness:metal>.5?.31:.63})));
+ }
+ return group;
+}
+
 export function sailboatMesh(T,cat=false,keelX=.06){
  const group=new T.Group();
  const paint=(c)=>new T.MeshStandardMaterial({color:c,roughness:.42,metalness:.12});
@@ -92,10 +167,25 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  function mesh(geo,mat,parent=group){const m=new T.Mesh(geo,mat);parent.add(m);return m;}
  function rod(a,b,r,mat,parent=group){a=new T.Vector3(...a);b=new T.Vector3(...b);const d=b.clone().sub(a);const m=mesh(new T.CylinderGeometry(r,r,d.length(),10),mat,parent);m.position.copy(a).lerp(b,.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return m;}
  let vane,drum,rudder,otherRudder,carriage,crossTiller;
- const deckCars=[],sheets=[],blockCheeks=[],podParts=[],streamers=[];
- let mastGeometry,mastRest,mastWeights,travelerStrop;
+ const deckCars=[],sheets=[],sheetBlocks=[],podParts=[],streamers=[],staySegments=[[],[],[]];
+ let mastGeometry,mastRest,mastWeights;
+ const braids=new Map();
+ function braidedCover(color){
+   if(braids.has(color))return braids.get(color);
+   const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;
+   const ctx=canvas.getContext('2d');ctx.fillStyle=color===0xc65845?'#e9dfc9':'#303834';ctx.fillRect(0,0,64,64);
+   ctx.strokeStyle=color===0xc65845?'#ae4336':'#b2c859';ctx.lineWidth=4;ctx.lineCap='round';
+   for(let x=-16;x<=72;x+=16)for(let y=-16;y<80;y+=16){
+     const start=x+(Math.abs(y/16)%2)*8;
+     ctx.beginPath();ctx.moveTo(start,y);ctx.lineTo(start+4,y+7);ctx.stroke();
+     ctx.beginPath();ctx.moveTo(start+8,y+8);ctx.lineTo(start+5,y+13);ctx.stroke();
+   }
+   const braid=new T.CanvasTexture(canvas);braid.colorSpace=T.SRGBColorSpace;
+   braid.wrapS=braid.wrapT=T.RepeatWrapping;braids.set(color,braid);return braid;
+ }
  const ropeSides=6,ropeRings=9;
  const circle=Array.from({length:ropeSides},(_,i)=>[Math.cos(i*2*Math.PI/ropeSides),Math.sin(i*2*Math.PI/ropeSides)]);
+ const stayUp=new T.Vector3(0,1,0);
  const side=new T.Vector3(),tangent=new T.Vector3(),binormal=new T.Vector3();
  function sheetRope(color){
    const geometry=new T.BufferGeometry(),faces=[];
@@ -107,13 +197,16 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      faces.push(a,b,b+ropeSides,a,b+ropeSides,a+ropeSides);
    }
    geometry.setIndex(faces);
-   const rope=mesh(geometry,new T.MeshStandardMaterial({color,roughness:.94}));
+   if(cat)geometry.setAttribute('uv',new T.BufferAttribute(new Float32Array(ropeSides*ropeRings*2),2));
+   const rope=mesh(geometry,new T.MeshStandardMaterial({color:cat?0xffffff:color,
+     map:cat?braidedCover(color):null,roughness:.94}));
    rope.frustumCulled=false;
    return rope;
  }
  function drawRope(rope,from,to,sag){
    const {position,normal}=rope.geometry.attributes;
-   const dx=to.x-from.x,dy=to.y-from.y,dz=to.z-from.z,radius=cat ? .005 : .002;
+   const dx=to.x-from.x,dy=to.y-from.y,dz=to.z-from.z,radius=cat ? .004 : .002;
+   const repeats=Math.hypot(dx,dy,dz)/.065;
    side.set(-dy,dx,0);
    if(side.lengthSq()<1e-16)side.set(1,0,0);else side.normalize();
    for(let i=0;i<ropeRings;i++){
@@ -124,10 +217,12 @@ export function sailboatMesh(T,cat=false,keelX=.06){
        const [c,s]=circle[j],k=i*ropeSides+j;
        const nx=c*side.x+s*binormal.x,ny=c*side.y+s*binormal.y,nz=s*binormal.z;
        normal.setXYZ(k,nx,ny,nz);
+       if(rope.geometry.attributes.uv)rope.geometry.attributes.uv.setXY(k,j/ropeSides,u*repeats);
        position.setXYZ(k,x+radius*nx,y+radius*ny,z+radius*nz);
      }
    }
    position.needsUpdate=true;normal.needsUpdate=true;
+   if(rope.geometry.attributes.uv)rope.geometry.attributes.uv.needsUpdate=true;
  }
  if(cat){
    // Loft the white blades through progressively narrower foil sections.
@@ -153,6 +248,13 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    foilShape.setAttribute('position',new T.Float32BufferAttribute(vertices,3));
    foilShape.setIndex(faces);foilShape.computeVertexNormals();
    const pin=paint(0xa7afb2);
+   function installStay(index,anchor){
+     const head=[.44,0,5.85],mid=head.map((x,i)=>(x+anchor[i])/2);
+     for(const [a,b] of [[anchor,mid],[mid,head]]){
+       const segment=rod(a,b,.003,pin);
+       staySegments[index].push(segment);
+     }
+   }
    group.add(vehicleShell('hobie-hulls'));
    for(const side of [-1,1]){
      const blade=new T.Group();group.add(blade);blade.position.set(-2.58,side*1.02,.16);
@@ -167,8 +269,10 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      rod([-.16,0,.09],[-.13,0,.24],.027,black,blade);
      rod([-.13,0,.24],[.89,0,.31],.023,black,blade);
      if(side===1)rudder=blade;else otherRudder=blade;
-     rod([2.1,side*1.02,.29],[2.26,0,.75],.013,black);
-     rod([-.52,side*1.02,.34],[.44,0,5.85],.009,black);
+     // A bow tang sits on the inner face immediately below the raised sheer.
+     rod([2.42,side*.99,.38],[2.42,side*.98,.414],.007,pin);
+     rod([2.42,side*.98,.414],[2.29,0,.65],.003,pin);
+     installStay(side===1?0:1,[-.52,side*1.02,.34]);
      // Woven tape, 42.5 cm long and 15 mm wide, with a square-cut free end.
      // A slight twist keeps both edges legible when seen from the helm.
      const ribbon=new T.BufferGeometry(),vertices=[],indices=[];
@@ -197,15 +301,20 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    mastRest=positions.clone();
    // This interpolates the six luff nodes reported by the cloth FMU.
    mastWeights=Array.from({length:positions.count},(_,i)=>Math.min(5,Math.max(0,(positions.getZ(i)-.97)*5/7.15)));
-   travelerStrop=rod([-1.4,0,.47],[-1.4,0,.67],.012,black);
-   for(let i=0;i<2;i++)blockCheeks.push(mesh(new T.BoxGeometry(.09,.07,.06),black));
-   rod([2.26,0,.75],[.44,0,5.85],.011,black);
+   const lower=deckHardware(T),upper=lower.clone();upper.scale.z=-1;
+   lower.name='Mainsheet lower triple block';upper.name='Mainsheet upper triple block';
+   const cleat=deckHardware(T,true);cleat.scale.setScalar(.52);cleat.position.set(.027,.006,.021);lower.add(cleat);
+   group.add(lower,upper);sheetBlocks.push(lower,upper);
+   rod([2.29,0,.65],[2.26,0,.75],.009,pin);
+   installStay(2,[2.26,0,.75]);
    crossTiller=rod([-1.69,-1.02,.47],[-1.69,1.02,.47],.021,black);
    for(const x of [-1.4,.55])rod([x,-.94,.465],[x,.94,.465],.014,paint(0xbdc5c4));
    for(const x of [-1.4,.55,.55]){
      const car=mesh(new T.BoxGeometry(.095,.085,.075),black);car.position.set(x,0,.48);deckCars.push(car);
+     if(x<0)rod([-.028,0,.04],[.028,0,.04],.004,pin,car);
+     if(x>0){const fairlead=deckHardware(T,true);fairlead.name='Jib traveler fairlead and cam cleat';fairlead.position.z=.033;car.add(fairlead);}
    }
-   for(let i=0;i<10;i++)sheets.push(sheetRope(i<6?0xb63739:0x24768c));
+   for(let i=0;i<10;i++)sheets.push(sheetRope(i<6?0xc65845:0x24768c));
  }else{
    sheets.push(sheetRope(0xad4045),sheetRope(0x2e7485));
  group.add(vehicleShell('sloop-hull'));
@@ -235,6 +344,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  for(const [x,y,z] of [[1.16,0,.09],[-1.06,0,.09],[-.05,.31,.09],[-.05,-.31,.09]])rod([x,y,z],[.12,0,2.78],.0028,black);
  }
  const sheetMatrix=new T.Matrix4();
+ const vangReach=cat?.95:.42,vangDrop=cat?.56:.115;
  const sails=(cat?[{width:2.78,z:.97},{width:1.98,z:.75}]:[{width:1.28,z:.19},{width:.60,z:.19}]).map((spec,index)=>{
    const pivot=new T.Group();pivot.position.z=spec.z;group.add(pivot);
    const geo=new T.BufferGeometry();
@@ -249,8 +359,16 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    mesh(geo,sailMaterial(T,cat,index===0?8:4),pivot).frustumCulled=false;
    const boomHinge=new T.Group();pivot.add(boomHinge);
    if(!cat||index===0)rod([0,0,0],[-spec.width,0,0],.012,black,boomHinge);
-   const vang=index===0?rod([0,0,-.115],[-.42,0,0],.005,black,pivot):null;
-   return {pivot,geo,coords,boomHinge,vang};
+   const vang=index===0?rod([0,0,-vangDrop],[-vangReach,0,0],cat?.011:.005,black,pivot):null;
+   const tufts=[];
+   if(cat){
+     for(let k=0;k<4;k++){
+       const tuft=streamers[k%2].clone();
+       tuft.scale.set(.52,.55,.6);tuft.name=(index?'Jib':'Main')+' face telltale '+k;
+       pivot.add(tuft);tufts.push(tuft);
+     }
+   }
+   return {pivot,geo,coords,boomHinge,vang,tufts};
  });
  const podRadius=cat?.17:.075,podHeight=cat?8.44:3.02,podX=cat?.44:.12;
  const halfLength=cat?.29:podRadius;
@@ -274,7 +392,21 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    podParts.push(lens);cameraPorts.push(lens.position.toArray());
  }
  if(vane)vane.position.z=podHeight+podRadius+.035;
- return {group,cameraPorts,update(s,ballast,cars,rope,tails){
+ return {group,cameraPorts,update(s,ballast,cars,rope,tails,faceTails,stayPath){
+   if(stayPath){
+     for(let i=0;i<3;i++){
+       const a=side.fromArray(stayPath,9*i);
+       for(let j=0;j<2;j++){
+         const b=binormal.fromArray(stayPath,9*i+3*(j+1));
+         const segment=staySegments[i][j],direction=tangent.subVectors(b,a);
+         segment.position.copy(a).lerp(b,.5);
+         segment.scale.y=direction.length()/segment.geometry.parameters.height;
+         segment.quaternion.setFromUnitVectors(stayUp,direction.normalize());
+         if(i<2 && j===0)streamers[i].position.copy(a).lerp(b,.56);
+         a.copy(b);
+       }
+     }
+   }
    for(let i=0;i<streamers.length;i++){
      streamers[i].visible=Boolean(tails);
      if(tails)streamers[i].quaternion.setFromUnitVectors(tangent.set(1,0,0),side.fromArray(tails,3*i).normalize());
@@ -283,7 +415,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    if(otherRudder)otherRudder.rotation.z=-s[7];
    if(carriage && ballast)carriage.position.set(-.425+ballast[0],ballast[1],.52);
    group.position.set(s[0],s[1],s[3]);group.rotation.set(s[4],s[5],s[2],'ZYX');rudder.rotation.z=-s[7];
-   sails.forEach(({pivot,geo,coords,boomHinge,vang},m)=>{
+   sails.forEach(({pivot,geo,coords,boomHinge,vang,tufts},m)=>{
      const r=42+2*24*3+m*9;
      sheetMatrix.set(s[r],s[r+1],s[r+2],0,s[r+3],s[r+4],s[r+5],0,s[r+6],s[r+7],s[r+8],0,0,0,0,1);
      pivot.quaternion.setFromRotationMatrix(sheetMatrix);
@@ -291,9 +423,9 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      if(m===0)boomHinge.rotation.y=s[206];
      if(vang){
        const elevation=s[206];boomHinge.rotation.y=elevation;
-       const line=new T.Vector3(-.42*Math.cos(elevation),0,.115+.42*Math.sin(elevation));
-       vang.scale.y=line.length()/Math.hypot(.42,.115);
-       vang.position.set(line.x/2,0,-.115+line.z/2);
+       const line=new T.Vector3(-vangReach*Math.cos(elevation),0,vangDrop+vangReach*Math.sin(elevation));
+       vang.scale.y=line.length()/Math.hypot(vangReach,vangDrop);
+       vang.position.set(line.x/2,0,-vangDrop+line.z/2);
        vang.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),line.normalize());
      }
      for(let i=0;i<24;i++){
@@ -301,37 +433,58 @@ export function sailboatMesh(T,cat=false,keelX=.06){
        coords.setXYZ(i,s[offset],s[offset+1],s[offset+2]);
      }
      coords.needsUpdate=true;geo.computeVertexNormals();
+     for(let k=0;k<tufts.length;k++){
+       const tuft=tufts[k];tuft.visible=Boolean(faceTails);if(!faceTails)continue;
+       const j=k<2?4:12;
+       const a=new T.Vector3().fromBufferAttribute(coords,j);
+       const chord=new T.Vector3().fromBufferAttribute(coords,j+1).sub(a);
+       const span=new T.Vector3().fromBufferAttribute(coords,j+5).sub(a).sub(chord);
+       const n=new T.Vector3().crossVectors(chord,span).normalize();
+       tuft.position.copy(a).addScaledVector(chord,.7).addScaledVector(span,k%2?.22:.18)
+         .addScaledVector(n,k%2?-.012:.012);
+       tuft.quaternion.setFromUnitVectors(tangent.set(1,0,0),side.fromArray(faceTails,m*12+k*3).normalize());
+     }
    });
    if(mastGeometry){
      const main=sails[0],nodes=main.coords;
      const bend=Array.from({length:6},(_,r)=>s[186]*nodes.getX(4*r)+s[187]*nodes.getY(4*r));
+     const lateral=Array.from({length:6},(_,r)=>s[189]*nodes.getX(4*r)+s[190]*nodes.getY(4*r));
      const pos=mastGeometry.attributes.position;
      for(let i=0;i<pos.count;i++){
        const w=mastWeights[i],lo=Math.floor(w),hi=Math.min(5,lo+1);
        pos.setX(i,mastRest.getX(i)+bend[lo]+(w-lo)*(bend[hi]-bend[lo]));
+       pos.setY(i,mastRest.getY(i)+lateral[lo]+(w-lo)*(lateral[hi]-lateral[lo]));
      }
      pos.needsUpdate=true;
      const dx=podX+bend[5]-pod.position.x;
-     for(const part of podParts)part.position.x+=dx;
-     for(const port of cameraPorts)port[0]+=dx;
+     const dy=lateral[5]-pod.position.y;
+     for(const part of podParts){part.position.x+=dx;part.position.y+=dy;}
+     for(const port of cameraPorts){port[0]+=dx;port[1]+=dy;}
    }
    if(cars){
      crossTiller.position.set(-2.58+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.47);
      deckCars[0].position.y=cars[0];deckCars[1].position.y=cars[1];deckCars[2].position.y=-cars[1];
      // Attachment positions in the hull frame. The front clew follows the actual cloth.
      const top=new T.Vector3(-1.84*Math.cos(s[206]),0,1.84*Math.sin(s[206])).applyQuaternion(sails[0].pivot.quaternion).add(sails[0].pivot.position);
-     const lowerBlock=deckCars[0].position.clone();lowerBlock.z=.67;
-     travelerStrop.position.y=cars[0];
+     const lowerBlock=deckCars[0].position.clone();lowerBlock.z+=.04;
      const axis=new T.Vector3().subVectors(top,lowerBlock).normalize();
-     blockCheeks.forEach((block,i)=>{
-       block.position.copy(i?top:lowerBlock).addScaledVector(axis,i?-.03:.03);
+     sheetBlocks.forEach((block,i)=>{
+       block.position.copy(i?top:lowerBlock);
        block.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),axis);
      });
      const jib=new T.Vector3().fromBufferAttribute(sails[1].coords,3).applyQuaternion(sails[1].pivot.quaternion).add(sails[1].pivot.position);
      for(let i=0;i<sheets.length;i++){
        const main=i<6,car=deckCars[main?0:i<8?1:2];
-       const offset=(main?i-2.5:i%2-.5)*.014;
-       const start=(main?lowerBlock:car.position).clone(),end=(main?top:jib).clone();start.x+=offset;end.x+=offset;
+       const offset=(i%2-.5)*.014;
+       let start,end;
+       if(main){
+         const x=(Math.floor(i/2)-1)*.016,y=(i%2?1:-1)*.019;
+         start=new T.Vector3(x,y,.038).applyQuaternion(sheetBlocks[0].quaternion).add(lowerBlock);
+         end=new T.Vector3(x,y,-.038).applyQuaternion(sheetBlocks[1].quaternion).add(top);
+       }else{
+         start=car.position.clone();start.x+=offset;start.z+=.073;
+         end=jib.clone();end.x+=offset;
+       }
        drawRope(sheets[i],start,end,rope?rope[main?0:i<8?1:2]:0);
      }
    }else if(rope){
