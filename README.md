@@ -8,6 +8,8 @@ Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone
 
 [Download OceanWorld.fmu](https://cognipilot.github.io/ocean_web/fmi3/OceanWorld.fmu) to exercise the integrated Hobie, submarine, RDD2, wave field and onboard perception with an FMI 3 LS-WASM host. In Chromium the optimized component advanced 1.22 simulated seconds, including six sonar frames. After warmup, one simulated second took 2.06 seconds of wall time on the development machine. The [integrated three-vehicle simulator](https://cognipilot.github.io/ocean_web/?runtime=world) uses this component for all three vehicles, including the Hobie rig and hull, wind, waves, race state and submarine navigation. The default site and the selectable pilothouse sloop still use separate Rumoca modules. Set `sailingManual`, `subManual` and `flightManual` explicitly to 1 for manual operation with this component.
 
+To run the integrated wreck survey headlessly, prepare the browser component with `node scripts/prepare-world-runtime.mjs`, then run `node scripts/check-world-survey.mjs`. With the sailboat and drone in manual mode, the submarine reached all 12 stations in order and finished the survey in 109.6 simulated seconds. Its onboard estimate had 0.351 m RMS position error over the route.
+
 The Pages build also serves a dedicated simulation worker at `world/ocean-world-worker.mjs`. From a same-origin page, open a module worker, bind input and observation names once, then send fixed-step requests. Entire arrays such as `waves.height` and `subPilot` bind by name. The opening reply includes their shapes, offsets and lengths in FMI row-major order. Replies echo the request ID and contain simulation time and a transferable Float64Array. This example advances the world through one navigation update.
 
 ```js
@@ -40,7 +42,7 @@ Run `scripts/package-pages.sh` to assemble the static release in `build/pages`. 
 
 Open **http://127.0.0.1:8074**. The launcher uses Python 3, with a Nix fallback. The prebuilt simulator requires a WebGL2 browser with WebAssembly and gzip DecompressionStream support. The contents of `viewer/` also work on a static HTTP host.
 
-Select **Submarine** for the underwater survey. Switch the helm to manual for W/S surge, A/D sway, Q/E yaw and R/F rise or dive. The onboard camera overlay shows detected features. At 5 Hz the Rumoca navigation FMU computes 1,017 geometric ranges against the wreck and seabed in Modelica. The plant and navigation exchange samples in a dedicated worker. The sailing sea runs in a second worker.
+Select **Submarine** for the underwater survey. In manual mode use W/S for surge, A/D for sway, Q/E for yaw and R/F to rise or dive. Switch to Autopilot to begin the wreck survey. The onboard camera overlay shows detected features. At 5 Hz the Rumoca navigation FMU computes 1,017 geometric ranges against the wreck and seabed in Modelica. The plant and navigation exchange samples in a dedicated worker. The sailing sea runs in a second worker.
 
 ## Ocean and sub
 

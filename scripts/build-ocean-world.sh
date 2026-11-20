@@ -15,5 +15,6 @@ for model in Shore Sailboat SailMembrane MarineWind WakeSpectrum Regatta Rdd2Sur
 done
 # The coupled FMI kernel holds event snapshots and sensor tensor temporaries
 # on the guest stack. The default WASI stack traps during initialization.
+export CARGO_PROFILE_RELEASE_OPT_LEVEL="${CARGO_PROFILE_RELEASE_OPT_LEVEL:-3}"
 export CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS:--Dwarnings}"$'\x1f'"-Clink-arg=-zstack-size=8388608"
-exec "$compiler" compile models/OceanWorld.mo -m OceanWorld "${roots[@]}" --target fmi-ls-wasm -o build/ocean-world
+exec "$compiler" compile models/OceanWorld.mo -m OceanWorld "${roots[@]}" --target fmi-ls-wasm -o "${OCEAN_WORLD_OUT:-build/ocean-world}"

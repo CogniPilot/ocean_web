@@ -56,6 +56,7 @@ A checked item records the specific result described. Open items include partial
 - [x] Wire rendered 3D sonar, DVL, depth, IMU and camera features into the browser navigation pipeline. Compare GPU ranges with the Modelica reference.
 - [x] Qualify the automatic three-level wreck survey. All 12 stations passed with 0.585 m translational RMS error in 112.8 simulated seconds.
 - [x] Score survey heading and test a controlled stern-entry revisit. The 12-station run had 2.62° RMS heading error. The 24 s return-track test accepted one closure with 0.604 m maximum position error.
+- [x] Exercise the integrated LS-WASM world through the 12-station wreck mission and score the onboard pose estimate against the plant trajectory.
 - [ ] Extend survey regression to sustained sensor outages, ambiguous loop closures and minimum structural clearance.
 - [ ] Validate the electrical powertrain, ballast thermofluid behavior, air/water propeller loading, surface wind, full added-mass coupling and current-gradient pressure against measured data. Compare against the [Mariana reference](https://piccard.science/).
 - [x] Verify RDD2 station holding, manual flight, return to station, drag in reversed crosswinds and motor-cut descent to rest at −13.61 m in the released WASM.
