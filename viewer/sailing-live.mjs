@@ -41,7 +41,6 @@ async function run(){
   const requestedHull=url.searchParams.get('boat');
   const runtime=url.searchParams.get('runtime')??document.body.dataset.defaultRuntime;
   const integrated=runtime==='world'&&requestedHull!=='Sailboat';
-  const world=integrated?await (await import('./world-view.mjs?hud=1')).openWorld():null;
   const cat=integrated||requestedHull==='Hobie16';
   const vessel=cat?'Hobie16':'Sailboat';
   $('vessel').value=vessel;
@@ -51,7 +50,18 @@ async function run(){
   $('luffControlName').textContent=cat?'Downhaul':'Vang';
   // Start at the default loaded waterline for each hull.
   const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
-  const [model]=await Promise.all([world?.boat??loadInstance(vessel,inputs),loadVehicleShells()]);
+  const simulationReady=Promise.all([
+    integrated?import('./world-view.mjs?hud=1').then(module=>module.openWorld()):loadInstance(vessel,inputs),
+    loadVehicleShells()
+  ]);
+  const mobile=matchMedia('(pointer: coarse)').matches;
+  const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
+  renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
+  const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
+  coast(T,scene);
+  const [simulation]=await simulationReady;
+  const world=integrated?simulation:null;
+  const model=world?.boat??simulation;
   const worker=world?null:new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
   let waterFrame,waterError;
   if(worker){
@@ -68,13 +78,9 @@ async function run(){
     beamHalf:model.get('beamHalf'),stations:model.get('stationX'),separation:model.get('halfSpacing'),
     windEast:inputs.windEast,windNorth:inputs.windNorth}});
   let wakeTicks=0,lastSections;
-  const mobile=matchMedia('(pointer: coarse)').matches;
   function settings(open){$('setup').hidden=!open;$('settings').setAttribute('aria-expanded',String(open));}
   settings(!mobile);$('settings').onclick=()=>settings($('setup').hidden);
-  const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
-  renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
-  const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
-  const boat=sailboatMesh(T,cat,model.get("foilX")[0]);scene.add(boat.group);coast(T,scene);
+  const boat=sailboatMesh(T,cat,model.get("foilX")[0]);scene.add(boat.group);
   const race=world?.race??await loadInstance('Regatta',{windBearing:Math.atan2(inputs.windNorth,inputs.windEast),east:model.get('east'),north:model.get('north'),utc:Date.now()/1000});
   const windField=world?.wind??await loadInstance('MarineWind',{meanEast:inputs.windEast,meanNorth:inputs.windNorth,east:model.get('east'),north:model.get('north')});
   let captureMast;
@@ -180,8 +186,10 @@ async function run(){
   ocean.U.moonDir.value.set(-.8,-.4,-.5);ocean.U.bearing.value=Math.atan2(inputs.windNorth,inputs.windEast);
   const rain=stormRain(T,scene,ocean,mobile);
   const caustics=wreckCaustics(T,renderer,ocean,mobile);
-  const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;scene.add(bottom);
-  const wreckVisual=batchScenery(T,makeWreck(T,materials));scene.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,scene);
+  // These objects are wholly below mean sea level, including their animation ranges.
+  const submergedScenery=new T.Group();scene.add(submergedScenery);
+  const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;submergedScenery.add(bottom);
+  const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,submergedScenery);
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
   const fpvForward=new T.Vector3(),drawInstruments=firstPersonInstruments($('flightHud'));
   const helmSeat=new T.Vector3(cat ? -1.2 : -.73,0,cat ? .65 : .18),orbitCenter=new T.Vector3();
@@ -547,7 +555,7 @@ async function run(){
         !capturePosition.equals(camera.position) || !captureRotation.equals(camera.quaternion))){
         capturePosition.copy(camera.position);captureRotation.copy(camera.quaternion);
         captureTime=t;captureAspect=camera.aspect;captureSky=$('sky').value;captureSea=$('seaState').value;
-        ocean.capture(renderer,camera);lastCapture=now;
+        ocean.capture(renderer,camera,submergedScenery);lastCapture=now;
       }
       rain.visible=storm && camera.position.z>=-surfaceBand;
       if(rain.visible)rain.material.uniforms.rainWind.value.set(model.get('windEast'),model.get('windNorth'));

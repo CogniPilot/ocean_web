@@ -289,7 +289,7 @@ function atmosphere(scene){
  U.throughMatrix={value:new THREE.Matrix4()};U.throughEye={value:new THREE.Vector3()};
  U.transmissionDepth={value:throughRT.depthTexture};U.cameraRange={value:new THREE.Vector2()};
  U.reflection.value=reflectRT.texture;U.transmission.value=throughRT.texture;
- function capture(renderer,camera){
+ function capture(renderer,camera,submergedScenery){
    camera.updateMatrixWorld();U.throughMatrix.value.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
    U.throughEye.value.copy(camera.position);U.cameraRange.value.set(camera.near,camera.far);renderer.getDrawingBufferSize(U.viewport.value);const oldBackground=scene.background,oldFog=scene.fog;
    const target=new THREE.Vector3();camera.getWorldDirection(target);target.add(camera.position);
@@ -299,7 +299,10 @@ function atmosphere(scene){
    water.visible=false;dome.visible=false;scene.background=null;scene.fog=null;
    renderer.setClearColor(0x000000,0);renderer.setRenderTarget(reflectRT);
    renderer.clippingPlanes=[new THREE.Plane(new THREE.Vector3(0,0,1),-U.tide.value)];
+   const hideSubmerged=submergedScenery && U.tide.value>=0 && submergedScenery.visible;
+   if(hideSubmerged)submergedScenery.visible=false;
    renderer.render(scene,mirrorCamera);renderer.clippingPlanes=[];
+   if(hideSubmerged)submergedScenery.visible=true;
    renderer.setRenderTarget(throughRT);scene.background=new THREE.Color(0x144958);
    renderer.render(scene,camera);renderer.setRenderTarget(null);
    scene.fog=oldFog;scene.background=oldBackground;water.visible=true;dome.visible=true;
