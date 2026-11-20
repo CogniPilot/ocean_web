@@ -8,7 +8,7 @@ export function mastCamera(T,renderer,world,boat,cat){
   // from local forward (+X), port (+Y), up (+Z) via world-from-body rotation.
   const display=new T.Scene(),ortho=new T.OrthographicCamera(-1,1,1,-1,0,1);
   const atlas=new T.WebGLRenderTarget(lens*2,lens*2),pan=new T.WebGLRenderTarget(1024,512);
-  const uniforms={att:{value:new T.Matrix3()},stitched:{value:atlas.texture},pass:{value:0}};
+  const uniforms={att:{value:new T.Matrix3()},stitched:{value:null},pass:{value:0}};
   cubes.forEach((rt,i)=>uniforms['im'+i]={value:rt.texture});
   const material=new T.ShaderMaterial({uniforms,depthTest:false,depthWrite:false,
     vertexShader:'varying vec2 uvw;void main(){uvw=uv;gl_Position=vec4(position.xy,0.,1.);}',
@@ -47,7 +47,10 @@ export function mastCamera(T,renderer,world,boat,cat){
         lenses.push({azimuthRad:az,positionBodyM:position,fovDegrees:200,projection:'equidistant'});
         eye.position.copy(boat.group.localToWorld(new T.Vector3(...position)));eye.renderTarget=cubes[i];eye.update(renderer,world);
       }
+      // WebGL checks all bound samplers for feedback, even on an inactive shader branch.
+      uniforms.stitched.value=null;
       uniforms.pass.value=0;renderer.setRenderTarget(atlas);renderer.render(display,ortho);
+      uniforms.stitched.value=atlas.texture;
       uniforms.pass.value=1;renderer.setRenderTarget(pan);renderer.render(display,ortho);
       return {lenses,raw:png(atlas),panorama:png(pan)};
     }finally{renderer.setRenderTarget(previous);}

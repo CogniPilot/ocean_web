@@ -50,7 +50,7 @@ async function run(){
   let captureMast;
   $('mastCapture').onclick=()=>{
     captureMast??=mastCamera(T,renderer,scene,boat,cat);
-    const shot=captureMast(),file={...shot,vehicle:vessel,simulationTime:model.time,positionENU:[model.get('east'),model.get('north'),model.get('heave')],rollPitchYaw:[model.get('heel'),model.get('pitch'),model.get('heading')],vaneRad:model.get('vane'),windTile:{sampleTime:windField.time,periodM:96,shape:[48,48,3],components:['east','north','roughness'],data:windField.get('field')}};
+    const shot=captureMast(),file={...shot,vehicle:vessel,simulationTime:model.time,positionENU:[model.get('east'),model.get('north'),model.get('heave')],rollPitchYaw:[model.get('heel'),model.get('pitch'),model.get('heading')],vaneRad:model.get('vane'),windTile:{sampleTime:windField.time,periodM:96,shape:[48,48,3],components:['east','north','roughness'],data:Array.from(windField.get('field'))}};
     const a=document.createElement('a'),href=URL.createObjectURL(new Blob([JSON.stringify(file)],{type:'application/json'}));a.href=href;a.download='mast-'+model.time.toFixed(2)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(href),10000);
   };
   const boardClock=courseScene(T,scene,race),audio=raceAudio();
@@ -221,6 +221,7 @@ async function run(){
     }
     ocean.updateSky(renderer,time,sky);
   }
+  let meshTime;
   let lastWorldTick=-1,lastFieldTick=-1,lastSurfaceTick=-1,previousSurface;
   function draw(now){
     try{
@@ -312,7 +313,11 @@ async function run(){
       if(cat)$('weightPos').textContent='X '+ballast[0].toFixed(2)+' m · Y '+ballast[1].toFixed(2)+' m';
       remote.frame(now,s,cat,[...(ballast||[0,0]),mainCar,jibCar,ve,vn,yawRate,0],sub.mesh,drone?.group);
       document.body.dataset.visiblePeers=remote.visible;
-      boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag);const t=model.time;life(t);causticTime.value=t;
+      const t=model.time;
+      if(t!==meshTime){
+        boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag);
+        life(t);causticTime.value=t;meshTime=t;
+      }
       ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
       camera.up.set(0,0,1);camera.position.set(s[0]+distance*Math.cos(angle),s[1]+distance*Math.sin(angle),s[3]+(cat?3:.9)+distance*Math.sin(tilt));if($('cameraDepth').value==='line')camera.position.z=0;
       camera.position.z=Math.max(-13.1,camera.position.z);
