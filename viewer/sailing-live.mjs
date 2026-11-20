@@ -64,7 +64,7 @@ async function run(){
   ocean.update(sea,sea);ocean.U.under.value=0;ocean.U.sunDir.value.copy(sun.position).normalize();
   ocean.U.moonDir.value.set(-.8,-.4,-.5);ocean.U.bearing.value=Math.atan2(inputs.windNorth,inputs.windEast);
   const materials=seabedMaterials(T);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;scene.add(bottom);
-  const hull=makeWreck(T,materials);scene.add(batchScenery(T,hull));const life=marineLife(T,scene);
+  const hull=makeWreck(T,materials);scene.add(batchScenery(T,hull.clone(true)));const life=marineLife(T,scene);
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
   let angle=-.8,distance=cat?14:5.7,tilt=.16,drag=null,running=true,manual=false;
   $('view').onpointerdown=e=>{drag=[e.clientX,e.clientY];e.target.setPointerCapture(e.pointerId);};
@@ -94,8 +94,8 @@ async function run(){
     }
     for(const id of ['autoDeck','mainCar','jibCar','jibSheet'])$(id).oninput=deck;
     deck();
-    $('seaState').onchange=()=>model.set('swellAmplitude',Number($('seaState').value));
   }
+  $('seaState').onchange=()=>model.set('swellAmplitude',Number($('seaState').value));
   const keys=new Set();let drone;
   const sub=submarine(T,scene,renderer,hull), sensorCanvas=$('sensorCam').getContext('2d');
   let drawnFrame,display;
@@ -152,7 +152,26 @@ async function run(){
     // Haul the boom amidships to feather the rig in the headwind.
     model.set('trimInput',-1);
   };
-  let prev=performance.now(),acc=0;
+  let prev=performance.now(),acc=0,lastCapture=-Infinity;
+  let frameCost=1000/30,lastQualityCheck=0,pixelScale=mobile?.8:1;
+  let lastEnvironment;
+  function updateLight(time){
+    const sky=$('sky').value;
+    const phase=sky==='Cycle'?time/240:sky==='Sunset'?.055:sky==='Moonlit'?-1:.9;
+    if(sky!==lastEnvironment||sky==='Cycle'){
+      const z=Math.sin(phase),x=Math.cos(phase);
+      ocean.U.sunDir.value.set(x,.32,z).normalize();
+      ocean.U.moonDir.value.copy(ocean.U.sunDir.value).negate();
+      ocean.U.storm.value=Number(sky==='Storm');
+      const day=Math.max(0,z);
+      sun.position.copy(ocean.U.sunDir.value).multiplyScalar(30);
+      sun.intensity=(.12+2.4*day)*(sky==='Storm'?.45:1);
+      sun.color.set(sky==='Sunset'?0xffaf76:0xffe6b4);
+      hemi.intensity=(.27+1.7*day)*(sky==='Storm'?.6:1);
+      lastEnvironment=sky;
+    }
+    ocean.updateSky(renderer,time,sky);
+  }
   function draw(now){
     try{
       if(now>=raceTick){
@@ -163,6 +182,12 @@ async function run(){
         boardClock(label);$('countdown').textContent=label;
         $('raceStatus').textContent=['Prestart','Cross the line','Mark 1','Mark 2','Cross finish','Finished'][stage]+(stage>=2?' · '+race.get('elapsed').toFixed(1)+' s':'');
         audio.update(model.get('cupSpeed'));model.set('traffic',remote.contacts(model.get('east'),model.get('north')));
+      }
+      frameCost=.94*frameCost+.06*Math.min(120,now-prev);
+      if(mobile&&now-lastQualityCheck>1500){
+        const next=Math.max(.5,Math.min(1,pixelScale+(frameCost>39?-.1:frameCost<23?.05:0)));
+        if(Math.abs(next-pixelScale)>.01){pixelScale=next;renderer.setPixelRatio(pixelScale);resize();}
+        lastQualityCheck=now;
       }
       if(running)acc+=Math.min(.22,(now-prev)/1000);prev=now;
       if(waterError)throw waterError;
@@ -194,13 +219,13 @@ async function run(){
       const s=observeBoat(model);
       if(!s.every(Number.isFinite))throw Error('Non-finite FMI state at '+model.time);
       const ballast=cat?[model.get('ballastX'),model.get('ballastY')]:null;
-      if(cat){
+      {
         ocean.U.swellCenter.value.set(s[0],s[1]);
         const k=model.get('swellK'),direction=model.get('swellBearing');
         ocean.U.swell.value.set(model.get('swellAmplitude'),model.get('swellPhase'),k*Math.cos(direction),k*Math.sin(direction));
       }
       if(cat)$('weightPos').textContent='X '+ballast[0].toFixed(2)+' m · Y '+ballast[1].toFixed(2)+' m';
-      remote.frame(now,s,cat,[...(ballast||[0,0]),model.get('mainCar'),model.get('jibCar'),model.get('ve'),model.get('vn'),model.get('yawRate'),0]);
+      remote.frame(now,s,cat,[...(ballast||[0,0]),model.get('mainCar'),model.get('jibCar'),model.get('ve'),model.get('vn'),model.get('yawRate'),0],sub.mesh,drone?.group);
       document.body.dataset.visiblePeers=remote.visible;
       boat.update(s,ballast,cat?[model.get('mainCar'),model.get('jibCar')]:null,model.get('linePaid'));const t=model.time;life(t);causticTime.value=t;
       ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
@@ -218,9 +243,11 @@ async function run(){
         camera.position.set(p.x+.6*distance*Math.cos(angle),p.y+.6*distance*Math.sin(angle),p.z+.6*distance*Math.sin(tilt));camera.lookAt(p);
         drawFeatures(sub.frame);
       }
-      ocean.dome.position.copy(camera.position);ocean.water.position.set(s[0],s[1],0);ocean.updateSky(renderer,t,'Day');
-      ocean.capture(renderer,camera);
-      const surfaceBand=.45+(cat?Math.abs(ocean.U.swell.value.x):0);
+      ocean.dome.position.copy(camera.position);ocean.water.position.set(s[0],s[1],0);updateLight(t);
+      if(now-lastCapture>=(mobile?65:0)){
+        ocean.capture(renderer,camera);lastCapture=now;
+      }
+      const surfaceBand=.45+Math.abs(ocean.U.swell.value.x);
       if(Math.abs(camera.position.z)<surfaceBand){split(renderer,scene,camera,ocean,underwaterFog);}
       else{
         const submerged=camera.position.z<0;

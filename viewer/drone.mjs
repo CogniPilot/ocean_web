@@ -34,7 +34,7 @@ export async function surveyDrone(T,scene){
     for(const [key,a,b] of [['forward','KeyW','KeyS'],['left','KeyA','KeyD'],['climb','KeyR','KeyF'],['turn','KeyQ','KeyE']])
       flight.set(key,active?axis(a,b):0);
   }
-  return {get active(){return active;},get position(){return flight.get('position');},
+  return {group,get active(){return active;},get position(){return flight.get('position');},
     get drag(){return flight.get('dragBody');},
     select(value){active=value;flight.set('pilot',Number(value));input(new Set());},
     cut(value){flight.set('motorCut',Number(value));},
