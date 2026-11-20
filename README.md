@@ -4,6 +4,10 @@ Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone
 
 [Request tracker](TODO.md)
 
+## Combined simulation component
+
+[Download OceanWorld.fmu](https://cognipilot.github.io/ocean_web/fmi3/OceanWorld.fmu) to exercise the integrated Hobie, submarine, RDD2, wave field and onboard perception with an FMI 3 LS-WASM host. In Chromium the first build advanced 22 steps of 10 ms and processed a sonar frame. Those steps took 3.78 seconds on the development machine. The interactive site currently uses separate Rumoca modules. Set `sailingManual`, `subManual` and `flightManual` explicitly to 1 for manual operation with this component.
+
 ## Live build status
 
 Select **Control → RDD2 drone** to fly, or open `?control=drone`. W/S and A/D move horizontally, Q/E yaw, and R/F climb or descend. Releasing the keys holds position. Returning control to the boat sends the drone back to an altitude of 5 m over the latest estimated submarine position. The flight FMU uses CogniPilot’s RDD2 plant and rotor geometry with a local position controller, ideal 10 Hz GNSS, and gyroscope integration. Linear and quadratic body-axis drag use airspeed relative to the local simulated wind. The horizontal gust field is sampled at the aircraft’s location. Drag areas and low-speed damping use the RDD2 template defaults. [CogniPilot RDD2 plant](https://github.com/CogniPilot/modelica_models/blob/main/Vehicles/Rdd2/Plant.mo)

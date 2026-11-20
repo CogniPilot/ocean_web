@@ -1,4 +1,4 @@
-export function forceDisplay(T,scene,sub,yacht,cat){
+export function forceDisplay(T,scene,sub,yacht,cat,model){
  const group=new T.Group();scene.add(group);group.visible=false;
  const specs=[];
  function arrow(parent,origin,color){
@@ -9,19 +9,25 @@ export function forceDisplay(T,scene,sub,yacht,cat){
  arrow(yacht,cat?[-.6,0,3.3]:[-.28,0,1.1],0xffad4d);
  arrow(yacht,cat?[1.1,0,2.2]:[.62,0,.93],0xffad4d);
  for(let k=0;k<(cat?4:2);k++)
-   arrow(yacht,[cat?(k%2?-2.42:.15):(k?-.93:-.08),cat?(k<2?1.02:-1.02):0,-.28],0x6cbcff);
+   arrow(yacht,[0,0,0],0x6cbcff);
  const buoyIndex=specs.length;arrow(yacht,[0,0,-.08],0x77e7ba);
  for(const r of sub.userData.rotors)arrow(sub,r.center.toArray(),0xff82af);
  arrow(sub,[0,0,.055],0x77e7ba);arrow(sub,[0,0,0],0xff524b);
  const dir=new T.Vector3(),up=new T.Vector3(0,0,1),yaw=new T.Quaternion();
- return (enabled,b,f,model)=>{
+ return (enabled,b,f,showSub)=>{
    group.visible=enabled;if(!enabled)return;
    yaw.setFromAxisAngle(up,b[2]);
-   const sails=model.get('rigForce'),foils=model.get('foilLoad');
+   const [sails,foils,arms]=showSub?[]:model.getMany(['rigForce','foilLoad','foilArm']);
    for(let i=0;i<specs.length;i++){
-     const {glyph,parent,origin}=specs[i];glyph.position.copy(origin).applyQuaternion(parent.quaternion).add(parent.position);
+     const {glyph,parent,origin}=specs[i];
+     if((parent===sub)!==showSub){glyph.visible=false;continue;}
+     glyph.position.copy(origin).applyQuaternion(parent.quaternion).add(parent.position);
      if(i<2)dir.fromArray(sails,3*i).applyQuaternion(yaw);
-     else if(i<buoyIndex)dir.fromArray(foils,3*(i-2)).applyQuaternion(yaw);
+     else if(i<buoyIndex){
+       const offset=3*(i-2);
+       glyph.position.fromArray(arms,offset).applyQuaternion(yaw).add(parent.position);
+       dir.fromArray(foils,offset).applyQuaternion(yaw);
+     }
      else if(i===buoyIndex)dir.set(0,0,b[29]);
      else if(!f?.thrust){glyph.visible=false;continue;}
      else if(i<=buoyIndex+7){const rotor=i-buoyIndex-1;dir.copy(sub.userData.rotors[rotor].axis).multiplyScalar(f.thrust[rotor]).applyQuaternion(sub.quaternion);}

@@ -12,7 +12,8 @@ A checked item records the specific result described. Open items include partial
 - [x] Publish the static Three.js simulator on GitHub Pages with sailboat, survey submarine and RDD2 in one scene. Ship precompiled Rumoca FMI 3 WebAssembly modules.
 - [x] Add vehicle selection, independent manual startup and switchable autopilots for all three vehicles, keyboard and mobile thumbstick controls, and sailboat cameras that can go underwater.
 - [x] Add opt-in peer-to-peer ghosts and verify that two browser clients see each other. Add race marks, committee boat, fleet countdown, start signal and wind audio.
-- [ ] Verify remote vessel collisions, sensor visibility options, arbitrary internet peers, and race scoring through a full race.
+- [x] Verify reciprocal contact forces and yaw moments for sloop–sloop, catamaran–catamaran and mixed pairs in the shipped FMUs. Two clients joined the public Pages room and rendered each other.
+- [ ] Test contact over a latency-impaired peer link, sensor visibility options, arbitrary internet peers, and race scoring through a full race.
 - [x] Reduce submarine collision broad-phase work. At 4,135 sampled poses all six force and moment components matched the exhaustive check.
 - [ ] Benchmark end-to-end submarine speed and input latency on physical phones and desktop browsers with waves, SLAM and multiplayer enabled.
 - [ ] Track compiler fixes upstream. Finish review and merge of the marine models in [modelica_models PR 36](https://github.com/CogniPilot/modelica_models/pull/36). Maintain Rumoca-only reproducible builds and verify compound collision and visual shapes.
@@ -54,9 +55,11 @@ A checked item records the specific result described. Open items include partial
 - [x] Add a listed three-level wreck, 6-DOF submarine, ballast, drag, buoyancy, spatial currents and structural contact. Add swim/surface controls, rotor animation, RPM-linked bubbles and force display.
 - [x] Wire rendered 3D sonar, DVL, depth, IMU and camera features into the browser navigation pipeline. Compare GPU ranges with the Modelica reference.
 - [x] Qualify the automatic three-level wreck survey. All 12 stations passed with 0.585 m translational RMS error in 112.8 simulated seconds.
-- [ ] Extend survey regression to sensor outages, loop-closure stress, minimum clearance and heading error.
+- [x] Score survey heading and test a controlled stern-entry revisit. The 12-station run had 2.62° RMS heading error. The 24 s return-track test accepted one closure with 0.604 m maximum position error.
+- [ ] Extend survey regression to sustained sensor outages, ambiguous loop closures and minimum structural clearance.
 - [ ] Validate the electrical powertrain, ballast thermofluid behavior, air/water propeller loading, surface wind, full added-mass coupling and current-gradient pressure against measured data. Compare against the [Mariana reference](https://piccard.science/).
-- [ ] Qualify RDD2 station keeping near the sub, aerodynamic drag and motor-cut sinking through both fluid regimes to seabed contact.
+- [x] Verify RDD2 station holding, manual flight, return to station, drag in reversed crosswinds and motor-cut descent to rest at −13.61 m in the released WASM.
+- [ ] Measure drone tracking error while its submarine station moves.
 - [x] Add fish and the Quaternius shark and whale. Retain asset credits; compare shading, size and animation from the submarine and waterline cameras.
 
 ## Vehicle art

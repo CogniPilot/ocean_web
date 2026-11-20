@@ -105,7 +105,7 @@ async function run(){
   $('seaState').onchange=()=>model.set('swellAmplitude',.30*Number($('seaState').value));
   const keys=new Set();let drone;
   const sub=submarine(T,scene), sensorCanvas=$('sensorCam').getContext('2d');
-  const drawForces=forceDisplay(T,scene,sub.mesh,boat.group,cat);
+  const drawForces=forceDisplay(T,scene,sub.mesh,boat.group,cat,model);
   $('sonarMap').onchange=()=>{sub.mapVisible=$('sonarMap').checked;};
   for(const id of ['showForces','showCompass'])$(id).onclick=()=>{
     const enabled=$(id).getAttribute('aria-pressed')!=='true';
@@ -135,6 +135,9 @@ async function run(){
     const pad=$('sticks'),boatActive=!sub.active&&!drone?.active;
     document.querySelectorAll('[data-boat]').forEach(el=>el.hidden=!boatActive);
     $('trampoline').hidden=!cat||!boatActive;
+    document.querySelector('aside[aria-label="Race committee"]').hidden=!boatActive;
+    $('showForces').hidden=$('showCompass').hidden=Boolean(drone?.active);
+    $('dial').hidden=drone?.active||$('showCompass').getAttribute('aria-pressed')!=='true';
     $('helm').textContent=manualSelected()?'Manual':'Autopilot';
     pad.replaceChildren();pad.hidden=!mobile || !manualSelected();
     helm();
@@ -270,7 +273,7 @@ async function run(){
       if(!s.every(Number.isFinite))throw Error('Non-finite FMI state at '+model.time);
       const subFrame=sub.frame;
       if(!$('dial').hidden)drawCompass($('dial'),Math.hypot(model.get('windEast'),model.get('windNorth')),Math.atan2(model.get('windNorth'),model.get('windEast')),sub.active&&subFrame?subFrame.flow:[model.get('currentEast'),model.get('currentNorth')],sub.active&&subFrame?subFrame.estimate[3]:s[2],sub.active?'sub':'surface');
-      drawForces($('showForces').getAttribute('aria-pressed')==='true',s,subFrame,model);
+      drawForces(!drone?.active&&$('showForces').getAttribute('aria-pressed')==='true',s,subFrame,sub.active);
       const [ballastX,ballastY,k,direction,amplitude,phase,mainCar,jibCar,ve,vn,yawRate,sag,vang,leech,tension]=model.getMany(
         ['ballastX','ballastY','swellK','swellBearing','swellAmplitude','swellPhase','mainCar','jibCar','ve','vn','yawRate','exposedSheetSag','vangTension','leechSpeed','mainTension']);
       const ballast=cat?[ballastX,ballastY]:null;
