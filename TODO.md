@@ -27,6 +27,7 @@ A checked item records the specific result described. Open items include partial
 ## Ocean and atmosphere
 
 - [x] Model finite-depth spectral dispersion and wake generation from immersed sections of each individual hull. Feed wave resistance back into the boat.
+- [x] Use the rotated hull-strip positions for wake generation and yaw reaction during simultaneous heel and pitch. Check the interference phase for two hulls, a flying hull and the torque on one wetted strip.
 - [x] Add deterministic directional wind-wave amplitudes and independent phases to the sailing FFT. Sample the same modes for incident height and slopes.
 - [x] Verify all twelve section water heights against the sampled wave fields. The two pontoons experienced up to 0.647 m of height difference in the swell test.
 - [ ] Validate crossing seas, wave groups, sharp crests, wind shifts and puff signatures against reference sequences and buoy spectra. Validate bow waves, trailing waves, distant propagation and hull interference by speed.
