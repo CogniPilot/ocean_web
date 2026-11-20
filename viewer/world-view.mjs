@@ -3,7 +3,7 @@ import {sailingStart,windBearing,windSpeed} from './sailing-start.mjs';
 import {boatFields} from './board/boat.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
 const outputs=[
- ...new Set([...boatFields,...'tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail stayPath vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
+ ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail stayPath vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
  ...group('race','countdown stage elapsed launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
  ...group('drone','position quaternion rotorAngle dragBody aircraft.rotorGeometry.positionBodyFlu_m'),
  ...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),
@@ -41,10 +41,22 @@ export async function openWorld(){
    f.sampled?.forEach((values,i)=>{if(values)unpack(layout.sampled[i],values);});
  }
  receive(frame);
- let busy=false;
- function advance(steps){if(error)throw error;if(busy||!steps)return false;
+ let busy=false,queued=0;
+ function advance(steps){
+   if(error)throw error;
+   const accepted=Math.min(steps,5-queued);
+   queued+=accepted;
+   dispatch();
+   return accepted;
+ }
+ function dispatch(){
+   if(busy||!queued||document.hidden)return;
+   const steps=queued;queued=0;
    set('epoch',Date.now()/1000-time);
-   busy=true;send({type:'advance',steps,values:controls}).then(receive).catch(e=>{error=e;}).finally(()=>{busy=false;});return true;}
+   busy=true;send({type:'advance',steps,values:controls}).then(f=>{
+     receive(f);busy=false;dispatch();
+   }).catch(e=>{busy=false;queued=0;error=e;});
+ }
  function view(prefix,write){
    const get=name=>{
      const full=prefix+'.'+name;
@@ -56,5 +68,5 @@ export async function openWorld(){
  const axes=['forward','left','climb','turn'];
  const flight=view('drone',(n,v)=>{const i=axes.indexOf(n);if(i>=0)controls[offsets.get('flightPilot')+i]=v;
    else set(n==='pilot'?'flightManual':n,v);});
- return {advance,set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
+ return {advance,clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }
