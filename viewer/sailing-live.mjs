@@ -241,7 +241,7 @@ async function run(){
   };
   touchControls();
   $('vang').oninput=()=>model.set('vangInput',Number($('vang').value)/100);
-  $('play').onclick=()=>{running=!running;$('play').textContent=running?'Pause':'Resume';};
+  $('play').onclick=()=>{running=!running;if(!running)world?.clearQueued();$('play').textContent=running?'Pause':'Resume';};
   $('wind').oninput=()=>{const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;$('windOut').textContent=w+' m/s';};
   function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
   resize();addEventListener('resize',resize);
@@ -300,7 +300,7 @@ async function run(){
       if(waterError)throw waterError;
       if(world){
         const steps=Math.min(5,Math.floor(acc/.01));acc=Math.min(.1,acc);
-        if(running&&world.advance(steps))acc=Math.max(0,acc-steps*.01);
+        if(running)acc=Math.max(0,acc-world.advance(steps)*.01);
         const tick=Math.round(world.time*100),waveTick=model.get('waterStamp'),fieldTick=Math.floor(tick/25);
         if(lastWorldTick!==waveTick){
           ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'));
