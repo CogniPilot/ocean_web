@@ -32,3 +32,6 @@ https://quaternius.com/packs/animatedfish.html
 https://poly.pizza/m/3LzFgI3GLO
 
 Music (Pirate1_Theme1.mp3) by Olivier Bérubé.
+
+Underwater ambience (deep_rumble.mp3) by gmason, CC0 1.0.
+https://opengameart.org/content/underwater-or-space-engine-rumble
