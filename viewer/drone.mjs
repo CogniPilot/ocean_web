@@ -1,10 +1,9 @@
 import {GLTFLoader} from './vendor/gltf-loader.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
-export async function surveyDrone(T,scene,world){
-  const [flight,{scene:model}]=await Promise.all([
-    world?.flight??loadInstance('Rdd2Survey',{pilot:1,stationEast:-5,stationNorth:0,currentENU:[.2,.04,0]}),
-    new GLTFLoader().loadAsync(new URL('./assets/drone.glb',import.meta.url).href)
-  ]);
+function loadAirframe(){
+  return new GLTFLoader().loadAsync(new URL('./assets/drone.glb',import.meta.url).href);
+}
+function assembleAirframe(T,model,mounts){
   const group=new T.Group(),props=[];
   model.rotation.x=Math.PI/2; // glTF +Y up to the vehicle's forward-left-up frame.
   group.add(model);group.updateMatrixWorld(true);
@@ -16,7 +15,6 @@ export async function surveyDrone(T,scene,world){
   const center=new T.Vector3();
   for(const blade of blades)center.addScaledVector(blade.hub,.25);
   // Match the mean hub radius to the compiled RDD2 rotor geometry.
-  const mounts=flight.get('aircraft.rotorGeometry.positionBodyFlu_m');
   const span=blades.reduce((sum,{hub})=>sum+Math.hypot(hub.x-center.x,hub.y-center.y),0);
   const scale=mounts.reduce((sum,_,i)=>i%3===0?sum+Math.hypot(mounts[i],mounts[i+1]):sum,0)/span;
   model.scale.setScalar(scale);model.position.copy(center).multiplyScalar(-scale);group.updateMatrixWorld(true);
@@ -27,6 +25,20 @@ export async function surveyDrone(T,scene,world){
     const pivot=new T.Group();pivot.position.copy(hub).sub(center).multiplyScalar(scale);
     group.add(pivot);pivot.attach(mesh);props.push(pivot);
   }
+  return {group,props};
+}
+// RDD2 X frame with a 250 mm motor radius. Peer packets carry its rigid pose.
+export async function remoteDroneMesh(T){
+  const d=.25/Math.sqrt(2);
+  const {scene:model}=await loadAirframe();
+  return assembleAirframe(T,model,[d,-d,0,-d,-d,0,-d,d,0,d,d,0]).group;
+}
+export async function surveyDrone(T,scene,world){
+  const [flight,{scene:model}]=await Promise.all([
+    world?.flight??loadInstance('Rdd2Survey',{pilot:1,stationEast:-5,stationNorth:0,currentENU:[.2,.04,0]}),
+    loadAirframe()
+  ]);
+  const {group,props}=assembleAirframe(T,model,flight.get('aircraft.rotorGeometry.positionBodyFlu_m'));
   scene.add(group);
   let active=false,manual=true;
   function input(axis,fast=false){

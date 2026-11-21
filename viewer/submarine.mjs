@@ -4,7 +4,7 @@ import {sonarMap} from './sonar-map.mjs';
 export function submarine(T,scene,world){
   const mesh=surveyVehicle(T,vehicleShell('survey-pressure-housing'));scene.add(mesh);mesh.position.set(-5,0,-10);
   const bubbles=bubbleWake(T,scene,mesh), map=sonarMap(T,scene);
-  const worker=world?null:new Worker(new URL('./sub-worker.mjs',import.meta.url),{type:'module'});
+  let worker;
   let frame,displayedMap,busy=false,error,previous=0;
   const fromPosition=new T.Vector3(),toPosition=new T.Vector3();
   const fromAttitude=new T.Quaternion(),toAttitude=new T.Quaternion();
@@ -22,9 +22,10 @@ export function submarine(T,scene,world){
     // sensor frame until the navigation clock supplies the next image.
     if(frame && !data.image){data.image=frame.image;data.features=frame.features;}
     data.estimate??=frame?.estimate;
-    receivedAt=now;frame=data;previous=data.time;
+    receivedAt=now;frame=data;
   };
-  if(worker){
+  function startWorker(){
+    worker=new Worker(new URL('./sub-worker.mjs',import.meta.url),{type:'module'});
     worker.onmessage=({data})=>receive(data);
     worker.onerror=e=>{error=e.message;busy=false;};
     addEventListener('pagehide',()=>worker.terminate(),{once:true});
@@ -41,10 +42,14 @@ export function submarine(T,scene,world){
         bubbles(interpolatedTime-shownTime,frame.rpm,frame.cavitation,frame.flow,innerHeight);
         shownTime=interpolatedTime;
       }
+      // An unoccupied manual submarine in the split runtime has no commands.
+      // Keep its local simulation clock parked, including across vehicle switches.
+      if(!world && !this.active && this.manual){previous=time;return;}
       if(error||busy||time<previous+.049)return;
       busy=true;
       const pilot=this.active?[axis('KeyW','KeyS'),axis('KeyA','KeyD'),axis('KeyQ','KeyE'),axis('KeyR','KeyF')]:[0,0,0,0];
       if(world){
+        previous=time;
         world.set('subManual',Number(this.manual));world.set('subPilot',pilot);
         const survey=world.get('sub.surveyTelemetry'),estimate=world.get('estimate');
         const rows=map.group.visible?world.get('keyframes'):undefined;
@@ -55,6 +60,9 @@ export function submarine(T,scene,world){
         if(rows)displayedMap=rows;
         return;
       }
-      worker.postMessage({active:this.active,manual:this.manual,pilot,wind,bearing,showSensorImage,steps:Math.min(20,Math.floor((time-previous)*100+1e-6))});
+      if(!worker)startWorker();
+      const steps=Math.min(20,Math.floor((time-previous)*100+1e-6));
+      previous+=steps*.01;
+      worker.postMessage({active:this.active,manual:this.manual,pilot,wind,bearing,showSensorImage,steps});
     }};
 }

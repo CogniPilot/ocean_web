@@ -2,6 +2,7 @@ import {captainRoster} from './captains.mjs';
 // Snapshot transport only. Each boat owns its local Rumoca FMU.
 import {PeerTimeline} from './fleet-timeline.mjs';
 import {FleetSeaClock} from './fleet-sea-clock.mjs';
+import {remoteDroneMesh} from './drone.mjs';
 import {sailboatMesh} from './board/boat.mjs';
 const relays=['wss://relay.damus.io','wss://nos.lol','wss://relay-rpi.edufeed.org','wss://nostr.tegila.com.br'];
 const channels=4;
@@ -31,6 +32,7 @@ function drawGhost(T,scene,peer,kind,template,offset,p,d,f){
   ghost.quaternion.fromArray(old,offset+4).normalize().slerp(peer.rotation.fromArray(d,offset+4).normalize(),f);
 }
 export function fleet(T,scene,roomName,status,weather,crew){
+  let remoteAirframe,loadingAirframe;
   let selfId,room,action,lastSend=-Infinity,participants=new Set();
   const peers=new Map();
   let roster=new Map();
@@ -222,7 +224,11 @@ export function fleet(T,scene,roomName,status,weather,crew){
       if(peer.label)peer.label.visible=fresh;
       if(!fresh){if(peer.sub)peer.sub.visible=false;if(peer.drone)peer.drone.visible=false;continue;}
       const {left:p,right:d,fraction:f}=peer.timeline.at(now);
-      drawGhost(T,scene,peer,'sub',sub,216,p,d,f);drawGhost(T,scene,peer,'drone',drone,224,p,d,f);
+      drawGhost(T,scene,peer,'sub',sub,216,p,d,f);
+      if(d[224]===1&&!drone&&!loadingAirframe){
+        loadingAirframe=remoteDroneMesh(T).then(mesh=>{remoteAirframe=mesh;}).catch(error=>console.warn('Remote drone mesh',error));
+      }
+      drawGhost(T,scene,peer,'drone',drone??remoteAirframe,224,p,d,f);
       if(peer.label && !peer.mesh){
         const vessel=peer[peer.kind];
         peer.label.visible=!!vessel?.visible;
