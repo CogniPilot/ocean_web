@@ -304,3 +304,9 @@ To repeat the headless timing, package the page with `scripts/package-pages.sh b
 ### Visible crests from the solved hull wake
 
 Balanced and High receive a hull-only elevation grid from the same spectral solver that feeds buoyancy and wave resistance. One inverse FFT yields both the total surface and the hull-only surface by packing their Hermitian spectra into its real and imaginary channels. The renderer shades positive hull-wake crests with a foam approximation. It does not add height or load. Low skips the extra grid and shading. The paired-model comparison of total height, wave loads and boat state differed by less than 1e-12 in normalized units.
+
+### One vehicle plant per tab
+
+The startup picker opens a vehicle-specific compiled component in one physics worker. A room invite opens the same picker for each player. In the shared room, vehicle poses go over WebRTC. The local solver consumes peer inputs for sailboat contact, wind shadow, and drone landings. Only a submarine tab runs the navigation sensor sampling and SLAM. The explicit `?runtime=world` development route still runs the coupled model.
+
+Run `node scripts/profile-vehicles.mjs build/pages` against a packaged site to check the included plants and measure solver throughput. This test runs 600 fixed 10 ms steps after 100 warmup steps, with wakes enabled and an active survey camera in the dedicated submarine. It excludes renderer and network time.

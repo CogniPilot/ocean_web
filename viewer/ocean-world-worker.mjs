@@ -32,10 +32,13 @@ async function handle(request){
     if(request.surveyView && index.variables.some(v=>v.name==='surveyAtStartup'))parameters.surveyAtStartup=0;
     session=await openFmuSession({index,base,parameters,instanceName:'ocean_web'});
     const variables=new Map(index.variables.map(v=>[v.name,v]));
-    const initial={sailingManual:1};
+    const initial={};
+    if(variables.has('sailingManual'))initial.sailingManual=1;
     if(variables.has('subManual'))initial.subManual=1;
     if(variables.has('flightManual'))initial.flightManual=1;
-    session.set_inputs(JSON.stringify(Object.entries({...initial,...request.initial})));
+    const initialInputs=Object.entries({...initial,...request.initial}).flatMap(([name,value])=>
+      Array.isArray(value)?scalarNames(name,variables.get(name).dimensions).map((key,i)=>[key,value[i]]):[[name,value]]);
+    session.set_inputs(JSON.stringify(initialInputs));
     let names=[...request.outputs,...(request.optionalOutputs??[]).filter(name=>variables.has(name))];
     if(request.sampledFields){
       const [waveDt,windDt]=session.read_values(JSON.stringify(['waves.dt','wind.dt']));

@@ -17,6 +17,10 @@ touch "$out/.nojekyll"
 if [[ ${2:-} == --world ]]; then
   node scripts/prepare-world-runtime.mjs "$out/world"
   node scripts/prepare-world-runtime.mjs "$out/sailing" viewer/fmi3/OceanSailing.fmu OceanSailing
+  for pair in 'sloop OceanSloop' 'submarine OceanSubmarine' 'flight OceanFlight'; do
+    read -r directory model <<< "$pair"
+    node scripts/prepare-world-runtime.mjs "$out/$directory" "viewer/fmi3/$model.fmu" "$model"
+  done
   sed 's/<body>/<body data-default-runtime="world">/' viewer/index.html > "$out/index.html"
 fi
 

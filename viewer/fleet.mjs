@@ -290,6 +290,22 @@ export function fleet(T,scene,roomName,status,weather,crew){
     }
     return traffic;
   }
+  const deck=new Float64Array(14);
+  function nearbyDeck(east,north,now){
+    let nearest,limit=10;
+    for(const peer of peers.values()){
+      if(peer.kind!=='boat'||!peer.timeline.latest||peer.timeline.age(now)>650)continue;
+      const {data}=peer.timeline.latest;
+      const distance=Math.hypot(east-data[0],north-data[1]);
+      if(distance<limit){nearest=data;limit=distance;}
+    }
+    deck.fill(0);
+    if(nearest){
+      const [e,n,yaw,z,roll,pitch]=nearest;
+      deck.set([1,nearest[207],e,n,z,yaw,roll,-pitch,nearest[212],nearest[213],0,0,0,nearest[214]]);
+    }
+    return deck;
+  }
   function seaTime(local,now){
     if(!room)return local+retainedOffset;
     const phase=seaClock.sample(local,now);
@@ -315,5 +331,5 @@ export function fleet(T,scene,roomName,status,weather,crew){
     }
     return anchor;
   }
-  return {join,leave,frame,contacts,needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
+  return {join,leave,frame,contacts,nearbyDeck,needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
 }
