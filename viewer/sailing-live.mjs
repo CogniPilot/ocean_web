@@ -101,6 +101,7 @@ async function run(){
   island.traverse(showInLowWaterCapture);
   const [simulation,,subAssets]=await simulationReady;
   const world=mode?simulation:null;
+  const worldReadyAt=performance.now();
   const model=world?world.boat:simulation;
   const worker=world?null:new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
   let waterFrame,waterError;
@@ -505,7 +506,12 @@ async function run(){
   };
   touchControls();
   $('vang').oninput=()=>model.set(cat?'downhaulInput':'vangInput',Number($('vang').value)/100);
-  $('play').onclick=()=>{running=!running;if(!running)world?.clearQueued();$('play').textContent=running?'Pause':'Resume';};
+  $('play').onclick=()=>{
+    running=!running;
+    acc=0;prev=physicsWall=performance.now();
+    if(!running)world?.clearQueued();
+    $('play').textContent=running?'Pause':'Resume';
+  };
   function applyWind(){const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;ocean.U.referenceWind.value=w;$('windOut').textContent=w+' m/s';}
   $('wind').oninput=()=>{applyWind();remote.changeWeather('wind',Number($('wind').value));};
   if(url.searchParams.has('room'))multiplayer(true);
@@ -535,7 +541,15 @@ async function run(){
     state.position.copy(camera.position);state.rotation.copy(camera.quaternion);
     return true;
   }
-  let prev=performance.now(),acc=0;
+  let prev=performance.now(),physicsWall=worldReadyAt,acc=0;
+  function advanceWorld(now){
+    const elapsed=Math.max(0,(now-physicsWall)/1000);
+    physicsWall=now;
+    if(!running||document.hidden)return;
+    // Retain short foreground stalls and repay them through the fixed-step FMU.
+    acc=Math.min(.25,acc+elapsed);
+    acc=Math.max(0,acc-world.advance(Math.floor(acc/.01))*.01);
+  }
   let frameCost=1000/30,lastQualityCheck=0;
   let lastEnvironment,lastThunder;
   function updateLight(time){
@@ -588,6 +602,7 @@ async function run(){
     measureButton.disabled=true;frameResult.textContent='Measuring for 15 seconds…';
   };
   document.addEventListener('visibilitychange',()=>{
+    prev=physicsWall=performance.now();acc=0;world?.clearQueued();
     statsStart=undefined;
     if(document.hidden && frameTest)finishTest('Test interrupted while the page was hidden.');
   });
@@ -602,6 +617,7 @@ async function run(){
     const p95=gaps[Math.ceil(.95*gaps.length)-1];
     finishTest(`${(gaps.length/elapsed).toFixed(1)} FPS · 95th percentile ${p95.toFixed(1)} ms · ${((t-test.simStart)/elapsed).toFixed(2)}× real time · ${test.quality} · ${renderer.domElement.width}×${renderer.domElement.height} final pixels`);
   }
+  let physicsTimer;
   function draw(now){
     try{
       if(model&&remote.needsTraffic(now>=raceTick)){
@@ -634,7 +650,7 @@ async function run(){
         lastQualityCheck=now;
       }
       const frameSeconds=Math.max(0,Math.min(.22,(now-prev)/1000));prev=now;
-      if(running)acc+=frameSeconds;
+      if(!world&&running&&!document.hidden)acc+=frameSeconds;
       if(waterError)throw waterError;
       if(world){
         if(world.hasSeaClock){
@@ -655,8 +671,7 @@ async function run(){
           const [east,north]=drone.position;
           world.set('peerDeck',remote.nearbyDeck(east,north,now));
         }
-        const steps=Math.min(5,Math.floor(acc/.01));acc=Math.min(.1,acc);
-        if(running)acc=Math.max(0,acc-world.advance(steps)*.01);
+        advanceWorld(performance.now());
         const tick=Math.round(world.time*100),waveTick=waterStamp(),fieldTick=Math.floor(tick/25);
         if(lastWorldTick!==waveTick){
           lastDrift.copy(ocean.U.spectrumDrift.value);
@@ -905,7 +920,17 @@ async function run(){
         }
       }
       document.body.dataset.runtime=mode??'fleet';document.body.dataset.simTime=t;document.body.dataset.east=focus[0];requestAnimationFrame(draw);
-    }catch(e){$('readout').textContent=e.message;console.error(e);}
+    }catch(e){clearInterval(physicsTimer);$('readout').textContent=e.message;console.error(e);}
+  }
+  if(world){
+    // A slow GPU can leave the solver idle for several batches between frames.
+    physicsTimer=setInterval(()=>{
+      const now=performance.now();
+      if(running&&!document.hidden&&now-physicsWall>=50){
+        try{advanceWorld(now);}catch{clearInterval(physicsTimer);} // draw reports worker faults
+      }
+    },50);
+    addEventListener('pagehide',()=>clearInterval(physicsTimer),{once:true});
   }
   requestAnimationFrame(draw);
 }

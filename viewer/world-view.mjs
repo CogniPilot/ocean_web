@@ -22,12 +22,28 @@ export async function openWorld(mode='world',seaState=.45){
  workerUrl.search=new URL(import.meta.url).search;
  const worker=new Worker(workerUrl,{type:'module'});
  addEventListener('pagehide',()=>worker.terminate(),{once:true});
- let id=0,pending,error,time=0;
+ let id=0,error,time=0;
+ const pending=new Map();
  const state=new Map();
  const surveyView={camera:false,map:false,wakeSource:false,wakeSurface:false};
- worker.onmessage=({data})=>{if(data.error)pending.reject(Error(data.error));else pending.resolve(data);};
- worker.onerror=e=>{error=Error(e.message);pending?.reject(error);};
- function send(message){return new Promise((resolve,reject)=>{pending={resolve,reject};worker.postMessage({...message,id:++id});});}
+ function fail(reason){
+   error=reason;
+   for(const reply of pending.values())reply.reject(reason);
+   pending.clear();
+ }
+ worker.onmessage=({data})=>{
+   if(data.error){fail(Error(data.error));return;}
+   const reply=pending.get(data.id);
+   pending.delete(data.id);
+   reply?.resolve(data);
+ };
+ worker.onerror=e=>fail(Error(e.message));
+ function send(message){
+   return new Promise((resolve,reject)=>{
+     pending.set(++id,{resolve,reject});
+     worker.postMessage({...message,id});
+   });
+ }
  const initial={windSpeed,windBearing,seaState,epoch:Date.now()/1000};
  const inputs=['seaState'];
  if(hasBoat){
@@ -62,21 +78,30 @@ export async function openWorld(mode='world',seaState=.45){
    f.sampled?.forEach((values,i)=>{if(values)unpack(layout.sampled[i],values);});
  }
  receive(frame);
- let busy=false,queued=0;
+ // Keep the worker supplied while the main thread draws. Both requests run
+ // serially on the same FMU. Bound the submitted work to ten solver steps.
+ const batchSize=5,maxOutstandingSteps=2*batchSize;
+ let outstanding=0,queued=0;
  function advance(steps){
    if(error)throw error;
-   const accepted=Math.min(steps,5-queued);
+   if(document.hidden)return 0;
+   const accepted=Math.min(steps,maxOutstandingSteps-outstanding-queued);
    queued+=accepted;
    dispatch();
    return accepted;
  }
  function dispatch(){
-   if(busy||!queued||document.hidden)return;
-   const steps=queued;queued=0;
-   set('epoch',Date.now()/1000-time);
-   busy=true;send({type:'advance',steps,values:controls,surveyView}).then(f=>{
-     receive(f);busy=false;dispatch();
-   }).catch(e=>{busy=false;queued=0;error=e;});
+   while(!error&&pending.size<2&&queued&&!document.hidden){
+     const steps=Math.min(batchSize,queued);
+     queued-=steps;
+     set('epoch',Date.now()/1000-time-.01*outstanding);
+     outstanding+=steps;
+     send({type:'advance',steps,values:controls,surveyView}).then(f=>{
+       outstanding-=steps;
+       receive(f);
+       dispatch();
+     }).catch(e=>{queued=0;fail(e);});
+   }
  }
  function view(prefix,write){
    const get=name=>{
