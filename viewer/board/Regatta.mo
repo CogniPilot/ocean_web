@@ -2,7 +2,8 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   input Real utc "Unix seconds from the browser clock";
   input Real east,north;
   parameter Real windBearing=atan2(4,10) "Direction the prevailing wind travels, counterclockwise from east";
-  parameter Real gateEast=-10,gateNorth=-6.5,lineLength=40,legLength=200,zone=2.5;
+  parameter Real gateEast=-10,gateNorth=-6.5,lineLength=40,legLength=200,zone=18
+    "Length in metres of each mark's outside scoring gate";
   final parameter Real upE=-cos(windBearing),upN=-sin(windBearing);
   final parameter Real rightE=upN,rightN=-upE "Starboard when facing the wind";
   output Real pinEast,pinNorth,committeeEast,committeeNorth,markEast[2],markNorth[2];
@@ -57,6 +58,25 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
     elevation:=elevationAt(total,point[1]-drift[1],point[2]-drift[2],period)
       -blend^2*(3-2*blend)*elevationAt(hull,point[1]-drift[1],point[2]-drift[2],period);
   end localWaveElevation;
+  function passedToPort "Cross the outside angle bisector counterclockwise"
+    input Real previous[2],position[2],mark[2],incoming[2],outgoing[2],limit;
+    output Boolean crossedGate;
+  protected
+    Real outside[2],before[2],after[2],oldSide,newSide,portion,distance;
+  algorithm
+    outside:=2*mark-incoming-outgoing;
+    outside:=outside/max(1e-9,sqrt(outside*outside));
+    before:=previous-mark;
+    after:=position-mark;
+    oldSide:=outside[1]*before[2]-outside[2]*before[1];
+    newSide:=outside[1]*after[2]-outside[2]*after[1];
+    crossedGate:=false;
+    if oldSide<=0 and newSide>0 then
+      portion:=-oldSide/(newSide-oldSide);
+      distance:=outside*((1-portion)*before+portion*after);
+      crossedGate:=distance>.70 and distance<=limit;
+    end if;
+  end passedToPort;
   output Real countdown;
   discrete output Integer stage(start=0,fixed=true) "0 prestart, 1 start open, 2/3 marks, 4 finish, 5 finished";
   discrete output Real elapsed(start=0,fixed=true);
@@ -64,6 +84,7 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   discrete Real crossed(start=0,fixed=true);
   Real along,across;
   discrete Real lastAlong(start=0,fixed=true),lastAcross(start=0,fixed=true),heat(start=-1,fixed=true),started(start=0,fixed=true);
+  discrete Real lastPosition[2](each start=0,each fixed=true);
   discrete Real boundary,crossingAt;
   discrete Boolean onLine,startCross,finishCross;
 equation
@@ -134,8 +155,10 @@ equation
     heat=boundary;
     stage=if boundary>pre(heat) and pre(heat)>=0 and (pre(stage)<=1 or pre(stage)==5) then (if startCross then 2 else 1)
           elseif pre(stage)==1 and startCross then 2
-          elseif pre(stage)==2 and (east-markEast[1])^2+(north-markNorth[1])^2<zone^2 then 3
-          elseif pre(stage)==3 and (east-markEast[2])^2+(north-markNorth[2])^2<zone^2 then 4
+          elseif pre(stage)==2 and passedToPort(pre(lastPosition),{east,north},{markEast[1],markNorth[1]},
+            {gateEast,gateNorth},{markEast[2],markNorth[2]},zone) then 3
+          elseif pre(stage)==3 and passedToPort(pre(lastPosition),{east,north},{markEast[2],markNorth[2]},
+            {markEast[1],markNorth[1]},{gateEast,gateNorth},zone) then 4
           elseif pre(stage)==4 and finishCross then 5 else pre(stage);
     started=if boundary>pre(heat) and (pre(stage)<=1 or pre(stage)==5) then boundary else pre(started);
     elapsed=if stage>=2 and pre(stage)<>5 then utc-started elseif stage==5 then pre(elapsed) else 0;
@@ -143,5 +166,6 @@ equation
     lapTime=if stage>=2 and pre(stage)<>5 then utc-crossed elseif stage==5 then pre(lapTime) else 0;
     lastAlong=along;
     lastAcross=across;
+    lastPosition={east,north};
   end when;
 end Regatta;
