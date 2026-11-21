@@ -7,24 +7,39 @@ import {openFmuSession} from '../.deps/microduck_web/site/fmu-session.js';
 import {scalarNames} from '../.deps/microduck_web/site/fmu-page-contract.js';
 import {fileFetch} from '../.deps/microduck_web/scripts/fmu-test-support.mjs';
 
-const base=pathToFileURL(resolve(process.argv[2]??'build/world-runtime')+'/');
-const manifest=JSON.parse(await readFile(new URL('manifest.json',base)));
-const index=JSON.parse(await readFile(new URL(manifest.index,base)));
+const senderDirectory=resolve(process.argv[2]??'build/world-runtime');
+const receiverDirectory=resolve(process.argv[3]??senderDirectory);
+
+async function open(directory){
+  const base=pathToFileURL(directory+'/');
+  const manifest=JSON.parse(await readFile(new URL('manifest.json',base)));
+  const index=JSON.parse(await readFile(new URL(manifest.index,base)));
+  const world=await openFmuSession({index,base,fetch:fileFetch});
+  const values={windSpeed:11,windBearing:.45,sailingManual:1,subManual:1,flightManual:1};
+  const available=new Set(index.variables.map(v=>v.name));
+  world.set_inputs(JSON.stringify(Object.entries(values).filter(([name])=>available.has(name))));
+  return {world,name:index.modelName};
+}
+
 const worlds=[];
 const bind=(world,name,shape)=>world.bind_outputs(JSON.stringify(scalarNames(name,shape)));
 const maxDiff=(a,b)=>a.reduce((peak,x,i)=>Math.max(peak,Math.abs(x-b[i])),0);
 let peakElevation=0,peakReceiverHeight=0,peakForce=0;
 try{
-  for(let i=0;i<3;i++){
-    const world=await openFmuSession({index,base,fetch:fileFetch});
-    worlds.push(world);
-    world.set_inputs(JSON.stringify(Object.entries({sailingManual:1,subManual:1,flightManual:1,windSpeed:11,windBearing:.45})));
+  const components=[];
+  for (const directory of [senderDirectory,receiverDirectory,receiverDirectory]){
+    const component=await open(directory);
+    components.push(component);worlds.push(component.world);
   }
   const [sender,receiver,quiet]=worlds;
+  const role=components[1].name;
+  const hasHull=role==='OceanWorld'||role==='OceanSailing'||role==='OceanSloop';
   const strips=bind(sender,'waves.sourceStrips',[12,3]);
   const load=[receiver,quiet].map(w=>bind(w,'waves.waveLoad',[3]));
   const heights=[receiver,quiet].map(w=>bind(w,'waves.height',[64,64]));
-  const sections=[receiver,quiet].map(w=>bind(w,'waves.sectionHeight',[2,6]));
+  const sampledWater={OceanSubmarine:['receiverWater',[8]],OceanFlight:['waterOffset',[]]};
+  const receiverWater=sampledWater[role]??['waves.sectionHeight',[2,6]];
+  const sections=[receiver,quiet].map(w=>bind(w,...receiverWater));
   const writer=receiver.bind_inputs(JSON.stringify(scalarNames('peerWake',[4,38])));
   const packet=new Float64Array(152);
   let surfaceVolume=0;
@@ -50,5 +65,7 @@ try{
     peakForce=Math.max(peakForce,delta(load));
   }
   console.log({surfaceVolume,peakElevation,peakReceiverHeight,peakForce});
-  assert(surfaceVolume>0 && peakElevation>.00001 && peakReceiverHeight>1e-7 && peakForce>1e-6);
+  assert(surfaceVolume>0 && peakElevation>.00001 && peakReceiverHeight>1e-7);
+  if(hasHull)assert(peakForce>1e-6);
+  else assert.equal(peakForce,0);
 }finally{for(const world of worlds)world.free();}

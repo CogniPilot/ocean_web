@@ -5,12 +5,14 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
   discrete Boolean wakeActive(start=false,fixed=true);
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
   parameter Real period=64,dt=.1,depth=14,decay=.04;
+  parameter Boolean sharedDrift=false "Use a common clock and constant surface current for the spectral frame";
+  parameter Boolean localHull=true "Compute radiation and reaction for an immersed local hull";
   input Real east,north,heading,heel,pitch,stations[7],separation,volume[2,6],beamHalf[7];
   input Real currentEast,currentNorth,windEast,windNorth,seaAmplitude;
   input Real peers[4,38]=zeros(4,38) "Source token, sample time, then east/north/immersed volume for twelve strips";
   discrete Real priorPeers[4,38](each start=0,each fixed=true),priorDrift[4,2](each start=0,each fixed=true);
   discrete output Real sourceStrips[12,3](each start=0,each fixed=true);
-  Real driftE(start=0,fixed=true),driftN(start=0,fixed=true);
+  Real driftE(start=0,fixed=not sharedDrift),driftN(start=0,fixed=not sharedDrift);
   discrete Real modesR[n,n](each start=0,each fixed=true),modesI[n,n](each start=0,each fixed=true);
   discrete Real displacementR[n,n](each start=0,each fixed=true),displacementI[n,n](each start=0,each fixed=true);
   discrete output Real height[n,n](each start=0,each fixed=true);
@@ -155,7 +157,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     input Real prevR[n,n],prevI[n,n],oldR[n,n],oldI[n,n],vol[2,6],xs[7],beams[7],sep,x,y,bearing,heel,pitch,ue,un,sea,L,h,dt,loss,t;
     input Boolean first;
     input Real peers[4,38],oldPeers[4,38],driftE,driftN,oldDrift[4,2];
-    input Boolean active=true;
+    input Boolean active=true,localHull=true;
     output Real wr[n,n],wi[n,n],displacedR[n,n],displacedI[n,n],tile[n,n],probe[3],load[3],wake[n,n];
   protected
     Real rowR[n],rowI[n],windR[n],windI[n],sourceR[n],sourceI[n],dx,kx,ky,k,omega,c,s,atten,along,across,ex,ny,a,b,amplitude,phase,slope;
@@ -178,7 +180,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     // tables preserve the exact subcell locations and avoid a forward FFT.
     armAlong:=zeros(12);armAcross:=zeros(12);
     cx:=zeros(12,n);sx:=zeros(12,n);cy:=zeros(12,n);sy:=zeros(12,n);
-    if active then
+    if active and localHull then
       for hull in 1:2 loop
         for panel in 1:6 loop
           strip:=(hull-1)*6+panel;
@@ -208,27 +210,29 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
         sr:=0;si:=0;mr:=0;mi:=0;
         omega:=sqrt(9.80665*k*tanh(k*h));
         if active then
-          ka:=kx*cos(bearing)+ky*sin(bearing);kb:=-kx*sin(bearing)+ky*cos(bearing);
-          for hull in 1:2 loop
-            for panel in 1:6 loop
-              strip:=(hull-1)*6+panel;
-              length:=max(.001,xs[panel+1]-xs[panel]);
-              width:=max(.001,beams[panel]+beams[panel+1]);
-              draft:=vol[hull,panel]/(length*width);
-              // Match each strip's volume and rectangular second moments.
-              // Submerged sources radiate less energy at short wavelengths.
-              weight:=vol[hull,panel]/dx^2*exp(-.5*k*draft-((ka*length)^2+(kb*width)^2)/24);
-              stripR:=weight*(cx[strip,i]*cy[strip,j]-sx[strip,i]*sy[strip,j]);
-              stripI:=-weight*(sx[strip,i]*cy[strip,j]+cx[strip,i]*sy[strip,j]);
-              sr:=sr+stripR;si:=si+stripI;
-              momentArm:=armAlong[strip]*kb-armAcross[strip]*ka;
-              mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
+          if localHull then
+            ka:=kx*cos(bearing)+ky*sin(bearing);kb:=-kx*sin(bearing)+ky*cos(bearing);
+            for hull in 1:2 loop
+              for panel in 1:6 loop
+                strip:=(hull-1)*6+panel;
+                length:=max(.001,xs[panel+1]-xs[panel]);
+                width:=max(.001,beams[panel]+beams[panel+1]);
+                draft:=vol[hull,panel]/(length*width);
+                // Match each strip's volume and rectangular second moments.
+                // Submerged sources radiate less energy at short wavelengths.
+                weight:=vol[hull,panel]/dx^2*exp(-.5*k*draft-((ka*length)^2+(kb*width)^2)/24);
+                stripR:=weight*(cx[strip,i]*cy[strip,j]-sx[strip,i]*sy[strip,j]);
+                stripI:=-weight*(sx[strip,i]*cy[strip,j]+cx[strip,i]*sy[strip,j]);
+                sr:=sr+stripR;si:=si+stripI;
+                momentArm:=armAlong[strip]*kb-armAcross[strip]*ka;
+                mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
+              end for;
             end for;
-          end for;
-          // The signed wavevector is ambiguous on a Nyquist row or column.
-          // Omit it so a symmetric tow cannot acquire a spurious lateral load.
-          if abs(mx)==div(n,2) or abs(my)==div(n,2) then
-            sr:=0;si:=0;mr:=0;mi:=0;
+            // The signed wavevector is ambiguous on a Nyquist row or column.
+            // Omit it so a symmetric tow cannot acquire a spurious lateral load.
+            if abs(mx)==div(n,2) or abs(my)==div(n,2) then
+              sr:=0;si:=0;mr:=0;mi:=0;
+            end if;
           end if;
           sourceR[i]:=sr;sourceI[i]:=si;
           c:=cos(omega*dt);s:=sin(omega*dt);
@@ -238,11 +242,13 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
           rowR[i]:=atten*(c*prevR[j,i]+s*prevI[j,i])+(if first or k==0 then 0 else sourceR[i]-oldR[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerR[j,i] else 0);
           rowI[i]:=atten*(c*prevI[j,i]-s*prevR[j,i])+(if first or k==0 then 0 else sourceI[i]-oldI[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerI[j,i] else 0);
 
-          // Integral of -rho*g*displacement*grad(elevation), evaluated by
-          // Parseval on the same modes used to reconstruct the displayed wake.
-          crossTerm:=forceScale*(rowI[i]*sr-rowR[i]*si);
-          load[1]:=load[1]+kx*crossTerm;load[2]:=load[2]+ky*crossTerm;
-          load[3]:=load[3]+forceScale*(rowI[i]*mr-rowR[i]*mi);
+          if localHull then
+            // Integral of -rho*g*displacement*grad(elevation), evaluated by
+            // Parseval on the same modes used to reconstruct the displayed wake.
+            crossTerm:=forceScale*(rowI[i]*sr-rowR[i]*si);
+            load[1]:=load[1]+kx*crossTerm;load[2]:=load[2]+ky*crossTerm;
+            load[3]:=load[3]+forceScale*(rowI[i]*mr-rowR[i]*mi);
+          end if;
         else
           rowR[i]:=0;rowI[i]:=0;
         end if;
@@ -285,7 +291,13 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     wake:=if active then unused else zeros(n,n);
   end step;
 equation
-  der(driftE)=currentEast;der(driftN)=currentNorth;
+  if sharedDrift then
+    driftE=currentEast*(time+seaClockOffset);
+    driftN=currentNorth*(time+seaClockOffset);
+  else
+    der(driftE)=currentEast;
+    der(driftN)=currentNorth;
+  end if;
   when sample(0,dt) then
     wakeActive=omitWake<.5;
     sourceStrips=hullSource(east,north,heading,heel,pitch,stations,separation,volume);
@@ -296,7 +308,7 @@ equation
           then (if axis==1 then driftE else driftN) else pre(priorDrift[peer,axis]);
       end for;
     end for;
-    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad,wakeHeight)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time+seaClockOffset,time<dt/2 or not pre(wakeActive),peers,pre(priorPeers),driftE,driftN,pre(priorDrift),wakeActive);
+    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad,wakeHeight)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time+seaClockOffset,time<dt/2 or not pre(wakeActive),peers,pre(priorPeers),driftE,driftN,pre(priorDrift),wakeActive,localHull);
     sectionHeight=sampleSections(height,east-driftE,north-driftN,heading,heel,pitch,stations,separation,period);
   end when;
 end WakeSpectrum;

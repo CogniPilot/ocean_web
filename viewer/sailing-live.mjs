@@ -562,9 +562,10 @@ async function run(){
         }
         if(world.hasPeerWake){
           const shareWake=remote.wantsWakeSource && hasBoat && $('controlTarget').value==='boat';
-          world.setWakeSourceRequested(shareWake);
-          const strips=shareWake?world.get('waves.sourceStrips'):null;
-          const sources=remote.wakeSources(now,strips,waterStamp());
+          const drawWake=hasBoat&&!omitWake;
+          world.setWakeSourceRequested(shareWake||drawWake);
+          const strips=world.get('waves.sourceStrips');
+          const sources=remote.wakeSources(now,shareWake?strips:null,waterStamp());
           if(!omitWake)world.set('peerWake',sources);
         }
         if(mode==='flight'&&drone){
@@ -576,6 +577,7 @@ async function run(){
         const tick=Math.round(world.time*100),waveTick=waterStamp(),fieldTick=Math.floor(tick/25);
         if(lastWorldTick!==waveTick){
           ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'),omitWake?undefined:world.get('waves.wakeHeight'));
+          if(!omitWake&&model)ocean.updateHullFoam(world.get('waves.sourceStrips'),waveTick,model.get('surge'),cat);
           wavePresentation.sample(waveTick,now);lastWorldTick=waveTick;
         }
         if(lastFieldTick!==fieldTick){
@@ -680,7 +682,10 @@ async function run(){
         ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
         if(world)hullDisplay.apply(boat.group,t,now,running);
         boat.group.localToWorld(orbitCenter.copy(helmSeat));
-      }else orbitCenter.fromArray(focus);
+      }else{
+        orbitCenter.fromArray(focus);
+        ocean.U.boat.value.set(focus[0],focus[1],0,0);
+      }
       const horizontal=distance*Math.cos(tilt);
       camera.up.set(0,0,1);
       camera.position.set(horizontal*Math.cos(angle),horizontal*Math.sin(angle),distance*Math.sin(tilt)).add(orbitCenter);

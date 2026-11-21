@@ -109,6 +109,90 @@ vec4 skyRadiance(vec3 d){
  return vec4(mix(fair,base*(.45+.55*day),storm),(1.-clouds*.81)*(1.-storm));
 }
 `;
+// Render white water over the solved surface along the past wet stern sections.
+function hullFoam(scene,uniforms){
+ const count=38,tracks=[[],[]],geometry=new THREE.BufferGeometry();
+ const along=new Float32Array(2*count*2*3);
+ const foam=new Float32Array(2*count*2*3);
+ const indices=[];
+ for(let h=0;h<2;h++)for(let row=0;row<count-1;row++){
+   const v=(h*count+row)*2;indices.push(v,v+1,v+2,v+1,v+3,v+2);
+ }
+ geometry.setAttribute('position',new THREE.BufferAttribute(along,3).setUsage(THREE.DynamicDrawUsage));
+ geometry.setAttribute('foam',new THREE.BufferAttribute(foam,3).setUsage(THREE.DynamicDrawUsage));
+ geometry.setIndex(indices);
+ const material=new THREE.ShaderMaterial({uniforms,transparent:true,side:THREE.DoubleSide,depthWrite:false,
+   vertexShader:oceanHeightGLSL+`
+     attribute vec3 foam;
+     varying vec3 vFoam;
+     varying vec2 location;
+     void main(){
+       vec2 p=position.xy+spectrumDrift;
+       vFoam=foam;location=position.xy;
+       gl_Position=projectionMatrix*viewMatrix*vec4(p,heightAt(p)+.018,1.);
+     }`,
+   fragmentShader:skyNoiseGLSL+`
+     uniform float tm,under;
+     uniform vec3 sunDir;
+     varying vec3 vFoam;
+     varying vec2 location;
+     void main(){
+       float age=max(0.,tm-vFoam.y);
+       float grain=noise2(location*19.);
+       float edge=1.-smoothstep(.24,.83,abs(vFoam.x)+(grain-.5)*.37);
+       float breakup=smoothstep(.24,.64,noise2(location*5.)*.7+grain*.3);
+       float alpha=vFoam.z*edge*(.48+.52*breakup)*exp(-age*.51)*(1.-smoothstep(2.8,3.6,age));
+       if(under>.5 || alpha<.015)discard;
+       vec3 tint=mix(vec3(.18,.24,.29),vec3(.88,.94,.93),smoothstep(-.12,.22,sunDir.z));
+       gl_FragColor=vec4(tint,alpha);
+       #include <tonemapping_fragment>
+       #include <colorspace_fragment>
+     }`});
+ const mesh=new THREE.Mesh(geometry,material);
+ mesh.name='Hull foam trails';mesh.frustumCulled=false;mesh.visible=false;
+ scene.add(mesh);
+ let stamp;
+ function clear(){
+   for(const track of tracks)track.length=0;
+   mesh.visible=false;stamp=undefined;
+ }
+ function sample(strips,time,speed,cat){
+   if(!strips||time===stamp)return;
+   const drift=uniforms.spectrumDrift.value,dx=drift.x,dy=drift.y;
+   if(stamp!==undefined&&time-stamp>.26)clear();
+   stamp=time;
+   let visible=false;
+   for(let h=0;h<tracks.length;h++){
+     const track=tracks[h],i=18*h;
+     if(h===0||cat){
+       const aft=strips[i+2],inboard=.42*strips[i+5],wet=aft+inboard;
+       const strength=Math.max(0,Math.min(1,(speed-1.25)/3.1))*Math.min(1,Math.max(0,wet)/.010);
+       const forward=wet>1e-9?inboard/wet:0;
+       const east=strips[i]+forward*(strips[i+3]-strips[i]);
+       const north=strips[i+1]+forward*(strips[i+4]-strips[i+1]);
+       track.unshift([east-dx,north-dy,time,strength]);
+       if(track.length>count)track.pop();
+     }
+     for(let j=0;j<count;j++){
+       const p=track[Math.min(j,track.length-1)]??[0,0,0,0];
+       const before=track[Math.max(0,j-1)]??p,after=track[j+1]??p;
+       const ux=before[0]-after[0],uy=before[1]-after[1],length=Math.hypot(ux,uy);
+       const width=(cat?.16:.20)+.07*Math.max(0,time-p[2]);
+       const strength=j<track.length&&length>.02?p[3]:0;
+       visible||=strength>.025;
+       for(let side=0;side<2;side++){
+         const k=(h*count+j)*6+3*side,sign=2*side-1;
+         const normal=sign*width/Math.max(.02,length);
+         along[k]=p[0]-uy*normal;along[k+1]=p[1]+ux*normal;
+         foam[k]=sign;foam[k+1]=p[2];foam[k+2]=strength;
+       }
+     }
+   }
+   geometry.attributes.position.needsUpdate=geometry.attributes.foam.needsUpdate=true;
+   mesh.visible=visible;
+ }
+ return {mesh,clear,sample};
+}
 function atmosphere(scene){
  const U={cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  const skyTarget=new THREE.WebGLRenderTarget(512,192,{type:THREE.HalfFloatType});
@@ -164,7 +248,8 @@ function atmosphere(scene){
  wakeTexture.wrapS=wakeTexture.wrapT=THREE.RepeatWrapping;
  wakeTexture.minFilter=wakeTexture.magFilter=THREE.LinearFilter;
  U.wakeMap={value:wakeTexture};U.wakeAvailable={value:0};
- function clearWake(){U.wakeAvailable.value=0;}
+ U.forebodyPort={value:new THREE.Vector3()};U.forebodyStarboard={value:new THREE.Vector3()};
+ function clearWake(){U.wakeAvailable.value=0;trails.clear();}
  function updateSpectrum(heights,x,y,period,wake){
    if(wake){
      for(let i=0;i<wake.length;i++){
@@ -212,7 +297,16 @@ function atmosphere(scene){
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
  uniform sampler2D windMap,wakeMap; uniform float windFieldActive,wakeAvailable; uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;uniform vec4 boat;varying vec3 wp;
+ uniform vec3 forebodyPort,forebodyStarboard;
  uniform highp sampler2D transmissionDepth;uniform mat4 throughMatrix;uniform vec3 throughEye;uniform vec2 cameraRange;
+
+ float nearWetBow(vec3 source,vec2 point,vec2 forward){
+   vec2 relative=point-source.xy;
+   float nose=dot(relative,forward);
+   float across=abs(dot(relative,vec2(-forward.y,forward.x)));
+   return source.z*(1.-smoothstep(.28,1.42,across))
+     *smoothstep(-1.35,-.35,nose)*(1.-smoothstep(.45,1.62,nose));
+ }
  float viewDepth(float z){return cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}
  void main(){
    vec3 eye=normalize(cameraPosition-wp);
@@ -282,6 +376,10 @@ function atmosphere(scene){
          float bubbles=noise2((wp.xy-spectrumDrift)*6.);
          float coverage=smoothstep(.012,.062,hullCrest)*edge;
          foam=max(foam,coverage*(.20+.64*smoothstep(.24,.73,bubbles)));
+         vec2 forward=vec2(cos(boat.z),sin(boat.z));
+         float bow=max(nearWetBow(forebodyPort,wp.xy,forward),nearWetBow(forebodyStarboard,wp.xy,forward));
+         float crestWhite=smoothstep(.012,.041,hullCrest)*(.56+.44*smoothstep(.22,.68,bubbles));
+         foam=max(foam,bow*crestWhite);
        }
      }
      float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
@@ -298,6 +396,19 @@ function atmosphere(scene){
    #include <colorspace_fragment>
  }`}));
  scene.add(water);
+
+ const trails=hullFoam(scene,U);
+ function updateHullFoam(strips,time,speed,cat){
+   if(!strips)return;
+   trails.sample(strips,time,speed,cat);
+   const strength=Math.max(0,Math.min(1,(speed-1.25)/2.8));
+   function crestSource(target,index,active){
+     const immersion=active?Math.min(1,(strips[index+2]+.45*strips[index-1])/.014):0;
+     target.value.set(strips[index],strips[index+1],strength*immersion);
+   }
+   crestSource(U.forebodyPort,15,true);
+   crestSource(U.forebodyStarboard,33,cat);
+ }
  const encodeHeight=h=>Math.round(65535*Math.max(0,Math.min(1,(h+8)/16)));
  function update(old,f){
    if(!f.tile || f.tile.length!==1024)throw Error('Missing Modelica spectral tile');
@@ -321,7 +432,8 @@ function atmosphere(scene){
  function capture(renderer,camera,submergedScenery,reflect,transmit){
    camera.updateMatrixWorld();
    const oldBackground=scene.background,oldFog=scene.fog;
-   water.visible=false;dome.visible=false;scene.fog=null;
+   const foamVisible=trails.mesh.visible;
+   water.visible=false;trails.mesh.visible=false;dome.visible=false;scene.fog=null;
    if(reflect){
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
@@ -344,7 +456,7 @@ function atmosphere(scene){
      renderer.setRenderTarget(throughRT);scene.background=clearThrough;renderer.render(scene,camera);
    }
    renderer.setRenderTarget(null);
-   scene.fog=oldFog;scene.background=oldBackground;water.visible=true;dome.visible=true;
+   scene.fog=oldFog;scene.background=oldBackground;water.visible=true;trails.mesh.visible=foamVisible;dome.visible=true;
  }
  function setQuality(profile,vertexSlope){
    if(water.geometry.parameters.widthSegments!==profile.mesh){
@@ -357,5 +469,5 @@ function atmosphere(scene){
    const width=Math.round(512*scale),height=Math.round(320*scale);
    reflectRT.setSize(width,height);throughRT.setSize(width,height);
  }
- return {U,dome,water,update,updateSpectrum,clearWake,updateWind,capture,setQuality,updateSky};
+ return {U,dome,water,update,updateSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,updateSky};
 }

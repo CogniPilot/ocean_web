@@ -9,11 +9,11 @@ partial model OceanMission "Sea, wind and anchored race course for one local veh
     meanEast=windSpeed*cos(windBearing),meanNorth=windSpeed*sin(windBearing),
     east=focus[1],north=focus[2],droneEast=focus[1],droneNorth=focus[2]);
   Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,pos=focus,windSpeed=windSpeed,windDirection=windBearing);
-  WakeSpectrum waves(omitWake=omitWake,peers=peerWake,seaClockOffset=seaClockOffset,
+  WakeSpectrum waves(sharedDrift=true,localHull=false,omitWake=omitWake,peers=peerWake,seaClockOffset=seaClockOffset,
     east=focus[1],north=focus[2],heading=0,heel=0,pitch=0,
     stations={-2.555,-1.9,-.9,.15,1.12,1.95,2.555},
     beamHalf=zeros(7),separation=0,volume=zeros(2,6),
-    currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],
+    currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],
     windEast=wind.meanEast,windNorth=wind.meanNorth,seaAmplitude=seaState);
   Regatta race(seaClockOffset=seaClockOffset,landingReaction=committeeLoad,wakeTile=waves.height,
     backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
