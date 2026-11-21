@@ -1,6 +1,8 @@
 partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race committee"
   parameter Boolean hobie=true "Choose the hull configuration at translation";
   parameter Real prevailingBearing=atan2(4,10);
+  parameter Real swellK=Wreck.SpectralSea.swellK;
+  final parameter Real swellOmega=sqrt(Wreck.g*swellK*tanh(swellK*boatWater.waterDepth));
   input Real seaClockOffset(start=0) "Shared incident sea time minus vehicle simulation time [s]";
   input Real omitWake(start=0);
   input Real peerWake[4,38](each start=0);
@@ -30,15 +32,17 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     windEast=wind.localEast,windNorth=wind.localNorth,currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],
     orbitalEast=boatWater.velocity[1]-boatWater.meanFlow[1],orbitalNorth=boatWater.velocity[2]-boatWater.meanFlow[2],orbitalUp=boatWater.velocity[3],
     useSectionWater=1,sectionWater=surfaceSections,previousWater=priorSections,waterStamp=sectionStamp,
-    waveHeight=waves.incident[1]+boatWater.surface,wavePitch=waves.incident[2],waveRoll=waves.incident[3],
-    swellAmplitude=.3*seaState,wakeEast=waves.waveLoad[1],wakeNorth=waves.waveLoad[2],wakeYaw=waves.waveLoad[3]);
+    waveHeight=boatWater.surface,wavePitch=-atan(boatWater.surfaceSlope*{cos(boat.heading),sin(boat.heading)}),
+    waveRoll=atan(boatWater.surfaceSlope*{-sin(boat.heading),cos(boat.heading)}),
+    swellK=swellK,swellOmega=swellOmega,swellAmplitude=Wreck.SpectralSea.swellHeight(seaState),
+    wakeEast=waves.waveLoad[1],wakeNorth=waves.waveLoad[2],wakeYaw=waves.waveLoad[3]);
   MarineWind wind(phaseOffset=seaClockOffset,advectionAnchor=windAnchor,meanEast=windSpeed*cos(windBearing),meanNorth=windSpeed*sin(windBearing),
     east=boat.east,north=boat.north,droneEast=windProbe[1],droneNorth=windProbe[2]);
   WakeSpectrum waves(sharedDrift=true,omitWake=omitWake,peers=peerWake,seaClockOffset=seaClockOffset,east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
     stations=boat.stationX,separation=boat.halfSpacing,volume=boat.sectionVolume,beamHalf=boat.beamHalf,
-    currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],windEast=wind.meanEast,windNorth=wind.meanNorth,seaAmplitude=seaState);
-  Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
-  Regatta race(seaClockOffset=seaClockOffset,landingReaction=committeeLandingWrench,wakeTile=waves.height,hullWaveTile=waves.wakeHeight,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
+    currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],windEast=0,windNorth=0,seaAmplitude=0);
+  Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,seaState=seaState,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
+  Regatta race(seaClockOffset=seaClockOffset,swellK=swellK,swellOmega=swellOmega,landingReaction=committeeLandingWrench,wakeTile=waves.height,hullWaveTile=waves.wakeHeight,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
     tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north);
   discrete output Real surfaceSections[2,6](each start=0,each fixed=true)
     "Tide, background sea, local wind waves and hull wake at each buoyancy strip [m]";

@@ -57,6 +57,24 @@ A standalone Node/WASM tow at 6 m/s, with both pontoons immersed, took 21.0 ms m
 
 The existing 64 m periodic spectral field has 1 m sampling and six displaced-volume strips per hull. At 6 m/s the source moves 0.6 m per update. For near-bow detail, prototype a current-relative local patch with finer resolution, forced by actual strip immersion and pressure including dynamic lift. Split the short and long wavelength sources and integrate their reaction on the hull once. Use the existing spectral field for the long waves. For a 0.15 m near grid at 6 m/s, deposit along the swept strip path or substep the source to avoid skipping four cells. Use absorbing boundaries and check the periodic far field for wraparound. Compare wake height, wavelength, resistance and runtime for single-hull flight, two immersed hulls, turns, and stopping.
 
+### Sea presets
+
+The coupled vehicles use one directional JONSWAP wind sea and a separate long swell. Modelica normalizes the sampled FFT energy to the wind-wave height in the table. The swell uses finite-depth dispersion at the nominal 13.7 m depth. Its 185 m wavelength is about 36 Hobie hull lengths. The separate 1 m grid retains the hull displacement waves and drops its duplicate wind-sea spectrum. Low disables hull forcing in the wake solver. [JONSWAP field measurements](https://repository.tudelft.nl/record/uuid:f204e188-13b9-49d8-a6dc-4fb7c20562fc)
+
+| Preset at 11 m/s wind | Wind-sea significant height | Wind-sea peak period | Swell height, crest to trough |
+| --- | ---: | ---: | ---: |
+| Calm | 0.08 m | 2.3 s | 0 m |
+| Swell | 0.62 m | 3.65 s | 0.44 m |
+| Steep swell | 1.15 m | 4.8 s | 0.96 m |
+
+The renderer uses the measured wind-speed dependence of open-ocean whitecap coverage as a density control and gates foam by crest elevation and slope. Sheltered Calm water can remain clear with wind across it. The shader's whitecaps are optical. Modelica still supplies all water loads. [Monahan and O'Muircheartaigh whitecap observations](https://journals.ametsoc.org/abstract/journals/phoc/10/12/1520-0485_1980_010_2094_opldoo_2_0_co_2.xml)
+
+In the sailing component, a variant that branched inside the multi-output wake function spent about 177 ms on an ordinary 100 ms wave boundary. The released-style kernel with a zero duplicate wind input reduced that median to 33 ms in a separate warmed run. The latter averaged 9.19 ms per 10 ms integration step. High rendered at 60.1 FPS and 1.00× simulation speed over the short RTX 3090 Chromium comparison. The retained wake clock runs at 10 Hz. The wind-sea clock runs at 5 Hz. The renderer blends from the currently displayed field between results.
+
+### Automatic Hobie travelers
+
+Auto trim blends between wind-dependent upwind limits and the outboard downwind settings. At 3 m/s, the modeled solo boat centers the main and brings the jib cars to their inboard stops. At 8 m/s the main shifts about 17 cm and the jib moves about 11 cm from its inboard stop. A 15 m/s gust moves the main about 49 cm with the automatic main sheet at its block-to-block command. A higher represented crew mass delays the same depowering. [Gavin Colby's Hobie 16 tuning guide](https://media.hobie.com/digital_assets/hobie-16-tuning-guide.pdf) · [Wally Myers's Hobie University guide](https://hobieclass.com/archive.hobieclass.com/site/hobie/ihca/downloads/hobieu/HobieU.pdf)
+
 ## Island collision cost
 
 On a desktop Node/WASM run under shared load, the standalone Hobie advanced 200 ten-millisecond steps from each launch position. The table omits 20 warmup steps. Both versions reached the same final east coordinate in every case.

@@ -2,6 +2,32 @@ within Wreck;
 package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
   constant Integer N=32;
   constant Real length=64 "Periodic tile size [m]";
+  constant Real swellK=.034 "184.8 m swell wavelength in the nearshore domain";
+
+  function seaPreset
+    input Real state,wind;
+    output Real windHeight "Target significant wind-wave height [m]";
+    output Real peakPeriod "Wind-sea spectral peak period [s]";
+    output Real swellAmplitude "Amplitude of the independent long swell [m]";
+  protected
+    Real smoothHeight,mid,steep;
+  algorithm
+    smoothHeight:=.08*min(1,max(0,wind)/11);
+    mid:=min(1,max(0,state/.45));
+    steep:=min(1,max(0,(state-.45)/.65));
+    windHeight:=smoothHeight*(1-mid)+.62*mid+.53*steep;
+    peakPeriod:=2.3+1.35*mid+1.15*steep;
+    swellAmplitude:=.22*mid+.26*steep;
+  end seaPreset;
+
+  function swellHeight
+    input Real state;
+    output Real amplitude;
+  protected
+    Real windHeight,period;
+  algorithm
+    (windHeight,period,amplitude):=seaPreset(state,11);
+  end swellHeight;
 
   function inverseLine "Unnormalised inverse radix-two transform of Fourier series coefficients"
     input Real re[N],im[N];
@@ -38,19 +64,26 @@ package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
 
   function field
     input Real t,wind,bearing,fetch,waterDepth,tide,pos[3];
+    input Real seaState=-1 "Nonnegative values select calibrated sea presets";
     output Real height[N,N] "Surface relative to tide, rows north, columns east";
     output Real probe[5] "Surface elevation, local wave velocity ENU, dynamic pressure head";
+    output Real slope[2] "Surface derivative east and north";
   protected
     Real re[N,N],im[N,N],line[N],unused[N],tmpR[N],tmpI[N];
     Real dk=2*pi/length;
     Real kx,ky,k,omega,f,groupSpeed,sigma,peak,hs,energy,amp,phase,atProbe;
     Real total=0,scale,directional,level,phaseSeed,amplitudeSeed;
+    Real period,unusedSwell,gradient;
     Integer mx,my,opx,opy;
   algorithm
-    re:=zeros(N,N); im:=zeros(N,N); probe:=zeros(5);
+    re:=zeros(N,N); im:=zeros(N,N); probe:=zeros(5);slope:=zeros(2);
     level:=max(0,min(waterDepth,waterDepth+pos[3]-tide));
     peak:=1/max(1.2,7.54*max(0.1,wind)/g*tanh(0.077*(g*fetch/max(0.1,wind)^2)^0.25));
     hs:=0.283*wind^2/g*tanh(0.0125*(g*fetch/max(0.1,wind)^2)^0.42);
+    if seaState>=0 then
+      (hs,period,unusedSwell):=seaPreset(seaState,wind);
+      peak:=1/period;
+    end if;
     for ix in 1:N loop
       mx:=if ix-1<N/2 then ix-1 else ix-1-N;
       for iy in 1:N loop
@@ -79,14 +112,17 @@ package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
           probe[3]:=probe[3]+amp*omega*(ky/k)*cosh(k*level)/sinh(k*waterDepth)*cos(atProbe);
           probe[4]:=probe[4]+amp*omega*sinh(k*level)/sinh(k*waterDepth)*sin(atProbe);
           probe[5]:=probe[5]+amp*cosh(k*level)/cosh(k*waterDepth)*cos(atProbe);
+          gradient:=-amp*sin(atProbe);
+          slope:=slope+gradient*{kx,ky};
         end if;
       end for;
     end for;
     scale:=hs/(4*sqrt(max(1e-18,total)));
     probe:=probe*scale;
-    // A persistent swell crosses the local wind sea, including in a calm.
+    slope:=slope*scale;
+    // Standalone callers without presets retain the original background sea.
     kx:=dk; ky:=-dk; k:=sqrt(2)*dk; omega:=sqrt(g*k*tanh(k*waterDepth));
-    phase:=0.7-omega*t; amp:=0.32;
+    phase:=0.7-omega*t; amp:=if seaState<0 then 0.32 else 0;
     re:=re*scale; im:=im*scale;
     re[N,2]:=re[N,2]+0.5*amp*cos(phase); im[N,2]:=im[N,2]+0.5*amp*sin(phase);
     re[2,N]:=re[2,N]+0.5*amp*cos(phase); im[2,N]:=im[2,N]-0.5*amp*sin(phase);
@@ -94,6 +130,7 @@ package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
     probe:=probe+amp*{cos(atProbe),omega*kx/k*cosh(k*level)/sinh(k*waterDepth)*cos(atProbe),
       omega*ky/k*cosh(k*level)/sinh(k*waterDepth)*cos(atProbe),
       omega*sinh(k*level)/sinh(k*waterDepth)*sin(atProbe),cosh(k*level)/cosh(k*waterDepth)*cos(atProbe)};
+    slope:=slope-amp*sin(atProbe)*{kx,ky};
     for row in 1:N loop
       (tmpR,tmpI):=inverseLine(re[row,:],im[row,:]);
       re[row,:]:=tmpR; im[row,:]:=tmpI;

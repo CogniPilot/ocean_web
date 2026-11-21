@@ -3,9 +3,9 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   parameter Real surveyAtStartup=1 "Enable SLAM for clients that leave idleCamera at its default";
   input Real idleCamera(start=0) "Camera and SLAM mode: -1 active, 0 use startup setting, 1 idle";
   input Real subManual(start=1),subPilot[4],flightManual(start=1),flightPilot[4],motorCut;
-  Wreck.Plant sub(seaClockOffset=seaClockOffset,windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,
+  Wreck.Plant sub(seaClockOffset=seaClockOffset,seaState=seaState,windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,
     manual=subManual,pilot=subPilot,hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:8]);
-  Wreck.Ocean droneWater(seaClockOffset=seaClockOffset,pos=drone.position,windSpeed=windSpeed,windDirection=windBearing);
+  Wreck.Ocean droneWater(seaClockOffset=seaClockOffset,seaState=seaState,pos=drone.position,windSpeed=windSpeed,windDirection=windBearing);
   Rdd2Survey drone(sailDeckEnabled=1,sailDeckState=boat.landingDeck,isCatamaran=if hobie then 1 else 0,deckEnabled=1,deckState=race.deckState,windENU=wind.droneWind,currentENU=droneWater.velocity,waterLevel=droneWater.surface+receiverWater[9],
     pilot=flightManual,forward=flightPilot[1],left=flightPilot[2],climb=flightPilot[3],turn=flightPilot[4],
     stationEast=estimate[1],stationNorth=estimate[2],motorCut=motorCut);
