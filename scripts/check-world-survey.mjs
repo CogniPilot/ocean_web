@@ -19,11 +19,14 @@ try {
   const controls = {subManual: 0, sailingManual: 1, flightManual: follow ? 0 : 1, windSpeed: 11, windBearing: .45};
   world.set_inputs(JSON.stringify(Object.entries(controls)));
   const outputs = ['sub.waypoint', 'sub.surveyDone', 'sub.position[1]', 'sub.position[2]',
-    'sub.position[3]', 'estimate[1]', 'estimate[2]', 'estimate[3]'];
+    'sub.position[3]', 'estimate[1]', 'estimate[2]', 'estimate[3]',
+    'estimate[13]', 'estimate[14]', 'estimate[17]'];
   if (follow) outputs.push('drone.position[1]', 'drone.position[2]', 'drone.position[3]');
   const binding = world.bind_outputs(JSON.stringify(outputs));
   let lastStation = 0, frames = 0, squaredError = 0, stepMs = 0, readMs = 0, finished = false;
 
+  const positionErrors = [];
+  let depthSquared = 0, matchedFrames = 0, keyframes = 0, closures = 0, finishError = 0;
   let followSquared = 0, altitudeSquared = 0, peakOffset = 0;
   while (world.time() < 240) {
     const start = performance.now();
@@ -31,12 +34,19 @@ try {
       for (let tick=0; tick<20; tick++) world.step(.01);
     } else world.step(.2);
     const stepped = performance.now();
-    const [station, done, x, y, z, east, north, up, droneEast, droneNorth, altitude] = world.read_bound(binding);
+    const [station, done, x, y, z, east, north, up, keyCount, loopCount, matches, droneEast, droneNorth, altitude] = world.read_bound(binding);
     stepMs += stepped - start;
     readMs += performance.now() - stepped;
     assert([x, y, z, east, north, up].every(Number.isFinite), 'Non-finite survey pose');
     frames++;
-    squaredError += (x - east) ** 2 + (y - north) ** 2 + (z - up) ** 2;
+    const error = Math.hypot(x - east, y - north, z - up);
+    positionErrors.push(error);
+    squaredError += error ** 2;
+    depthSquared += (z - up) ** 2;
+    if (matches > 0) matchedFrames++;
+    keyframes = keyCount;
+    closures = loopCount;
+    finishError = error;
 
     if (follow) {
       const offset = Math.hypot(droneEast - east, droneNorth - north);
@@ -58,6 +68,11 @@ try {
 
   const rms = Math.sqrt(squaredError / frames);
   console.log({finished, browserSteps, lastStation, rms, seconds: world.time(), stepMs, readMs});
+  positionErrors.sort((a,b)=>a-b);
+  console.log({frames, positionP95: positionErrors[Math.ceil(.95 * frames) - 1],
+    positionPeak: positionErrors.at(-1), depthRms: Math.sqrt(depthSquared / frames),
+    finishError, matchedFrames, keyframes, closures});
+  assert(keyframes > 1 && matchedFrames > 0, 'Survey must build a map and match camera features');
   if (follow) {
     const horizontalRms = Math.sqrt(followSquared / frames);
     const altitudeRms = Math.sqrt(altitudeSquared / frames);
