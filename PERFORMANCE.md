@@ -469,3 +469,13 @@ median batch mean was **39.0 ns/query for Rumoca and 23.4 ns/query for
 MuJoCo**. The respective p95 batch means were 40.0 and 24.8 ns/query.
 Both loops copy precomputed positions. The measurements exclude broad phase,
 integration, friction, allocation of a world and browser execution.
+
+### Hobie solver headroom with swell
+
+At revision `aab8a55`, Linux perf sampled the shipped sailing WebAssembly after 200 warm-up steps. The test ran 1,200 more 10 ms steps with the swell preset, 11 m/s wind and hull wakes enabled. The solver averaged 8.32 ms per step on the development workstation, or 1.17× real time including a pose read. Ordinary steps averaged 4.78 ms. Steps with a wake update averaged 32.62 ms and steps with both wake and background sea updates averaged 46.60 ms, excluding the wind update. The test excludes rendering and browser pacing.
+
+* **Rollback copies.** 28.0% of sampled cycles landed in libc's bulk move and another 3.1% in the WebAssembly copy wrapper. In generated C, each algebraic or derivative refresh saves all 10,681 real slots for failure recovery. Event entry also snapshots a 67,541-double array containing discrete histories. Rumoca can generate rollback ranges from each plan's write set and keep read-only histories out of per-stage copies. Failure and retry tests must exercise nonfinite states and simultaneous clock events.
+* **Integrator work between events.** An instrumented native build of the same Modelica source counted 84,448 derivative evaluations and 119,392 refreshes over 1,000 timed steps. The default event scan is 1 ms. In two paired WebAssembly runs, setting a finite 20 s experiment horizon changed the default scan spacing and raised throughput from 1.16–1.20× to 1.44–1.45×. It also changed the trajectory by up to 1.02 m east and 0.31 rad of heading in the first 13 simulated seconds. The live solver retains the original event settings. A compiler experiment should evaluate event indicators on dense integrator output while preserving bracketing and re-integration at actual crossings.
+* **Spectral work.** Time the wake update and background spectrum independently of ordinary steps. Cache phase-independent mode coefficients while their wind, depth and preset inputs are constant, then compare the surface, wave loads, rig loads and vessel trajectory against the original run.
+
+A tenfold improvement on this baseline requires approximately 0.86 ms per 10 ms of simulated time, including the pose read. Even eliminating the measured bulk-copy cost entirely would yield about 1.45× speedup. For local reproduction use `node scripts/profile-world.mjs build/pages/sailing 1200 --swell`. CI compares candidate and reference on the same runner.

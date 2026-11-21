@@ -66,7 +66,7 @@ function surveyVehicle(T,housing){
   });
   sub.add(guards,liners,motors,spokes);
   const light=new T.SpotLight(0xc8f0ff,45,18,.55,.38,1.3);
-  light.name='Survey lamp';
+  light.name='Survey lamp';light.target.name='Survey lamp target';
   light.position.set(.55,.20,.06);light.target.position.set(8,.20,-.52);
   const emitter=new T.Mesh(new T.CircleGeometry(.035,16),new T.MeshBasicMaterial({color:0xe6f9ff,toneMapped:false}));
   emitter.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),light.target.position.clone().sub(light.position).normalize());

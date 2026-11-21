@@ -1,4 +1,4 @@
-import {sailingStart,windBearing,windSpeed} from './sailing-start.mjs';
+import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
 import {waterCaptureLayer,showInLowWaterCapture} from './render-layers.mjs';
 import {wreckCaustics} from './caustics.mjs';
 import {loadVehicleShell} from './vehicle-assets.mjs';
@@ -8,7 +8,7 @@ import {splitCamera} from "./waterline.mjs";
 import {drawCompass} from './compass.mjs';
 import {forceDisplay,firstPersonInstruments} from './instrumentation.mjs?hud=2';
 import {mastCamera} from "./mast-camera.mjs";
-import {courseScene,raceAudio,firstLeg,trueBearing} from "./regatta.mjs";
+import {courseScene,raceAudio,firstLeg,raceTarget} from "./regatta.mjs";
 import {lapLeaderboard,lapClock} from "./lap-board.mjs";
 import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
@@ -124,7 +124,7 @@ async function run(){
   settings(!mobile);$('settings').onclick=()=>settings($('setup').hidden);
   const boat=model?sailboatMesh(T,cat,model.get("foilX")[0]):null;
   if(boat)scene.add(boat.group);
-  const race=world?.race??await loadInstance('Regatta',{windBearing:Math.atan2(inputs.windNorth,inputs.windEast),east:model.get('east'),north:model.get('north'),utc:Date.now()/1000});
+  const race=world?.race??await loadInstance('Regatta',{...startGate,windBearing:Math.atan2(inputs.windNorth,inputs.windEast),east:model.get('east'),north:model.get('north'),utc:Date.now()/1000});
   const windField=world?.wind??await loadInstance('MarineWind',{meanEast:inputs.windEast,meanNorth:inputs.windNorth,east:model.get('east'),north:model.get('north')});
   let captureMast;
   $('mastCapture').onclick=()=>{
@@ -169,9 +169,15 @@ async function run(){
       console.error(error);
     }
   }
-  $('multiplayer').onclick=()=>multiplayer($('multiplayer').getAttribute('aria-pressed')!=='true');
+  $('multiplayer').onclick=()=>{
+    const on=$('multiplayer').getAttribute('aria-pressed')!=='true';
+    if(on)url.searchParams.set('room',roomName);
+    else url.searchParams.delete('room');
+    history.replaceState(history.state,'',url);
+    multiplayer(on);
+  };
   addEventListener('pagehide',()=>multiplayer(false));
-  $('invite').onclick=async()=>{const link=vehicleLink(location.href,sub?.active?'sub':undefined);link.searchParams.set('room',roomName);
+  $('invite').onclick=async()=>{const link=vehicleLink(location.href);link.searchParams.set('room',roomName);
     try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Multiplayer room link',link.href);}};
   const theme=$('theme'),music=$('music');
   let musicContext,musicGain;
@@ -306,7 +312,7 @@ async function run(){
   const keys=new Set();let drone;
   $('subSensors').open=!mobile;
   const sub=subAssets ? subAssets[0].submarine(T,scene,world) : null, sensorCanvas=sub && $('sensorCam').getContext('2d');
-  const lampPass=sub && (await import('./sub-lamp.mjs')).underwaterLamp(T,renderer,sub.mesh.getObjectByName('Survey lamp'),caustics.occluders);
+  const lampPass=sub && (await import('./sub-lamp.mjs')).underwaterLamp(T,renderer,sub.mesh.getObjectByName('Survey lamp'),caustics.occluders,remote.lamps);
   function renderBelow(world,eye){
     if(lampPass && sub.active)lampPass(world,eye,selector.value,$('cameraDepth').value==='onboard'?Math.floor((sub.frame?.time??0)*24)%1024:-1);
     else renderer.render(world,eye);
@@ -364,6 +370,7 @@ async function run(){
       sensorCanvas.drawImage(canvas,(canvas.width-w)/2,(canvas.height-h)/2,w,h,0,0,320,238);
       return;
     }
+    sensorEye.layers.enable(1);
     placeSensor(sensorEye);
     const fog=scene.fog,background=scene.background,dome=ocean.dome.visible,under=ocean.U.under.value,map=sub.mapGroup.visible;
     const underwater=sensorEye.position.z<ocean.U.tide.value;
@@ -617,7 +624,7 @@ async function run(){
     const p95=gaps[Math.ceil(.95*gaps.length)-1];
     finishTest(`${(gaps.length/elapsed).toFixed(1)} FPS · 95th percentile ${p95.toFixed(1)} ms · ${((t-test.simStart)/elapsed).toFixed(2)}× real time · ${test.quality} · ${renderer.domElement.width}×${renderer.domElement.height} final pixels`);
   }
-  let physicsTimer;
+  let physicsTimer,courseTarget;
   function draw(now){
     try{
       if(model&&remote.needsTraffic(now>=raceTick)){
@@ -635,10 +642,9 @@ async function run(){
         if($('controlTarget').value==='boat')laps?.observe(stage,lap,remote.captain);
         if(stage===5)lastLap=timer;
         let cue=['Wait for start','Cross upwind','Mark 1','Mark 2','Cross finish downwind','Finished'][stage];
-        if(model&&(stage===2 || stage===3)){
-          const e=race.get('markEast')[stage-2]-model.get('east');
-          const n=race.get('markNorth')[stage-2]-model.get('north');
-          cue+=' · '+trueBearing(e,n)+' · '+Math.round(Math.hypot(e,n))+' m';
+        courseTarget=model?raceTarget(race,stage,model.get('east'),model.get('north')):null;
+        if(courseTarget && (stage===2 || stage===3)){
+          cue+=' · '+courseTarget.bearing+' · '+Math.round(courseTarget.range)+' m';
         }
         $('raceCourse').textContent='TRI 1 · First leg '+firstLeg(race)+' · 1 & 2 to port';
         $('raceStatus').textContent=cue+(stage>=2?' · Lap '+timer:lastLap?' · Last lap '+lastLap:'');
@@ -760,7 +766,7 @@ async function run(){
       const wind=model?[model.get('windEast'),model.get('windNorth')]:[windField.get('localEast'),windField.get('localNorth')];
       if(!$('dial').hidden&&(s||subFrame)){
         const flow=sub?.active&&subFrame?subFrame.flow:[model?.get('currentEast')??0,model?.get('currentNorth')??0];
-        drawCompass($('dial'),Math.hypot(...wind),Math.atan2(wind[1],wind[0]),flow,sub?.active&&subFrame?subFrame.estimate[3]:s?.[2]??0,sub?.active?'sub':'surface',noGo);
+        drawCompass($('dial'),Math.hypot(...wind),Math.atan2(wind[1],wind[0]),flow,sub?.active&&subFrame?subFrame.estimate[3]:s?.[2]??0,sub?.active?'sub':'surface',noGo,courseTarget);
       }
       drawForces(!drone?.active&&$('showForces').getAttribute('aria-pressed')==='true',s,subFrame,!!sub?.active);
       const focus=s??world.get('focus');
@@ -780,7 +786,7 @@ async function run(){
         ocean.U.swellCenter.value.set(0,0);
         ocean.U.swell.value.fromArray(world.get('swell'));
       }
-      remote.frame(now,s,cat,extra,sub?.mesh,drone?.group,$('controlTarget').value);
+      remote.frame(now,s,cat,extra,sub?.mesh,drone?.group,$('controlTarget').value,lamp?.visible);
       document.body.dataset.visiblePeers=remote.visible;
       // Advance optical phase every display frame. Synchronize gently to the
       // physics clock so a late worker packet cannot snap all the ripples.

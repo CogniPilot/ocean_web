@@ -3,17 +3,37 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {lapTable,lapClock} from '../viewer/lap-board.mjs';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
+import {raceTarget} from '../viewer/regatta.mjs';
+import {sailingStart,startGate} from '../viewer/sailing-start.mjs';
 const read=async url=>new Response(await readFile(url));
 for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
-  const race=await loadInstance('Regatta',{windBearing:angle,utc:299},read);
+  const race=await loadInstance('Regatta',{...startGate,windBearing:angle,utc:299},read);
   const position=label=>[race.get(label+'East'),race.get(label+'North')];
   const pin=position('pin'),committee=position('committee'),center=position('gate');
   const dx=committee[0]-pin[0],dy=committee[1]-pin[1],length=Math.hypot(dx,dy);
   const near=(a,b)=>assert.ok(Math.abs(a-b)<1e-6);
-  near(length,40);
+  near(length,startGate.lineLength);
+  for(const cat of [true,false]){
+    const start=sailingStart(cat,angle);
+    const offset=[start.launchEast-center[0],start.launchNorth-center[1]];
+    const down=offset[0]*Math.cos(angle)+offset[1]*Math.sin(angle);
+    near(down,14);
+    const distance=-down/Math.cos(start.launchHeading-angle);
+    assert(distance>0);
+    const crossing=Math.hypot(offset[0]+distance*Math.cos(start.launchHeading),offset[1]+distance*Math.sin(start.launchHeading));
+    assert(length/2-crossing>15);
+  }
   near(dx*Math.cos(angle)+dy*Math.sin(angle),0);
   const east=race.get('markEast'),north=race.get('markNorth');
   const marks=east.map((v,i)=>[v,north[i]]);
+  for(const [stage,label,point] of [[0,'Start',center],[1,'Start',center],[2,'Mark 1',marks[0]],
+    [3,'Mark 2',marks[1]],[4,'Finish',center]]){
+    const target=raceTarget(race,stage,point[0]-3,point[1]-4);
+    assert.equal(target.label,label);assert.equal(target.bearing,'037°T');near(target.range,5);
+    near(target.angle,Math.atan2(4,3));
+    assert.equal(raceTarget(race,stage,...point),null);
+  }
+  assert.equal(raceTarget(race,5,...center),null);
   const points=[center,...marks,center];
   for(let i=1;i<points.length;i++)near(Math.hypot(...points[i].map((v,j)=>v-points[i-1][j])),200);
   const move=(p,t)=>{
@@ -21,9 +41,9 @@ for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
     return race.get('stage');
   };
   const gate=(up,cross)=>[center[0]-up*Math.cos(angle)+cross*dx/length,center[1]-up*Math.sin(angle)+cross*dy/length];
-  move(gate(-2,23),299);
-  assert.equal(move(gate(-1,23),300),1);
-  assert.equal(move(gate(1,23),301),1);
+  move(gate(-2,length/2+3),299);
+  assert.equal(move(gate(-1,length/2+3),300),1);
+  assert.equal(move(gate(1,length/2+3),301),1);
   assert.equal(move(gate(-1,0),302),1);
   assert.equal(move(gate(1,0),303),2);
   for(let mark=0;mark<2;mark++){

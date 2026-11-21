@@ -10,6 +10,21 @@ export function firstLeg(race){
   const n=race.get('markNorth')[0]-(race.get('committeeNorth')+race.get('pinNorth'))/2;
   return trueBearing(e,n);
 }
+// The line midpoint gives a single course-to-steer reference for an open gate.
+export function raceTarget(race,stage,east,north){
+  let x,y,label;
+  if(stage===2 || stage===3){
+    x=race.get('markEast')[stage-2];y=race.get('markNorth')[stage-2];
+    label='Mark '+(stage-1);
+  }else if(stage===0 || stage===1 || stage===4){
+    x=(race.get('committeeEast')+race.get('pinEast'))/2;
+    y=(race.get('committeeNorth')+race.get('pinNorth'))/2;
+    label=stage===4?'Finish':'Start';
+  }else return null;
+  const de=x-east,dn=y-north,range=Math.hypot(de,dn);
+  if(range<.01 || !Number.isFinite(range))return null;
+  return {label,range,angle:Math.atan2(dn,de),bearing:trueBearing(de,dn)};
+}
 // Z-up committee launch and inflatable marks. Dimensions are in metres.
 export function courseScene(T,scene,race){
   const group=new T.Group();scene.add(group);
@@ -53,15 +68,6 @@ export function courseScene(T,scene,race){
   mesh(boat,new T.BoxGeometry(.065,.47,.008),white,-1.98,0,.786);
   batchScenery(T,boat);
   boat.children.forEach(showInLowWaterCapture);
-  function markNumber(parent,number,x,y){
-    const face=document.createElement('canvas');face.width=64;face.height=64;
-    const c=face.getContext('2d');
-    c.fillStyle='#fff8e9';c.fillRect(6,3,52,58);
-    c.fillStyle='#202a30';c.font='bold 50px sans-serif';c.textAlign='center';
-    c.fillText(String(number),32,50);
-    const plaque=new T.Sprite(new T.SpriteMaterial({map:new T.CanvasTexture(face)}));
-    plaque.scale.set(.62,.62,1);plaque.position.set(x,y,1.84);parent.add(plaque);
-  }
   const canvas=document.createElement('canvas');canvas.width=512;canvas.height=168;
   const ctx=canvas.getContext('2d'),texture=new T.CanvasTexture(canvas);
   const boardMaterial=new T.MeshBasicMaterial({map:texture});
@@ -70,15 +76,14 @@ export function courseScene(T,scene,race){
     board.rotation.order='ZXY';board.rotation.x=Math.PI/2;board.rotation.z=side<0?0:Math.PI;
   }
   const marks=[];
-  function mark(x,y,number){
+  function mark(x,y){
     const body=new T.Group();group.add(body);marks.push(body);body.position.set(x,y,0);x=0;y=0;
-    if(number)markNumber(body,number,x,y);
     const buoy=mesh(body,new T.ConeGeometry(.85,1.75,3,1),orange,x,y,.77);buoy.rotation.x=Math.PI/2;
     const collar=mesh(body,new T.CylinderGeometry(.76,.81,.14,3),navy,x,y,.04);collar.rotation.x=Math.PI/2;
     showInLowWaterCapture(buoy);showInLowWaterCapture(collar);
   }
   mark(race.get('pinEast'),race.get('pinNorth'));
-  race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i],i+1));
+  race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i]));
   let previous;
   return label=>{
     const [heave,roll,pitch]=race.get('launchPose');
