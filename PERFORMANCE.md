@@ -251,3 +251,10 @@ The Hobie and pilothouse sloop use nearby peer boat poses and velocities to esti
 Run `node scripts/check-peer-wind.mjs` to test the standalone browser FMUs. With 10 m/s background wind, a stationary catamaran 8 m directly upwind produced 7.81 m/s at the receiving rig. The test checks recovery with distance, crosswind offset, peer velocity, removal of a peer and a change in mainsail force outside collision range.
 
 In a two-tab WebRTC room with launch positions separated by 8 m, the downwind skipper's rig wind fell to 86% of local ambient speed after the peer appeared. The upwind skipper retained full ambient speed during that observation. In a separate solo run, 11,760 sampled vehicle, race and wave values matched the previous sailing FMU exactly.
+
+
+## Mobile sailing startup
+
+On the Low sailing-only path the first running frame takes priority over constructing marine wildlife. An idle callback with a one-second timeout starts the wildlife work after that frame. Switching to the submarine or drone loads the vehicle-specific modules when needed.
+
+Four cache-disabled localhost runs used Chromium with SwiftShader and a 393 × 852 touch viewport. In release/candidate/candidate/release order, navigation to the first positive simulation time took 2.49, 1.86, 1.97 and 1.98 seconds. In each release run, wildlife requests totaling 1,077,012 decoded bytes began before that frame. In both candidate runs all four requests started afterward and completed during the same session. This shifts startup work while preserving the underwater scene. Timings cover browser emulation on desktop hardware.

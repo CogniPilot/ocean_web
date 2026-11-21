@@ -3,7 +3,6 @@ import {captainRoster} from './captains.mjs';
 import {PeerTimeline} from './fleet-timeline.mjs';
 import {FleetSeaClock} from './fleet-sea-clock.mjs';
 import {loadVehicleShell,vehicleShell} from './vehicle-assets.mjs';
-import {remoteDroneMesh} from './drone.mjs';
 import {sailboatMesh} from './board/boat.mjs';
 const relays=['wss://relay.damus.io','wss://nos.lol','wss://relay-rpi.edufeed.org','wss://nostr.tegila.com.br'];
 const channels=4;
@@ -263,7 +262,7 @@ export function fleet(T,scene,roomName,status,weather,crew){
       }
       drawGhost(T,scene,peer,'sub',sub??remoteSub,216,p,d,f);
       if(d[224]===1&&!drone&&!loadingAirframe){
-        loadingAirframe=remoteDroneMesh(T).then(mesh=>{remoteAirframe=mesh;}).catch(error=>console.warn('Remote drone mesh',error));
+        loadingAirframe=import('./drone.mjs').then(({remoteDroneMesh})=>remoteDroneMesh(T)).then(mesh=>{remoteAirframe=mesh;}).catch(error=>console.warn('Remote drone mesh',error));
       }
       drawGhost(T,scene,peer,'drone',drone??remoteAirframe,224,p,d,f);
       if(peer.label && !peer.mesh){
