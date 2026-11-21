@@ -20,6 +20,43 @@ function fishGeometry(T,asset){
  geo.setAttribute('color',new T.Float32BufferAttribute(colors.flatMap((rgb,i)=>rgb.map(v=>v/Math.max(1,counts[i]))),3));
  return geo;
 }
+// Only wing height changes. A sine and cosine morph reproduce every phase of
+// the stroke, including the area-weighted normals of the indexed triangles.
+function rayWingGeometry(T,side){
+ const geometry=new T.PlaneGeometry(1,1,16,12);
+ const rest=geometry.attributes.position;
+ const morphs=[rest.clone(),rest.clone()];
+ for(let i=0;i<rest.count;i++){
+   const span=(i%17)/16,chord=Math.floor(i/17)/12;
+   rest.setXYZ(i,.62-.89*span-chord*(1.18*(1-span)+.015),side*(.18+1.48*span),.075*Math.sin(Math.PI*chord)*(1-span));
+   const amplitude=.36*span**1.4,lag=1.7*span+.45*chord;
+   morphs[0].setXYZ(i,0,0,amplitude*Math.cos(lag));
+   morphs[1].setXYZ(i,0,0,-amplitude*Math.sin(lag));
+ }
+ geometry.computeVertexNormals();
+ const baseNormal=geometry.attributes.normal.clone();
+ geometry.morphAttributes.normal=morphs.map(delta=>{
+   const pose=rest.clone();
+   for(let i=0;i<pose.count;i++)pose.setZ(i,rest.getZ(i)+delta.getZ(i));
+   geometry.setAttribute('position',pose);
+   geometry.computeVertexNormals();
+   const normals=geometry.attributes.normal.clone();
+   for(let i=0;i<normals.count;i++){
+     // Each face keeps its projected XY area. Restore the common Z component
+     // before blending so that normalizing in the lighting shader is exact.
+     const scale=baseNormal.getZ(i)/normals.getZ(i);
+     normals.setXYZ(i,scale*normals.getX(i)-baseNormal.getX(i),scale*normals.getY(i)-baseNormal.getY(i),0);
+   }
+   return normals;
+ });
+ geometry.setAttribute('position',rest);geometry.setAttribute('normal',baseNormal);
+ geometry.morphTargetsRelative=true;
+ // All phases lie within 0.36 m of the undeformed mesh.
+ geometry.computeBoundingSphere();
+ geometry.boundingSphere.radius+=.36;
+ geometry.morphAttributes.position=morphs;
+ return geometry;
+}
 function oceanVisitors(T,scene){
  const mat=(color)=>new T.MeshStandardMaterial({color,roughness:.49});
  const dark=mat(0x23414b),under=mat(0xbed5c7);
@@ -32,9 +69,9 @@ function oceanVisitors(T,scene){
  oval(ray,under,.04,0,-.055,.62,.37,.105);
  const wings=[];
  for(const side of [-1,1]){
-   const geom=new T.PlaneGeometry(1,1,16,12);
+   const geom=rayWingGeometry(T,side);
    const mesh=new T.Mesh(geom,mat(0x375561));mesh.material.side=T.DoubleSide;
-   mesh.frustumCulled=false;ray.add(mesh);wings.push([side,geom]);
+   ray.add(mesh);wings.push(mesh);
    oval(ray,dark,.61,side*.19,.01,.26,.063,.064).rotation.z=side*.26;
  }
  const tailPath=new T.CatmullRomCurve3([[-.4,0,0],[-.92,0,-.03],[-1.48,.06,-.09],[-2.12,.15,-.11]].map(p=>new T.Vector3(...p)));
@@ -80,14 +117,9 @@ function oceanVisitors(T,scene){
      dolphin.morphTargetInfluences[key]=1-(phase-key);
      dolphin.morphTargetInfluences[(key+1)%8]=phase-key;
    }
-   for(const [side,g] of wings){
-     const p=g.attributes.position;
-     for(let i=0;i<p.count;i++){
-       const span=(i%17)/16,chord=Math.floor(i/17)/12;
-       p.setXYZ(i,.62-.89*span-chord*(1.18*(1-span)+.015),side*(.18+1.48*span),
-         .075*Math.sin(Math.PI*chord)*(1-span)+.36*span**1.4*Math.sin(t*2.4-1.7*span-.45*chord));
-     }
-     p.needsUpdate=true;g.computeVertexNormals();
+   const sine=Math.sin(2.4*t),cosine=Math.cos(2.4*t);
+   for(const wing of wings){
+     wing.morphTargetInfluences[0]=sine;wing.morphTargetInfluences[1]=cosine;
    }
  };
 }

@@ -258,3 +258,9 @@ In a two-tab WebRTC room with launch positions separated by 8 m, the downwind sk
 On the Low sailing-only path the first running frame takes priority over constructing marine wildlife. An idle callback with a one-second timeout starts the wildlife work after that frame. Switching to the submarine or drone loads the vehicle-specific modules when needed.
 
 Four cache-disabled localhost runs used Chromium with SwiftShader and a 393 × 852 touch viewport. In release/candidate/candidate/release order, navigation to the first positive simulation time took 2.49, 1.86, 1.97 and 1.98 seconds. In each release run, wildlife requests totaling 1,077,012 decoded bytes began before that frame. In both candidate runs all four requests started afterward and completed during the same session. This shifts startup work while preserving the underwater scene. Timings cover browser emulation on desktop hardware.
+
+### Ray wing animation
+
+The ray has 442 wing vertices. Two relative morph targets now encode the traveling wave. A simulation update writes two weights per wing. This removes the two CPU vertex-normal rebuilds and the position and normal buffer uploads on each update. Three.js can also cull the wings using a bound covering the full stroke.
+
+In a Chromium microbenchmark, 4,000 synchronous visitor updates per run averaged 102–104 µs per update with the old mesh and 0.27–0.48 µs with the morphs. The test isolated the ray before the other animal assets finished loading. Across 40 phases the largest vertex difference was below 0.00000003 m and the largest unit-normal difference was below 0.000014. In five 360 × 240 SwiftShader renders, no pixel differed by more than two intensity levels in any RGB channel. These results measure animation work and image agreement. They do not measure whole-scene frame rate.
