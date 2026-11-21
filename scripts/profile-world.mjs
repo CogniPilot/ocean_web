@@ -14,6 +14,7 @@ const manifest = JSON.parse(await readFile(new URL('manifest.json', base)));
 const index = JSON.parse(await readFile(new URL(manifest.index, base)));
 const sailing = index.modelName === 'OceanSailing';
 const low = process.argv.includes('--low'), camera = process.argv.includes('--camera');
+const seaState = process.argv.includes('--swell') ? .45 : 0;
 const parameters = {prevailingBearing: windBearing};
 for (const [name,value] of Object.entries(sailingStart(true))) parameters['boat.' + name] = value;
 const world = await openFmuSession({index, base, fetch: fileFetch, parameters});
@@ -29,7 +30,7 @@ function summarize(values) {
 }
 try {
   world.set_inputs(JSON.stringify(Object.entries({sailingManual: 1, windSpeed, windBearing, downhaul: .5,
-    epoch: 100, omitWake: Number(low), ...(!sailing && {subManual: 1, flightManual: 1, idleCamera: camera ? -1 : 1})})));
+    epoch: 100, seaState, omitWake: Number(low), ...(!sailing && {subManual: 1, flightManual: 1, idleCamera: camera ? -1 : 1})})));
   const warmupTicks = 200;
   for (let tick = 1; tick <= ticks + warmupTicks; tick++) {
     const before = performance.now();
@@ -44,7 +45,7 @@ try {
     groups[tick % 50 === 0 ? 'overlap' : tick % 25 === 0 ? 'wind' : tick % 20 === 0 ? 'fifthSecond' : tick % 10 === 0 ? 'tenthSecond' : 'ordinary'].push(duration);
     groups.readPose.push(read);
   }
-  console.log(JSON.stringify({index: manifest.index, stepMs: 10, warmupTicks, low, camera,
+  console.log(JSON.stringify({index: manifest.index, stepMs: 10, warmupTicks, low, camera, seaState,
     simulationSecondsPerWallSecond: ms(ticks * 10 / [...groups.all, ...groups.readPose].reduce((a,b) => a+b)),
     milliseconds: Object.fromEntries(Object.entries(groups).map(([k,v]) => [k,summarize(v)]))}, null, 2));
 } finally {

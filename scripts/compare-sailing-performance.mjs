@@ -11,7 +11,7 @@ const median = values => [...values].sort((a, b) => a - b)[Math.floor(values.len
 const limit = 1.25;
 const report = {cpu: cpus()[0].model, arch: arch(), platform: platform(), node: process.version,
   wasmTier: 'optimized, eager compilation', ticks: 400, pairs: 3, maximumCostRatio: limit, modes: {}};
-const summary = ['## Hobie physics performance', '',
+const summary = ['## Hobie physics performance in Swell', '',
   '| Wakes | Reference speed | Candidate speed | Median paired step-cost ratio | Candidate p95 step |',
   '| --- | ---: | ---: | ---: | ---: |'];
 let passed = true;
@@ -24,7 +24,7 @@ for (const mode of ['off', 'on']) {
       const dir = build === 'reference' ? reference : candidate;
       // Benchmark warmed optimized code. V8 tier-up can otherwise move a
       // long physics kernel between baseline and optimized code mid-sample.
-      const args = ['--no-liftoff', '--no-wasm-lazy-compilation', profile, dir, String(report.ticks)];
+      const args = ['--no-liftoff', '--no-wasm-lazy-compilation', profile, dir, String(report.ticks), '--swell'];
       if (mode === 'off') args.push('--low');
       console.log('Wakes %s, pair %d, %s', mode, round + 1, build);
       pair[build] = JSON.parse(execFileSync(process.execPath, args, {encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit']}));
