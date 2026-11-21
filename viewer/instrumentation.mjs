@@ -114,6 +114,6 @@ export function firstPersonInstruments(canvas){
       box(x,0,v.toFixed(1));ctx.fillText(label,x,64);
     }
     if(!sub)ctx.fillText('V/S '+vertical.toFixed(1)+' m/s',0,h*.36);
-    canvas.setAttribute('aria-label',(sub?'Submarine':'Drone')+' heading '+Math.round(heading)%360+' degrees true, '+(sub?'depth ':'altitude ')+level.toFixed(1)+' metres, speed '+speed.toFixed(1)+' metres per second');
+    canvas.setAttribute('aria-label',(sub?'Piccard Sub':'Drone')+' heading '+Math.round(heading)%360+' degrees true, '+(sub?'depth ':'altitude ')+level.toFixed(1)+' metres, speed '+speed.toFixed(1)+' metres per second');
   };
 }

@@ -355,6 +355,7 @@ async function run(){
     }
   }
   const targetSelect=$('controlTarget');
+  if(hasBoat && !cat)targetSelect.querySelector('[value="boat"]').textContent='Sailboat: Pilothouse sloop';
   function changeVehicle(choice){
     const link=vehicleLink(url,choice);
     if($('multiplayer').getAttribute('aria-pressed')==='true')link.searchParams.set('room',roomName);
@@ -412,7 +413,7 @@ async function run(){
     if((!sub?.active&&$('cameraDepth').value==='onboard')||(!flying&&$('cameraDepth').value==='fpv'))$('cameraDepth').value='deck';
     $('subPanel').hidden=!sub?.active;
     $('cutMotors').hidden=$('flightKeys').hidden=!flying;
-    document.querySelector('h1').textContent=sub?.active?'Sub':flying?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
+    document.querySelector('h1').textContent=sub?.active?'Piccard Sub':flying?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
     touchControls();
   }
   targetSelect.disabled=false;targetSelect.onchange=selectTarget;
