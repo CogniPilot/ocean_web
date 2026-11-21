@@ -25,15 +25,26 @@ for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
   assert.equal(move(gate(1,23),301),1);
   assert.equal(move(gate(-1,0),302),1);
   assert.equal(move(gate(1,0),303),2);
-  assert.equal(move(marks[0],330),3);
-  assert.equal(move(marks[1],360),4);
+  for(let mark=0;mark<2;mark++){
+    const [arrival,apex,departure]=points.slice(mark,mark+3);
+    const outside=Math.atan2(2*apex[1]-arrival[1]-departure[1],2*apex[0]-arrival[0]-departure[0]);
+    const point=(side,distance)=>apex.map((coordinate,i)=>coordinate+distance*
+      (i===0?Math.cos(outside+side):Math.sin(outside+side)));
+    const time=320+mark*30,current=mark+2;
+    const clearance=mark===0?4:7;
+    assert.equal(move(point(-.3,24),time),current);
+    assert.equal(move(point(.3,24),time+1),current,'A distant pass should not count');
+    assert.equal(move(point(.3,clearance),time+2),current);
+    assert.equal(move(point(-.3,clearance),time+3),current,'A starboard crossing should not count');
+    assert.equal(move(point(.3,clearance),time+4),current+1,'A port rounding with clearance should count');
+  }
   assert.equal(move(gate(-1,0),390),5);
   near(race.get('elapsed'),90);
   near(race.get('lapTime'),87);
   assert.equal(move(gate(-2,0),399),5);
   near(race.get('lapTime'),87);
 }
-console.log('Three wind bearings passed course geometry, start, both marks, finish and elapsed time.');
+console.log('Three wind bearings passed start, port roundings at 4 m and 7 m, finish and lap time.');
 const launch=await loadInstance('Regatta',{windBearing:-Math.PI},read);
 const settle=seconds=>{for(let i=0;i<seconds*20;i++)launch.advance(.05);};
 const pose=()=>Array.from(launch.get('launchPose'));

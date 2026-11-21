@@ -151,7 +151,7 @@ A GPU pass refracts sunlight through the wave normals and accumulates flux on a 
 
 ### Sailing the triangle
 
-The committee board identifies the local one-lap course as **TRI 1**. Its first-leg bearing is measured clockwise from true north at the midpoint of the start line. After the five-minute fleet signal, cross between the committee boat and pin toward mark 1. Tack to mark 1, then sail to mark 2, leaving both marks to port. The scorer registers each mark within 2.5 m of its centre. Return through the same gate from the course side. Each leg is 200 m. The lap clock starts at your own crossing and freezes at the finish. The race panel retains your last time until another finish or page reload.
+The committee board identifies the local one-lap course as **TRI 1**. Its first-leg bearing is measured clockwise from true north at the midpoint of the start line. After the five-minute fleet signal, cross between the committee boat and pin toward mark 1. Tack to mark 1, then sail to mark 2, leaving both marks to port. At each mark, cross the outside of the turn within 18 m of the buoy with the buoy to port. Return through the same start gate from the course side. Each leg is 200 m. The lap clock starts at your own crossing and freezes at the finish. The race panel retains your last time until another finish or page reload.
 
 Select **RDD2 drone** and **View → Drone FPV** for the nose camera. Approach the committee boat's aft H, descend with **F**, and cut motors after touchdown. Re-enable motors and climb with **R** for takeoff. Drone feet exchange forces and moments with the moving deck. The pin and both rounding marks sample waves individually and respond in heave, roll and pitch.
 
