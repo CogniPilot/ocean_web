@@ -1,6 +1,6 @@
 import {sailingStart,windBearing,windSpeed} from './sailing-start.mjs';
 import {wreckCaustics} from './caustics.mjs';
-import {loadVehicleShells} from './vehicle-assets.mjs';
+import {loadVehicleShell} from './vehicle-assets.mjs';
 import {loadInstance} from './fmi3/instance.mjs?api=2';
 import {sailboatMesh,observeBoat} from './board/boat.mjs';
 import {splitCamera} from "./waterline.mjs";
@@ -52,7 +52,8 @@ async function run(){
   const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const simulationReady=Promise.all([
     integrated?import('./world-view.mjs?hud=1').then(module=>module.openWorld()):loadInstance(vessel,inputs),
-    loadVehicleShells()
+    loadVehicleShell(cat?'hobie-hulls':'sloop-hull'),
+    loadVehicleShell('survey-pressure-housing')
   ]);
   const mobile=matchMedia('(pointer: coarse)').matches;
   const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
@@ -102,12 +103,31 @@ async function run(){
       if(settings.sky!==undefined)$('sky').value=settings.sky;
     }
   });camera.layers.enable(1);
-  function multiplayer(on){
-    if(on)remote.join();else remote.leave();
-    $('multiplayer').setAttribute('aria-pressed',String(on));$('invite').hidden=!on;
+  let joinAttempt=0;
+  async function multiplayer(on){
+    const attempt=++joinAttempt;
+    $('multiplayer').setAttribute('aria-pressed',String(on));
+    $('invite').hidden=true;
+    if(!on){remote.leave();return;}
+    $('online').textContent='Joining…';
+    try{
+      const [transport]=await Promise.all([
+        import('./vendor/trystero.mjs'),
+        loadVehicleShell(cat?'sloop-hull':'hobie-hulls')
+      ]);
+      if(attempt!==joinAttempt)return;
+      remote.join(transport);
+      $('invite').hidden=false;
+    }catch(error){
+      if(attempt!==joinAttempt)return;
+      remote.leave();
+      $('multiplayer').setAttribute('aria-pressed','false');
+      $('online').textContent='Unable to join';
+      console.error(error);
+    }
   }
   $('multiplayer').onclick=()=>multiplayer($('multiplayer').getAttribute('aria-pressed')!=='true');
-  addEventListener('pagehide',remote.leave);
+  addEventListener('pagehide',()=>multiplayer(false));
   $('invite').onclick=async()=>{const link=new URL(location.href);link.searchParams.set('room',roomName);
     try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Race room link',link.href);}};
   const theme=$('theme'),music=$('music');

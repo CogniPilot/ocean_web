@@ -1,7 +1,6 @@
 // Snapshot transport only. Each boat owns its local Rumoca FMU.
 import {PeerTimeline} from './fleet-timeline.mjs';
 import {FleetSeaClock} from './fleet-sea-clock.mjs';
-import {joinRoom,selfId} from './vendor/trystero.mjs';
 import {sailboatMesh} from './board/boat.mjs';
 const relays=['wss://relay.damus.io','wss://nos.lol','wss://relay-rpi.edufeed.org','wss://nostr.tegila.com.br'];
 const channels=4;
@@ -31,7 +30,7 @@ function drawGhost(T,scene,peer,kind,template,offset,p,d,f){
   ghost.quaternion.fromArray(old,offset+4).normalize().slerp(peer.rotation.fromArray(d,offset+4).normalize(),f);
 }
 export function fleet(T,scene,roomName,status,weather){
-  let room,action,lastSend=-Infinity,participants=new Set();
+  let selfId,room,action,lastSend=-Infinity,participants=new Set();
   const peers=new Map();
   let seaClock,clockChannel,lastClockSend=-Infinity,retainedOffset=0;
   let weatherChannel,weatherRows,weatherChanged=false,lastWeatherSend=-Infinity;
@@ -96,9 +95,10 @@ export function fleet(T,scene,roomName,status,weather){
       peers.delete(id);}
   }
   function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
-  function join(){
+  function join(transport){
     if(room)return;
-    room=joinRoom({appId:'pelagic-sailing-v1',relayConfig:{urls:relays}},roomName);
+    selfId=transport.selfId;
+    room=transport.joinRoom({appId:'pelagic-sailing-v1',relayConfig:{urls:relays}},roomName);
     const active=room;
     seaClock=new FleetSeaClock(selfId);
     seaClock.offset=retainedOffset;
