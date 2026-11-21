@@ -13,7 +13,7 @@ const environmentOutputs=[
 ];
 const flightOutputs=group('drone','position quaternion rotorAngle attitude gps gpsVelocity dragBody aircraft.rotorGeometry.positionBodyFlu_m');
 const submarineOutputs=[...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),
- 'estimate','features','image'];
+ 'estimate','sensor','ping'];
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
 export async function openWorld(mode='world'){

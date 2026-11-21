@@ -1,9 +1,11 @@
 import {vehicleShell} from './vehicle-assets.mjs';
+import {imagingSonar} from './imaging-sonar.mjs';
 import {sonarMap} from './sonar-map.mjs';
 
 export function submarine(T,scene,world){
   const mesh=surveyVehicle(T,vehicleShell('survey-pressure-housing'));scene.add(mesh);mesh.position.set(-5,0,-10);
   const bubbles=bubbleWake(T,scene,mesh), map=sonarMap(T,scene);
+  const drawPing=imagingSonar(document.getElementById('sonarFan'));
   let worker;
   let frame,displayedMap,busy=false,error,previous=0;
   const fromPosition=new T.Vector3(),toPosition=new T.Vector3();
@@ -21,6 +23,8 @@ export function submarine(T,scene,world){
     // The plant publishes poses between camera acquisitions. Retain the last
     // sensor frame until the navigation clock supplies the next image.
     if(frame && !data.image){data.image=frame.image;data.features=frame.features;}
+    data.dvl??=frame?.dvl;
+    data.ping??=frame?.ping;
     data.estimate??=frame?.estimate;
     receivedAt=now;frame=data;
   };
@@ -30,11 +34,12 @@ export function submarine(T,scene,world){
     worker.onerror=e=>{error=e.message;busy=false;};
     addEventListener('pagehide',()=>worker.terminate(),{once:true});
   }
-  return {manual:true,active:false,mapVisible:false,get frame(){return frame;},get error(){return error;},mesh,
+  return {manual:true,active:false,mapVisible:false,mapGroup:map.group,get frame(){return frame;},get error(){return error;},mesh,
     update(time,axis,wind,bearing,showSensorImage){
       map.group.visible=this.active&&this.mapVisible;
       world?.setSurveyView(this.active,showSensorImage,map.group.visible);
       if(frame){
+        if(showSensorImage)drawPing(frame.ping);
         const blend=Math.min(1,(performance.now()-receivedAt)/blendMs);
         mesh.position.lerpVectors(fromPosition,toPosition,blend);
         mesh.quaternion.slerpQuaternions(fromAttitude,toAttitude,blend);
@@ -54,7 +59,7 @@ export function submarine(T,scene,world){
         const survey=world.get('sub.surveyTelemetry'),estimate=world.get('estimate');
         const rows=map.group.visible?world.get('keyframes'):undefined;
         receive({time,position:world.get('sub.position'),q:world.get('sub.orientation'),rpm:world.get('sub.propellerRPM'),
-          cavitation:world.get('sub.cavitation'),flow:world.get('sub.current'),estimate,image:world.get('image'),features:world.get('features'),
+          cavitation:world.get('sub.cavitation'),flow:world.get('sub.current'),estimate,ping:world.get('ping'),dvl:world.get('sensor'),
           mapRows:rows!==displayedMap?rows:undefined,
           waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,thrust:survey.slice(3,10),buoyancy:survey.slice(10,13),contact:survey.slice(13,16)});
         if(rows)displayedMap=rows;

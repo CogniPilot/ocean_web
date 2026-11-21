@@ -117,6 +117,7 @@ async function run(){
     beamHalf:model.get('beamHalf'),stations:model.get('stationX'),separation:model.get('halfSpacing'),
     windEast:inputs.windEast,windNorth:inputs.windNorth}});
   let wakeTicks=0,lastSections;
+  const lastDrift=new T.Vector2(),nextDrift=new T.Vector2();
   function settings(open){$('setup').hidden=!open;$('settings').setAttribute('aria-expanded',String(open));}
   settings(!mobile);$('settings').onclick=()=>settings($('setup').hidden);
   const boat=model?sailboatMesh(T,cat,model.get("foilX")[0]):null;
@@ -129,6 +130,9 @@ async function run(){
     const shot=captureMast(),file={...shot,vehicle:vessel,simulationTime:model.time,positionENU:[model.get('east'),model.get('north'),model.get('heave')],rollPitchYaw:[model.get('heel'),model.get('pitch'),model.get('heading')],vaneRad:model.get('vane'),windTile:{sampleTime:windField.time,periodM:96,shape:[48,48,3],components:['east','north','roughness'],data:Array.from(windField.get('field'))}};
     const a=document.createElement('a'),href=URL.createObjectURL(new Blob([JSON.stringify(file)],{type:'application/json'}));a.href=href;a.download='mast-'+model.time.toFixed(2)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(href),10000);
   };
+  if(!world){
+    for(const [input,field] of [['hullStations','stationX'],['hullWidths','beamHalf'],['hullOffset','halfSpacing']])race.set(input,model.get(field));
+  }
   const boardClock=courseScene(T,scene,race),audio=raceAudio();
   let lastCountdown=null,raceTick=0,lastLap;
   const roomName=(url.searchParams.get('room')||'regatta').slice(0,64);
@@ -220,7 +224,7 @@ async function run(){
   const ocean=atmosphere(scene,waterCaptureLayer),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   const profiles={
     low:{ratio:.75,min:.5,capture:.375,reflectSamples:2,reflectionInterval:0,transmissionInterval:0,mesh:88,sky:.5},
-    balanced:{ratio:1,min:.75,capture:.75,reflectionInterval:65,transmissionInterval:65,mesh:120,sky:.75},
+    balanced:{ratio:1,min:.75,capture:.75,reflectSamples:2,reflectionInterval:0,transmissionInterval:65,mesh:120,sky:.75},
     high:{ratio:1,min:1,capture:1.25,reflectionInterval:0,transmissionInterval:0,mesh:144,sky:1,reflectSamples:2}
   };
   let preferred;
@@ -297,6 +301,11 @@ async function run(){
   const keys=new Set();let drone;
   $('subSensors').open=!mobile;
   const sub=subAssets ? subAssets[0].submarine(T,scene,world) : null, sensorCanvas=sub && $('sensorCam').getContext('2d');
+  const lampPass=sub && (await import('./sub-lamp.mjs')).underwaterLamp(T,renderer,sub.mesh.getObjectByName('Survey lamp'),caustics.occluders);
+  function renderBelow(world,eye){
+    if(lampPass && sub.active)lampPass(world,eye,selector.value,$('cameraDepth').value==='onboard'?Math.floor((sub.frame?.time??0)*24)%1024:-1);
+    else renderer.render(world,eye);
+  }
   const drawForces=forceDisplay(T,scene,sub?.mesh,boat?.group,cat,model);
   $('sonarMap').onchange=()=>{if(sub)sub.mapVisible=$('sonarMap').checked;};
   for(const id of ['showForces','showCompass'])$(id).onclick=()=>{
@@ -304,17 +313,65 @@ async function run(){
     $(id).setAttribute('aria-pressed',String(enabled));
     if(id==='showCompass')$('dial').hidden=!enabled;
   };
-  let drawnFrame,display;
-  function drawFeatures(frame){
-    if(!frame?.image||drawnFrame===frame.image)return;
-    drawnFrame=frame.image;
-    display??=sensorCanvas.createImageData(180,120);
-    for(let y=0;y<120;y++)for(let x=0;x<180;x++){
-      const i=(180*y+x)*4,value=frame.image[36*Math.floor(y/5)+Math.floor(x/5)];
-      display.data[i]=display.data[i+1]=display.data[i+2]=value;display.data[i+3]=255;
+  const lamp=sub?.mesh.getObjectByName('Survey lamp');
+  const lampButton=$('subLamp');
+  let lastPreview=-Infinity,lastDvl;
+  function toggleLamp(){
+    if(!sub?.active)return;
+    lamp.visible=!lamp.visible;
+    sub.mesh.getObjectByName('Survey lamp lens').visible=lamp.visible;
+    lampButton.setAttribute('aria-pressed',String(lamp.visible));
+    lastPreview=-Infinity;
+  }
+  lampButton.onclick=toggleLamp;
+  addEventListener('keydown',e=>{
+    if(e.code==='KeyZ' && !e.repeat && !e.ctrlKey && !e.altKey && !e.metaKey &&
+        !e.target.isContentEditable && !['INPUT','TEXTAREA'].includes(e.target.tagName))toggleLamp();
+  });
+  const sensorEye=sub && new T.PerspectiveCamera(64,320/238,.045,550);
+  const sensorTarget=sub && new T.WebGLRenderTarget(320,238);
+  if(sensorTarget)sensorTarget.texture.colorSpace=T.SRGBColorSpace;
+  const sensorPixels=sub && new Uint8Array(320*238*4);
+  const sensorImage=sensorCanvas?.createImageData(320,238);
+  function placeSensor(eye){
+    const q=sub.mesh.quaternion;
+    eye.position.set(.592,0,.10).applyQuaternion(q).add(sub.mesh.position);
+    eye.up.set(0,0,1).applyQuaternion(q);
+    eye.lookAt(fpvForward.set(1,0,0).applyQuaternion(q).add(eye.position));
+  }
+  function drawSensors(now,onboard){
+    const d=sub.frame?.dvl;
+    if(d && d!==lastDvl){
+      const ranges=Array.from(d.subarray?d.subarray(4,8):d.slice(4,8));
+      const count=ranges.filter(r=>r>0).length;
+      const speed=d[62]>.5?' · Fwd '+d[63].toFixed(2)+' · Port '+d[64].toFixed(2)+' m/s':'';
+      $('dvlReport').textContent='DVL · '+(d[62]>.5?'Bottom lock':'No full lock')+' · '+count+'/4 beams'+speed+' · '+ranges.map(r=>r>0?r.toFixed(1):'—').join(' / ')+' m';
+      lastDvl=d;
     }
-    sensorCanvas.putImageData(display,0,0);sensorCanvas.strokeStyle='#6aff96';
-    for(let i=0;i<frame.estimate[15];i++)sensorCanvas.strokeRect(5*frame.features[5*i]-2,5*frame.features[5*i+1]-2,8,8);
+    if(now-lastPreview<(onboard?100:200))return;
+    lastPreview=now;
+    if(onboard){
+      // Copy the central sensor aperture from this very frame, before HTML instruments.
+      const canvas=renderer.domElement,aspect=sensorEye.aspect;
+      const w=Math.min(canvas.width,canvas.height*aspect),h=Math.min(canvas.height,canvas.width/aspect);
+      sensorCanvas.drawImage(canvas,(canvas.width-w)/2,(canvas.height-h)/2,w,h,0,0,320,238);
+      return;
+    }
+    placeSensor(sensorEye);
+    const fog=scene.fog,background=scene.background,dome=ocean.dome.visible,under=ocean.U.under.value,map=sub.mapGroup.visible;
+    const underwater=sensorEye.position.z<ocean.U.tide.value;
+    sub.mapGroup.visible=false;scene.fog=underwater?underwaterFog:null;scene.background=underwater?underwaterFog.color:null;
+    ocean.dome.visible=!underwater;ocean.U.under.value=Number(underwater);
+    const destination=renderer.getRenderTarget();
+    renderer.setRenderTarget(sensorTarget);
+    if(underwater)lampPass(scene,sensorEye,selector.value,Math.floor((sub.frame?.time??0)*24)%1024,true);
+    else renderer.render(scene,sensorEye);
+    renderer.readRenderTargetPixels(sensorTarget,0,0,320,238,sensorPixels);
+    renderer.setRenderTarget(destination);
+    scene.fog=fog;scene.background=background;ocean.dome.visible=dome;ocean.U.under.value=under;sub.mapGroup.visible=map;
+    const stride=320*4;
+    for(let y=0;y<238;y++)sensorImage.data.set(sensorPixels.subarray(y*stride,(y+1)*stride),(237-y)*stride);
+    sensorCanvas.putImageData(sensorImage,0,0);
   }
   const analog=new Map();
   const axis=(a,b)=>Math.max(-1,Math.min(1,Number(keys.has(a))-Number(keys.has(b))+(analog.get(a)||0)-(analog.get(b)||0)));
@@ -410,7 +467,14 @@ async function run(){
     $('view').focus({preventScroll:true});
     $('onboardOption').hidden=!sub?.active;
     $('droneFpvOption').hidden=!flying;
-    if((!sub?.active&&$('cameraDepth').value==='onboard')||(!flying&&$('cameraDepth').value==='fpv'))$('cameraDepth').value='deck';
+    const viewSelect=$('cameraDepth');
+    for(const option of viewSelect.options){
+      if(option.value==='keel'||option.value==='line')option.hidden=flying;
+      option.disabled=option.hidden;
+    }
+    if(viewSelect.selectedOptions[0]?.disabled){
+      viewSelect.value='deck';tilt=.23;
+    }
     $('subPanel').hidden=!sub?.active;
     $('cutMotors').hidden=$('flightKeys').hidden=!flying;
     document.querySelector('h1').textContent=sub?.active?'Piccard Sub':flying?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
@@ -488,9 +552,9 @@ async function run(){
   const noGo=model?.get('noGo');
   const waterStamp=()=>model?model.get('waterStamp'):world.get('waterStamp');
   let meshTime,observedBoat;
-  const wavePresentation=waterPresentation(100), seaPresentation=waterPresentation(200), ripplePresentation=waterPresentation();
+  const wavePresentation=waterPresentation(100), seaPresentation=waterPresentation(200);
   const windPresentation=waterPresentation(250);
-  let previousRippleTime;
+  let opticalTime,observedWall,simulationRate=1,previousSwellPhase,swellRate=0;
   let lastWorldTick=-1,lastFieldTick=-1,lastSurfaceTick=-1,previousSurface;
   const measureButton=$('measureFrames'),frameResult=$('frameResult'),runStats=$('runStats');
   let statsStart,statsTime,statsFrames=0,statsRunning;
@@ -562,7 +626,8 @@ async function run(){
         if(Math.abs(next-pixelScale)>.01){pixelScale=next;renderer.setPixelRatio(pixelScale);resize();}
         lastQualityCheck=now;
       }
-      if(running)acc+=Math.max(0,Math.min(.22,(now-prev)/1000));prev=now;
+      const frameSeconds=Math.max(0,Math.min(.22,(now-prev)/1000));prev=now;
+      if(running)acc+=frameSeconds;
       if(waterError)throw waterError;
       if(world){
         if(world.hasSeaClock){
@@ -587,6 +652,9 @@ async function run(){
         if(running)acc=Math.max(0,acc-world.advance(steps)*.01);
         const tick=Math.round(world.time*100),waveTick=waterStamp(),fieldTick=Math.floor(tick/25);
         if(lastWorldTick!==waveTick){
+          lastDrift.copy(ocean.U.spectrumDrift.value);
+          nextDrift.set(world.get('waves.driftE'),world.get('waves.driftN'));
+          if(lastWorldTick<0 || lastDrift.distanceToSquared(nextDrift)>16)lastDrift.copy(nextDrift);
           ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'),
             omitWake?undefined:world.get('waves.wakeHeight'),omitWake||!cat?undefined:world.get('bowHeight'));
           if(!omitWake&&model)ocean.updateHullFoam(world.get('waves.sourceStrips'),waveTick,world.get('bowSpeed')?.[0]??model.get('surge'),cat);
@@ -649,11 +717,17 @@ async function run(){
         model.advance(.01);
         if(wakeTicks%5===0){
           race.set('east',model.get('east'));race.set('north',model.get('north'));
+          race.set('racerState',[1,...model.getMany(['heading','heel','pitch','heave','ve','vn','yawRate','vertical','rollRate','pitchRate'])]);
           race.set('utc',Date.now()/1000);race.advance(.05);
         }
-        if(drone && (drone.active||!drone.manual)){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);race.set('landingReaction',drone.deckReaction);model.set('droneLoad',drone.sailReaction);}acc-=.01;
+        if(drone && (drone.active||!drone.manual)){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);race.set('landingReaction',drone.deckReaction);}
+        const impact=race.get('racerLoad');
+        if(drone&&(drone.active||!drone.manual)){const load=drone.sailReaction;model.set('droneLoad',impact.map((v,i)=>v+load[i]));}
+        else model.set('droneLoad',impact);
+        acc-=.01;
       }
       ocean.U.spectrumBlend.value=wavePresentation.blend(now,running);
+      if(world)ocean.U.spectrumDrift.value.lerpVectors(lastDrift,nextDrift,ocean.U.spectrumBlend.value);
       ocean.U.windBlend.value=windPresentation.blend(now,running);
       const t=world?.time??model.time;
       if(model&&t!==meshTime){
@@ -686,12 +760,24 @@ async function run(){
       }
       remote.frame(now,s,cat,extra,sub?.mesh,drone?.group,$('controlTarget').value);
       document.body.dataset.visiblePeers=remote.visible;
+      // Advance optical phase every display frame. Synchronize gently to the
+      // physics clock so a late worker packet cannot snap all the ripples.
+      const swell=ocean.U.swell.value,origin=ocean.U.swellCenter.value;
+      const phase=swell.y-origin.x*swell.z-origin.y*swell.w;
       if(t!==meshTime){
-        previousRippleTime=meshTime??t;
-        ripplePresentation.sample(t,now);
+        if(meshTime!==undefined && t>meshTime && now>observedWall){
+          const elapsed=(now-observedWall)/1000;
+          const gain=1-Math.exp(-elapsed/.35);
+          simulationRate+=gain*(Math.min(1.5,(t-meshTime)/elapsed)-simulationRate);
+          swellRate=(phase-previousSwellPhase)/(t-meshTime);
+        }
+        observedWall=now;previousSwellPhase=phase;
         life?.(t);causticTime.value=t;meshTime=t;
       }
-      ocean.U.tm.value=previousRippleTime+(t-previousRippleTime)*ripplePresentation.blend(now,running);
+      if(opticalTime===undefined||!running||Math.abs(t-opticalTime)>.4)opticalTime=t;
+      else opticalTime=Math.min(t+.05,opticalTime+frameSeconds*Math.max(0,Math.min(1.5,simulationRate+4*(t-opticalTime))));
+      ocean.U.tm.value=opticalTime;
+      swell.y+=Math.max(-.08,Math.min(.08,opticalTime-t))*Math.max(-3,Math.min(3,swellRate));
       if(s){
         if(world)hullDisplay.apply(boat.group,t,now,running);
         ocean.U.boat.value.set(boat.group.position.x,boat.group.position.y,boat.group.rotation.z,s[10]);
@@ -701,6 +787,8 @@ async function run(){
         ocean.U.boat.value.set(focus[0],focus[1],0,0);
       }
       const horizontal=distance*Math.cos(tilt);
+      const fov=sub?.active && $('cameraDepth').value==='onboard'?64:52;
+      if(camera.fov!==fov){camera.fov=fov;camera.updateProjectionMatrix();}
       camera.up.set(0,0,1);
       camera.position.set(horizontal*Math.cos(angle),horizontal*Math.sin(angle),distance*Math.sin(tilt)).add(orbitCenter);
       if($('cameraDepth').value==='line')camera.position.z=0;
@@ -708,6 +796,18 @@ async function run(){
       camera.lookAt(orbitCenter);
       const flightHud=$('flightHud');
       const droneFpv=drone?.active && $('cameraDepth').value==='fpv';
+      const video=$('fpvVideo');
+      if(droneFpv && !video.style.getPropertyValue('--fpv-grain')){
+        const grain=document.createElement('canvas');grain.width=grain.height=96;
+        const ctx=grain.getContext('2d'),noise=ctx.createImageData(96,96);
+        for(let i=0;i<noise.data.length;i+=4){
+          noise.data[i]=noise.data[i+1]=noise.data[i+2]=Math.random()*255;
+          noise.data[i+3]=255;
+        }
+        ctx.putImageData(noise,0,0);
+        video.style.setProperty('--fpv-grain','url('+grain.toDataURL()+')');
+      }
+      if(video.hidden===Boolean(droneFpv))video.hidden=!droneFpv;
       const subFpv=sub?.active && $('cameraDepth').value==='onboard' && sub.frame?.estimate;
       flightHud.hidden=!(droneFpv||subFpv);
       if(droneFpv)drawInstruments(drone.instruments(),camera.fov,renderer.domElement.clientHeight);
@@ -735,16 +835,13 @@ async function run(){
       if(sub?.active){
         const p=sub.mesh.position;
         if($('cameraDepth').value==='onboard'){
-          const q=sub.mesh.quaternion;
-          camera.position.set(.592,0,.10).applyQuaternion(q).add(p);
-          camera.up.set(0,0,1).applyQuaternion(q);
-          camera.lookAt(new T.Vector3(1,0,0).applyQuaternion(q).add(camera.position));
+          placeSensor(camera);sub.mapGroup.visible=false;
         }else{
           camera.position.set(p.x+.6*distance*Math.cos(angle),p.y+.6*distance*Math.sin(angle),p.z+.6*distance*Math.sin(tilt));camera.lookAt(p);
         }
-        if(showSensorImage)drawFeatures(sub.frame);
+
       }
-      ocean.dome.position.copy(camera.position);ocean.water.position.set(focus[0],focus[1],0);updateLight(t);caustics.update(t,selector.value!=='low'||camera.position.z<ocean.U.tide.value+.5);
+      ocean.dome.position.copy(camera.position);ocean.water.position.set(boat?.group.position.x??focus[0],boat?.group.position.y??focus[1],0);updateLight(t);caustics.update(t,selector.value!=='low'||camera.position.z<ocean.U.tide.value+.5);
       const surfaceBand=.55+1.8*Number($('seaState').value)+Math.abs(ocean.U.swell.value.x);
       const storm=$('sky').value==='Storm';
       rain.visible=false; // Optical reflection and refraction targets exclude foreground streaks.
@@ -759,12 +856,14 @@ async function run(){
       rain.visible=storm && camera.position.z>=-surfaceBand;
       if(rain.visible)rain.material.uniforms.rainWind.value.set(...wind);
       audio.update(model?.get('cupSpeed')??Math.hypot(...wind),storm,camera.position.z-ocean.U.tide.value,Number($('seaState').value));
-      if(Math.abs(camera.position.z)<surfaceBand){split(renderer,scene,camera,ocean,underwaterFog);}
+      if(Math.abs(camera.position.z)<surfaceBand){split(renderer,scene,camera,ocean,underwaterFog,renderBelow);}
       else{
         const submerged=camera.position.z<0;
         scene.fog=submerged?underwaterFog:null;scene.background=submerged?underwaterFog.color:null;
-        ocean.U.under.value=Number(submerged);ocean.dome.visible=!submerged;renderer.render(scene,camera);
+        ocean.U.under.value=Number(submerged);ocean.dome.visible=!submerged;
+        if(submerged)renderBelow(scene,camera);else renderer.render(scene,camera);
       }
+      if(showSensorImage)drawSensors(now,$('cameraDepth').value==='onboard');
       if(world){
         if(boat)hullDisplay.restore(boat.group);
         if(drone)flightDisplay.restore(drone.group);

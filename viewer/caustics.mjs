@@ -36,7 +36,7 @@ export function wreckCaustics(T,renderer,water,mobile){
   const u={wreckFlux:{value:flux.texture},wreckDepth:{value:shadow.depthTexture},
     wreckProjection:{value:new T.Matrix4()},waterRay:{value:new T.Vector3()},sunStrength:{value:0}};
   let last=-Infinity;
-  return {uniforms:u,setWreck(group){shadowScene.add(group.clone(true));},update(t,enabled=true){
+  return {uniforms:u,occluders:shadowScene,setWreck(group){shadowScene.add(group.clone(true));},update(t,enabled=true){
     if(!enabled){u.sunStrength.value=0;return;}
     const sun=water.U.sunDir.value;
     u.sunStrength.value=Math.max(0,sun.z)*(1-.8*water.U.storm.value);

@@ -32,6 +32,123 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   parameter Real markRollDamping(unit="N.m.s")=50 "Effective rotational drag including entrained water";
   discrete Real buoyWater[3,3](each start=0,each fixed=true),lastBuoyWater[3,3](each start=0,each fixed=true);
   Real buoyEast[3],buoyNorth[3],depthAt[3,3],buoyLift[3,3],buoyV[3,3];
+  input Real racerState[11](each start=0) "Enabled, yaw, roll, pitch, elevation, EN velocity, yaw rate, vertical speed and roll/pitch rates";
+  input Real hullStations[7],hullWidths[7],hullOffset;
+  discrete output Real markWrench[3,12](each start=0,each fixed=true) "Paired contact forces and moments in ENU";
+  output Real racerLoad[6] "Total ENU contact load on the racer";
+  discrete Real markOffset[3,2](each start=0,each fixed=true),markVelocity[3,2](each start=0,each fixed=true);
+  function hullAxes "World directions of forward, port and up"
+    input Real yaw,roll,pitch;
+    output Real axes[3,3];
+  algorithm
+    axes[1,:]:={cos(yaw)*cos(pitch),sin(yaw)*cos(pitch),-sin(pitch)};
+    axes[2,:]:={cos(yaw)*sin(pitch)*sin(roll)-sin(yaw)*cos(roll),
+      sin(yaw)*sin(pitch)*sin(roll)+cos(yaw)*cos(roll),cos(pitch)*sin(roll)};
+    axes[3,:]:=cross(axes[1,:],axes[2,:]);
+  end hullAxes;
+  function pyramidFace "Signed plane clearance, positive outside, and index of the closest escape face"
+    input Real p[3];
+    output Real gap;
+    output Integer face;
+  protected
+    constant Real slope=.85/(2*1.75),scale=1/sqrt(1+slope^2);
+    Real lateral,front,left,right,bottom;
+  algorithm
+    lateral:=slope*(p[3]-1.65);
+    front:=(p[2]+lateral)*scale;
+    left:=(.866025403784439*p[1]-.5*p[2]+lateral)*scale;
+    right:=(-.866025403784439*p[1]-.5*p[2]+lateral)*scale;
+    bottom:=-p[3]-.10;
+    gap:=max(max(front,bottom),max(left,right));
+    face:=if gap==front then 1 elseif gap==left then 2 elseif gap==right then 3 else 4;
+  end pyramidFace;
+  function markContact "Racer hull and trampoline against the four faces of a triangular buoy"
+    input Real delta[3],state[11],stations[7],widths[7],offset;
+    input Real markRoll,markPitch,markVelocity[3],markRates[2];
+    output Real load[12];
+  protected
+    constant Real radius=.85,height=1.75,draft=.10,slope=radius/(2*height),scale=1/sqrt(1+slope^2);
+    constant Real faces[4,3]=[0,scale,slope*scale;sqrt(3.0)/2*scale,-.5*scale,slope*scale;
+      -sqrt(3.0)/2*scale,-.5*scale,slope*scale;0,0,-1];
+    MultiBodyLie.Collision.Material inflatable(k=6500,d=.55,mu=.18,eps=.0003,v_eps=.06);
+    MultiBodyLie.Collision.ContactPoint point;
+    Real boatAxes[3,3],markAxes[3,3],local[3],arm[3],p[3],bestArm[3],n[3];
+    Real boatCenterX,boatCenterY,margin;
+    Real gap,best,x,y,z,alpha,width,v[3],w[3],omega[3],f[3],m[3],fb[3],mb[3];
+    Integer panel,face,bestFace,side;
+  algorithm
+    load:=zeros(12);
+    if state[1]>.5 and delta*delta<25 then
+      boatAxes:=hullAxes(state[2],state[3],state[4]);
+      markAxes:=hullAxes(0,markRoll,-markPitch);
+      v:={state[6],state[7],state[9]};
+      w:=state[10]*boatAxes[1,:]+state[11]*{-sin(state[2]),cos(state[2]),0}+{0,0,state[8]};
+      omega:=markRates[1]*markAxes[1,:]-{0,markRates[2],0};
+      boatCenterX:=-delta*boatAxes[1,:]; boatCenterY:=-delta*boatAxes[2,:];
+      // Bounding radius of the whole tilted buoy for rejecting distant sections.
+      margin:=1.86;
+      for body in 1:(if offset>0 then 6 else 1) loop
+        best:=0;bestArm:=zeros(3);bestFace:=1;
+        for j in 0:24 loop
+          if body>3 then
+            // Sample the two bow bridles and the lower forestay where an inflatable can reach.
+            alpha:=j/24;
+            if body<6 then
+              x:=2.29+alpha*(2.555-2.29);y:=(if body==4 then 1 else -1)*alpha*(offset-.004);
+              z:=.65+alpha*(.463-.65);
+            else
+              x:=2.29+alpha*(.44-2.29);y:=0;z:=.65+alpha*(5.85-.65);
+            end if;
+            arm:=x*boatAxes[1,:]+y*boatAxes[2,:]+z*boatAxes[3,:];
+            p:=markAxes*(delta+arm);
+            (gap,face):=pyramidFace(p);
+            gap:=gap-.003;
+            if gap<best then best:=gap;bestArm:=arm;bestFace:=face;end if;
+          else
+            panel:=min(6,1+div(j,4));alpha:=(j-4*(panel-1))/4;
+            x:=(1-alpha)*stations[panel]+alpha*stations[panel+1];
+            width:=(1-alpha)*widths[panel]+alpha*widths[panel+1];
+            if body==3 then x:=-1.4+(1.95/24)*j;end if;
+            if abs(x-boatCenterX)<margin and (body==3 or abs((3-2*body)*offset-boatCenterY)<width+margin) then
+              for k in 0:(if body==3 then 8 else 5) loop
+                if body==3 then
+                  y:=offset*(k/4-1);z:=.40;
+                else
+                  side:=mod(k,3)-1;
+                  y:=(3-2*body)*offset+side*width;
+                  z:=if k<3 then -.06 else (if offset>0 then .24 else .07);
+                end if;
+                arm:=x*boatAxes[1,:]+y*boatAxes[2,:]+z*boatAxes[3,:];
+                p:=markAxes*(delta+arm);
+                (gap,face):=pyramidFace(p);
+                if gap<best then best:=gap;bestArm:=arm;bestFace:=face;end if;
+              end for;
+            end if;
+          end if;
+        end for;
+        if best<0 then
+          n:=transpose(markAxes)*faces[bestFace,:];
+          point:=MultiBodyLie.Collision.ContactPoint(gap=best,n=n,armA=bestArm,armB=delta+bestArm-best*n);
+          (f,m,fb,mb):=MultiBodyLie.Collision.pairWrenches(point,v,w,markVelocity,omega,inflatable);
+          load:=load+cat(1,f,m,fb,mb);
+        end if;
+      end for;
+    end if;
+  end markContact;
+  function markContacts "Sample the three moored marks on the same collision clock"
+    input Real east,north,state[11],stations[7],widths[7],offset;
+    input Real markE[3],markN[3],pose[3,3],velXY[3,2],rates[3,3];
+    output Real wrenches[3,12];
+  algorithm
+    wrenches:=zeros(3,12);
+    for b in 1:3 loop
+      if state[1]>.5 and (east-markE[b])^2+(north-markN[b])^2<25 then
+        wrenches[b,:]:=markContact({east-markE[b],north-markN[b],state[5]-pose[b,1]},
+          state,stations,widths,offset,pose[b,2],pose[b,3],
+          {velXY[b,1],velXY[b,2],rates[b,1]},rates[b,2:3]);
+      end if;
+    end for;
+  end markContacts;
   input Real landingReaction[6] "Drone contact wrench on launch, world ENU";
   output Real deckState[12] "Origin ENU, yaw/roll/bow-up pitch, linear and angular velocity ENU";
   function elevationAt "Periodic bilinear elevation on an east-north grid"
@@ -105,6 +222,18 @@ equation
   deckState={committeeEast,committeeNorth,heave,windBearing+3.141592653589793,roll,pitch,0,0,heaveRate,cos(windBearing+3.141592653589793)*cos(pitch)*rollRate+sin(windBearing+3.141592653589793)*pitchRate,sin(windBearing+3.141592653589793)*cos(pitch)*rollRate-cos(windBearing+3.141592653589793)*pitchRate,0+sin(pitch)*rollRate};
   buoyEast={pinEast,markEast[1],markEast[2]};buoyNorth={pinNorth,markNorth[1],markNorth[2]};
   markPose=buoyState;
+  racerLoad={sum(markWrench[:,k]) for k in 1:6};
+  // Contact shares the existing 20 Hz race clock and is held through the
+  // integrator stages, including both sides of each action/reaction pair.
+  when sample(0,.05) then
+    markWrench=markContacts(east,north,racerState,hullStations,hullWidths,hullOffset,
+      {gateEast-rightE*lineLength/2,gateEast+legLength*upE,gateEast+legLength*(upE/2-sqrt(3.0)*rightE/2)}+pre(markOffset[:,1]),
+      {gateNorth-rightN*lineLength/2,gateNorth+legLength*upN,gateNorth+legLength*(upN/2-sqrt(3.0)*rightN/2)}+pre(markOffset[:,2]),
+      buoyState,pre(markVelocity),buoySpeed);
+    markVelocity=pre(markVelocity)+(.05/(1.5*pyramidMass))*(markWrench[:,7:8]-140*pre(markOffset)-95*pre(markVelocity));
+    markOffset=pre(markOffset)+.05*markVelocity;
+
+  end when;
   for b in 1:3 loop
     der(buoyState[b,:])=buoySpeed[b,:];
     for j in 1:3 loop
@@ -114,9 +243,9 @@ equation
       buoyLift[b,j]=if depthAt[b,j]>0 then max(0,1025*9.80665*pyramidArea*pyramidHeight/9*
         (1-(1-depthAt[b,j]/pyramidHeight)^3)+120*((buoyWater[b,j]-lastBuoyWater[b,j])/.1-buoyV[b,j])) else 0;
     end for;
-    pyramidMass*der(buoySpeed[b,1])=sum(buoyLift[b,:])-pyramidMass*9.80665;
-    (.40*pyramidMass)*der(buoySpeed[b,2])=cos(buoyState[b,2])*(by*buoyLift[b,:])-pyramidMass*9.80665*ballastDepth*sin(buoyState[b,2])-markRollDamping*buoySpeed[b,2];
-    (.40*pyramidMass)*der(buoySpeed[b,3])=cos(buoyState[b,3])*(bx*buoyLift[b,:])-pyramidMass*9.80665*ballastDepth*sin(buoyState[b,3])-markRollDamping*buoySpeed[b,3];
+    pyramidMass*der(buoySpeed[b,1])=sum(buoyLift[b,:])-pyramidMass*9.80665+markWrench[b,9];
+    (.40*pyramidMass)*der(buoySpeed[b,2])=cos(buoyState[b,3])*markWrench[b,10]+sin(buoyState[b,3])*markWrench[b,12]+cos(buoyState[b,2])*(by*buoyLift[b,:])-pyramidMass*9.80665*ballastDepth*sin(buoyState[b,2])-markRollDamping*buoySpeed[b,2];
+    (.40*pyramidMass)*der(buoySpeed[b,3])=-markWrench[b,11]+cos(buoyState[b,3])*(bx*buoyLift[b,:])-pyramidMass*9.80665*ballastDepth*sin(buoyState[b,3])-markRollDamping*buoySpeed[b,3];
   end for;
   der(heave)=heaveRate; der(roll)=rollRate; der(pitch)=pitchRate;
   fraction=min(1,max(0,(time-stamp)/.1));
@@ -152,10 +281,10 @@ equation
     priorWater=if initial() then water else pre(water);
     stamp=time;
   end when;
-  pinEast=gateEast-rightE*lineLength/2;
-  pinNorth=gateNorth-rightN*lineLength/2;
-  markEast={gateEast+legLength*upE,gateEast+legLength*(upE/2-sqrt(3.0)*rightE/2)};
-  markNorth={gateNorth+legLength*upN,gateNorth+legLength*(upN/2-sqrt(3.0)*rightN/2)};
+  pinEast=markOffset[1,1]+gateEast-rightE*lineLength/2;
+  pinNorth=markOffset[1,2]+gateNorth-rightN*lineLength/2;
+  markEast=markOffset[2:3,1]+{gateEast+legLength*upE,gateEast+legLength*(upE/2-sqrt(3.0)*rightE/2)};
+  markNorth=markOffset[2:3,2]+{gateNorth+legLength*upN,gateNorth+legLength*(upN/2-sqrt(3.0)*rightN/2)};
   along=(east-gateEast)*upE+(north-gateNorth)*upN;
   across=(east-gateEast)*rightE+(north-gateNorth)*rightN;
   countdown=300-mod(utc,300);

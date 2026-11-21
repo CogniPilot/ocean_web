@@ -6,7 +6,7 @@ const ready=Promise.all([
   loadInstance('Wreck_Plant',{manual:1,windSpeed:11,windDirection:.45}),
   loadInstance('Wreck_Navigation',{idleCamera:1,useSonar:0})
 ]);
-let tick=0, estimate, image, features, sentImage;
+let tick=0, estimate, image, features, ping, dvl, sentImage;
 let mapRows, mappedKeys=-1, closures=-1;
 const blankImage=new Float64Array(864);
 function acquire(plant,nav,active){
@@ -14,9 +14,9 @@ function acquire(plant,nav,active){
   const [position,orientation,velocity,yawRate,pressure,accel,rates]=plant.getMany(
     ['position','orientation','velocity','yawRate','pressure','specificForce','rates']);
   nav.set('truth',[...position,...orientation,...velocity,yawRate,pressure,...accel,...rates]);
-  const names=active?['sensor','elev','estimate','image','features','keyframes']:['sensor','elev','estimate'];
-  const [sensor,ranges,pose,pixels,corners,history]=nav.getMany(names);
-  estimate=pose;
+  const names=active?['sensor','elev','estimate','image','features','keyframes','ping']:['sensor','elev','estimate'];
+  const [sensor,ranges,pose,pixels,corners,history,echoes]=nav.getMany(names);
+  estimate=pose;dvl=sensor;
   plant.set('sensor',sensor);plant.set('elevationRanges',ranges);
   nav.set('prior',estimate);
   if(active){
@@ -28,7 +28,7 @@ function acquire(plant,nav,active){
   }else if(image){
     nav.set('priorImage',blankImage);
   }
-  image=pixels;features=corners;
+  image=pixels;features=corners;ping=echoes;
 }
 self.onmessage=async({data})=>{
   try{
@@ -47,7 +47,7 @@ self.onmessage=async({data})=>{
       thrust:survey.slice(3,10),buoyancy:survey.slice(10,13),contact:survey.slice(13,16),mapRows,
       time:tick*.01,position,q,rpm,cavitation,flow,
       ...(previousEstimate!==estimate?{estimate}:{}),
-      ...(data.showSensorImage && sentImage!==image?{image,features}:{})},mapRows?[mapRows.buffer]:[]);
+      ...(data.showSensorImage && sentImage!==image?{image,features,ping,dvl}:{})},mapRows?[mapRows.buffer]:[]);
     sentImage=data.showSensorImage?image:undefined;
     mapRows=undefined;
   }catch(error){self.postMessage({error:error.message});}
