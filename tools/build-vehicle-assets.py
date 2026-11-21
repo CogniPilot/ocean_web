@@ -1,4 +1,5 @@
 """Build the marine vehicle shells with Blender. Coordinates are metres (X forward, Z up)."""
+import json
 import math
 import re
 from pathlib import Path
@@ -73,7 +74,8 @@ def hull(name, stations, section, material, side=1, center=0):
 
 
 def export(name):
-    bpy.ops.export_scene.gltf(filepath=str(DEST/(name+'.glb')),export_format='GLB',export_yup=True)
+    bpy.ops.export_scene.gltf(filepath=str(DEST/(name+'.glb')),export_format='GLB',export_yup=True,
+                               export_extras=(name=="survey-pressure-housing"))
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
 
@@ -173,6 +175,14 @@ for x in (-.53,.53):
         bpy.context.object.location.y = .166*math.cos(a)
         bpy.context.object.location.z += .166*math.sin(a)
 
+# Keep mounts in the physical body frame even when Blender batches the shell.
+plant = (DEST.parents[1]/"Wreck/package.mo").read_text()
+def motor_table(name):
+    rows = re.search(r"parameter Real " + name + r"\[7,3\]=\[([^\]]+)\]", plant)[1]
+    return [list(map(float,row.split(","))) for row in rows.split(";")]
+
+mounts = motor_table("propMount")
+axes = motor_table("propAxis")
 for side in (-1,1):
     y = side*.218
     # Open central ports give the transverse thruster a clear discharge path.
@@ -181,10 +191,12 @@ for side in (-1,1):
     block('Upper plate bridge',(0,y,.091),(.23,.015,.039),frame)
     block('Equipment tray rail',(0,y,-.143),(1.205,.019,.03),frame)
     block('Lower pack',(-.04,side*.092,-.125),(.73,.16,.084),pack,.011)
-    cable([(.4,side*.32,.015),(.43,side*.34,-.08),(.23,side*.285,-.14),
+    drive_x = mounts[0][0]
+    cable([(drive_x,side*.32,.015),(drive_x+.05,side*.34,-.08),(.23,side*.285,-.14),
            (.02,side*.24,-.154),(-.12,side*.20,-.12)], rubber)
-    for x in (-.4,0,.4):
-        block('Thruster mounting lug',(x,side*.244,-.053),(.055,.07,.026),frame)
+    for x, motor_y, z in mounts:
+        if side*motor_y > 0:
+            block('Thruster mounting lug',(x,side*.244,z-.053),(.055,.07,.026),frame)
 for x in (-.53,-.20,.43):
     block('Lower tray crossmember',(x,0,-.177),(.032,.445,.019),alloy)
 block('Equipment tray',(-.02,0,-.169),(.99,.40,.013),frame)
@@ -197,4 +209,7 @@ for material in (tube,frame,rubber,alloy,pack):
         obj.select_set(True)
     bpy.context.view_layer.objects.active = parts[0]
     bpy.ops.object.join()
+    if material == frame:
+        bpy.context.object.name = 'PiccardFrame'
+        bpy.context.object['thrusterLayout'] = json.dumps(dict(mounts=mounts,axes=axes))
 export('survey-pressure-housing')

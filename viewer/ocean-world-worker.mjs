@@ -3,8 +3,10 @@
 import {openFmuSession} from './fmu-session.js';
 
 import {scalarNames} from './fmu-page-contract.js';
+import {loadInstance} from '../fmi3/instance.mjs';
 
 let session,observations,inputs,surveyMap;
+let bowField,bowFields;
 let sampledGroups=[],stepCount=0;
 // These discrete outputs share sample events in OceanWorld. The initial
 // right limit can differ from the initialization snapshot on the first step.
@@ -42,13 +44,18 @@ async function handle(request){
     let names=[...request.outputs,...(request.optionalOutputs??[]).filter(name=>variables.has(name))];
     if(request.sampledFields){
       const [waveDt,windDt]=session.read_values(JSON.stringify(['waves.dt','wind.dt']));
-      const schedules=[[waveDt*100,['waves.height']],[waveDt*100,['waves.wakeHeight'],'wakeSurface'],[waveDt*100,['waves.sourceStrips'],'wakeSource'],[20,['boatWater.tile']],[20,['image','features'],'camera'],[windDt*100,['wind.field']]];
+      const schedules=[[waveDt*100,['waves.height']],[waveDt*100,['waves.wakeHeight','bowSources','bowSpeed'],'wakeSurface'],[waveDt*100,['waves.sourceStrips'],'wakeSource'],[20,['boatWater.tile']],[20,['image','features'],'camera'],[windDt*100,['wind.field']]];
       for(const [interval,candidates,subscription] of schedules){
         if(!Number.isSafeInteger(interval)||interval<1)continue;
         const selected=names.filter(name=>candidates.includes(name));
         if(!selected.length)continue;
         const fields=expand(selected,variables);
         sampledGroups.push({interval,subscription,layout:fields.layout,binding:session.bind_outputs(JSON.stringify(fields.elements))});
+        if(selected.includes('bowSources')){
+          const sources=fields.layout.find(entry=>entry.name==='bowSources');
+          const speed=fields.layout.find(entry=>entry.name==='bowSpeed');
+          bowFields={index:sampledGroups.length-1,sources,speed};
+        }
         names=names.filter(name=>!selected.includes(name));
       }
     }
@@ -85,6 +92,20 @@ async function handle(request){
     transfer.push(data.buffer);
     return data;
   });
+  let bowHeight;
+  const bowSnapshot=bowFields&&sampled[bowFields.index];
+  if(bowSnapshot){
+    const {sources,speed}=bowFields;
+    const values=bowSnapshot.subarray(sources.offset,sources.offset+sources.count);
+    const velocity=bowSnapshot.subarray(speed.offset,speed.offset+speed.count);
+    if(bowField||values.some(v=>v!==0)){
+      bowField??=await loadInstance('BowWavePatch',{});
+      bowField.set('sources',values);bowField.set('relativeSpeed',velocity);
+      bowField.advance(.01);
+      bowHeight=Float32Array.from(bowField.get('height'));
+      transfer.push(bowHeight.buffer);
+    }
+  }
   let mapRows;
   if(surveyMap && request.surveyView?.map!==false){
     // The estimator appends a keyframe or optimizes on loop closure. Send the
@@ -97,7 +118,7 @@ async function handle(request){
       surveyMap.closures=closures;
     }
   }
-  self.postMessage({id:request.id,time:session.time(),values,layout,mapRows,sampled},transfer);
+  self.postMessage({id:request.id,time:session.time(),values,layout,mapRows,sampled,bowHeight},transfer);
 }
 // Opening the guest is asynchronous. Process later control packets in order.
 let queue=Promise.resolve();

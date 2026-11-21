@@ -1,9 +1,9 @@
  const oceanHeightGLSL=`
  uniform sampler2D tile;uniform float blend,tide;
  uniform vec4 swell,boat; uniform vec2 swellCenter;
- uniform sampler2D spectrumMap,incidentMap;
+ uniform sampler2D spectrumMap,incidentMap,bowMap;
  uniform vec2 spectrumDrift;
- uniform float spectrumPeriod,spectrumBlend,wakeAvailable;
+ uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable;
  vec2 spectralUV(vec2 p){return (p-spectrumDrift)/spectrumPeriod+vec2(.5/64.);}
  float elevationSample(sampler2D map,vec2 uv){
    vec4 pair=texture2D(map,uv);
@@ -20,10 +20,26 @@
    float z=elevationSample(spectrumMap,uv);
    return falloff<=0.?z:mix(z,elevationSample(incidentMap,uv),falloff);
  }
- float heightAt(vec2 p){
+ bool nearBowField(vec2 p,float radius){
+   #ifdef DISABLE_BOW_FIELD
+   return false;
+   #else
+   vec2 r=p-boat.xy;
+   return bowAvailable>.5&&dot(r,r)<radius*radius;
+   #endif
+ }
+ float bowElevation(vec2 p){
+   if(!nearBowField(p,4.))return 0.;
+   vec2 r=p-boat.xy,forward=vec2(cos(boat.z),sin(boat.z));
+   vec2 local=vec2(dot(r,forward),dot(r,vec2(-forward.y,forward.x)));
+   return elevationSample(bowMap,local/8.+vec2(.5/32.));
+ }
+ float backgroundHeightAt(vec2 p){
   vec4 data=texture2D(tile,p/64.+vec2(.5/32.));
   return tide+swell.x*sin(swell.y+dot(p-swellCenter,swell.zw))+spectralElevation(p)+mix(dot(data.rg,vec2(255.*256.,255.)),dot(data.ba,vec2(255.*256.,255.)),blend)*16./65535.-8.;
- }`;
+ }
+ float heightAt(vec2 p){return backgroundHeightAt(p)+bowElevation(p);}
+ `;
 // A single camera-centred batch. The two vertices of each streak share a seed
 // and wrap together, so drops never stretch across the edge of the rain volume.
 function stormRain(T,scene,water,mobile){
@@ -267,8 +283,12 @@ function atmosphere(scene,waterCaptureLayer){
  incidentTexture.wrapS=incidentTexture.wrapT=THREE.RepeatWrapping;
  incidentTexture.minFilter=incidentTexture.magFilter=THREE.LinearFilter;
  U.incidentMap={value:incidentTexture};U.wakeAvailable={value:0};
+ const bowBytes=new Uint8Array(32*32*4),bowTexture=new THREE.DataTexture(bowBytes,32,32);
+ bowTexture.wrapS=bowTexture.wrapT=THREE.RepeatWrapping;
+ bowTexture.minFilter=bowTexture.magFilter=THREE.LinearFilter;
+ U.bowMap={value:bowTexture};U.bowAvailable={value:0};
  U.forebodyPort={value:new THREE.Vector3()};U.forebodyStarboard={value:new THREE.Vector3()};
- function clearWake(){U.wakeAvailable.value=0;trails.clear();}
+ function clearWake(){U.wakeAvailable.value=U.bowAvailable.value=0;trails.clear();}
  function displayedHeight(data,k,blend){
    const old=(data[k]<<8)+data[k+1],latest=(data[k+2]<<8)+data[k+3];
    return Math.round(old+blend*(latest-old));
@@ -281,10 +301,14 @@ function atmosphere(scene,waterCaptureLayer){
      data[k]=old>>8;data[k+1]=old&255;data[k+2]=packed>>8;data[k+3]=packed&255;
    }
  }
- function updateSpectrum(heights,x,y,period,wake){
+ function updateSpectrum(heights,x,y,period,wake,bow){
    if(wake){
      encodeSpectrum(incidentBytes,heights,U.wakeAvailable.value,wake);
      incidentTexture.needsUpdate=true;U.wakeAvailable.value=1;
+   }
+   if(bow){
+     encodeSpectrum(bowBytes,bow,U.bowAvailable.value);
+     bowTexture.needsUpdate=true;U.bowAvailable.value=1;
    }
    encodeSpectrum(spectrumBytes,heights,U.spectrumPeriod.value);
    spectrumTexture.needsUpdate=true;
@@ -294,8 +318,14 @@ function atmosphere(scene,waterCaptureLayer){
  tile.wrapS=tile.wrapT=THREE.RepeatWrapping;tile.minFilter=tile.magFilter=THREE.LinearFilter;tile.needsUpdate=true;
  Object.assign(U,{tile:{value:tile},blend:{value:1},tide:{value:0},wind:{value:11},bearing:{value:.45},boat:{value:new THREE.Vector4()},reflection:{value:null},transmission:{value:null},mirrorMatrix:{value:new THREE.Matrix4()},viewport:{value:new THREE.Vector2(1,1)}});
  const field=oceanHeightGLSL+`
- vec2 surfaceSlope(vec2 p){return vec2(heightAt(p+vec2(.48,0))-heightAt(p-vec2(.48,0)),
-   heightAt(p+vec2(0,.48))-heightAt(p-vec2(0,.48)))/.96;}
+ vec2 surfaceSlope(vec2 p){
+   vec2 slope=vec2(backgroundHeightAt(p+vec2(.48,0))-backgroundHeightAt(p-vec2(.48,0)),
+     backgroundHeightAt(p+vec2(0,.48))-backgroundHeightAt(p-vec2(0,.48)))/.96;
+   if(nearBowField(p,4.25))
+     slope+=vec2(bowElevation(p+vec2(.24,0))-bowElevation(p-vec2(.24,0)),
+       bowElevation(p+vec2(0,.24))-bowElevation(p-vec2(0,.24)))/.48;
+   return slope;
+ }
  #ifdef VERTEX_SLOPE
  varying vec2 resolvedSlope;
  #endif
@@ -426,7 +456,7 @@ function atmosphere(scene,waterCaptureLayer){
      float edge=wakeAvailable>.5?1.-wakeFalloff(wp.xy):0.;
      if(edge>0.){
        vec2 uvWake=spectralUV(wp.xy);
-       float hullCrest=elevationSample(spectrumMap,uvWake)-elevationSample(incidentMap,uvWake);
+       float hullCrest=elevationSample(spectrumMap,uvWake)-elevationSample(incidentMap,uvWake)+bowElevation(wp.xy);
        if(hullCrest>.012){
          // Use small drifting patches to break up the visible foam on the crest.
          float bubbles=noise2((wp.xy-spectrumDrift)*6.);
@@ -526,7 +556,7 @@ function atmosphere(scene,waterCaptureLayer){
      water.geometry.dispose();water.geometry=waterMesh(profile.mesh);
    }
    simpleCapture=vertexSlope;
-   water.material.defines=vertexSlope?{VERTEX_SLOPE:1}:profile.filterTransmission?{FILTER_TRANSMISSION:1}:{};
+   water.material.defines=vertexSlope?{VERTEX_SLOPE:1,DISABLE_BOW_FIELD:1}:profile.filterTransmission?{FILTER_TRANSMISSION:1}:{};
    water.material.needsUpdate=true;
    skyTarget.setSize(Math.round(512*profile.sky),Math.round(192*profile.sky));lastSky=-Infinity;
    const scale=profile.capture;

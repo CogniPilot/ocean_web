@@ -4,7 +4,9 @@ export function loadVehicleShell(name){
   if(shells.has(name))return;
   if(!pending.has(name)){
     const request=import('./vendor/gltf-loader.mjs').then(async ({GLTFLoader})=>{
-      const {scene}=await new GLTFLoader().loadAsync(new URL('./assets/'+name+'.glb',import.meta.url).href);
+      const asset=new URL('./assets/'+name+'.glb',import.meta.url);
+      asset.search=new URL(import.meta.url).search;
+      const {scene}=await new GLTFLoader().loadAsync(asset.href);
       scene.rotation.x=Math.PI/2;
       shells.set(name,scene);
     }).finally(()=>pending.delete(name));

@@ -2,7 +2,7 @@
 
 Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone, and explore a listed shipwreck with a survey submarine. The browser steps precompiled Rumoca FMI 3 models and draws their outputs with Three.js. [Open the simulator](https://cognipilot.github.io/ocean_web/)
 
-Choose **Control → Start wreck survey demo** to open a fresh session in the submarine cockpit. Watch the submarine navigate the wreck using its onboard estimate, with the sonar map visible. Select **Autopilot** to take manual control. [Launch the cockpit wreck survey](https://cognipilot.github.io/ocean_web/?demo=wreck&view=fpv)
+Choose **Sub** to explore the shipwreck in Piccard. You start in the cockpit with the sonar map visible and autopilot surveying 12 stations. **Take control** lets you pilot the same dive, and **Resume survey** hands it back to autopilot. Enable **Multiplayer** and share **Copy room link** to explore together, each in your own sub. [Launch the sub](https://cognipilot.github.io/ocean_web/?control=sub)
 
 [Request tracker](TODO.md)
 
@@ -10,7 +10,7 @@ On the Hobie 16, the red port and green starboard sidestay ribbons stream in the
 
 ## Combined simulation component
 
-The startup picker loads one Rumoca component for the selected vehicle. Each component includes the shared sea, wind and race infrastructure. Vehicle changes through **Control** start a fresh session and retain the room when multiplayer is active. The vehicle-specific sessions start in Manual. The wreck demo starts with the submarine autopilot engaged. Click the mode button to switch between Manual and Autopilot. [Launch the Hobie](https://cognipilot.github.io/ocean_web/?boat=Hobie16)
+The startup picker loads one Rumoca component for the selected vehicle. Each component includes the shared sea, wind and race infrastructure. Vehicle changes through **Control** start a fresh session and retain the room when multiplayer is active. The boats and drone start in Manual. The sub starts on its wreck survey. [Launch the Hobie](https://cognipilot.github.io/ocean_web/?boat=Hobie16)
 
 The coupled development scene uses one FMI 3 LS-WASM component for the Hobie, RDD2, submarine, wave field and onboard perception. Use it to switch between vehicles with their local states preserved or to try the wreck survey with the drone following overhead. In an FMI host, set `sailingManual`, `subManual` and `flightManual` to 1 for manual control or 0 for automatic control. [Open the coupled scene](https://cognipilot.github.io/ocean_web/?runtime=world) · [Open the coupled wreck survey](https://cognipilot.github.io/ocean_web/?runtime=world&demo=wreck&view=fpv) · [Download OceanWorld.fmu](https://cognipilot.github.io/ocean_web/fmi3/OceanWorld.fmu)
 
@@ -58,7 +58,7 @@ On an existing checkout, reuse the pinned microduck_web dependency. Open `http:/
 
 Open **http://127.0.0.1:8074**. The launcher uses Python 3, with a Nix fallback, and serves the packaged viewer when available. The prebuilt simulator requires a WebGL2 browser with WebAssembly. Set `SERVE_DIR=viewer` to serve the legacy split-runtime development viewer.
 
-Select **Submarine** for the underwater survey. In manual mode use W/S for surge, A/D for sway, Q/E for yaw and R/F to rise or dive. Switch to Autopilot to begin the wreck survey. The onboard camera overlay shows detected features. At 5 Hz the Rumoca submarine component computes 1,017 geometric ranges against the wreck and seabed in Modelica. The plant and navigation exchange samples inside its dedicated worker.
+Select **Sub** for the underwater survey. In manual mode use W/S for surge, A/D for sway, Q/E for yaw and R/F to rise or dive. Use **Resume survey** to re-engage the autopilot. The onboard camera overlay shows detected features. At 5 Hz the Rumoca submarine component computes 1,017 geometric ranges against the wreck and seabed in Modelica. The plant and navigation exchange samples inside its dedicated worker.
 
 ## Ocean and sub
 
@@ -145,7 +145,7 @@ For the default Hobie strip geometry and 1.02 m half-spacing, the level-tow mode
 
 ### Vehicle assets and underwater lighting
 
-Run `blender -b -P tools/build-vehicle-assets.py` to regenerate the three original textured vehicle shells. The embedded glTF materials carry base color, roughness and metallic response. Dynamic sails, sheets, rudders, thrusters and lights attach to the simulated vehicle frames. The RDD2 uses the upstream drone asset.
+Run `blender -b -P tools/build-vehicle-assets.py` to regenerate the three original textured vehicle shells. The embedded glTF materials carry base color, roughness and metallic response. Dynamic sails, sheets, rudders, thrusters and lights attach to the simulated vehicle frames. The Piccard model uses photo-estimated thruster positions. Its glTF frame carries the seven body-frame mounts and shaft axes from the Modelica plant. The RDD2 uses the upstream drone asset.
 
 A GPU pass refracts sunlight through the wave normals and accumulates flux on a reference seabed 13.7 m below mean water. A cached directional depth map of the wreck gates illumination on each receiver. Receiver depths away from the seabed use projection along the mean refracted ray. This approximation resolves blocked sunlight and deck openings but omits multiple scattering and a full volumetric photon solution.
 
