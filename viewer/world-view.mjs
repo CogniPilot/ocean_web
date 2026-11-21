@@ -32,6 +32,7 @@ export async function openWorld(){
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
    if(typeof value==='number')controls[i]=value;else controls.set(value,i);}
+ if(offsets.has('idleCamera'))set('idleCamera',1);
  Object.entries(initial).forEach(([name,v])=>set(name,v));
  function unpack(fields,values){
    for(const v of fields)state.set(v.name,v.shape.length?values.subarray(v.offset,v.offset+v.count):values[v.offset]);

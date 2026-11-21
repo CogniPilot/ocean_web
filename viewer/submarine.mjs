@@ -55,6 +55,6 @@ export function submarine(T,scene,world){
         if(rows)displayedMap=rows;
         return;
       }
-      worker.postMessage({manual:this.manual,pilot,wind,bearing,showSensorImage,steps:Math.min(20,Math.floor((time-previous)*100+1e-6))});
+      worker.postMessage({active:this.active,manual:this.manual,pilot,wind,bearing,showSensorImage,steps:Math.min(20,Math.floor((time-previous)*100+1e-6))});
     }};
 }

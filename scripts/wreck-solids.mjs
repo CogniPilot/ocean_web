@@ -75,7 +75,7 @@ const contactTree=['  constant Integer maxCandidates='+maxCandidates+';',
   '  function contactCandidates','    input Real pos[3];','    output Integer ids[maxCandidates];','  algorithm',
   '    if '+hullBounds+' then',emitPartition(root,'      '),'    else','      ids:={'+exterior.join(',')+'};',
   '    end if;','    annotation(Inline=false);','  end contactCandidates;'].join('\n');
-// Build a median-split bounding-volume hierarchy for the calibrated sensor rays.
+// Build a surface-area bounding-volume hierarchy for the calibrated sensor rays.
 // Constant bounds and leaf frames in Modelica let Rumoca specialize each subtree.
 // All leaves share the exact oriented-box intersection used by the headless model.
 let rayId=0;
@@ -84,11 +84,22 @@ function makeRayTree(solids) {
   const low=[0,1,2].map(k=>Math.min(...solids.map(row=>row[k]-row[15+k]))-1e-6);
   const high=[0,1,2].map(k=>Math.max(...solids.map(row=>row[k]+row[15+k]))+1e-6);
   if(solids.length===1)return {id,low,high,plate:solids[0]};
-  const span=[0,1,2].map(k=>Math.max(...solids.map(row=>row[k]))-Math.min(...solids.map(row=>row[k])));
-  const axis=span.indexOf(Math.max(...span));
-  solids.sort((a,b)=>a[axis]-b[axis]);
-  const mid=Math.floor(solids.length/2);
-  return {id,low,high,left:makeRayTree(solids.slice(0,mid)),right:makeRayTree(solids.slice(mid))};
+  // Favor splits that keep the finite seabed and long plates from widening
+  // both child bounds. Evaluate this once when generating the Modelica source.
+  function area(boxes){
+    const sides=[0,1,2].map(k=>Math.max(...boxes.map(p=>p[k]+p[15+k]))-Math.min(...boxes.map(p=>p[k]-p[15+k])));
+    return sides[0]*sides[1]+sides[1]*sides[2]+sides[0]*sides[2];
+  }
+  let best;
+  for(let axis=0;axis<3;axis++){
+    const sorted=[...solids].sort((a,b)=>a[axis]-b[axis]);
+    for(let i=1;i<sorted.length;i++){
+      const left=sorted.slice(0,i),right=sorted.slice(i);
+      const cost=area(left)*left.length+area(right)*right.length;
+      if(!best || cost<best.cost)best={left,right,cost};
+    }
+  }
+  return {id,low,high,left:makeRayTree(best.left),right:makeRayTree(best.right)};
 }
 const tree=makeRayTree(rows.map(row=>row.split(',').map(Number)));
 const rayFunctions=[];
