@@ -49,26 +49,21 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     reversed:=1+reversed;
   end reverseIndex;
 
+  constant Integer stages=integer(log(n)/log(2)+.5);
   function transformLine "One gather per butterfly stage"
     input Real sourceR[n],sourceI[n],cosine[n],sine[n];
-    input Integer order[n];
+    input Integer order[n],lower[stages,n],upper[stages,n],twiddle[stages,n];
     output Real a[n],b[n];
   protected
     Real oldR[n],oldI[n];
-    Integer halfSpan,lo[n],hi[n],phase[n];
   algorithm
     a:={sourceR[order[j]] for j in 1:n};
     b:={sourceI[order[j]] for j in 1:n};
-    halfSpan:=1;
-    while halfSpan<n loop
-      oldR:=a; oldI:=b;
-      lo:={1+2*halfSpan*div(j,2*halfSpan)+mod(j,halfSpan) for j in 0:n-1};
-      hi:=lo+fill(halfSpan,n);
-      phase:={1+mod(j,2*halfSpan)*div(n,2*halfSpan) for j in 0:n-1};
-      a:={oldR[lo[j]]+oldR[hi[j]]*cosine[phase[j]]-oldI[hi[j]]*sine[phase[j]] for j in 1:n};
-      b:={oldI[lo[j]]+oldR[hi[j]]*sine[phase[j]]+oldI[hi[j]]*cosine[phase[j]] for j in 1:n};
-      halfSpan:=2*halfSpan;
-    end while;
+    for stage in 1:stages loop
+      oldR:=a;oldI:=b;
+      a:={oldR[lower[stage,j]]+oldR[upper[stage,j]]*cosine[twiddle[stage,j]]-oldI[upper[stage,j]]*sine[twiddle[stage,j]] for j in 1:n};
+      b:={oldI[lower[stage,j]]+oldR[upper[stage,j]]*sine[twiddle[stage,j]]+oldI[upper[stage,j]]*cosine[twiddle[stage,j]] for j in 1:n};
+    end for;
   end transformLine;
 
   function transform "Separable two-dimensional FFT. The inverse divides by n squared."
@@ -79,17 +74,23 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     Real rowsR[n,n],rowsI[n,n],lineR[n],lineI[n];
     Real normalization,cosine[n],sine[n];
     Integer order[n];
+    // Each row and column uses the same butterfly and rotation indices.
+    constant Integer lower[stages,n]={{1+integer(2^stage)*div(j,integer(2^stage))+mod(j,integer(2^(stage-1)))
+      for j in 0:n-1} for stage in 1:stages};
+    constant Integer upper[stages,n]={{lower[stage,j]+integer(2^(stage-1)) for j in 1:n} for stage in 1:stages};
+    constant Integer twiddle[stages,n]={{1+mod(j,integer(2^stage))*div(n,integer(2^stage))
+      for j in 0:n-1} for stage in 1:stages};
   algorithm
     order:={reverseIndex(j,n) for j in 1:n};
     cosine:={cos(2*pi*j/n) for j in 0:n-1};
     sine:={(if inverse then 1 else -1)*sin(2*pi*j/n) for j in 0:n-1};
     normalization:=if inverse then n*n else 1;
     for row in 1:n loop
-      (lineR,lineI):=transformLine(realPart[row,:],imagPart[row,:],cosine,sine,order);
+      (lineR,lineI):=transformLine(realPart[row,:],imagPart[row,:],cosine,sine,order,lower,upper,twiddle);
       rowsR[row,:]:=lineR; rowsI[row,:]:=lineI;
     end for;
     for column in 1:n loop
-      (lineR,lineI):=transformLine(rowsR[:,column],rowsI[:,column],cosine,sine,order);
+      (lineR,lineI):=transformLine(rowsR[:,column],rowsI[:,column],cosine,sine,order,lower,upper,twiddle);
       re[:,column]:=lineR/normalization; im[:,column]:=lineI/normalization;
     end for;
   end transform;

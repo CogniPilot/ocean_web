@@ -138,3 +138,13 @@ In a cache-disabled Chromium touch viewport (393 × 852, SwiftShader, localhost)
 The generated kernel carried the entire 48 × 48 × 3 output array through a nested loop that assigned three entries at a time. Expressing the Modelica field as a map of independent cells lets Rumoca emit a contiguous three-value output per cell. A standalone WASM comparison across 80 changing-wind updates returned identical fields, including the roughness channel. Median update time fell from 13.9 to 4.1 ms after eight warm-up updates.
 
 Two interleaved coupled-world Low benchmarks measured 400 steps per model after 100 warm-up steps, reversing initialization order on the second run. Median steps with a wind event alone fell from 29.4 and 29.7 ms to 9.2 and 8.8 ms. Across all steps the respective means changed from 12.36 to 12.33 ms and from 13.19 to 11.33 ms. The compiled worlds returned identical values on 55,344 comparisons of wind fields, boat position and local boat and drone wind. Combined wave and sensor events remain the largest stalls.
+
+### Shared Fourier transform index tables (experiment)
+
+A profile restricted to 50 steps ending on the 200 ms boundary pointed to the 64 × 64 wave transform as one source of the long steps. The transform runs even with hull wakes disabled because it also provides incident wind waves. This candidate calculates its butterfly and twiddle indices once per 2D transform and supplies them to all 128 row and column transforms. The previous version regenerated indices inside each 1D transform.
+
+On an alternating 70-update standalone WASM tow, median Low update time fell from 11.45 to 9.39 ms and full wakes from 18.27 to 16.22 ms. The elevation grids, wave forces, probe and strip heights matched exactly. An independent complex impulse in OpenModelica agreed with its analytic forward transform within 2.2e-14, and the inverse recovered the input within 4.6e-16.
+
+Two coupled-world Low benchmarks, reversing initialization order, reduced median 200 ms events from 52.9 and 53.1 ms to 51.4 and 51.0 ms. Mean wall time per 10 ms step changed from 11.52 to 12.22 ms and from 12.27 to 11.40 ms. Both builds produced identical monitored sailboat, drone, submarine and wave outputs over a 6.5-second changing-helm run.
+
+Four cache-disabled touch Chromium runs used the order release, candidate, candidate, release. Running frame rates were 46.8, 47.1, 46.7 and 47.6 FPS and simulation rates were 0.77×, 0.71×, 0.79× and 0.81×. Frame-time p95 changed by less than 1 ms between builds. These shared-workstation measurements do not establish an end-to-end gain. Keep this change experimental.
