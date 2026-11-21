@@ -111,25 +111,90 @@ def cylinder(name,x,r,length,material,vertices=48):
     for p in obj.data.polygons:
         p.use_smooth=len(p.vertices)==4
 
-alloy=coating('Brushed pressure tube',(.46,.50,.51),.8,.32)
-seal=coating('Elastomer seal',(.10,.12,.125),0,.68)
-cylinder('Pressure housing',0,.17,1.05,alloy)
-for x in (-.51,-.26,.22,.50):
-    cylinder('Retaining collar',x,.178,.029,seal)
-for x in (-.535,.53):
-    cylinder('Machined flange',x,.18,.019,alloy)
-    for i in range(10):
-        a=2*math.pi*i/10
-        cylinder('Hex flange fastener',x+math.copysign(.013,x),.009,.012,alloy,6)
-        obj=bpy.context.object
-        obj.location.y=.157*math.cos(a)
-        obj.location.z+=.157*math.sin(a)
-# Join fixed parts by finish to keep draw calls independent of fastener count.
-for m in (alloy,seal):
+def finish(name, rgb, metal=0, rough=.5):
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    shader = material.node_tree.nodes.get("Principled BSDF")
+    shader.inputs["Base Color"].default_value = (*rgb, 1)
+    shader.inputs["Metallic"].default_value = metal
+    shader.inputs["Roughness"].default_value = rough
+    return material
+
+
+def block(name, pos, dimensions, material, bevel=.003):
+    bpy.ops.mesh.primitive_cube_add(size=1, location=pos)
+    obj = bpy.context.object
+    obj.name = name
+    obj.dimensions = dimensions
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    edges = obj.modifiers.new("Machined edges", "BEVEL")
+    edges.width = bevel
+    edges.segments = 2
+    bpy.ops.object.modifier_apply(modifier=edges.name)
+    obj.data.materials.append(material)
+
+
+def cable(points, material):
+    curve = bpy.data.curves.new("Motor lead", "CURVE")
+    curve.dimensions = '3D'
+    curve.resolution_u = 5
+    curve.bevel_depth = .006
+    curve.bevel_resolution = 2
+    spline = curve.splines.new('BEZIER')
+    spline.bezier_points.add(len(points)-1)
+    for point, xyz in zip(spline.bezier_points, points):
+        point.co = xyz
+        point.handle_left_type = point.handle_right_type = 'AUTO'
+    obj = bpy.data.objects.new("Motor lead", curve)
+    bpy.context.collection.objects.link(obj)
+    curve.materials.append(material)
+    bpy.context.view_layer.objects.active = obj
     bpy.ops.object.select_all(action='DESELECT')
-    objs=[o for o in bpy.context.scene.objects if o.active_material==m]
-    for o in objs:
-        o.select_set(True)
-    bpy.context.view_layer.objects.active=objs[0]
+    obj.select_set(True)
+    bpy.ops.object.convert(target='MESH')
+
+
+tube = finish('Graphite pressure vessel', (.063,.066,.069), .22, .56)
+frame = finish('Black frame and clamps', (.027,.030,.034), .18, .41)
+rubber = finish('Motor guards and cables', (.016,.020,.024), .08, .34)
+alloy = finish('Machined hardware', (.48,.53,.56), .68, .29)
+pack = finish('Yellow equipment pack', (.78,.46,.033), .07, .47)
+cylinder('Pressure housing', 0, .17, 1.05, tube)
+for x in (-.30,.26):
+    cylinder('Saddle clamp', x, .183, .067, frame, 20)
+    block('Clamp foot', (x,0,.087), (.078,.458,.036), frame)
+    for y in (-.201,.201):
+        block('Clamp nut', (x,y,.112), (.023,.023,.015), alloy)
+for x in (-.53,.53):
+    cylinder('Viewport flange', x,.18,.024,frame)
+    for i in range(12):
+        a = 2*math.pi*i/12
+        cylinder('Flange fastener', x+math.copysign(.016,x), .009,.01,alloy,6)
+        bpy.context.object.location.y = .166*math.cos(a)
+        bpy.context.object.location.z += .166*math.sin(a)
+
+for side in (-1,1):
+    y = side*.218
+    # Open central ports give the transverse thruster a clear discharge path.
+    for x in (-.356,.356):
+        block('Longitudinal side plate', (x,y,.015), (.49,.015,.191), frame)
+    block('Upper plate bridge',(0,y,.091),(.23,.015,.039),frame)
+    block('Equipment tray rail',(0,y,-.143),(1.205,.019,.03),frame)
+    block('Lower pack',(-.04,side*.092,-.125),(.73,.16,.084),pack,.011)
+    cable([(.4,side*.32,.015),(.43,side*.34,-.08),(.23,side*.285,-.14),
+           (.02,side*.24,-.154),(-.12,side*.20,-.12)], rubber)
+    for x in (-.4,0,.4):
+        block('Thruster mounting lug',(x,side*.244,-.053),(.055,.07,.026),frame)
+for x in (-.53,-.20,.43):
+    block('Lower tray crossmember',(x,0,-.177),(.032,.445,.019),alloy)
+block('Equipment tray',(-.02,0,-.169),(.99,.40,.013),frame)
+
+# Combine opaque fixed geometry by finish for local and multiplayer vehicles.
+for material in (tube,frame,rubber,alloy,pack):
+    bpy.ops.object.select_all(action='DESELECT')
+    parts = [o for o in bpy.context.scene.objects if o.active_material == material]
+    for obj in parts:
+        obj.select_set(True)
+    bpy.context.view_layer.objects.active = parts[0]
     bpy.ops.object.join()
 export('survey-pressure-housing')
