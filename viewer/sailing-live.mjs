@@ -58,7 +58,7 @@ async function run(){
   const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
   renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
-  coast(T,scene);
+  coast(T,scene,renderer.capabilities.isWebGL2 || renderer.extensions.has('ANGLE_instanced_arrays'));
   const [simulation]=await simulationReady;
   const world=integrated?simulation:null;
   const model=world?.boat??simulation;

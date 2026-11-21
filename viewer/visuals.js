@@ -153,7 +153,7 @@ function marineLife(T,scene,webgl2){
    motes.position.set(.35*Math.sin(t*.23),.15*Math.sin(t*.18),.14*Math.cos(t*.12));
  };
 }
-function coast(T,scene){
+function coast(T,scene,instanceRocks=true){
  const land=new T.Group();scene.add(land); const center=[36,40],sand=new T.Color(0xc7ad7c),grass=new T.Color(0x566745),rock=new T.Color(0x827665);
  const geo=new T.PlaneGeometry(58,46,74,62),pos=geo.attributes.position,colors=[];
  function terrain(x,y){const r=Math.hypot(x/17,y/11);return 3.6-4.2*r*r+.34*Math.sin(x*.64)*Math.cos(y*.55)+.37*Math.cos(.34*x-.51*y);}
@@ -161,9 +161,20 @@ function coast(T,scene){
  geo.setAttribute('color',new T.Float32BufferAttribute(colors,3));geo.computeVertexNormals();
  const island=new T.Mesh(geo,new T.MeshStandardMaterial({vertexColors:true,roughness:.96}));land.add(island);land.position.set(...center,0);
  let seed=13;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
- for(let i=0;i<46;i++){const a=random()*6.28,r=.84+.25*random(),x=17*r*Math.cos(a),y=11*r*Math.sin(a);
-   const m=new T.Mesh(new T.IcosahedronGeometry(1,1),new T.MeshStandardMaterial({color:rock.clone().multiplyScalar(.65+.45*random()),flatShading:true}));
-   m.scale.set(1+random()*1.5,.7+random(),.65+random());m.position.set(x,y,terrain(x,y));m.rotation.set(random(),random(),random()*6);land.add(m);}
+ const rockCount=46,shape=new T.IcosahedronGeometry(1,1);
+ const rocks=instanceRocks?new T.InstancedMesh(shape,new T.MeshStandardMaterial({flatShading:true}),rockCount):new T.Group();
+ const pose=new T.Object3D(),tint=new T.Color();
+ for(let i=0;i<rockCount;i++){const a=random()*6.28,r=.84+.25*random(),x=17*r*Math.cos(a),y=11*r*Math.sin(a);
+   tint.copy(rock).multiplyScalar(.65+.45*random());
+   pose.scale.set(1+random()*1.5,.7+random(),.65+random());pose.position.set(x,y,terrain(x,y));pose.rotation.set(random(),random(),random()*6);
+   pose.updateMatrix();
+   if(instanceRocks){rocks.setColorAt(i,tint);rocks.setMatrixAt(i,pose.matrix);}
+   else {
+     const mesh=new T.Mesh(shape,new T.MeshStandardMaterial({flatShading:true,color:tint}));
+     mesh.position.copy(pose.position);mesh.quaternion.copy(pose.quaternion);mesh.scale.copy(pose.scale);rocks.add(mesh);
+   }
+ }
+ if(instanceRocks)rocks.computeBoundingSphere();
  const bark=new T.MeshStandardMaterial({color:0x71634a}),leaf=new T.MeshStandardMaterial({color:0x4e7349,side:T.DoubleSide});
  for(let i=0;i<9;i++){
    const x=(random()-.5)*18,y=(random()-.5)*12,z=terrain(x,y),h=2.9+random()*2.4;
@@ -184,5 +195,5 @@ function coast(T,scene){
  }
  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(blades,3));g.setIndex(indices);g.computeVertexNormals();
  scene.add(new T.Mesh(g,new T.MeshStandardMaterial({color:0x42624c,side:T.DoubleSide})));
- batchScenery(T,land);return land;
+ batchScenery(T,land);land.add(rocks);return land;
 }
