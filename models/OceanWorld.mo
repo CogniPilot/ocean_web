@@ -12,7 +12,7 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   final parameter Real beams[1017,3]=Wreck.Perception.directions();
   discrete output Real sensor[91](each start=0,each fixed=true),elev[100](each start=0,each fixed=true),
     image[864](each start=0,each fixed=true),estimate[21](each start=0,each fixed=true),
-    keyframes[48,180](each start=0,each fixed=true),features[24,5](each start=0,each fixed=true);
+    keyframes[48,180](each start=0,each fixed=true),features[24,5](each start=0,each fixed=true),ping[65,32](each start=0,each fixed=true);
   Real receiverPosition[9,2],receiverWater[9];
   discrete Real sampledWake[9](each start=0,each fixed=true),priorWake[9](each start=0,each fixed=true);
 equation
@@ -36,7 +36,7 @@ equation
     priorWake=if initial() then sampledWake else pre(sampledWake);
   end when;
   when sample(0,.2) then
-    (sensor,elev,image,estimate,keyframes,features)=Wreck.Perception.sampleFrame(time,
+    (sensor,elev,image,estimate,keyframes,features,ping)=Wreck.Perception.sampleFrame(time,
       cat(1,sub.position,sub.orientation,sub.velocity,{sub.yawRate,sub.pressure},sub.specificForce,sub.rates),
       beams,zeros(1017),0,pre(image),pre(estimate),pre(keyframes), idleCamera<surveyAtStartup-.5,idleCamera<surveyAtStartup-.5,idleCamera<surveyAtStartup-.5 or subManual<.5);
   end when;

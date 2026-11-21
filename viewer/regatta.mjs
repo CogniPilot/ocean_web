@@ -84,8 +84,9 @@ export function courseScene(T,scene,race){
     const [heave,roll,pitch]=race.get('launchPose');
     boat.position.z=heave;boat.rotation.x=roll;boat.rotation.y=-pitch;
     const poses=race.get('markPose');
+    const east=race.get('markEast'),north=race.get('markNorth');
     marks.forEach((mark,i)=>{
-      mark.position.z=poses[3*i];
+      mark.position.set(i?east[i-1]:race.get('pinEast'),i?north[i-1]:race.get('pinNorth'),poses[3*i]);
       mark.rotation.set(poses[3*i+1],-poses[3*i+2],0,'ZYX');
     });
     const bearing=firstLeg(race),key=label+bearing;

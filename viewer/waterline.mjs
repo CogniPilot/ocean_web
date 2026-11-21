@@ -18,7 +18,7 @@ export function splitCamera(T){
  }`});
  scene.add(new T.Mesh(new T.PlaneGeometry(2,2),m));
  const size=new T.Vector2();
- return (renderer,world,eye,water,fog)=>{
+ return (renderer,world,eye,water,fog,renderBelow)=>{
    renderer.getDrawingBufferSize(size);above.setSize(size.x,size.y);below.setSize(size.x,size.y);
    eye.updateMatrixWorld();eye.getWorldDirection(u.forward.value);u.right.value.setFromMatrixColumn(eye.matrixWorld,0);u.up.value.setFromMatrixColumn(eye.matrixWorld,1);
    u.positionEye.value.copy(eye.position);u.slope.value=Math.tan(T.MathUtils.degToRad(eye.fov/2));u.aspect.value=eye.aspect;
@@ -26,7 +26,7 @@ export function splitCamera(T){
    world.fog=null;water.dome.visible=true;water.U.under.value=0;
    renderer.setRenderTarget(above);renderer.render(world,eye);
    world.fog=fog;water.dome.visible=false;water.U.under.value=1;
-   renderer.setRenderTarget(below);renderer.render(world,eye);
+   renderer.setRenderTarget(below);renderBelow(world,eye);
    renderer.setRenderTarget(null);renderer.render(scene,camera);water.dome.visible=true;world.fog=null;
  };
 }

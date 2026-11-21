@@ -344,12 +344,16 @@ function atmosphere(scene,waterCaptureLayer){
  function updateWind(field){
    for(let i=0;i<48*48;i++){
      const k=i*4;
-     const incoming=Math.hypot(field[3*i],field[3*i+1]);
-     const previous=Math.hypot(windBytes[k]*64/255-32,windBytes[k+1]*64/255-32);
-     const shown=U.windFieldActive.value?
-       windBytes[k+3]*(1-U.windBlend.value)+previous*255/64*U.windBlend.value:incoming*255/64;
-     for(let k=0;k<3;k++)windBytes[4*i+k]=Math.round(Math.max(0,Math.min(255,(field[3*i+k]+(k===2?0:32))*255/64)));
-     windBytes[k+3]=Math.round(Math.max(0,Math.min(255,shown)));
+     // Store the displayed and incoming speed / roughness together. The next
+     // puff can then arrive between frames without resetting the ripple phase.
+     for(let channel=0;channel<2;channel++){
+       const speed=channel===0?Math.hypot(field[3*i],field[3*i+1]):field[3*i+2];
+       const next=Math.round(Math.max(0,Math.min(255,speed*255/64)));
+       const start=k+2*channel;
+       windBytes[start]=U.windFieldActive.value?Math.round(windBytes[start]+
+         U.windBlend.value*(windBytes[start+1]-windBytes[start])):next;
+       windBytes[start+1]=next;
+     }
    }
    windMap.needsUpdate=true;U.windFieldActive.value=1;
  }
@@ -466,12 +470,10 @@ function atmosphere(scene,waterCaptureLayer){
  void main(){
    vec3 eye=normalize(cameraPosition-wp);
    vec4 air=texture2D(windMap,wp.xy/96.+.5/48.);
-   vec2 localAir=air.rg*64.-32.;
    vec2 baseDir=vec2(cos(bearing),sin(bearing));
-   float localSpeed=length(localAir);
-   vec2 dir=windFieldActive>.5 && localSpeed>.4?localAir/localSpeed:baseDir;
-   float puff=smoothstep(.35,2.25,mix(air.a*64.,localSpeed,windBlend)-referenceWind)*windFieldActive;
-   float rippleWind=mix(wind,air.b*64.,windFieldActive);
+   float localSpeed=64.*mix(air.r,air.g,windBlend);
+   float puff=smoothstep(.35,2.25,localSpeed-referenceWind)*windFieldActive;
+   float rippleWind=mix(wind,64.*mix(air.b,air.a,windBlend),windFieldActive);
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
    #ifdef VERTEX_SLOPE
@@ -481,7 +483,7 @@ function atmosphere(scene,waterCaptureLayer){
    vec2 d=surfaceSlope(wp.xy,bowSlope);
    #endif
    float gravitySlope=length(d);
-   d+=fade*rippleSlope(wp.xy,tm,dir,rippleWind*(1.+puff*.34));
+   d+=fade*rippleSlope(wp.xy,tm,baseDir,rippleWind*(1.+puff*.34));
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    float day=smoothstep(-.12,.22,sunDir.z);
    vec3 color;
@@ -630,7 +632,7 @@ function atmosphere(scene,waterCaptureLayer){
      if(simpleCapture)mirrorCamera.layers.set(waterCaptureLayer);
      const twiceTide=2*U.tide.value;
      mirrorCamera.position.z=twiceTide-camera.position.z;mirrorLook.z=twiceTide-mirrorLook.z;
-     mirrorCamera.up.set(0,0,-1);mirrorCamera.lookAt(mirrorLook);mirrorCamera.updateMatrixWorld();
+     mirrorCamera.up.setFromMatrixColumn(camera.matrixWorld,1);mirrorCamera.up.z*=-1;mirrorCamera.lookAt(mirrorLook);mirrorCamera.updateMatrixWorld();
      U.mirrorMatrix.value.multiplyMatrices(mirrorCamera.projectionMatrix,mirrorCamera.matrixWorldInverse);
      scene.background=null;
      renderer.setClearColor(0x000000,0);renderer.setRenderTarget(reflectRT);

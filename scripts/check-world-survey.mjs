@@ -29,6 +29,7 @@ try {
   let lastStation = 0, frames = 0, squaredError = 0, stepMs = 0, readMs = 0, finished = false;
 
   const positionErrors = [];
+  let highest=-Infinity,lowest=Infinity;
   let depthSquared = 0, matchedFrames = 0, keyframes = 0, closures = 0, finishError = 0;
   let followSquared = 0, altitudeSquared = 0, peakOffset = 0;
   while (world.time() < 240) {
@@ -41,7 +42,7 @@ try {
     stepMs += stepped - start;
     readMs += performance.now() - stepped;
     assert([x, y, z, east, north, up].every(Number.isFinite), 'Non-finite survey pose');
-    frames++;
+    frames++;highest=Math.max(highest,z);lowest=Math.min(lowest,z);
     const error = Math.hypot(x - east, y - north, z - up);
     positionErrors.push(error);
     squaredError += error ** 2;
@@ -83,7 +84,8 @@ try {
     assert(horizontalRms < 2.5 && altitudeRms < .5, 'Aircraft lost the moving survey station');
   }
   assert(finished, 'The survey timed out');
-  assert.equal(lastStation, 12);
+  assert.equal(lastStation, 17);
+  assert(highest-lowest>4, "Survey must traverse the interior and upper hull at different depths");
   assert(rms < 1, 'Pose estimate exceeded 1 m RMS error');
 } finally {
   world.free();
