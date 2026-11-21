@@ -462,7 +462,9 @@ async function run(){
             windField.get('gustEast'),windField.get('gustNorth'),windField.get('travelE'),windField.get('travelN')));
         }
         if(world.hasPeerWake){
-          const strips=$('controlTarget').value==='boat'?world.get('waves.sourceStrips'):null;
+          const shareWake=remote.wantsWakeSource && $('controlTarget').value==='boat';
+          world.setWakeSourceRequested(shareWake);
+          const strips=shareWake?world.get('waves.sourceStrips'):null;
           const sources=remote.wakeSources(now,strips,model.get('waterStamp'));
           if(!omitWake)world.set('peerWake',sources);
         }
