@@ -7,6 +7,12 @@ const names=[
   'Noor','Oliver','Priya','Quinn','Rafael','Robin','Sofia','Theo'
 ];
 
+export function isCaptainName(value){
+  if(typeof value!=='string'||value.length>40)return false;
+  const match=/^Captain ([A-Za-z]+)(?: ([1-9]\d*))?$/.exec(value);
+  return !!match&&names.includes(match[1]);
+}
+
 export function captainRoster(peerIds){
   const roster=new Map(),used=new Set();
   for(const id of [...new Set(peerIds)].sort()){

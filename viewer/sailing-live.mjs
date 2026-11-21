@@ -9,6 +9,7 @@ import {drawCompass} from './compass.mjs';
 import {forceDisplay,firstPersonInstruments} from './instrumentation.mjs?hud=2';
 import {mastCamera} from "./mast-camera.mjs";
 import {courseScene,raceAudio,firstLeg,trueBearing} from "./regatta.mjs";
+import {lapLeaderboard,lapClock} from "./lap-board.mjs";
 import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
 // Present two committed world poses between worker packets. Restore the
@@ -136,6 +137,7 @@ async function run(){
   const boardClock=courseScene(T,scene,race),audio=raceAudio();
   let lastCountdown=null,raceTick=0,lastLap;
   const roomName=(url.searchParams.get('room')||'regatta').slice(0,64);
+  const laps=hasBoat?lapLeaderboard(vessel,roomName,$('racePanel')):null;
   const remote=fleet(T,scene,roomName,$('online'),{
     read:()=>({wind:Number($('wind').value),bearing:ocean.U.bearing.value,sea:$('seaState').value,sky:$('sky').value}),
     apply(settings){
@@ -145,7 +147,7 @@ async function run(){
       if(settings.sea!==undefined){$('seaState').value=settings.sea;applySea();}
       if(settings.sky!==undefined)$('sky').value=settings.sky;
     }
-  },$('crew'));camera.layers.enable(1);
+  },$('crew'),laps);camera.layers.enable(1);
   let joinAttempt=0;
   async function multiplayer(on){
     const attempt=++joinAttempt;
@@ -609,7 +611,8 @@ async function run(){
         boardClock(label);$('countdown').textContent=label;
         const lap=race.get('lapTime');
         const tenths=Math.round(lap*10);
-        const timer=Math.floor(tenths/600)+':'+((tenths%600)/10).toFixed(1).padStart(4,'0');
+        const timer=lapClock(tenths);
+        if($('controlTarget').value==='boat')laps?.observe(stage,lap,remote.captain);
         if(stage===5)lastLap=timer;
         let cue=['Wait for start','Cross upwind','Mark 1','Mark 2','Cross finish downwind','Finished'][stage];
         if(model&&(stage===2 || stage===3)){
