@@ -676,7 +676,23 @@ async function run(){
       if(drone?.active){const [e,n,z]=drone.position;$('readout').textContent='E '+e.toFixed(1)+' m · N '+n.toFixed(1)+' m · Altitude '+z.toFixed(2)+' m · Drag '+Math.hypot(...drone.drag).toFixed(2)+' N';}
       if(sub?.active){
         const f=sub.frame;
-        $('readout').textContent=sub.error||(!f?'Starting underwater navigation…':f.time.toFixed(2)+' s · Depth '+(-f.position[2]).toFixed(2)+' m · '+f.estimate[15]+' features · '+f.estimate[16]+' matches · '+f.estimate[12]+' keyframes'+(f.surveyDone?' · Survey complete':f.waypoint?' · Waypoint '+f.waypoint+'/'+f.waypointCount:''));
+        if(sub.error || !f?.estimate){
+          $('readout').textContent=sub.error||'Starting underwater navigation…';
+        }else{
+          const estimate=f.estimate;
+          const readout=[
+            f.time.toFixed(2)+' s',
+            'Est. depth '+(-estimate[2]).toFixed(2)+' m',
+            estimate[15]+' features',
+            estimate[16]+' matches',
+            estimate[12]+' keyframe'+(estimate[12]===1?'':'s')
+          ];
+          const closures=estimate[13];
+          if(closures)readout.push(closures+' loop closure'+(closures===1?'':'s'));
+          if(f.surveyDone)readout.push('Survey complete');
+          else if(f.waypoint)readout.push('Waypoint '+f.waypoint+'/'+f.waypointCount);
+          $('readout').textContent=readout.join(' · ');
+        }
       }
       document.body.dataset.runtime=sailingOnly?'sailing':world?'world':'fleet';document.body.dataset.simTime=t;document.body.dataset.east=s[0];requestAnimationFrame(draw);
     }catch(e){$('readout').textContent=e.message;console.error(e);}
