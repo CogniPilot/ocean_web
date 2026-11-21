@@ -184,3 +184,9 @@ Run `node scripts/profile-hobie-speed.mjs 11 auto` and `node scripts/profile-hob
 At 60°, tighter trim raised mean forward sail force from 24 N to 83 N. At 90° it raised drive from 108 N to 214 N. The best sustained run in these two sweeps was 12.71 kn, with a sampled peak of 12.77 kn. For scale, a racing Hobie 16 averaged 19.14 kn over a timed 380 m run in surf. The report gives no wind measurement for that run, so it provides a real-world reference rather than a matched calibration point. [International Hobie Class Association race report](https://hobieclass.com/denmark-wins-the-hobie-world-cat-2016-on-sylt-and-sets-speed-record/)
 
 The race launch uses the coupled world, including local wind and water. With the manual sheet held at its initial payout and rudder tracking the launch course, a 58° true wind angle gave 3.16 kn after 5 s and 1.94 kn after 15 s. A 75° launch gave 5.19 kn and 6.19 kn respectively from the same 4.67 kn initial speed.
+
+### Hobie deck hardware at sailing distance
+
+Three.js uses the full mainsheet blocks and jib cleats close to the camera. Beyond 4 m it uses a single vertex-coloured mesh per fitting. Distance selection runs separately for each camera. With the same boat and an 800 × 600 render target, a 14 m orbit view went from 85 draws and 17,856 triangles to 73 draws and 6,864 triangles. Three pixels differed by more than two intensity levels in any RGB channel. A 0.25 m view of the lower block returned identical pixels and triangle counts.
+
+Four cache-disabled Chromium runs used a 393 × 852 touch viewport, Low quality, and SwiftShader. Each measured 180 running frames after warmup. In release/candidate/candidate/release order the rates were 35.9, 37.6, 39.2 and 35.0 FPS. The corresponding 95th-percentile frame times were 54.7, 72.6, 60.2 and 102.9 ms. The renderer improvement leaves significant frame stalls and these timings do not measure a physical handset.

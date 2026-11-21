@@ -157,7 +157,31 @@ function deckHardware(T,traveler=false){
    g.setAttribute('normal',new T.Float32BufferAttribute(normals,3));
    group.add(new T.Mesh(g,new T.MeshStandardMaterial({color,metalness:metal,roughness:metal>.5?.31:.63})));
  }
- return group;
+ // Beyond four metres the axle pins and cheek cutouts occupy a few pixels.
+ // Keep the outline and rope attachment locations for the orbit and optical cameras.
+ batches.clear();
+ if(traveler){
+   part(new T.BoxGeometry(.096,.105,.008),steel,.48,.003,0,.004);
+   for(const y of [-.036,.036]){
+     part(new T.CylinderGeometry(.023,.023,.029,8).rotateX(Math.PI/2),dark,.12,-.023,y,.021);
+   }
+   part(new T.CylinderGeometry(.027,.027,.025,8).rotateX(Math.PI/2),wheel,.15,.031,0,.026);
+ }else{
+   part(new T.CylinderGeometry(.025,.025,.052,10).rotateZ(Math.PI/2),dark,.14,0,0,.034);
+   pin(0,0,.038,.006,.055);
+ }
+ const farGeometry=new T.BufferGeometry(),positions=[],normals=[],colors=[];
+ for(const [tint,batch] of batches){
+   positions.push(...batch.positions);normals.push(...batch.normals);
+   const rgb=new T.Color(tint);
+   for(let i=0;i<batch.positions.length;i+=3)colors.push(rgb.r,rgb.g,rgb.b);
+ }
+ for(const [name,data] of [['position',positions],['normal',normals],['color',colors]])
+   farGeometry.setAttribute(name,new T.Float32BufferAttribute(data,3));
+ const silhouette=new T.Mesh(farGeometry,new T.MeshStandardMaterial({vertexColors:true,roughness:.60,metalness:.18}));
+ const lod=new T.LOD();
+ lod.addLevel(group,0);lod.addLevel(silhouette,4,.1);
+ return lod;
 }
 
 // A single vertex-coloured mesh keeps the moving deck ballast to one draw call.
