@@ -72,6 +72,8 @@ The combined build targets Rumoca FMI 3 co-simulation. Body coordinates are forw
 * The 5 Hz sensor exchange uses four downward-looking DVL beams, a forward sonar with a 49-ray centre fan and four 25-ray fans at −24°, −12°, +12° and +24° elevation, a 36 × 24 raycast navigation camera, a pressure sensor and inertial measurements. The Modelica sensor intersects oriented solids shared with wreck collision geometry. Sensor outputs include slant ranges, signed beam velocities, sonar returns, pressure, angular rates, specific force and image-patch measurements. The navigation front end matches sonar scans against cells accumulated from prior measurements. It tracks a camera patch by its brightness pattern. Modelica uses upstream FAST corner scoring to gate the visual angular-rate estimate and upstream pose-edge residuals to combine the scan match with DVL and gyro odometry. Pressure closes the depth loop and accelerometers help level the vehicle.
 * Each survey keyframe stores 48 selected sonar returns across horizontal and elevated fans. Estimated attitude places those returns in 3D. Registration corrects horizontal translation and yaw, pressure constrains depth, and gravity helps level the estimate. The 12-station regression completed in 112.8 simulated seconds with 0.585 m translational RMS error, temporal feature matches on 558 of 565 frames, and a peak contact force of 45.1 N.
 
+The [wreck navigation review](NAVIGATION.md) covers the current estimator, field-tested alternatives, and validation for real sensors.
+
 ### Sensor vector
 
 | Plant input lanes (one-based) | Measurement or derived observation |
