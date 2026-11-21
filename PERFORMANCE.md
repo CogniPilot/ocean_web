@@ -219,3 +219,9 @@ The planar reflection and transmission passes usually run together on Low. A can
 | Release | 38.8 | 39.2 ms | 0.93 |
 
 The release keeps the passes together. Staggering increased the long frame intervals despite slightly higher average FPS. The isolation trials point toward reducing the cost of each ocean draw as the next experiment.
+
+### Measuring a phone during a session
+
+Open **Settings → Test frame rate (15 s)** while sailing, flying or surveying. Keep the page visible. The report gives average rendered frames per second, the 95th-percentile interval between frames, simulated seconds per wall second, the performance preset, and the final drawing-buffer dimensions. A real-time factor of 1.00 means the physics advanced one simulated second per elapsed second. The test samples the simulation's existing draw loop locally. Adaptive resolution stays active. To compare devices, use the same vehicle, view, sea, sky and preset.
+
+A tested Low shader shortcut skipped the four-octave foam pattern when crest and shore coverage were below 1e-8. Two fixed-view renders (Day and Storm) matched every tested color byte. In four 15-second SwiftShader runs with mobile viewport emulation, release/candidate/candidate/release p95 frame intervals were 49.2, 48.2, 50.4 and 48.8 ms. The shortcut did not improve sustained frame pacing consistently and was left out of the release.
