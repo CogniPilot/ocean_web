@@ -11,8 +11,10 @@ export function forceDisplay(T,scene,sub,yacht,cat,model){
  for(let k=0;k<(cat?4:2);k++)
    arrow(yacht,[0,0,0],0x6cbcff);
  const buoyIndex=specs.length;arrow(yacht,[0,0,-.08],0x77e7ba);
- for(const r of sub.userData.rotors)arrow(sub,r.center.toArray(),0xff82af);
- arrow(sub,[0,0,.055],0x77e7ba);arrow(sub,[0,0,0],0xff524b);
+ if(sub){
+   for(const r of sub.userData.rotors)arrow(sub,r.center.toArray(),0xff82af);
+   arrow(sub,[0,0,.055],0x77e7ba);arrow(sub,[0,0,0],0xff524b);
+ }
  const dir=new T.Vector3(),up=new T.Vector3(0,0,1),yaw=new T.Quaternion();
  return (enabled,b,f,showSub)=>{
    group.visible=enabled;if(!enabled)return;
