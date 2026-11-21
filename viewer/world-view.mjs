@@ -91,16 +91,17 @@ export async function openWorld(mode='world',seaState=.45){
    return accepted;
  }
  function dispatch(){
-   if(error||pending.size>=2||!queued||document.hidden)return;
-   const steps=Math.min(batchSize,queued);
-   queued-=steps;
-   set('epoch',Date.now()/1000-time-.01*outstanding);
-   outstanding+=steps;
-   send({type:'advance',steps,values:controls,surveyView}).then(f=>{
-     outstanding-=steps;
-     receive(f);
-     dispatch();
-   }).catch(e=>{queued=0;fail(e);});
+   while(!error&&pending.size<2&&queued&&!document.hidden){
+     const steps=Math.min(batchSize,queued);
+     queued-=steps;
+     set('epoch',Date.now()/1000-time-.01*outstanding);
+     outstanding+=steps;
+     send({type:'advance',steps,values:controls,surveyView}).then(f=>{
+       outstanding-=steps;
+       receive(f);
+       dispatch();
+     }).catch(e=>{queued=0;fail(e);});
+   }
  }
  function view(prefix,write){
    const get=name=>{
