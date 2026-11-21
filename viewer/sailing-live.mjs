@@ -102,7 +102,7 @@ async function run(){
       if(settings.sea!==undefined){$('seaState').value=settings.sea;applySea();}
       if(settings.sky!==undefined)$('sky').value=settings.sky;
     }
-  });camera.layers.enable(1);
+  },$('crew'));camera.layers.enable(1);
   let joinAttempt=0;
   async function multiplayer(on){
     const attempt=++joinAttempt;
