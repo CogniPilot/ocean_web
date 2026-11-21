@@ -34,9 +34,9 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     swellAmplitude=.3*seaState,wakeEast=waves.waveLoad[1],wakeNorth=waves.waveLoad[2],wakeYaw=waves.waveLoad[3]);
   MarineWind wind(phaseOffset=seaClockOffset,advectionAnchor=windAnchor,meanEast=windSpeed*cos(windBearing),meanNorth=windSpeed*sin(windBearing),
     east=boat.east,north=boat.north,droneEast=windProbe[1],droneNorth=windProbe[2]);
-  WakeSpectrum waves(omitWake=omitWake,peers=peerWake,seaClockOffset=seaClockOffset,east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
+  WakeSpectrum waves(sharedDrift=true,omitWake=omitWake,peers=peerWake,seaClockOffset=seaClockOffset,east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
     stations=boat.stationX,separation=boat.halfSpacing,volume=boat.sectionVolume,beamHalf=boat.beamHalf,
-    currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],windEast=wind.meanEast,windNorth=wind.meanNorth,seaAmplitude=seaState);
+    currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],windEast=wind.meanEast,windNorth=wind.meanNorth,seaAmplitude=seaState);
   Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
   Regatta race(seaClockOffset=seaClockOffset,landingReaction=committeeLandingWrench,wakeTile=waves.height,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
     tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north);

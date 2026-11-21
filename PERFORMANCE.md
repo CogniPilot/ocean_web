@@ -310,3 +310,9 @@ Balanced and High receive a hull-only elevation grid from the same spectral solv
 The startup picker opens a vehicle-specific compiled component in one physics worker. A room invite opens the same picker for each player. In the shared room, vehicle poses go over WebRTC. The local solver consumes peer inputs for sailboat contact, wind shadow, and drone landings. Only a submarine tab runs the navigation sensor sampling and SLAM. The explicit `?runtime=world` development route still runs the coupled model.
 
 Run `node scripts/profile-vehicles.mjs build/pages` against a packaged site to check the included plants and measure solver throughput. This test runs 600 fixed 10 ms steps after 100 warmup steps, with wakes enabled and an active survey camera in the dedicated submarine. It excludes renderer and network time.
+
+### Shared surface coordinates and close wake detail
+
+In a regression with four vehicle types and the coupled component, late starters reevaluated the 64 × 64 directional wave field at the same room time. At five ENU points the maximum discrepancy dropped from 0.445 m to 1.24e-13 m. The test holds weather fixed and isolates the incoming spectral band. The visible and physical wake still depends on the arrival of a peer's displacement samples. Run `node scripts/check-surface-wave-drift.mjs build/pages` and `node scripts/check-peer-wake.mjs build/pages/sailing build/pages/flight` to check both paths.
+
+Balanced and High render two narrow foam trails on the solved ocean using the observed positions and immersion of the stern strips. Each drawn sample is advected by the same surface-current reference as the spectral field. Its appearance fades over 3.6 seconds. The foam is a rendering approximation for entrained air and supplies no force. Bow foam brightens existing positive wake crests beside wet forebody strips. Low skips these passes. The spectral field still supplies the wave height and resistance.
