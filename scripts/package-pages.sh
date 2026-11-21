@@ -8,7 +8,7 @@ cp viewer/board/boat.mjs "$out/board/"
 cp viewer/vendor/{three.min.js,gltf-loader.mjs,THREE-LICENSE,trystero.mjs} "$out/vendor/"
 cp -Rf viewer/{assets,licenses} "$out/"
 cp LICENSE NOTICE "$out/"
-cp viewer/fmi3/{instance.mjs,OceanWorld.fmu} "$out/fmi3/"
+cp viewer/fmi3/{instance.mjs,OceanWorld.fmu,OceanSailing.fmu} "$out/fmi3/"
 for model in Wreck_Plant Wreck_Navigation Rdd2Survey Sailboat Hobie16 Regatta MarineWind HullWake WakeSpectrum; do
   cp viewer/fmi3/"$model".{fmu,json,mjs,wasm} "$out/fmi3/"
 done
@@ -16,6 +16,7 @@ touch "$out/.nojekyll"
 
 if [[ ${2:-} == --world ]]; then
   node scripts/prepare-world-runtime.mjs "$out/world"
+  node scripts/prepare-world-runtime.mjs "$out/sailing" viewer/fmi3/OceanSailing.fmu OceanSailing
   sed 's/<body>/<body data-default-runtime="world">/' viewer/index.html > "$out/index.html"
 fi
 

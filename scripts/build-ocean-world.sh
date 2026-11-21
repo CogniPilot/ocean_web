@@ -9,7 +9,12 @@ for package in "$PWD"/.deps/modelica_models/*/package.mo "$PWD"/.deps/msl/*/pack
   ln -sfn "$directory" "$lib/${directory##*/}"
 done
 ln -sfn "$PWD/.deps/msl/Complex.mo" "$lib/Complex.mo"
-roots=(--source-root "$lib")
+case ${1:-OceanWorld} in
+  OceanWorld) modelName=OceanWorld; defaultOut=build/ocean-world ;;
+  OceanSailing) modelName=OceanSailing; defaultOut=build/ocean-sailing ;;
+  *) echo "Expected OceanWorld or OceanSailing" >&2; exit 2 ;;
+esac
+roots=(--source-root "$lib" --source-root models/OceanRace.mo)
 for model in Shore Sailboat SailMembrane MarineWind WakeSpectrum Regatta Rdd2Survey; do
   roots+=(--source-root "viewer/board/$model.mo")
 done
@@ -17,4 +22,4 @@ done
 # on the guest stack. The default WASI stack traps during initialization.
 export CARGO_PROFILE_RELEASE_OPT_LEVEL="${CARGO_PROFILE_RELEASE_OPT_LEVEL:-3}"
 export CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS:--Dwarnings}"$'\x1f'"-Clink-arg=-zstack-size=8388608"
-exec "$compiler" compile models/OceanWorld.mo -m OceanWorld "${roots[@]}" --target fmi-ls-wasm -o "${OCEAN_WORLD_OUT:-build/ocean-world}"
+exec "$compiler" compile "models/$modelName.mo" -m "$modelName" "${roots[@]}" --target fmi-ls-wasm -o "${OCEAN_WORLD_OUT:-$defaultOut}"
