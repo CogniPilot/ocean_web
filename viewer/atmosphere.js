@@ -138,6 +138,81 @@ vec4 skyRadiance(vec3 d){
  return vec4(mix(fair,base*(.45+.55*day),storm),(1.-clouds*.81)*(1.-storm));
 }
 `;
+// One point batch for droplets from both hulls. Emission follows the measured
+// wet forebody sections. After release, droplets travel independently of the boat.
+function bowSpray(scene,U){
+ const slots=2048,geometry=new THREE.BufferGeometry();
+ const origins=new THREE.BufferAttribute(new Float32Array(slots*3),3).setUsage(THREE.DynamicDrawUsage);
+ const velocity=new THREE.BufferAttribute(new Float32Array(slots*3),3).setUsage(THREE.DynamicDrawUsage);
+ const life=new THREE.BufferAttribute(new Float32Array(slots*2),2).setUsage(THREE.DynamicDrawUsage);
+ geometry.setAttribute('position',origins);geometry.setAttribute('launchVelocity',velocity);geometry.setAttribute('drop',life);
+ const material=new THREE.ShaderMaterial({uniforms:U,transparent:true,depthWrite:false,
+   vertexShader:oceanHeightGLSL+`
+     uniform float tm,under;uniform vec2 viewport;
+     attribute vec3 launchVelocity;attribute vec2 drop;varying float opacity;
+     void main(){
+       float age=tm-position.z;
+       float dz=age*(launchVelocity.z-4.905*age);
+       gl_Position=vec4(2.,2.,2.,1.);gl_PointSize=1.;opacity=0.;
+       if(drop.x<=0. || under>.5 || age<0. || dz<0.)return;
+       vec2 p=position.xy+age*launchVelocity.xy;
+       vec4 eye=viewMatrix*vec4(p,heightAt(position.xy)+dz+.012,1.);
+       gl_Position=projectionMatrix*eye;
+       float pixels=drop.x*viewport.y*projectionMatrix[1][1]/max(.1,-eye.z);
+       gl_PointSize=clamp(pixels,1.,9.);
+       opacity=drop.y*min(1.,pixels*pixels)*smoothstep(0.,.025,dz+.012);
+     }`,
+   fragmentShader:`uniform vec3 sunDir;varying float opacity;
+     void main(){
+       vec2 q=2.*gl_PointCoord-1.;float a=opacity*(1.-smoothstep(.12,1.,dot(q,q)));
+       if(a<.012)discard;
+       gl_FragColor=vec4(mix(vec3(.15,.25,.29),vec3(.85,.93,.95),smoothstep(-.15,.22,sunDir.z)),a);
+       #include <tonemapping_fragment>
+       #include <colorspace_fragment>
+     }`});
+ const points=new THREE.Points(geometry,material);
+ points.name='Bow spray';points.frustumCulled=false;points.visible=false;points.renderOrder=1;scene.add(points);
+ const priorWet=[0,0];
+ let slot=0,seed=853,previous,lastDrop=-Infinity;
+ function random(){seed=(Math.imul(1664525,seed)+1013904223)>>>0;return seed/4294967296;}
+ function clear(){life.array.fill(0);life.needsUpdate=true;points.visible=false;previous=undefined;lastDrop=-Infinity;}
+ function sample(strips,time,speed){
+   if(previous===time)return;
+   if(previous!==undefined&&(time<previous||time-previous>.31))clear();
+   const dt=previous===undefined?0:time-previous;
+   previous=time;
+   let emitted=false;
+   for(let hull=0;hull<2;hull++){
+     const stern=18*hull;
+     let tip=stern+15;
+     while(tip>stern+3 && strips[tip+2]<.0007)tip-=3;
+     const shoulder=tip-3;
+     let dx=strips[tip]-strips[shoulder],dy=strips[tip+1]-strips[shoulder+1];
+     const length=Math.hypot(dx,dy),wet=strips[tip+2]+.42*strips[shoulder+2];
+     const loading=dt>0?Math.max(0,(wet-priorWet[hull])/dt):0;
+     priorWet[hull]=wet;
+     if(!dt||length<.02||speed<1.5||wet<.0003)continue;
+     dx/=length;dy/=length;
+     const strength=Math.min(1,(speed-1.5)/6)*Math.min(1,Math.sqrt(wet/.012));
+     const impact=Math.min(1,loading/.085);
+     const count=Math.min(160,Math.round(dt*1450*strength*(.68+.65*impact)));
+     for(let i=0;i<count;i++){
+       const phase=(i+random())*dt/count,side=random()<.5?-1:1;
+       const along=(.40+.65*strips[tip+2]/wet-.64*random())*length+phase*speed;
+       const beam=side*(.065+.075*random());
+       origins.setXYZ(slot,strips[shoulder]+along*dx-beam*dy,strips[shoulder+1]+along*dy+beam*dx,time+phase);
+       const surge=speed*(.18+.32*random()),sway=side*speed*(.10+.20*random());
+       const rise=Math.min(4.1,speed*(.13+.20*random())*(.95+.65*impact));
+       velocity.setXYZ(slot,surge*dx-sway*dy,surge*dy+sway*dx,rise);
+       life.setXY(slot,.004+.010*random(),.52+.40*random());
+       slot=(slot+1)%slots;lastDrop=time+phase;emitted=true;
+     }
+   }
+   if(emitted)origins.needsUpdate=velocity.needsUpdate=life.needsUpdate=true;
+   points.visible=time-lastDrop<1.;
+ }
+ return {points,sample,clear};
+}
 // Render white water over the solved surface along the past wet stern sections.
 function hullFoam(scene,uniforms){
  const count=52,tracks=[[],[]],geometry=new THREE.BufferGeometry();
@@ -288,7 +363,8 @@ function atmosphere(scene,waterCaptureLayer){
  bowTexture.minFilter=bowTexture.magFilter=THREE.LinearFilter;
  U.bowMap={value:bowTexture};U.bowAvailable={value:0};
  U.forebodyPort={value:new THREE.Vector3()};U.forebodyStarboard={value:new THREE.Vector3()};
- function clearWake(){U.wakeAvailable.value=U.bowAvailable.value=0;trails.clear();}
+ let spray;
+ function clearWake(){spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=0;trails.clear();}
  function displayedHeight(data,k,blend){
    const old=(data[k]<<8)+data[k+1],latest=(data[k+2]<<8)+data[k+3];
    return Math.round(old+blend*(latest-old));
@@ -318,13 +394,14 @@ function atmosphere(scene,waterCaptureLayer){
  tile.wrapS=tile.wrapT=THREE.RepeatWrapping;tile.minFilter=tile.magFilter=THREE.LinearFilter;tile.needsUpdate=true;
  Object.assign(U,{tile:{value:tile},blend:{value:1},tide:{value:0},wind:{value:11},bearing:{value:.45},boat:{value:new THREE.Vector4()},reflection:{value:null},transmission:{value:null},mirrorMatrix:{value:new THREE.Matrix4()},viewport:{value:new THREE.Vector2(1,1)}});
  const field=oceanHeightGLSL+`
- vec2 surfaceSlope(vec2 p){
+ vec2 surfaceSlope(vec2 p,out vec2 bowSlope){
    vec2 slope=vec2(backgroundHeightAt(p+vec2(.48,0))-backgroundHeightAt(p-vec2(.48,0)),
      backgroundHeightAt(p+vec2(0,.48))-backgroundHeightAt(p-vec2(0,.48)))/.96;
+   bowSlope=vec2(0.);
    if(nearBowField(p,4.25))
-     slope+=vec2(bowElevation(p+vec2(.24,0))-bowElevation(p-vec2(.24,0)),
+     bowSlope=vec2(bowElevation(p+vec2(.24,0))-bowElevation(p-vec2(.24,0)),
        bowElevation(p+vec2(0,.24))-bowElevation(p-vec2(0,.24)))/.48;
-   return slope;
+   return slope+bowSlope;
  }
  #ifdef VERTEX_SLOPE
  varying vec2 resolvedSlope;
@@ -333,8 +410,15 @@ function atmosphere(scene,waterCaptureLayer){
  function waterMesh(segments){
  const geometry=new THREE.PlaneGeometry(1,1,segments,segments);
  const coords=geometry.attributes.position;
+ // Resolve the 25 cm body-frame field with at least two vertices per cell
+ // across the bows. Spend the same vertex budget over coarser open water.
+ const stretch=v=>{
+   const u=2*Math.abs(v);
+   if(segments<120)return Math.sign(v)*(15*u+580*u**4);
+   const outer=Math.max(0,(u-.52)/.48);
+   return Math.sign(v)*(7.5*u+587.5*outer**3);
+ };
  for(let j=0;j<coords.count;j++){
-   const stretch=v=>Math.sign(v)*(Math.abs(v)*30+Math.pow(2*Math.abs(v),4)*580);
    coords.setXY(j,stretch(coords.getX(j)),stretch(coords.getY(j)));
  }
  return geometry;
@@ -343,7 +427,7 @@ function atmosphere(scene,waterCaptureLayer){
  vertexShader:field+`varying vec3 wp;
  void main(){wp=(modelMatrix*vec4(position,1.)).xyz;wp.z=heightAt(wp.xy);
  #ifdef VERTEX_SLOPE
- resolvedSlope=surfaceSlope(wp.xy);
+ vec2 unusedBowSlope;resolvedSlope=surfaceSlope(wp.xy,unusedBowSlope);
  #endif
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
@@ -391,9 +475,10 @@ function atmosphere(scene,waterCaptureLayer){
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
    #ifdef VERTEX_SLOPE
-   vec2 d=resolvedSlope;
+   vec2 d=resolvedSlope,bowSlope=vec2(0.);
    #else
-   vec2 d=surfaceSlope(wp.xy);
+   vec2 bowSlope;
+   vec2 d=surfaceSlope(wp.xy,bowSlope);
    #endif
    float gravitySlope=length(d);
    d+=fade*rippleSlope(wp.xy,tm,dir,rippleWind*(1.+puff*.34));
@@ -469,11 +554,17 @@ function atmosphere(scene,waterCaptureLayer){
          // Use small drifting patches to break up the visible foam on the crest.
          float bubbles=noise2((wp.xy-spectrumDrift)*6.);
          float coverage=smoothstep(.012,.062,hullCrest)*edge;
-         foam=max(foam,coverage*(.20+.64*smoothstep(.24,.73,bubbles)));
          vec2 forward=vec2(cos(boat.z),sin(boat.z));
          float bow=max(nearWetBow(forebodyPort,wp.xy,forward),nearWetBow(forebodyStarboard,wp.xy,forward));
-         float crestWhite=smoothstep(.012,.041,hullCrest)*(.56+.44*smoothstep(.22,.68,bubbles));
-         foam=max(foam,bow*crestWhite);
+         // Clear water climbs the stem. Only the steeper leading shoulder
+         // gets localized aeration; the gentler pressure hump stays reflective.
+         float face=max(0.,-dot(bowSlope,forward));
+         float breakingFace=smoothstep(.08,.32,length(bowSlope))*smoothstep(.018,.14,face);
+         float foamStreak=noise2(vec2(dot(wp.xy-spectrumDrift,forward)*5.-tm,
+                                    dot(wp.xy-spectrumDrift,vec2(-forward.y,forward.x))*19.));
+         float scattered=.20+.80*smoothstep(.27,.72,foamStreak);
+         float trail=coverage*(1.-bow)*(.20+.64*smoothstep(.24,.73,bubbles));
+         foam=max(foam,max(trail,bow*breakingFace*scattered*coverage));
        }
      }
      float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
@@ -494,6 +585,7 @@ function atmosphere(scene,waterCaptureLayer){
  function updateHullFoam(strips,time,speed,cat){
    if(!strips)return;
    trails.sample(strips,time,speed,cat);
+   if(cat){spray??=bowSpray(scene,U);spray.sample(strips,time,speed);}
    const strength=Math.max(0,Math.min(1,(speed-1.25)/2.8));
    function crestSource(target,index,active){
      const immersion=active?Math.min(1,(strips[index+2]+.45*strips[index-1])/.014):0;
@@ -529,7 +621,8 @@ function atmosphere(scene,waterCaptureLayer){
  function capture(renderer,camera,submergedScenery,reflect,transmit){
    camera.updateMatrixWorld();
    const oldBackground=scene.background,oldFog=scene.fog;
-   const foamVisible=trails.mesh.visible;
+   const foamVisible=trails.mesh.visible,sprayVisible=spray?.points.visible;
+   if(spray)spray.points.visible=false;
    water.visible=false;trails.mesh.visible=false;dome.visible=false;scene.fog=null;
    if(reflect){
      camera.getWorldDirection(mirrorLook).add(camera.position);
@@ -558,6 +651,7 @@ function atmosphere(scene,waterCaptureLayer){
    }
    renderer.setRenderTarget(null);
    scene.fog=oldFog;scene.background=oldBackground;water.visible=true;trails.mesh.visible=foamVisible;dome.visible=true;
+   if(spray)spray.points.visible=sprayVisible;
  }
  function setQuality(profile,vertexSlope,multisampling){
    if(water.geometry.parameters.widthSegments!==profile.mesh){
