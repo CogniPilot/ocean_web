@@ -70,5 +70,5 @@ export async function openWorld(){
  const axes=['forward','left','climb','turn'];
  const flight=view('drone',(n,v)=>{const i=axes.indexOf(n);if(i>=0)controls[offsets.get('flightPilot')+i]=v;
    else set(n==='pilot'?'flightManual':n,v);});
- return {advance,setWakeEnabled(enabled){if(offsets.has('omitWake'))set('omitWake',Number(!enabled));},hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map){surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',Number(!active));},clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
+ return {advance,setWakeEnabled(enabled){if(offsets.has('omitWake'))set('omitWake',Number(!enabled));},hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map){surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

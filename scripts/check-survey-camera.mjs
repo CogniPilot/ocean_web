@@ -10,7 +10,7 @@ import {fileFetch} from '../.deps/microduck_web/scripts/fmu-test-support.mjs';
 const base=pathToFileURL(resolve(process.argv[2])+'/');
 const manifest=JSON.parse(await readFile(new URL('manifest.json',base)));
 const index=JSON.parse(await readFile(new URL(manifest.index,base)));
-const world=await openFmuSession({index,base,fetch:fileFetch});
+const world=await openFmuSession({index,base,fetch:fileFetch,parameters:{surveyAtStartup:0}});
 try{
   const bind=(name,shape)=>world.bind_outputs(JSON.stringify(scalarNames(name,shape)));
   const camera=bind('image',[864]),sensors=bind('sensor',[91]),features=bind('features',[24,5]);
@@ -31,10 +31,13 @@ try{
       if(inputs.subManual===1)assert(observed.slice(8,57).every(x=>x===0),'Manual idle sub should skip sonar');
     }
   }
-  check({idleCamera:0,subManual:1,flightManual:1},true);
+  assert.equal(world.read_bound(state)[12],0,'Browser startup should leave the map empty');
+  check({idleCamera:1,subManual:1,flightManual:1},false);
+  assert.equal(world.read_bound(state)[12],0);
+  check({idleCamera:-1,subManual:1,flightManual:1},true);
   check({idleCamera:1,subManual:1,flightManual:1},false);
   check({idleCamera:1,subManual:0},false);
   check({idleCamera:1,subManual:1,flightManual:0},false);
-  check({idleCamera:0},true);
+  check({idleCamera:-1},true);
   console.log('Verified selected SLAM, frozen inactive map, pressure/DVL and reactivation.');
 }finally{world.free();}
