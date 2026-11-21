@@ -1,4 +1,5 @@
 import {sailingStart,windBearing,windSpeed} from './sailing-start.mjs';
+import {reflectionLayer,reflectOnLow} from './render-layers.mjs';
 import {wreckCaustics} from './caustics.mjs';
 import {loadVehicleShell} from './vehicle-assets.mjs';
 import {loadInstance} from './fmi3/instance.mjs?api=2';
@@ -35,12 +36,12 @@ function displayPose(){
   };
 }
 // Blend successive completed water samples over their observed delivery time.
-function waterPresentation(){
+function waterPresentation(nominal=1){
   let stamp,arrival,interval=1;
   return {
     sample(value,now){
       if(stamp===value)return;
-      interval=arrival===undefined?1:Math.max(1,Math.min(500,now-arrival));
+      interval=arrival===undefined?nominal:Math.max(nominal,Math.min(500,now-arrival));
       stamp=value;arrival=now;
     },
     blend(now,running){return running&&arrival!==undefined?Math.min(1,(now-arrival)/interval):1;}
@@ -98,7 +99,8 @@ async function run(){
   const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
   renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
-  coast(T,scene,renderer.capabilities.isWebGL2 || renderer.extensions.has('ANGLE_instanced_arrays'));
+  const island=coast(T,scene,renderer.capabilities.isWebGL2 || renderer.extensions.has('ANGLE_instanced_arrays'));
+  island.traverse(reflectOnLow);
   const [simulation,,subAssets]=await simulationReady;
   const world=mode?simulation:null;
   const model=world?world.boat:simulation;
@@ -217,11 +219,12 @@ async function run(){
   for(const type of ['click','keydown'])addEventListener(type,unlockAudio);
   const hemi=new T.HemisphereLight(0xe5f8fb,0x767266,1.8);hemi.position.z=1;scene.add(hemi);
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
-  const ocean=atmosphere(scene),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
+  reflectOnLow(hemi);reflectOnLow(sun);
+  const ocean=atmosphere(scene,reflectionLayer),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   const profiles={
-    low:{ratio:.75,min:.5,capture:.375,reflectionInterval:55,transmissionInterval:150,mesh:88,sky:.5},
+    low:{ratio:.75,min:.5,capture:.375,reflectionInterval:0,transmissionInterval:150,mesh:88,sky:.5},
     balanced:{ratio:1,min:.75,capture:.75,reflectionInterval:65,transmissionInterval:65,mesh:120,sky:.75},
-    high:{ratio:1,min:1,capture:1,reflectionInterval:0,transmissionInterval:0,mesh:144,sky:1}
+    high:{ratio:1,min:1,capture:1.25,reflectionInterval:0,transmissionInterval:0,mesh:144,sky:1,filterTransmission:true}
   };
   let preferred;
   try{preferred=localStorage.getItem('ocean-render-quality');}catch{}
@@ -235,7 +238,7 @@ async function run(){
     remote.setWakeReception(Boolean(world?.hasPeerWake && !omitWake));
     if(omitWake && world?.hasPeerWake)world.set('peerWake',new Float64Array(4*38));
     profile=profiles[selector.value];pixelScale=Math.min(devicePixelRatio,profile.ratio);
-    renderer.setPixelRatio(pixelScale);ocean.setQuality(profile,selector.value==='low');
+    renderer.setPixelRatio(pixelScale);ocean.setQuality(profile,selector.value==='low',renderer.capabilities.isWebGL2);
   }
   applyQuality();
   selector.onchange=()=>{
@@ -478,7 +481,7 @@ async function run(){
   const noGo=model?.get('noGo');
   const waterStamp=()=>model?model.get('waterStamp'):world.get('waterStamp');
   let meshTime,observedBoat;
-  const wavePresentation=waterPresentation(), seaPresentation=waterPresentation(), ripplePresentation=waterPresentation();
+  const wavePresentation=waterPresentation(100), seaPresentation=waterPresentation(200), ripplePresentation=waterPresentation();
   let previousRippleTime;
   let lastWorldTick=-1,lastFieldTick=-1,lastSurfaceTick=-1,previousSurface;
   const measureButton=$('measureFrames'),frameResult=$('frameResult'),runStats=$('runStats');
@@ -593,7 +596,7 @@ async function run(){
           ocean.update(previousSurface??surface,surface);seaPresentation.sample(surfaceTick,now);
           previousSurface=surface;lastSurfaceTick=surfaceTick;
         }
-        ocean.U.blend.value=selector.value==='low'?seaPresentation.blend(now,running):Math.min(1,(tick%20)/10);
+        ocean.U.blend.value=seaPresentation.blend(now,running);
         wakeTicks=tick;
       }
       // Keep complete 10 ms solver steps but yield between them for input and rendering.
@@ -639,7 +642,7 @@ async function run(){
         }
         if(drone && (drone.active||!drone.manual)){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);race.set('landingReaction',drone.deckReaction);model.set('droneLoad',drone.sailReaction);}acc-=.01;
       }
-      ocean.U.spectrumBlend.value=selector.value==='low'?wavePresentation.blend(now,running):world?(model?model.get('waterFraction'):world.get('waterFraction')):Math.min(1,((wakeTicks===0?0:(wakeTicks-1)%10+1)+acc/.01)/10);
+      ocean.U.spectrumBlend.value=wavePresentation.blend(now,running);
       const t=world?.time??model.time;
       if(model&&t!==meshTime){
         observedBoat=observeBoat(model);
@@ -676,8 +679,7 @@ async function run(){
         ripplePresentation.sample(t,now);
         life?.(t);causticTime.value=t;meshTime=t;
       }
-      ocean.U.tm.value=selector.value==='low'
-        ? previousRippleTime+(t-previousRippleTime)*ripplePresentation.blend(now,running) : t;
+      ocean.U.tm.value=previousRippleTime+(t-previousRippleTime)*ripplePresentation.blend(now,running);
       if(s){
         ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
         if(world)hullDisplay.apply(boat.group,t,now,running);

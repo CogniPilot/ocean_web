@@ -133,7 +133,7 @@ export function fleet(T,scene,roomName,status,weather,crew){
       await loadVehicleShell(peer.cat?'hobie-hulls':'sloop-hull');
       if(peers.get(id)!==peer)return;
       peer.mesh=sailboatMesh(T,peer.cat);
-      peer.mesh.group.traverse(o=>o.layers.set(1));
+      peer.mesh.group.traverse(o=>{o.layers.disable(0);o.layers.enable(1);});
       peer.mesh.group.visible=false;
       scene.add(peer.mesh.group);
     }catch(error){

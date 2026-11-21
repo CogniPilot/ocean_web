@@ -206,7 +206,7 @@ function hullFoam(scene,uniforms){
  }
  return {mesh,clear,sample};
 }
-function atmosphere(scene){
+function atmosphere(scene,reflectionLayer){
  const U={cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  const skyTarget=new THREE.WebGLRenderTarget(512,192,{type:THREE.HalfFloatType});
  skyTarget.texture.wrapS=THREE.RepeatWrapping;
@@ -263,15 +263,16 @@ function atmosphere(scene){
  U.incidentMap={value:incidentTexture};U.wakeAvailable={value:0};
  U.forebodyPort={value:new THREE.Vector3()};U.forebodyStarboard={value:new THREE.Vector3()};
  function clearWake(){U.wakeAvailable.value=0;trails.clear();}
+ function displayedHeight(data,k,blend){
+   const old=(data[k]<<8)+data[k+1],latest=(data[k+2]<<8)+data[k+3];
+   return Math.round(old+blend*(latest-old));
+ }
  function encodeSpectrum(data,frame,initialized,subtract){
    for(let i=0;i<frame.length;i++){
      const level=frame[i]-(subtract?subtract[i]:0);
      const packed=Math.round(32768+Math.max(-4,Math.min(3.99987,level))*8192);
-     const k=i*4,hi=packed>>8,lo=packed&255;
-     data[k]=initialized?data[k+2]:hi;
-     data[k+1]=initialized?data[k+3]:lo;
-     data[k+2]=hi;
-     data[k+3]=lo;
+     const k=i*4,old=initialized?displayedHeight(data,k,U.spectrumBlend.value):packed;
+     data[k]=old>>8;data[k+1]=old&255;data[k+2]=packed>>8;data[k+3]=packed&255;
    }
  }
  function updateSpectrum(heights,x,y,period,wake){
@@ -313,6 +314,7 @@ function atmosphere(scene){
  uniform sampler2D windMap; uniform float windFieldActive; uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
  uniform vec3 forebodyPort,forebodyStarboard;
  uniform highp sampler2D transmissionDepth;uniform mat4 throughMatrix;uniform vec3 throughEye;uniform vec2 cameraRange;
+ uniform vec2 transmissionSize;
 
  float nearWetBow(vec3 source,vec2 point,vec2 forward){
    vec2 relative=point-source.xy;
@@ -322,6 +324,18 @@ function atmosphere(scene){
      *smoothstep(-1.35,-.35,nose)*(1.-smoothstep(.45,1.62,nose));
  }
  float viewDepth(float z){return cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}
+ #ifdef FILTER_TRANSMISSION
+ float behindSurface(vec2 uv,float depth,float edgeWidth){
+   return smoothstep(-edgeWidth,edgeWidth,viewDepth(texture2D(transmissionDepth,uv).r)-depth);
+ }
+ float depthCoverage(vec2 uv,float depth,float edgeWidth){
+   vec2 texel=1./transmissionSize;
+   vec2 pixel=uv*transmissionSize-.5,f=fract(pixel),lo=(floor(pixel)+.5)*texel;
+   float a=behindSurface(lo,depth,edgeWidth),b=behindSurface(lo+vec2(texel.x,0.),depth,edgeWidth);
+   float c=behindSurface(lo+vec2(0.,texel.y),depth,edgeWidth),d=behindSurface(lo+texel,depth,edgeWidth);
+   return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
+ }
+ #endif
  void main(){
    vec3 eye=normalize(cameraPosition-wp);
    vec3 air=texture2D(windMap,wp.xy/96.+.5/48.).rgb;
@@ -370,8 +384,16 @@ function atmosphere(scene){
      if(hitDepth<surfaceDepth){refrUV=screen;hitDepth=viewDepth(texture2D(transmissionDepth,screen).r);}
      float path=clamp((hitDepth-surfaceDepth)*length(throughEye-wp)/max(.01,surfaceDepth),0.,60.);
      vec2 frameMargin=min(screen,1.-screen);
+     float coverage=step(surfaceDepth,hitDepth);
+     #ifdef FILTER_TRANSMISSION
+     float filterWeight=1.-smoothstep(8.,12.,length(wp.xy-boat.xy));
+     if(filterWeight>0.){
+       float edgeWidth=max(.008,.5*fwidth(surfaceDepth));
+       coverage=mix(coverage,depthCoverage(refrUV,surfaceDepth,edgeWidth),filterWeight);
+     }
+     #endif
      float visible=smoothstep(0.,.025,min(frameMargin.x,frameMargin.y))
-        *step(.001,surfaceDepth)*step(surfaceDepth,hitDepth)*(1.-smoothstep(9.,32.,path));
+        *step(.001,surfaceDepth)*coverage*(1.-smoothstep(9.,32.,path));
      vec3 below=texture2D(transmission,refrUV).rgb;
      vec3 trans=visible*exp(-vec3(.22,.085,.055)*path);
      color=mix(waterColor*(1.-trans)+below*trans,reflected,fres);
@@ -423,14 +445,16 @@ function atmosphere(scene){
    crestSource(U.forebodyStarboard,33,cat);
  }
  const encodeHeight=h=>Math.round(65535*Math.max(0,Math.min(1,(h+8)/16)));
+ let firstTile=true;
  function update(old,f){
    if(!f.tile || f.tile.length!==1024)throw Error('Missing Modelica spectral tile');
    for(let i=0;i<1024;i++){
-     const a=encodeHeight(old.tile[i]),b=encodeHeight(f.tile[i]),k=i*4;
+     const k=i*4,b=encodeHeight(f.tile[i]);
+     const a=firstTile?encodeHeight(old.tile[i]):displayedHeight(pixels,k,U.blend.value);
      pixels[k]=a>>8;pixels[k+1]=a&255;
      pixels[k+2]=b>>8;pixels[k+3]=b&255;
    }
-   tile.needsUpdate=true;U.tide.value=f.tide;U.wind.value=f.wind;
+   firstTile=false;tile.needsUpdate=true;U.tide.value=f.tide;U.wind.value=f.wind;
  }
  const mirrorCamera=new THREE.PerspectiveCamera(),reflectRT=new THREE.WebGLRenderTarget(512,320),throughRT=new THREE.WebGLRenderTarget(512,320);
  // Mip-filter thin silhouettes as ripple distortion minifies the reflected image.
@@ -439,9 +463,11 @@ function atmosphere(scene){
  throughRT.depthTexture=new THREE.DepthTexture(512,320,THREE.UnsignedIntType);
  U.throughMatrix={value:new THREE.Matrix4()};U.throughEye={value:new THREE.Vector3()};
  U.transmissionDepth={value:throughRT.depthTexture};U.cameraRange={value:new THREE.Vector2()};
+ U.transmissionSize={value:new THREE.Vector2(512,320)};
  U.reflection.value=reflectRT.texture;U.transmission.value=throughRT.texture;
  const mirrorLook=new THREE.Vector3(),mirrorClip=new THREE.Plane(new THREE.Vector3(0,0,1));
  const clearThrough=new THREE.Color(0x144958);
+ let simpleReflection=false;
  function capture(renderer,camera,submergedScenery,reflect,transmit){
    camera.updateMatrixWorld();
    const oldBackground=scene.background,oldFog=scene.fog;
@@ -450,6 +476,7 @@ function atmosphere(scene){
    if(reflect){
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
+     if(simpleReflection)mirrorCamera.layers.set(reflectionLayer);
      const twiceTide=2*U.tide.value;
      mirrorCamera.position.z=twiceTide-camera.position.z;mirrorLook.z=twiceTide-mirrorLook.z;
      mirrorCamera.up.set(0,0,-1);mirrorCamera.lookAt(mirrorLook);mirrorCamera.updateMatrixWorld();
@@ -471,16 +498,19 @@ function atmosphere(scene){
    renderer.setRenderTarget(null);
    scene.fog=oldFog;scene.background=oldBackground;water.visible=true;trails.mesh.visible=foamVisible;dome.visible=true;
  }
- function setQuality(profile,vertexSlope){
+ function setQuality(profile,vertexSlope,multisampling){
    if(water.geometry.parameters.widthSegments!==profile.mesh){
      water.geometry.dispose();water.geometry=waterMesh(profile.mesh);
    }
-   water.material.defines=vertexSlope?{VERTEX_SLOPE:1}:{};
+   simpleReflection=vertexSlope;
+   water.material.defines=vertexSlope?{VERTEX_SLOPE:1}:profile.filterTransmission?{FILTER_TRANSMISSION:1}:{};
    water.material.needsUpdate=true;
    skyTarget.setSize(Math.round(512*profile.sky),Math.round(192*profile.sky));lastSky=-Infinity;
    const scale=profile.capture;
    const width=Math.round(512*scale),height=Math.round(320*scale);
-   reflectRT.setSize(width,height);throughRT.setSize(width,height);
+   reflectRT.samples=multisampling&&profile.filterTransmission?2:0;
+   reflectRT.setSize(simpleReflection?160:width,simpleReflection?100:height);
+   throughRT.setSize(width,height);U.transmissionSize.value.set(width,height);
  }
  return {U,dome,water,update,updateSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,updateSky};
 }

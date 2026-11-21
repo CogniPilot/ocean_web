@@ -1,3 +1,5 @@
+import {reflectOnLow} from './render-layers.mjs';
+
 // Compass bearing clockwise from true north in the east/north world frame.
 export function trueBearing(east,north){
   const degrees=(Math.round(Math.atan2(east,north)*180/Math.PI)+360)%360;
@@ -50,6 +52,7 @@ export function courseScene(T,scene,race){
   for(const y of [-.22,.22])mesh(boat,new T.BoxGeometry(.65,.065,.008),white,-1.98,y,.786);
   mesh(boat,new T.BoxGeometry(.065,.47,.008),white,-1.98,0,.786);
   batchScenery(T,boat);
+  boat.children.forEach(reflectOnLow);
   function markNumber(parent,number,x,y){
     const face=document.createElement('canvas');face.width=64;face.height=64;
     const c=face.getContext('2d');
@@ -72,6 +75,7 @@ export function courseScene(T,scene,race){
     if(number)markNumber(body,number,x,y);
     const buoy=mesh(body,new T.ConeGeometry(.85,1.75,3,1),orange,x,y,.77);buoy.rotation.x=Math.PI/2;
     const collar=mesh(body,new T.CylinderGeometry(.76,.81,.14,3),navy,x,y,.04);collar.rotation.x=Math.PI/2;
+    reflectOnLow(buoy);reflectOnLow(collar);
   }
   mark(race.get('pinEast'),race.get('pinNorth'));
   race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i],i+1));

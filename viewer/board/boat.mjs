@@ -1,4 +1,5 @@
 import {vehicleShell} from '../vehicle-assets.mjs';
+import {reflectOnLow} from '../render-layers.mjs';
 import {loadInstance} from '../fmi3/instance.mjs?api=2';
 export function advanceHullWake(model,wake){
   for(const name of ['east','north','heading','surge','sway','sectionVolume'])wake.set(name,model.get(name));
@@ -330,7 +331,9 @@ export function sailboatMesh(T,cat=false,keelX=.06){
        staySegments[index].push(segment);
      }
    }
-   group.add(vehicleShell('hobie-hulls'));
+   const hulls=vehicleShell('hobie-hulls');
+   hulls.traverse(reflectOnLow);
+   group.add(hulls);
    for(const side of [-1,1]){
      const blade=new T.Group();group.add(blade);blade.position.set(-2.58,side*1.02,.16);
      mesh(foilShape,white,blade);
@@ -398,7 +401,9 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    for(let i=0;i<10;i++)sheets.push(sheetRope(i<6?0xc65845:0x24768c));
  }else{
    sheets.push(sheetRope(0xad4045),sheetRope(0x2e7485));
- group.add(vehicleShell('sloop-hull'));
+ const hull=vehicleShell('sloop-hull');
+ hull.traverse(reflectOnLow);
+ group.add(hull);
  const keel=mesh(new T.BoxGeometry(.28,.037,.64),black);keel.position.set(keelX,0,-.43);
  const bulb=mesh(new T.SphereGeometry(1,24,12),red);bulb.position.set(keelX,0,-.77);bulb.scale.set(.26,.075,.075);
  rudder=mesh(new T.BoxGeometry(.19,.026,.37),black);rudder.position.set(-.93,0,-.22);
@@ -437,7 +442,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      if(row<5&&col<3)idx.push(i,i+1,i+5,i,i+5,i+4);
    }
    geo.setAttribute('position',coords);geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));geo.setIndex(idx);
-   mesh(geo,sailMaterial(T,cat,index===0?8:4),pivot).frustumCulled=false;
+   reflectOnLow(mesh(geo,sailMaterial(T,cat,index===0?8:4),pivot)).frustumCulled=false;
    const boomHinge=new T.Group();pivot.add(boomHinge);
    if(!cat||index===0)rod([0,0,0],[-spec.width,0,0],.012,black,boomHinge);
    const vang=!cat&&index===0?rod([0,0,-vangDrop],[-vangReach,0,0],.005,black,pivot):null;
