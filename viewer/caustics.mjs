@@ -14,7 +14,7 @@ export function wreckCaustics(T,renderer,water,mobile){
         float d=.35;
         vec2 grad=vec2(heightAt(launch+vec2(d,0.))-heightAt(launch-vec2(d,0.)),
                        heightAt(launch+vec2(0.,d))-heightAt(launch-vec2(0.,d)))/(2.*d);
-        grad+=rippleSlope(launch,tm,bearing,wind);
+        grad+=rippleSlope(launch,tm,vec2(cos(bearing),sin(bearing)),wind);
         vec3 ray=refract(-sunDir,normalize(vec3(-grad,1.)),1./1.333);
         landing=launch+ray.xy*((-13.7-heightAt(launch))/min(ray.z,-.05));
         gl_Position=vec4((landing-vec2(16.,0.))/32.,0.,1.);

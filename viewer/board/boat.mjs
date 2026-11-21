@@ -1,5 +1,6 @@
 import {vehicleShell} from '../vehicle-assets.mjs';
 import {showInLowWaterCapture} from '../render-layers.mjs';
+import {hobieTrampoline} from './trampoline.mjs';
 import {loadInstance} from '../fmi3/instance.mjs?api=2';
 export function advanceHullWake(model,wake){
   for(const name of ['east','north','heading','surge','sway','sectionVolume'])wake.set(name,model.get(name));
@@ -371,7 +372,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      yarn.visible=false;streamers[side===1?0:1]=yarn;
    }
    for(const x of [-1.4,.55])rod([x,-1.06,.41],[x,1.06,.41],.067,black);
-   const tramp=mesh(new T.BoxGeometry(1.95,1.94,.028),paint(0x36454b));tramp.position.set(-.425,0,.40);
+   group.add(hobieTrampoline(T));
    for(const y of [-.87,.87])rod([-1.33,y,.44],[.48,y,.44],.014,black);
    carriage=ballastCooler(T);group.add(carriage);carriage.position.set(-.425,0,.52);
    mastGeometry=new T.CylinderGeometry(.043,.043,7.92,10,32);

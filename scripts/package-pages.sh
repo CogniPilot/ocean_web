@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 out=${1:-build/pages}
 mkdir -p "$out"/{board,fmi3,vendor}
 cp viewer/{index.html,world-view.mjs,sailing-start.mjs,instrumentation.mjs,compass.mjs,sonar-map.mjs,vehicle.js,vehicle-assets.mjs,propulsion.js,sub-worker.mjs,submarine.mjs,sailing-live.mjs,wave-worker.mjs,captains.mjs,fleet.mjs,fleet-timeline.mjs,fleet-sea-clock.mjs,drone.mjs,regatta.mjs,render-layers.mjs,waterline.mjs,caustics.mjs,mast-camera.mjs,atmosphere.js,wreck.js,fauna.js,visuals.js} "$out/"
-cp viewer/board/boat.mjs "$out/board/"
+cp viewer/board/{boat,trampoline}.mjs "$out/board/"
 cp viewer/vendor/{three.min.js,gltf-loader.mjs,THREE-LICENSE,trystero.mjs} "$out/vendor/"
 cp -Rf viewer/{assets,licenses} "$out/"
 cp LICENSE NOTICE "$out/"
