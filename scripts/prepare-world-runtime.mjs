@@ -11,7 +11,7 @@ const out=resolve(process.argv[2]||'build/world-runtime');
 const archive=process.argv[3]??new URL('viewer/fmi3/OceanWorld.fmu',root);
 const bytes=await readFile(archive);
 const {index,indexFile,files}=await buildFmu(bytes,{jco});
-if(index.modelName!=='OceanWorld')throw Error('Expected the integrated OceanWorld component');
+if(index.modelName!==(process.argv[4]??'OceanWorld'))throw Error('Unexpected ocean component '+index.modelName);
 await mkdir(out,{recursive:true});
 await writeBuildFiles(out,files);
 for(const name of ['fmu-session.js','fmu-page-contract.js','sha256.js'])

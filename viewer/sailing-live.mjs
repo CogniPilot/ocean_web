@@ -40,7 +40,11 @@ async function run(){
   const url=new URL(location.href);
   const requestedHull=url.searchParams.get('boat');
   const runtime=url.searchParams.get('runtime')??document.body.dataset.defaultRuntime;
-  const integrated=runtime==='world'&&requestedHull!=='Sailboat';
+  const initialControl=url.searchParams.get('control');
+  const sailingOnly=requestedHull!=='Sailboat' && url.searchParams.get('demo')!=='wreck' &&
+    (runtime==='sailing' || (runtime==='world' && !url.searchParams.has('runtime') && url.searchParams.has('room'))) &&
+    (!initialControl || initialControl==='boat');
+  const integrated=(runtime==='world'||runtime==='sailing')&&requestedHull!=='Sailboat';
   const cat=integrated||requestedHull==='Hobie16';
   const vessel=cat?'Hobie16':'Sailboat';
   $('vessel').value=vessel;
@@ -51,7 +55,7 @@ async function run(){
   // Start at the default loaded waterline for each hull.
   const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const simulationReady=Promise.all([
-    integrated?import('./world-view.mjs?hud=1').then(module=>module.openWorld()):loadInstance(vessel,inputs),
+    integrated?import('./world-view.mjs?hud=1').then(module=>module.openWorld(sailingOnly)):loadInstance(vessel,inputs),
     loadVehicleShell(cat?'hobie-hulls':'sloop-hull'),
     loadVehicleShell('survey-pressure-housing')
   ]);
@@ -251,7 +255,8 @@ async function run(){
   $('sky').onchange=()=>remote.changeWeather('sky',$('sky').value);
   const keys=new Set();let drone;
   $('subSensors').open=!mobile;
-  const sub=submarine(T,scene,world), sensorCanvas=$('sensorCam').getContext('2d');
+  const sub=submarine(T,scene,sailingOnly?null:world), sensorCanvas=$('sensorCam').getContext('2d');
+  if(sailingOnly)sub.mesh.visible=false;
   const drawForces=forceDisplay(T,scene,sub.mesh,boat.group,cat,model);
   $('sonarMap').onchange=()=>{sub.mapVisible=$('sonarMap').checked;};
   for(const id of ['showForces','showCompass'])$(id).onclick=()=>{
@@ -324,6 +329,12 @@ async function run(){
     $('cutMotors').textContent=cut?'Restore motors':'Cut motors';
   };
   async function selectTarget(){
+    if(sailingOnly && targetSelect.value!=='boat'){
+      if($('multiplayer').getAttribute('aria-pressed')==='true')url.searchParams.set('room',roomName);
+      else url.searchParams.delete('room');
+      url.searchParams.set('control',targetSelect.value);
+      url.searchParams.set('runtime','world');location.assign(url);return;
+    }
     keys.clear();analog.clear();helm();
     if(targetSelect.value==='drone'&&!drone){
       try{await loadDrone();}
@@ -354,7 +365,7 @@ async function run(){
   if(wreckSurvey){
     sub.manual=false;sub.mapVisible=true;$('sonarMap').checked=true;
   }
-  if(world||wreckSurvey)loadDrone().catch(error=>{targetSelect.title=error.message;});
+  if((world&&!sailingOnly)||wreckSurvey)loadDrone().catch(error=>{targetSelect.title=error.message;});
   if(initialTarget==='drone'||initialTarget==='sub'){
     targetSelect.value=initialTarget;
     selectTarget().then(()=>{
@@ -578,7 +589,7 @@ async function run(){
         }
       }
       const showSensorImage=sub.active && $('subSensors').open;
-      if(running)sub.update(t,axis,ocean.U.wind.value,ocean.U.bearing.value,showSensorImage);
+      if(running&&!sailingOnly)sub.update(t,axis,ocean.U.wind.value,ocean.U.bearing.value,showSensorImage);
       if(sub.active){
         const p=sub.mesh.position;
         if($('cameraDepth').value==='onboard'){
@@ -626,7 +637,7 @@ async function run(){
         const f=sub.frame;
         $('readout').textContent=sub.error||(!f?'Starting underwater navigation…':f.time.toFixed(2)+' s · Depth '+(-f.position[2]).toFixed(2)+' m · '+f.estimate[15]+' features · '+f.estimate[16]+' matches · '+f.estimate[12]+' keyframes'+(f.surveyDone?' · Survey complete':f.waypoint?' · Waypoint '+f.waypoint+'/'+f.waypointCount:''));
       }
-      document.body.dataset.runtime=world?'world':'fleet';document.body.dataset.simTime=t;document.body.dataset.east=s[0];requestAnimationFrame(draw);
+      document.body.dataset.runtime=sailingOnly?'sailing':world?'world':'fleet';document.body.dataset.simTime=t;document.body.dataset.east=s[0];requestAnimationFrame(draw);
     }catch(e){$('readout').textContent=e.message;console.error(e);}
   }
   requestAnimationFrame(draw);

@@ -5,17 +5,20 @@ const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
 const outputs=[
  ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
  ...group('race','countdown stage elapsed lapTime markPose launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
- ...group('drone','position quaternion rotorAngle attitude gps gpsVelocity dragBody aircraft.rotorGeometry.positionBodyFlu_m'),
- ...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),
  ...group('wind','field strikeBearing strikeFlash thunderArrival travelE travelN'),
  ...group('waves','height driftE driftN period'),
  ...group('boatWater','tile tide wind'),
+];
+const vehicleOutputs=[
+ ...group('drone','position quaternion rotorAngle attitude gps gpsVelocity dragBody aircraft.rotorGeometry.positionBodyFlu_m'),
+ ...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),
  'estimate','features','image'
 ];
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
-export async function openWorld(){
- const worker=new Worker(new URL('./world/ocean-world-worker.mjs',import.meta.url),{type:'module'});
+export async function openWorld(sailingOnly=false){
+ const workerUrl=sailingOnly?new URL('./sailing/ocean-world-worker.mjs',import.meta.url):new URL('./world/ocean-world-worker.mjs',import.meta.url);
+ const worker=new Worker(workerUrl,{type:'module'});
  addEventListener('pagehide',()=>worker.terminate(),{once:true});
  let id=0,pending,error,time=0;
  const state=new Map();
@@ -23,11 +26,12 @@ export async function openWorld(){
  worker.onmessage=({data})=>{if(data.error)pending.reject(Error(data.error));else pending.resolve(data);};
  worker.onerror=e=>{error=Error(e.message);pending?.reject(error);};
  function send(message){return new Promise((resolve,reject)=>{pending={resolve,reject};worker.postMessage({...message,id:++id});});}
- const initial={sailingManual:1,subManual:1,flightManual:1,windSpeed,windBearing,epoch:Date.now()/1000,vang:.5,downhaul:.5};
- const inputs=[...new Set([...Object.keys(initial),...Object.values(boatInputs),'seaState','subPilot','flightPilot','motorCut'])];
+ const initial={sailingManual:1,windSpeed,windBearing,epoch:Date.now()/1000,vang:.5,downhaul:.5};
+ if(!sailingOnly)Object.assign(initial,{subManual:1,flightManual:1});
+ const inputs=[...new Set([...Object.keys(initial),...Object.values(boatInputs),'seaState',...(sailingOnly?[]:['subPilot','flightPilot','motorCut'])])];
  const parameters={prevailingBearing:windBearing};
  for(const [key,value] of Object.entries(sailingStart(true)))parameters['boat.'+key]=value;
- const frame=await send({type:'open',outputs,inputs,initial,parameters,surveyMap:true,sampledFields:true,surveyView,optionalInputs:['seaClockOffset','windAnchor','peerWake','idleCamera','omitWake'],optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips']});
+ const frame=await send({type:'open',outputs:sailingOnly?outputs:[...outputs,...vehicleOutputs],inputs,initial,parameters,surveyMap:!sailingOnly,sampledFields:true,surveyView,optionalInputs:['seaClockOffset','windAnchor','peerWake','idleCamera','omitWake'],optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips']});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
