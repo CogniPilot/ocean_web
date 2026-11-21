@@ -237,6 +237,9 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real yawInertia=19,rollInertia=28,pitchInertia=12, halfSpacing=0;
   parameter Real ballastMass=0;
   input Real ballastManual,ballastCmdX,ballastCmdY;
+  final parameter Real ballastReducedMass=ballastMass*(1-ballastMass/(mass+podMass))
+    "Parallel-axis coefficient for shifting crew relative to the combined centre of mass [kg]";
+  Real ballastRollInertia,ballastPitchInertia;
   Real ballastX(start=0,fixed=true),ballastY(start=0,fixed=true),targetX,targetY;
   Real hullLift[2],hullPitch[2],hullRoll[2],massRoll,massPitch;
   parameter Real mass=64, noGo=0.83;
@@ -366,6 +369,9 @@ equation
   targetY=if not catamaran then 0 else max(-.84,min(.84,if ballastManual>.5 then ballastCmdY else 3.8*heel+1.2*rollRate));
   der(ballastX)=max(-.35,min(.35,(targetX-ballastX)/.65));
   der(ballastY)=max(-.48,min(.48,(targetY-ballastY)/.55));
+  // The nominal hull inertias include centered crew. Add the change for moving across the deck.
+  ballastRollInertia=ballastReducedMass*ballastY^2;
+  ballastPitchInertia=ballastReducedMass*ballastX^2;
   massRoll=-9.80665*ballastMass*(rotation[2,1]*ballastX+rotation[2,2]*ballastY+rotation[2,3]*.52);
   massPitch=9.80665*ballastMass*(rotation[1,1]*ballastX+rotation[1,2]*ballastY+rotation[1,3]*.52);
   goalE=if leg==1 then -32 else if leg==2 then -15 else -8;
@@ -625,15 +631,15 @@ equation
   der(surge)=((wakeEast+droneLoad[1]+peerForce[1])*cos(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*sin(heading)+fx+shoreWrench[1]+sum(foilAxial)+skinDrag)/totalMass+yawRate*sway;
   der(sway)=(-(wakeEast+droneLoad[1]+peerForce[1])*sin(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*cos(heading)+fy+shoreWrench[2]+sum(foilSide)-80*sway*abs(sway)-40*sway)/totalMass-yawRate*surge;
   levelYawMoment=droneLoad[6]+shoreWrench[6]+wakeYaw+peerForce[3]+sailMoment[3]+sum(foilTorque[:,3]);
-  der(yawRate)=(levelYawMoment-(if catamaran then 190 else 30)*yawRate)/(yawInertia+rigWaterInertia*(sin(pitch)^2+cos(pitch)^2*sin(heel)^2)+sum(hingeWaterInertia));
+  der(yawRate)=(levelYawMoment-(if catamaran then 190 else 30)*yawRate)/(yawInertia+ballastRollInertia+ballastPitchInertia+rigWaterInertia*(sin(pitch)^2+cos(pitch)^2*sin(heel)^2)+sum(hingeWaterInertia));
   der(heading)=yawRate;
   der(heel)=rollRate;
   // The roll axis pitches with the hull. Its moment is conjugate to the
   // roll-rate term in spin, including when the bows pass vertical.
-  der(rollRate)=(cos(pitch)*(droneLoad[4]*cos(heading)+droneLoad[5]*sin(heading)+shoreWrench[4]+sum(foilTorque[:,1])+podRoll+sailMoment[1]+(if catamaran then sum(hullRoll)+massRoll else -400*sin(heel-waveRoll)))-sin(pitch)*levelYawMoment-(if catamaran then 280 else 65)*rollRate)/(rollInertia+rigWaterInertia+podMass*podZ^2);
+  der(rollRate)=(cos(pitch)*(droneLoad[4]*cos(heading)+droneLoad[5]*sin(heading)+shoreWrench[4]+sum(foilTorque[:,1])+podRoll+sailMoment[1]+(if catamaran then sum(hullRoll)+massRoll else -400*sin(heel-waveRoll)))-sin(pitch)*levelYawMoment-(if catamaran then 280 else 65)*rollRate)/(rollInertia+ballastRollInertia+rigWaterInertia+podMass*podZ^2);
   der(pitch)=pitchRate;
   weightArm=rotation[1,1]*centerMassX;
-  der(pitchRate)=(-droneLoad[4]*sin(heading)+droneLoad[5]*cos(heading)+shoreWrench[5]+sum(foilTorque[:,2])+podPitch+sailMoment[2]+sum(impactTorque)+pitchBuoyancy+mass*9.80665*weightArm+massPitch-(if catamaran then 420 else 72)*pitchRate)/(pitchInertia+rigWaterInertia+podMass*(podZ^2+footX[1]^2));
+  der(pitchRate)=(-droneLoad[4]*sin(heading)+droneLoad[5]*cos(heading)+shoreWrench[5]+sum(foilTorque[:,2])+podPitch+sailMoment[2]+sum(impactTorque)+pitchBuoyancy+mass*9.80665*weightArm+massPitch-(if catamaran then 420 else 72)*pitchRate)/(pitchInertia+ballastPitchInertia+rigWaterInertia+podMass*(podZ^2+footX[1]^2));
   der(heave)=vertical;
   for hull in 1:2 loop
     sectionVolume[hull,:]=if hull==1 or catamaran then volumes[hull,:] else zeros(6);
