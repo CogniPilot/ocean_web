@@ -1,50 +1,75 @@
 function surveyVehicle(T,housing){
- const sub=new T.Group();
- const mat=(color,metalness=.3,roughness=.54)=>new T.MeshStandardMaterial({color,metalness,roughness});
- const frame=mat(0x60747b),rubber=mat(0x182324),tube=mat(0x47545a,.16),bolt=mat(0xa6b6b5,.7),yellow=mat(0xe3aa3e);
- const rotors=[];sub.userData.rotors=rotors;
- const blades=mat(0x8c9c9e,.52,.35);
- const cube=new T.BoxGeometry(),sphere=new T.SphereGeometry(1,28,16);
- function part(geometry,material,pos,scale){
-   const m=new T.Mesh(geometry,material);m.position.set(...pos);m.scale.set(...scale);sub.add(m);return m;
- }
- function cylinder(x,y,z,r,l,axis,m){
-   const shape=part(new T.CylinderGeometry(r,r,l,32),m,[x,y,z],[1,1,1]);
-   if(axis==='x')shape.rotation.z=Math.PI/2;
-   if(axis==='z')shape.rotation.x=Math.PI/2;
-   return shape;
- }
- sub.add(housing);
- const windowMaterial=new T.MeshPhysicalMaterial({color:0xb8e7ee,metalness:0,roughness:.09,
-   transparent:true,opacity:.18,depthWrite:false,side:T.DoubleSide});
- const dome=part(sphere,windowMaterial,[.52,0,.1],[.15,.168,.168]);
- dome.name='Forward acrylic viewport';
- cylinder(.567,0,.1,.04,.034,'x',rubber);
- cylinder(.585,0,.1,.026,.008,'x',mat(0x26434d,.18,.10));
- for(const y of [-.23,.23]){
-   part(cube,frame,[0,y,-.007],[1.22,.023,.105]);
-   part(cube,frame,[0,y,-.172],[1.22,.023,.034]);
-   for(const x of [-.47,.24,.53])part(cube,frame,[x,y,-.11],[.13,.023,.14]);
-   for(const x of [-.51,.47])cylinder(x,0,-.161,.014,.48,'y',bolt);
-   for(const x of [-.52,-.23,.22,.52])part(sphere,bolt,[x,y*1.06,-.05],[.013,.009,.013]);
-   for(const x of [-.42,.38]){
-     const shroud=part(new T.TorusGeometry(.092,.017,10,28),rubber,[x,y*1.5,-.02],[1,1,1]);
-     const id=2+(x<0?2:0)+(y<0?1:0);
-     rotors[id]=makeRotor(T,sub,id,[x,y*1.5,-.02],[0,0,1],blades,tube);
-   }
-   const duct=part(new T.TorusGeometry(.10,.019,12,30),rubber,[-.15,y*1.53,-.06],[1,1,1]);duct.rotation.y=Math.PI/2;
-   const id=y>0?0:1;
-   rotors[id]=makeRotor(T,sub,id,[-.15,y*1.53,-.06],[1,0,0],blades,tube);
-   const cable=new T.CatmullRomCurve3([[-.51,y,.14],[-.55,y*1.32,.13],[-.38,y*1.4,.06],[.29,y*1.3,.07],[.38,y*1.5,-.02]].map(p=>new T.Vector3(...p)));
-   part(new T.TubeGeometry(cable,32,.008,6,false),yellow,[0,0,0],[1,1,1]);
-   cylinder(.05,y*.68,.258,.013,1.05,'x',bolt);
-   part(cube,yellow,[.06,y*.5,.282],[.65,.16,.045]);
-   const lamp=new T.MeshStandardMaterial({color:0xbbe6ff,emissive:0xb9efff,emissiveIntensity:3});
-   part(sphere,lamp,[.57,y,-.035],[.015,.034,.034]);
- }
- const cross=part(new T.TorusGeometry(.092,.014,10,28),rubber,[0,0,-.14],[1,1,1]);cross.rotation.x=Math.PI/2;
- rotors[6]=makeRotor(T,sub,6,[0,0,-.14],[0,1,0],blades,tube);
- const light=new T.SpotLight(0xc8f0ff,45,18,.55,.38,1.3);
- light.position.set(.65,0,0);light.target.position.set(8,0,0);sub.add(light,light.target);
- sub.traverse(m=>{if(m.isMesh){m.castShadow=true;m.receiveShadow=true;}});return sub;
+  const sub=new T.Group();
+  sub.add(housing);
+  const finish=(color,metalness,roughness)=>new T.MeshStandardMaterial({color,metalness,roughness});
+  const plastic=finish(0x22272b,.12,.4),motor=finish(0x2478b4,.42,.31);
+  const windowMaterial=new T.MeshPhysicalMaterial({color:0xcde8f3,roughness:.07,
+    transparent:true,opacity:.13,depthWrite:false});
+  // Acrylic reflects more light at grazing angles. The camera sits inside the dome.
+  windowMaterial.onBeforeCompile=shader=>{
+    shader.fragmentShader=shader.fragmentShader.replace('#include <opaque_fragment>', `
+      float rim=pow(1.-clamp(dot(normal,normalize(vViewPosition)),0.,1.),4.);
+      outgoingLight+=vec3(.35,.48,.56)*rim;
+      diffuseColor.a=mix(diffuseColor.a,.82,rim);
+      #include <opaque_fragment>`);
+  };
+  const dome=new T.Mesh(new T.SphereGeometry(.168,32,16,0,Math.PI*2,0,Math.PI/2),windowMaterial);
+  dome.name='Forward acrylic viewport';
+  dome.rotation.z=-Math.PI/2;
+  dome.position.set(.54,0,.1);
+  sub.add(dome);
+
+  function lens(radius,length,x,material){
+    const mesh=new T.Mesh(new T.CylinderGeometry(radius,radius,length,24),material);
+    mesh.rotation.z=Math.PI/2;
+    mesh.position.set(x,0,.1);
+    sub.add(mesh);
+  }
+  lens(.044,.04,.558,plastic);
+  lens(.031,.009,.582,finish(0x183344,.35,.12));
+
+  // Local centres, axes and order match the seven propMount entries in Wreck.Plant.
+  const mounts=[[0,.32,0],[0,-.32,0],[.4,.32,0],[.4,-.32,0],[-.4,.32,0],[-.4,-.32,0],[0,0,0]];
+  const axes=[[1,0,0],[1,0,0],[0,0,1],[0,0,1],[0,0,1],[0,0,1],[0,1,0]];
+  // Flared, open motor guards. Each profile runs up the outside and back along the bore.
+  const profile=[[.092,-.047],[.101,-.040],[.102,.036],[.106,.043],[.106,.048],
+    [.095,.048],[.092,.040],[.091,-.039],[.092,-.047]].map(([r,z])=>new T.Vector2(r,z));
+  const guardGeometry=new T.LatheGeometry(profile,28);
+  guardGeometry.rotateX(Math.PI/2);
+  motor.side=T.DoubleSide;
+  const linerProfile=[[.092,-.034],[.090,-.032],[.090,-.010],[.092,-.008]]
+    .map(([r,z])=>new T.Vector2(r,z));
+  const liners=new T.InstancedMesh(new T.LatheGeometry(linerProfile,28).rotateX(Math.PI/2),motor,7);
+  const guards=new T.InstancedMesh(guardGeometry,plastic,7);
+  const motors=new T.InstancedMesh(new T.CylinderGeometry(.03,.029,.047,16).rotateX(Math.PI/2),motor,7);
+  const spokes=new T.InstancedMesh(new T.BoxGeometry(.075,.008,.013),plastic,21);
+  const blades=finish(0x202429,.18,.37);
+  const up=new T.Vector3(0,0,1),placement=new T.Object3D(),arm=new T.Object3D();
+  sub.userData.rotors=mounts.map((center,id)=>{
+    placement.position.fromArray(center);
+    placement.quaternion.setFromUnitVectors(up,new T.Vector3(...axes[id]));
+    placement.updateMatrix();
+    liners.setMatrixAt(id,placement.matrix);
+    guards.setMatrixAt(id,placement.matrix);
+    arm.rotation.z=0;
+    arm.position.set(0,0,-.029);
+    arm.updateMatrix();
+    motors.setMatrixAt(id,new T.Matrix4().multiplyMatrices(placement.matrix,arm.matrix));
+    for(let i=0;i<3;i++){
+      const angle=2*Math.PI*i/3;
+      arm.position.set(.059*Math.cos(angle),.059*Math.sin(angle),-.041);
+      arm.rotation.z=angle;
+      arm.updateMatrix();
+      spokes.setMatrixAt(3*id+i,new T.Matrix4().multiplyMatrices(placement.matrix,arm.matrix));
+    }
+    return makeRotor(T,sub,id,center,axes[id],blades,plastic);
+  });
+  sub.add(guards,liners,motors,spokes);
+  const light=new T.SpotLight(0xc8f0ff,45,18,.55,.38,1.3);
+  light.position.set(.65,0,0);light.target.position.set(8,0,0);
+  sub.add(light,light.target);
+  sub.traverse(mesh=>{
+    if(mesh.isMesh){mesh.castShadow=mesh!==dome;mesh.receiveShadow=true;}
+  });
+  return sub;
 }
