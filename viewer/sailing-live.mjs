@@ -346,8 +346,10 @@ async function run(){
     if(d && d!==lastDvl){
       const ranges=Array.from(d.subarray?d.subarray(4,8):d.slice(4,8));
       const count=ranges.filter(r=>r>0).length;
-      const speed=d[62]>.5?' · Fwd '+d[63].toFixed(2)+' · Port '+d[64].toFixed(2)+' m/s':'';
-      $('dvlReport').textContent='DVL · '+(d[62]>.5?'Bottom lock':'No full lock')+' · '+count+'/4 beams'+speed+' · '+ranges.map(r=>r>0?r.toFixed(1):'—').join(' / ')+' m';
+      const locked=d[62]>.5;
+      $('dvlLock').textContent='DVL · '+(locked?'Bottom lock':'No full lock')+' · '+count+'/4 beams';
+      $('dvlSpeed').textContent='Fwd '+(locked?d[63].toFixed(2):'—')+' · Port '+(locked?d[64].toFixed(2):'—')+' m/s';
+      $('dvlRanges').textContent='Beam ranges '+ranges.map(r=>r>0?r.toFixed(1):'—').join(' / ')+' m';
       lastDvl=d;
     }
     if(now-lastPreview<(onboard?100:200))return;
