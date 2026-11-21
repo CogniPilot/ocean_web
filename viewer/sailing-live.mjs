@@ -424,6 +424,31 @@ async function run(){
   const noGo=model.get('noGo');
   let meshTime,observedBoat;
   let lastWorldTick=-1,lastFieldTick=-1,lastSurfaceTick=-1,previousSurface;
+  const measureButton=$('measureFrames'),frameResult=$('frameResult');
+  let frameTest;
+  measureButton.disabled=false;
+  function finishTest(message){
+    frameTest=null;measureButton.disabled=false;frameResult.textContent=message;
+  }
+  measureButton.onclick=()=>{
+    if(!running){finishTest('Resume the simulation to measure frame rate.');return;}
+    frameTest={gaps:[],quality:selector.value};
+    measureButton.disabled=true;frameResult.textContent='Measuring for 15 seconds…';
+  };
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden && frameTest)finishTest('Test interrupted while the page was hidden.');
+  });
+  function measureFrame(now,t){
+    const test=frameTest;
+    if(!running || selector.value!==test.quality){finishTest('Test interrupted. Resume with one performance setting and try again.');return;}
+    if(test.start===undefined){test.start=test.last=now;test.simStart=t;return;}
+    test.gaps.push(now-test.last);test.last=now;
+    const elapsed=(now-test.start)/1000;
+    if(elapsed<15)return;
+    const gaps=test.gaps.sort((a,b)=>a-b);
+    const p95=gaps[Math.ceil(.95*gaps.length)-1];
+    finishTest(`${(gaps.length/elapsed).toFixed(1)} FPS · 95th percentile ${p95.toFixed(1)} ms · ${((t-test.simStart)/elapsed).toFixed(2)}× real time · ${test.quality} · ${renderer.domElement.width}×${renderer.domElement.height} final pixels`);
+  }
   function draw(now){
     try{
       if(now>=raceTick){
@@ -630,6 +655,7 @@ async function run(){
         hullDisplay.restore(boat.group);
         if(drone)flightDisplay.restore(drone.group);
       }
+      if(frameTest)measureFrame(now,t);
       document.body.dataset.eyeDepth=camera.position.z.toFixed(2);
       $('vangLoad').textContent=vang.toFixed(0)+' N';
       $('readout').textContent=t.toFixed(1)+' s · '+Math.hypot(s[34],s[35]).toFixed(2)+' m/s · waypoint '+s[8]+' · main leech '+leech[0].toFixed(2)+' m/s · sheet '+(tension<.1?'slack':tension.toFixed(0)+' N');
