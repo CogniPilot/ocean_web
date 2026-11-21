@@ -315,5 +315,5 @@ export function fleet(T,scene,roomName,status,weather,crew){
     }
     return anchor;
   }
-  return {join,leave,frame,contacts,seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
+  return {join,leave,frame,contacts,seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
 }

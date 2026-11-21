@@ -200,3 +200,7 @@ A six-second A/B run switched wakes from off to on, applied helm and sheet comma
 In a separate 12-second Low-preset run of the full world in Chromium on an RTX 3090, the worker spent 10.18 s stepping the FMU, 0.18 s reading outputs and writing inputs combined, and advanced 11.81 simulated seconds. Enlarging the browser catch-up reserve from 100 to 300 ms recovered under 0.1 s per 12 s run in two interleaved comparisons. The released page uses the original reserve.
 
 Four 15-second Low-preset browser runs on the RTX 3090 used the same 393 × 852 touch viewport and alternated full, sailing, sailing, full. Rendering averaged 60 FPS in all four. The sailing component kept pace with wall time (1.000× and 1.001×), compared with 0.986× and 0.986× for the full world. These are desktop hardware measurements.
+
+### Multiplayer wake source transfers
+
+The sailing worker reads the twelve hull-strip positions and immersed volumes when the Modelica wave sample changes and another player wants wakes. In a Chromium worker comparison, 95 consecutive 10 ms steps included 60 subscribed steps across two intervals. The worker transferred 2,304 bytes of strip data in eight reads, compared with 27,360 bytes across 95 reads previously. All 2,160 subscribed scalar observations matched the continuous readout, including the first step after each subscription. These byte counts cover hull source strips only.

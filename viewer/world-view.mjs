@@ -22,7 +22,7 @@ export async function openWorld(sailingOnly=false){
  addEventListener('pagehide',()=>worker.terminate(),{once:true});
  let id=0,pending,error,time=0;
  const state=new Map();
- const surveyView={camera:false,map:false};
+ const surveyView={camera:false,map:false,wakeSource:false};
  worker.onmessage=({data})=>{if(data.error)pending.reject(Error(data.error));else pending.resolve(data);};
  worker.onerror=e=>{error=Error(e.message);pending?.reject(error);};
  function send(message){return new Promise((resolve,reject)=>{pending={resolve,reject};worker.postMessage({...message,id:++id});});}
@@ -74,5 +74,8 @@ export async function openWorld(sailingOnly=false){
  const axes=['forward','left','climb','turn'];
  const flight=view('drone',(n,v)=>{const i=axes.indexOf(n);if(i>=0)controls[offsets.get('flightPilot')+i]=v;
    else set(n==='pilot'?'flightManual':n,v);});
- return {advance,setWakeEnabled(enabled){if(offsets.has('omitWake'))set('omitWake',Number(!enabled));},hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map){surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
+ return {advance,setWakeSourceRequested(enabled){
+   surveyView.wakeSource=enabled;
+   if(!enabled)state.delete('waves.sourceStrips');
+ },setWakeEnabled(enabled){if(offsets.has('omitWake'))set('omitWake',Number(!enabled));},hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map){surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }
