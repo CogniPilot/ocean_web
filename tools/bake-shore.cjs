@@ -2,9 +2,11 @@
 const fs=require('node:fs'),vm=require('node:vm');
 const T=require('../viewer/vendor/three.min.js');
 const ctx={T,scene:new T.Scene()};
-vm.runInNewContext(fs.readFileSync('viewer/visuals.js','utf8')+'\nbatchScenery=()=>{}; land=coast(T,scene);',ctx);
+vm.runInNewContext(fs.readFileSync('viewer/visuals.js','utf8')+'\nbatchScenery=()=>{}; land=coast(T,scene,false);',ctx);
 ctx.scene.updateMatrixWorld(true);
-const rocks=ctx.land.children.filter(o=>o.geometry?.type==='IcosahedronGeometry');
+const rocks=[];
+ctx.land.traverse(o=>{if(o.geometry?.type==='IcosahedronGeometry')rocks.push(o);});
+if(!rocks.length)throw Error('No shoreline rocks found');
 const planes=[],centers=[];
 const rows=a=>'['+a.map(row=>row.map(x=>Number(x.toFixed(7))).join(',')).join(';\n')+']';
 for(const rock of rocks){
