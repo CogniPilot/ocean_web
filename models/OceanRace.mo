@@ -19,7 +19,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     mainRoach=if hobie then .82 else 0,forestaySlope=if hobie then 1.82/5.1 else 1.04/2.69,
     footX=if hobie then {.44,2.26} else {.12,1.16-.10*1.04/2.69},
     footZ=if hobie then {.97,.75} else {.19,.19},yawInertia=if hobie then 315 else 19,
-    rollInertia=if hobie then 187 else 28,pitchInertia=if hobie then 292 else 12,
+    rollInertia=if hobie then 520 else 28,pitchInertia=if hobie then 625 else 12,
     foilX=if hobie then {.15,-2.42,.15,-2.42} else {.06,-.93,0,0},
     foilY=if hobie then {1.02,1.02,-1.02,-1.02} else zeros(4),
     foilArea=if hobie then {.62,.11,.62,.11} else {.115,.044,0,0},

@@ -19,6 +19,17 @@ for(const name of ['Sailboat','Hobie16']){
       assert(forward.wet[index] > 0 && Math.abs(sideForce[index]) > 1);
       assert(Math.abs(forward.foil[index]) < 1e-9 && Math.abs(astern.foil[index]) < 1e-9);
     }
+    async function hydrostatics(pitch,waveRoll){
+      const boat=await loadInstance('Hobie16',{launchSpeed:0,launchHeight:.08,launchPitch:pitch,waveRoll},read);
+      const [sections,buoyancy,pitchMoment,rollMoment]=boat.getMany(['sectionVolume','buoyancy','hullPitch','hullRoll']);
+      const volume=sections.reduce((sum,v)=>sum+v,0);
+      assert(Math.abs(buoyancy-1025*9.80665*volume)<1e-8);
+      return {fore:-pitchMoment.reduce((sum,v)=>sum+v,0)/buoyancy,side:rollMoment.reduce((sum,v)=>sum+v,0)/buoyancy};
+    }
+    const [aft,bow,port,starboard]=await Promise.all([hydrostatics(-.09,0),hydrostatics(.09,0),hydrostatics(0,.1),hydrostatics(0,-.1)]);
+    assert(bow.fore>aft.fore+.5,'Buoyancy should shift fore and aft with trim');
+    assert(port.side>0 && starboard.side<0 && Math.abs(port.side+starboard.side)<1e-8);
+    console.log('Hobie centre of buoyancy', {aft:aft.fore,bow:bow.fore,port:port.side,starboard:starboard.side});
   } else {
     assert(forward.foil[0] < 0 && astern.foil[0] > 0);
   }
