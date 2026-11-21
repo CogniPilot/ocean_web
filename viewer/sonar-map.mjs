@@ -1,33 +1,69 @@
 // The estimator stores 48 leveled sonar endpoints in each optimized keyframe.
 export function sonarMap(T, scene) {
-  const maxKeys = 48, rays = 48, stride = 180;
-  const positions = new Float32Array(maxKeys * rays * 3);
-  const colors = new Float32Array(positions.length);
+  const maxKeys = 48, rays = 48, stride = 180, capacity = maxKeys * rays;
+  const centers = new Float32Array(capacity * 3);
+  const beams = new Float32Array(capacity * 3);
+  const colors = new Float32Array(capacity * 3);
+  const widths = new Float32Array(capacity);
   const track = new Float32Array(maxKeys * 3);
-  const pointsGeometry = new T.BufferGeometry();
-  const trackGeometry = new T.BufferGeometry();
-  pointsGeometry.setAttribute('position', new T.BufferAttribute(positions, 3));
-  pointsGeometry.setAttribute('color', new T.BufferAttribute(colors, 3));
-  trackGeometry.setAttribute('position', new T.BufferAttribute(track, 3));
-  const points = new T.Points(pointsGeometry, new T.PointsMaterial({
-    size: 3, sizeAttenuation: false, vertexColors: true, fog: false, depthTest: false
+  const splatGeometry = new T.InstancedBufferGeometry();
+  const quad = new T.PlaneGeometry(2, 2);
+  splatGeometry.index = quad.index;
+  splatGeometry.setAttribute('position', quad.getAttribute('position'));
+  splatGeometry.setAttribute('center', new T.InstancedBufferAttribute(centers, 3).setUsage(T.DynamicDrawUsage));
+  splatGeometry.setAttribute('beam', new T.InstancedBufferAttribute(beams, 3).setUsage(T.DynamicDrawUsage));
+  splatGeometry.setAttribute('echoColor', new T.InstancedBufferAttribute(colors, 3).setUsage(T.DynamicDrawUsage));
+  splatGeometry.setAttribute('width', new T.InstancedBufferAttribute(widths, 1).setUsage(T.DynamicDrawUsage));
+  splatGeometry.instanceCount = 0;
+  const splats = new T.Mesh(splatGeometry, new T.ShaderMaterial({
+    transparent: true, depthWrite: false, depthTest: false,
+    vertexShader: `
+      attribute vec3 center,beam,echoColor;
+      attribute float width;
+      varying vec2 offset;
+      varying vec3 tint;
+      void main() {
+        vec3 direction=mat3(modelViewMatrix)*beam;
+        float inPlane=dot(direction.xy,direction.xy);
+        vec2 axis=inPlane>.0001 ? direction.xy*inversesqrt(inPlane) : vec2(1.,0.);
+        vec2 across=vec2(-axis.y,axis.x);
+        // Project the beam-aligned 3D covariance onto the view plane.
+        float axial=.075;
+        float along=sqrt(mix(width*width,axial*axial,clamp(inPlane,0.,1.)));
+        offset=3.*position.xy;
+        tint=echoColor;
+        vec4 p=modelViewMatrix*vec4(center,1.);
+        p.xy+=axis*along*offset.x+across*width*offset.y;
+        gl_Position=projectionMatrix*p;
+      }`,
+    fragmentShader: `
+      varying vec2 offset;
+      varying vec3 tint;
+      void main() {
+        float radius2=dot(offset,offset);
+        if(radius2>9.)discard;
+        gl_FragColor=vec4(tint,.46*exp(-.5*radius2));
+        #include <colorspace_fragment>
+      }`
   }));
+  const trackGeometry = new T.BufferGeometry();
+  trackGeometry.setAttribute('position', new T.BufferAttribute(track, 3).setUsage(T.DynamicDrawUsage));
+  trackGeometry.setDrawRange(0, 0);
   const path = new T.Line(trackGeometry, new T.LineBasicMaterial({
-    color: 0xffaf53, fog: false, depthTest: false
+    color: 0xffaf53, fog: false, depthTest: false, depthWrite: false, transparent: true
   }));
   const group = new T.Group();
-  points.frustumCulled = path.frustumCulled = false;
-  points.renderOrder = path.renderOrder = 10;
-  pointsGeometry.setDrawRange(0, 0);
-  trackGeometry.setDrawRange(0, 0);
+  splats.frustumCulled = path.frustumCulled = false;
+  splats.renderOrder = 10;
+  path.renderOrder = 11;
   group.visible = false;
-  group.add(points, path);
+  group.add(splats, path);
   scene.add(group);
   return {
     group,
     update(rows) {
       let hits = 0;
-      const count = rows.length / stride;
+      const count = Math.min(maxKeys, Math.floor(rows.length / stride));
       for (let key = 0; key < count; key++) {
         const base = key * stride, x = rows[base], y = rows[base+1], z = rows[base+2];
         const c = Math.cos(rows[base+3]), s = Math.sin(rows[base+3]);
@@ -35,16 +71,21 @@ export function sonarMap(T, scene) {
         for (let ray = 0; ray < rays; ray++) {
           const offset = base + 8 + ray*3;
           const dx = rows[offset], dy = rows[offset+1], dz = rows[offset+2];
-          if (dx === 0 && dy === 0 && dz === 0) continue;
-          positions.set([x+c*dx-s*dy, y+s*dx+c*dy, z+dz], 3*hits);
-          colors.set(dz < -.2 ? [.16,.68,1] : dz > .2 ? [1,.88,.35] : [.31,1,.76], 3*hits);
+          const range = Math.hypot(dx, dy, dz);
+          if (!range) continue;
+          const east = c*dx-s*dy, north = s*dx+c*dy;
+          centers.set([x+east, y+north, z+dz], 3*hits);
+          beams.set([east/range, north/range, dz/range], 3*hits);
+          colors.set(dz < -.2 ? [.009,.25,.76] : dz > .2 ? [.84,.59,.05] : [.036,.72,.37], 3*hits);
+          widths[hits] = Math.min(.28, .085 + .011*range);
           hits++;
         }
       }
-      pointsGeometry.attributes.position.needsUpdate = true;
-      pointsGeometry.attributes.color.needsUpdate = true;
+      for (const name of ['center', 'beam', 'echoColor', 'width']) {
+        splatGeometry.attributes[name].needsUpdate = true;
+      }
       trackGeometry.attributes.position.needsUpdate = true;
-      pointsGeometry.setDrawRange(0, hits);
+      splatGeometry.instanceCount = hits;
       trackGeometry.setDrawRange(0, count);
     }
   };

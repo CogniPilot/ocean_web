@@ -34,6 +34,18 @@ function displayPose(){
     restore(mesh){mesh.position.copy(end);mesh.quaternion.copy(endQ);}
   };
 }
+// Blend successive completed water samples over their observed delivery time.
+function waterPresentation(){
+  let stamp,arrival,interval=1;
+  return {
+    sample(value,now){
+      if(stamp===value)return;
+      interval=arrival===undefined?1:Math.max(1,Math.min(500,now-arrival));
+      stamp=value;arrival=now;
+    },
+    blend(now,running){return running&&arrival!==undefined?Math.min(1,(now-arrival)/interval):1;}
+  };
+}
 async function run(){
   const url=new URL(location.href);
   const requestedHull=url.searchParams.get('boat');
@@ -181,9 +193,9 @@ async function run(){
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   const ocean=atmosphere(scene),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   const profiles={
-    low:{ratio:.75,min:.5,capture:.375,interval:150,mesh:88,sky:.5},
-    balanced:{ratio:1,min:.75,capture:.75,interval:65,mesh:120,sky:.75},
-    high:{ratio:1,min:1,capture:1,interval:0,mesh:144,sky:1}
+    low:{ratio:.75,min:.5,capture:.375,reflectionInterval:55,transmissionInterval:150,mesh:88,sky:.5},
+    balanced:{ratio:1,min:.75,capture:.75,reflectionInterval:65,transmissionInterval:65,mesh:120,sky:.75},
+    high:{ratio:1,min:1,capture:1,reflectionInterval:0,transmissionInterval:0,mesh:144,sky:1}
   };
   let preferred;
   try{preferred=localStorage.getItem('ocean-render-quality');}catch{}
@@ -200,7 +212,7 @@ async function run(){
   }
   applyQuality();
   selector.onchange=()=>{
-    applyQuality();lastCapture=-Infinity;resize();
+    applyQuality();reflection.last=transmission.last=-Infinity;resize();
     try{localStorage.setItem('ocean-render-quality',selector.value);}catch{}
   };
   ocean.update(sea,sea);ocean.U.under.value=0;ocean.U.sunDir.value.copy(sun.position).normalize();
@@ -406,9 +418,20 @@ async function run(){
     model.set('trimInput',-1);
   };
   const hullDisplay=displayPose(),flightDisplay=displayPose();
-  const capturePosition=new T.Vector3(),captureRotation=new T.Quaternion();
-  let captureTime=-Infinity,captureSky,captureSea,captureAspect;
-  let prev=performance.now(),acc=0,lastCapture=-Infinity;
+  function captureState(){
+    return {last:-Infinity,time:-Infinity,position:new T.Vector3(),rotation:new T.Quaternion()};
+  }
+  const reflection=captureState(),transmission=captureState();
+  function wantsCapture(state,now,time,interval){
+    if(now-state.last<interval)return false;
+    const sky=$('sky').value,sea=$('seaState').value;
+    if(state.last!==-Infinity && state.time===time && state.aspect===camera.aspect && !remote.visible &&
+        state.sky===sky && state.sea===sea && state.position.equals(camera.position) && state.rotation.equals(camera.quaternion))return false;
+    Object.assign(state,{last:now,time,aspect:camera.aspect,sky,sea});
+    state.position.copy(camera.position);state.rotation.copy(camera.quaternion);
+    return true;
+  }
+  let prev=performance.now(),acc=0;
   let frameCost=1000/30,lastQualityCheck=0;
   let lastEnvironment,lastThunder;
   function updateLight(time){
@@ -430,8 +453,24 @@ async function run(){
   }
   const noGo=model.get('noGo');
   let meshTime,observedBoat;
+  const wavePresentation=waterPresentation(), seaPresentation=waterPresentation(), ripplePresentation=waterPresentation();
+  let previousRippleTime;
   let lastWorldTick=-1,lastFieldTick=-1,lastSurfaceTick=-1,previousSurface;
-  const measureButton=$('measureFrames'),frameResult=$('frameResult');
+  const measureButton=$('measureFrames'),frameResult=$('frameResult'),runStats=$('runStats');
+  let statsStart,statsTime,statsFrames=0,statsRunning;
+  function updateRunStats(now,time){
+    if(statsStart===undefined || statsRunning!==running){
+      statsStart=now;statsTime=time;statsFrames=0;statsRunning=running;
+      runStats.textContent=running?'— FPS · —× real time':'— FPS · Paused';
+      return;
+    }
+    statsFrames++;
+    const seconds=(now-statsStart)/1000;
+    if(seconds<1)return;
+    const fps=(statsFrames/seconds).toFixed(1)+' FPS';
+    runStats.textContent=fps+(running?' · '+((time-statsTime)/seconds).toFixed(2)+'× real time':' · Paused');
+    statsStart=now;statsTime=time;statsFrames=0;
+  }
   let frameTest;
   measureButton.disabled=false;
   function finishTest(message){
@@ -443,6 +482,7 @@ async function run(){
     measureButton.disabled=true;frameResult.textContent='Measuring for 15 seconds…';
   };
   document.addEventListener('visibilitychange',()=>{
+    statsStart=undefined;
     if(document.hidden && frameTest)finishTest('Test interrupted while the page was hidden.');
   });
   function measureFrame(now,t){
@@ -507,7 +547,7 @@ async function run(){
         const tick=Math.round(world.time*100),waveTick=model.get('waterStamp'),fieldTick=Math.floor(tick/25);
         if(lastWorldTick!==waveTick){
           ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'));
-          lastWorldTick=waveTick;
+          wavePresentation.sample(waveTick,now);lastWorldTick=waveTick;
         }
         if(lastFieldTick!==fieldTick){
           ocean.updateWind(windField.get('field'));
@@ -519,9 +559,10 @@ async function run(){
         const surfaceTick=Math.floor(tick/20);
         if(surfaceTick!==lastSurfaceTick){
           const surface={tile:world.get('boatWater.tile'),tide:world.get('boatWater.tide'),wind:world.get('boatWater.wind')};
-          ocean.update(previousSurface??surface,surface);previousSurface=surface;lastSurfaceTick=surfaceTick;
+          ocean.update(previousSurface??surface,surface);seaPresentation.sample(surfaceTick,now);
+          previousSurface=surface;lastSurfaceTick=surfaceTick;
         }
-        ocean.U.blend.value=Math.min(1,(tick%20)/10);
+        ocean.U.blend.value=selector.value==='low'?seaPresentation.blend(now,running):Math.min(1,(tick%20)/10);
         wakeTicks=tick;
       }
       // Keep complete 10 ms solver steps but yield between them for input and rendering.
@@ -557,6 +598,7 @@ async function run(){
           model.set('waveHeight',incident[0]);model.set('wavePitch',incident[1]);model.set('waveRoll',incident[2]);
           model.set('wakeEast',load[0]);model.set('wakeNorth',load[1]);model.set('wakeYaw',load[2]);
           ocean.updateSpectrum(height,...origin,period);
+          wavePresentation.sample(wakeTicks,now);
         }
         wakeTicks++;
         model.advance(.01);
@@ -566,7 +608,7 @@ async function run(){
         }
         if(drone && (drone.active||!drone.manual)){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);race.set('landingReaction',drone.deckReaction);model.set('droneLoad',drone.sailReaction);}acc-=.01;
       }
-      ocean.U.spectrumBlend.value=world?model.get('waterFraction'):Math.min(1,((wakeTicks===0?0:(wakeTicks-1)%10+1)+acc/.01)/10);
+      ocean.U.spectrumBlend.value=selector.value==='low'?wavePresentation.blend(now,running):world?model.get('waterFraction'):Math.min(1,((wakeTicks===0?0:(wakeTicks-1)%10+1)+acc/.01)/10);
       if(model.time!==meshTime){
         observedBoat=observeBoat(model);
         if(!observedBoat.every(Number.isFinite))throw Error('Non-finite FMI state at '+model.time);
@@ -587,10 +629,14 @@ async function run(){
       document.body.dataset.visiblePeers=remote.visible;
       const t=model.time;
       if(t!==meshTime){
+        previousRippleTime=meshTime??t;
+        ripplePresentation.sample(t,now);
         boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag,cat?model.get('shroudTail'):null,cat?model.get('sailTail'):null,cat?model.get('stayPath'):null);
         life?.(t);causticTime.value=t;meshTime=t;
       }
-      ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
+      ocean.U.tm.value=selector.value==='low'
+        ? previousRippleTime+(t-previousRippleTime)*ripplePresentation.blend(now,running) : t;
+      ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
       if(world)hullDisplay.apply(boat.group,t,now,running);
       boat.group.localToWorld(orbitCenter.copy(helmSeat));
       const horizontal=distance*Math.cos(tilt);
@@ -643,13 +689,11 @@ async function run(){
       rain.visible=false; // Optical reflection and refraction targets exclude foreground streaks.
       // The underwater shader computes the view through the surface from the sky.
       // Its opaque submerged pass never samples the planar capture targets.
-      if(camera.position.z<=-surfaceBand)lastCapture=-Infinity;
-      else if(now-lastCapture>=profile.interval && (lastCapture===-Infinity ||
-        t!==captureTime || camera.aspect!==captureAspect || remote.visible || captureSky!==$('sky').value || captureSea!==$('seaState').value ||
-        !capturePosition.equals(camera.position) || !captureRotation.equals(camera.quaternion))){
-        capturePosition.copy(camera.position);captureRotation.copy(camera.quaternion);
-        captureTime=t;captureAspect=camera.aspect;captureSky=$('sky').value;captureSea=$('seaState').value;
-        ocean.capture(renderer,camera,submergedScenery);lastCapture=now;
+      if(camera.position.z<=-surfaceBand)reflection.last=transmission.last=-Infinity;
+      else{
+        const reflect=wantsCapture(reflection,now,t,profile.reflectionInterval);
+        const transmit=wantsCapture(transmission,now,t,profile.transmissionInterval);
+        if(reflect || transmit)ocean.capture(renderer,camera,submergedScenery,reflect,transmit);
       }
       rain.visible=storm && camera.position.z>=-surfaceBand;
       if(rain.visible)rain.material.uniforms.rainWind.value.set(model.get('windEast'),model.get('windNorth'));
@@ -669,6 +713,7 @@ async function run(){
         if(window.requestIdleCallback)window.requestIdleCallback(populateSea,{timeout:1000});
         else setTimeout(populateSea,0);
       }
+      updateRunStats(now,t);
       if(frameTest)measureFrame(now,t);
       document.body.dataset.eyeDepth=camera.position.z.toFixed(2);
       $('vangLoad').textContent=vang.toFixed(0)+' N';
