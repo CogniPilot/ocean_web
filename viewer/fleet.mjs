@@ -56,6 +56,14 @@ export function fleet(T,scene,roomName,status,weather,crew){
   let appliedReport,gustChannel,lastGustSend=-Infinity;
   const wakeRows=new Float64Array(4*38),wakeSlots=Array(4).fill(null);
   let wakeChannel,wakeSequence=0,lastWakeStamp=-Infinity;
+  const wakeOptOut=new Set();
+  let acceptsWakes=true,wakePreference;
+  function setWakeReception(enabled){
+    if(enabled===acceptsWakes)return;
+    acceptsWakes=enabled;
+    if(!enabled)for(const entry of wakeSlots)if(entry)clearWake(entry.id);
+    if(room && participants.size)wakePreference.send(Number(enabled)).catch(()=>{});
+  }
   function clearWake(id){
     const slot=wakeSlots.findIndex(entry=>entry?.id===id);
     if(slot<0)return;
@@ -80,10 +88,12 @@ export function fleet(T,scene,roomName,status,weather,crew){
   }
   function wakeSources(now,source,stamp){
     for(const entry of wakeSlots)if(entry&&now-entry.seen>1000)clearWake(entry.id);
-    if(room&&participants.size&&source&&stamp!==lastWakeStamp){
+    if(room&&participants.size>wakeOptOut.size&&source&&stamp!==lastWakeStamp){
       const packet=new Float32Array(37);
       packet[0]=stamp;packet.set(source,1);
-      wakeChannel.send(new Uint8Array(packet.buffer)).catch(()=>{});
+      const bytes=new Uint8Array(packet.buffer);
+      if(!wakeOptOut.size)wakeChannel.send(bytes).catch(()=>{});
+      else for(const id of participants)if(!wakeOptOut.has(id))wakeChannel.send(bytes,{target:id}).catch(()=>{});
       lastWakeStamp=stamp;
     }
     return wakeRows;
@@ -146,7 +156,7 @@ export function fleet(T,scene,roomName,status,weather,crew){
       for(const item of [...textures,...geometries])item.dispose();
       peers.delete(id);}
   }
-  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
+  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
   function join(transport){
     if(room)return;
     selfId=transport.selfId;
@@ -184,11 +194,17 @@ export function fleet(T,scene,roomName,status,weather,crew){
       if(room===active && Array.isArray(report) && report.length===3 && report.every(Number.isFinite))
         gustReports.set(peerId,report);
     };
+    wakePreference=room.makeAction('wake-pref');
+    wakePreference.onMessage=(value,{peerId})=>{
+      if(room!==active||!participants.has(peerId))return;
+      if(value===0)wakeOptOut.add(peerId);
+      else if(value===1)wakeOptOut.delete(peerId);
+    };
     wakeChannel=room.makeAction('hull-wake');
-    wakeChannel.onMessage=(packet,{peerId})=>{if(room===active)receiveWake(packet,peerId);};
+    wakeChannel.onMessage=(packet,{peerId})=>{if(room===active&&acceptsWakes)receiveWake(packet,peerId);};
     action=room.makeAction('sail-pose');
-    room.onPeerJoin=id=>{if(room===active){participants.add(id);lastWeatherSend=-Infinity;report();}};
-    room.onPeerLeave=id=>{if(room===active){participants.delete(id);seaClock.peers.delete(id);gustReports.delete(id);remove(id);report();}};
+    room.onPeerJoin=id=>{if(room===active){participants.add(id);wakePreference.send(Number(acceptsWakes),{target:id}).catch(()=>{});lastWeatherSend=-Infinity;report();}};
+    room.onPeerLeave=id=>{if(room===active){participants.delete(id);wakeOptOut.delete(id);seaClock.peers.delete(id);gustReports.delete(id);remove(id);report();}};
     action.onMessage=(packet,{peerId})=>{
       if(room!==active||!(packet instanceof Uint8Array)||
         (packet.byteLength!==4*packetFloats&&packet.byteLength!==36))return;
@@ -299,5 +315,5 @@ export function fleet(T,scene,roomName,status,weather,crew){
     }
     return anchor;
   }
-  return {join,leave,frame,contacts,seaTime,changeWeather,windAnchor,wakeSources,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
+  return {join,leave,frame,contacts,seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.sub?.visible).length;}};
 }

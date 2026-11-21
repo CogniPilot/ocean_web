@@ -195,6 +195,8 @@ async function run(){
   function applyQuality(){
     omitWake=Number(selector.value==='low');
     world?.setWakeEnabled(!omitWake);
+    remote.setWakeReception(Boolean(world?.hasPeerWake && !omitWake));
+    if(omitWake && world?.hasPeerWake)world.set('peerWake',new Float64Array(4*38));
     profile=profiles[selector.value];pixelScale=Math.min(devicePixelRatio,profile.ratio);
     renderer.setPixelRatio(pixelScale);ocean.setQuality(profile,selector.value==='low');
   }
@@ -461,7 +463,8 @@ async function run(){
         }
         if(world.hasPeerWake){
           const strips=$('controlTarget').value==='boat'?world.get('waves.sourceStrips'):null;
-          world.set('peerWake',remote.wakeSources(now,strips,model.get('waterStamp')));
+          const sources=remote.wakeSources(now,strips,model.get('waterStamp'));
+          if(!omitWake)world.set('peerWake',sources);
         }
         const steps=Math.min(5,Math.floor(acc/.01));acc=Math.min(.1,acc);
         if(running)acc=Math.max(0,acc-world.advance(steps)*.01);
