@@ -309,31 +309,58 @@ async function run(){
       stick.onlostpointercapture=e=>{if(e.pointerId!==finger)return;finger=null;analog.delete(horizontal);analog.delete(vertical);knob.style.transform='';helm();};
     }
   }
-  surveyDrone(T,scene,world).then(vehicle=>{
-    drone=vehicle;$('controlTarget').disabled=false;
-    $('cutMotors').onclick=()=>{const cut=$('cutMotors').getAttribute('aria-pressed')!=='true';drone.cut(cut);$('cutMotors').setAttribute('aria-pressed',String(cut));$('cutMotors').textContent=cut?'Restore motors':'Cut motors';};
-    $('controlTarget').onchange=()=>{
-      if($('controlTarget').value==='sub'){angle=Math.PI-.48;tilt=.32;}
-      keys.clear();$('view').focus({preventScroll:true});sub.active=$('controlTarget').value==='sub';$('onboardOption').hidden=!sub.active;if(!sub.active&&$('cameraDepth').value==='onboard')$('cameraDepth').value='deck';$('subPanel').hidden=!sub.active;drone.select($('controlTarget').value==='drone');
-      $('droneFpvOption').hidden=!drone.active;
-      if(!drone.active && $('cameraDepth').value==='fpv')$('cameraDepth').value='deck';
-      helm();touchControls();
-      $('cutMotors').hidden=!drone.active;$('flightKeys').hidden=!drone.active;document.querySelector('h1').textContent=sub.active?'Survey submarine':drone.active?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
-    };
-    const wreckSurvey=url.searchParams.get('demo')==='wreck';
-    const target=wreckSurvey?'sub':url.searchParams.get('control');
-    if(wreckSurvey){
-      sub.manual=false;
-      drone.manual=false;
-      $('sonarMap').checked=true;
-      sub.mapVisible=true;
+  const targetSelect=$('controlTarget'),wreckSurvey=url.searchParams.get('demo')==='wreck';
+  let loadingDrone;
+  function loadDrone(){
+    loadingDrone??=surveyDrone(T,scene,world).then(vehicle=>{
+      drone=vehicle;
+      if(wreckSurvey)drone.manual=false;
+    }).catch(error=>{loadingDrone=undefined;throw error;});
+    return loadingDrone;
+  }
+  $('cutMotors').onclick=()=>{
+    const cut=$('cutMotors').getAttribute('aria-pressed')!=='true';
+    drone.cut(cut);$('cutMotors').setAttribute('aria-pressed',String(cut));
+    $('cutMotors').textContent=cut?'Restore motors':'Cut motors';
+  };
+  async function selectTarget(){
+    keys.clear();analog.clear();helm();
+    if(targetSelect.value==='drone'&&!drone){
+      try{await loadDrone();}
+      catch(error){
+        if(targetSelect.value!=='drone')return;
+        targetSelect.title=error.message;targetSelect.value=sub.active?'sub':'boat';
+      }
+      if(targetSelect.value!=='drone'&&drone)return;
     }
-    if(target==='drone'||target==='sub'){
-      $('controlTarget').value=target;
-      $('controlTarget').onchange();
-      if(url.searchParams.get('view')==='fpv')$('cameraDepth').value=target==='sub'?'onboard':'fpv';
+    sub.active=targetSelect.value==='sub';
+    if(sub.active){angle=Math.PI-.48;tilt=.32;}
+    if(!world && drone?.active && targetSelect.value!=='drone' && drone.manual){
+      race.set('landingReaction',[0,0,0,0,0,0]);model.set('droneLoad',[0,0,0,0,0,0]);
     }
-  }).catch(e=>{$('controlTarget').title=e.message;});
+    drone?.select(targetSelect.value==='drone');
+    const flying=Boolean(drone?.active);
+    $('view').focus({preventScroll:true});
+    $('onboardOption').hidden=!sub.active;
+    $('droneFpvOption').hidden=!flying;
+    if((!sub.active&&$('cameraDepth').value==='onboard')||(!flying&&$('cameraDepth').value==='fpv'))$('cameraDepth').value='deck';
+    $('subPanel').hidden=!sub.active;
+    $('cutMotors').hidden=$('flightKeys').hidden=!flying;
+    document.querySelector('h1').textContent=sub.active?'Survey submarine':flying?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
+    touchControls();
+  }
+  targetSelect.disabled=false;targetSelect.onchange=selectTarget;
+  const initialTarget=wreckSurvey?'sub':url.searchParams.get('control');
+  if(wreckSurvey){
+    sub.manual=false;sub.mapVisible=true;$('sonarMap').checked=true;
+  }
+  if(world||wreckSurvey)loadDrone().catch(error=>{targetSelect.title=error.message;});
+  if(initialTarget==='drone'||initialTarget==='sub'){
+    targetSelect.value=initialTarget;
+    selectTarget().then(()=>{
+      if(targetSelect.value===initialTarget&&url.searchParams.get('view')==='fpv')$('cameraDepth').value=initialTarget==='sub'?'onboard':'fpv';
+    });
+  }
 
   function helm(){drone?.input(axis,keys.has('ShiftLeft')||keys.has('ShiftRight'));if(drone?.active||sub.active){model.set('rudderInput',0);model.set('trimInput',0);return;}model.set('rudderInput',axis('KeyA','KeyD'));model.set('trimInput',axis('KeyW','KeyS'));}
   addEventListener('keydown',e=>{if(manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){keys.add(e.code);helm();}});
@@ -491,7 +518,7 @@ async function run(){
           race.set('east',model.get('east'));race.set('north',model.get('north'));
           race.set('utc',Date.now()/1000);race.advance(.05);
         }
-        if(drone){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);race.set('landingReaction',drone.deckReaction);model.set('droneLoad',drone.sailReaction);}acc-=.01;
+        if(drone && (drone.active||!drone.manual)){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);race.set('landingReaction',drone.deckReaction);model.set('droneLoad',drone.sailReaction);}acc-=.01;
       }
       ocean.U.spectrumBlend.value=world?model.get('waterFraction'):Math.min(1,((wakeTicks===0?0:(wakeTicks-1)%10+1)+acc/.01)/10);
       if(model.time!==meshTime){
