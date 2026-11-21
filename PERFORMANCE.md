@@ -156,3 +156,7 @@ Four cache-disabled Chromium runs (393 × 852 touch viewport, SwiftShader, Low, 
 The default Hobie page defers the sloop hull and peer transport until multiplayer starts, removing two requests totaling 345,827 uncompressed bytes from solo loading. The sloop similarly defers 221,207 bytes. Both hulls and the transport are ready before a room accepts snapshots.
 
 Chromium touch emulation with cold page caches, SwiftShader, 80 ms request latency and a 10 Mbps page download limit reported the first positive simulation time at 3.87, 3.51, 3.47 and 3.53 seconds (release, candidate, candidate, release). This emulation applies to the page target. It does not reproduce a physical phone or a network-wide throttle. Both boat selections also passed solo startup, immediate cancellation of a pending join, subsequent room entry and room exit.
+
+### Collapsed submarine sensors
+
+A folded onboard sensor panel no longer subscribes to image and feature arrays or paints the 180 × 120 preview. Submarine navigation still acquires and processes its observations. A Chromium touch test opened the wreck demo and alternated closed/open twice on each runtime. Each 1.3-second closed measurement recorded zero preview payloads and zero sensor canvas uploads. Open measurements recorded five to seven payloads. The estimate continued reporting feature matches and keyframes throughout. This measures avoided display work, not total frame rate.

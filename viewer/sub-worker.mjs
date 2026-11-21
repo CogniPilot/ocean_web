@@ -6,7 +6,7 @@ const ready=Promise.all([
   loadInstance('Wreck_Plant',{manual:1,windSpeed:11,windDirection:.45}),
   loadInstance('Wreck_Navigation',{})
 ]);
-let tick=0, estimate, image, features;
+let tick=0, estimate, image, features, sentImage;
 let mapRows, mappedKeys=-1, closures=-1;
 function acquire(plant,nav){
   nav.set('stamp',tick*.01);
@@ -30,7 +30,7 @@ self.onmessage=async({data})=>{
     const [plant,nav]=await ready;
     plant.set('manual',Number(data.manual));plant.set('pilot',data.pilot);
     plant.set('windSpeed',data.wind);plant.set('windDirection',data.bearing);
-    const previousImage=image;
+    const previousEstimate=estimate;
     for(let i=0;i<data.steps;i++){
       if(tick%20===0)acquire(plant,nav);
       plant.advance(.01);tick++;
@@ -40,7 +40,9 @@ self.onmessage=async({data})=>{
     self.postMessage({waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,
       thrust:survey.slice(3,10),buoyancy:survey.slice(10,13),contact:survey.slice(13,16),mapRows,
       time:tick*.01,position,q,rpm,cavitation,flow,
-      ...(previousImage===image?{}:{estimate,image,features})},mapRows?[mapRows.buffer]:[]);
+      ...(previousEstimate!==estimate?{estimate}:{}),
+      ...(data.showSensorImage && sentImage!==image?{image,features}:{})},mapRows?[mapRows.buffer]:[]);
+    sentImage=data.showSensorImage?image:undefined;
     mapRows=undefined;
   }catch(error){self.postMessage({error:error.message});}
 };
