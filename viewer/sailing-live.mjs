@@ -90,7 +90,7 @@ async function run(){
   // Start at the default loaded waterline for each hull.
   const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const simulationReady=Promise.all([
-    mode?import('./world-view.mjs').then(module=>module.openWorld(mode)):loadInstance(vessel,inputs),
+    mode?import('./world-view.mjs').then(module=>module.openWorld(mode,Number($('seaState').value))):loadInstance(vessel,inputs),
     hasBoat?loadVehicleShell(cat?'hobie-hulls':'sloop-hull'):null,
     hasSub?Promise.all([import('./submarine.mjs?hud=2'),loadVehicleShell('survey-pressure-housing')]):null
   ]);
@@ -128,7 +128,7 @@ async function run(){
   let captureMast;
   $('mastCapture').onclick=()=>{
     captureMast??=mastCamera(T,renderer,scene,boat,cat);
-    const shot=captureMast(),file={...shot,vehicle:vessel,simulationTime:model.time,positionENU:[model.get('east'),model.get('north'),model.get('heave')],rollPitchYaw:[model.get('heel'),model.get('pitch'),model.get('heading')],vaneRad:model.get('vane'),windTile:{sampleTime:windField.time,periodM:96,shape:[48,48,3],components:['east','north','roughness'],data:Array.from(windField.get('field'))}};
+    const shot=captureMast(),file={...shot,vehicle:vessel,simulationTime:model.time,positionENU:[model.get('east'),model.get('north'),model.get('heave')],rollPitchYaw:[model.get('heel'),model.get('pitch'),model.get('heading')],vaneRad:model.get('vane'),windTile:{sampleTime:windField.time,periodM:windField.get('period'),shape:[48,48,3],components:['east','north','roughness'],data:Array.from(windField.get('field'))}};
     const a=document.createElement('a'),href=URL.createObjectURL(new Blob([JSON.stringify(file)],{type:'application/json'}));a.href=href;a.download='mast-'+model.time.toFixed(2)+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(href),10000);
   };
   if(!world){
@@ -224,6 +224,7 @@ async function run(){
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
   const ocean=atmosphere(scene,waterCaptureLayer),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
+  ocean.U.windPeriod.value=windField.get('period');
   const profiles={
     low:{ratio:.75,min:.5,capture:.375,reflectSamples:2,reflectionInterval:0,transmissionInterval:0,mesh:88,sky:.5},
     balanced:{ratio:1,min:.75,capture:.75,reflectSamples:2,reflectionInterval:0,transmissionInterval:65,mesh:120,sky:.75},
@@ -298,6 +299,7 @@ async function run(){
     if(world)world.set('seaState',level);
     else model.set('swellAmplitude',.30*level);
   }
+  if(!world)applySea();
   $('seaState').onchange=()=>{applySea();remote.changeWeather('sea',$('seaState').value);};
   $('sky').onchange=()=>remote.changeWeather('sky',$('sky').value);
   const keys=new Set();let drone;

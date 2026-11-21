@@ -64,7 +64,7 @@ The coupled vehicles use one directional JONSWAP wind sea and a separate long sw
 | Preset at 11 m/s wind | Wind-sea significant height | Wind-sea peak period | Swell height, crest to trough |
 | --- | ---: | ---: | ---: |
 | Calm | 0.08 m | 2.3 s | 0 m |
-| Swell | 0.62 m | 3.65 s | 0.44 m |
+| Swell (startup default) | 0.62 m | 3.65 s | 0.44 m |
 | Steep swell | 1.15 m | 4.8 s | 0.96 m |
 
 The renderer uses the measured wind-speed dependence of open-ocean whitecap coverage as a density control and gates foam by crest elevation and slope. Sheltered Calm water can remain clear with wind across it. The shader's whitecaps are optical. Modelica still supplies all water loads. [Monahan and O'Muircheartaigh whitecap observations](https://journals.ametsoc.org/abstract/journals/phoc/10/12/1520-0485_1980_010_2094_opldoo_2_0_co_2.xml)

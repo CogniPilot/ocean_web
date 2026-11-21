@@ -41,11 +41,56 @@ def coating(name, rgb, metal=0, rough=.38, stripes=False):
     return mat
 
 
-def hull(name, stations, section, material, side=1, center=0):
+def fair_pontoon(stations):
+    """Interpolate the measured stations with monotone tangents for a smooth silhouette."""
+    points = np.asarray(stations)
+    x, values = points[:, 0], points[:, 1:]
+    spacing = np.diff(x)
+    secants = np.diff(values, axis=0) / spacing[:, None]
+    tangent = np.zeros_like(values)
+    tangent[0], tangent[-1] = secants[0], secants[-1]
+    for i in range(1, len(x)-1):
+        a, b = secants[i-1], secants[i]
+        keep = a*b > 0
+        tangent[i, keep] = 2*a[keep]*b[keep]/(a[keep]+b[keep])
+    rings = []
+    for i, length in enumerate(spacing):
+        count = max(3, math.ceil(length/.12))
+        for j in range(count):
+            t = j/count
+            shape = ((1+2*t)*(1-t)**2*values[i] + t*t*(3-2*t)*values[i+1]
+                     + length*t*(1-t)*((1-t)*tangent[i]-t*tangent[i+1]))
+            rings.append((x[i]+length*t, *shape))
+    return rings + [stations[-1]]
+
+
+def hobie_deck_joint(contour, width, depth):
+    """Roll the glass deck edge over the hull flange inside the measured beam."""
+    # Photo estimates. Blend out at the narrow stem, keeping the overall beam
+    # and the crown height. The third coordinate follows the original paint UV.
+    overhang = min(.015, .18*width)
+    height = min(.017, .09*depth, .28*width)
+    def edge(sign):
+        return [(sign*(width-inset*overhang), -drop*height,
+                 (u if sign<0 else 10-u)/14)
+                for inset,drop,u in ((.25,0,0), (.04,.10,.03), (0,.36,.07),
+                                     (.13,.71,.12), (1,.86,.17), (1.02,1,.21))]
+    belly = [(y*width,z*depth,u) for y,z,u in contour[1:10]]
+    for i in (0,-1):
+        y,z,u = belly[i]
+        belly[i] = (math.copysign(min(abs(y),width-overhang),y),z,u)
+    return edge(-1) + belly + edge(1)[::-1] + [
+        (y*width,z*depth,u) for y,z,u in contour[11:]]
+
+
+def hull(name, stations, section, material, side=1, center=0, deck_joint=False):
     verts, faces = [], []
+    contour = [(y,z,i/len(section)) for i,(y,z) in enumerate(section)]
     for x, width, draft, sheer in stations:
-        verts.extend((x, center + side*width*y, sheer+draft*z) for y,z in section)
-    n = len(section)
+        ring = (hobie_deck_joint(contour,width,draft) if deck_joint else
+                [(width*y,draft*z,u) for y,z,u in contour])
+        verts.extend((x, center+side*y, sheer+z) for y,z,u in ring)
+    n = len(ring)
     for i in range(len(stations)-1):
         for j in range(n):
             k=(j+1)%n
@@ -63,7 +108,8 @@ def hull(name, stations, section, material, side=1, center=0):
         j=poly.index % n
         for loop in poly.loop_indices:
             v=mesh.loops[loop].vertex_index
-            uv.data[loop].uv=(v//n/(len(stations)-1), (n if j==n-1 and v%n==0 else v%n)/n)
+            along = (verts[v][0]-stations[0][0])/(stations[-1][0]-stations[0][0]) if deck_joint else v//n/(len(stations)-1)
+            uv.data[loop].uv=(along, 1 if j==n-1 and v%n==0 else ring[v%n][2])
     # Section traces port-deck edge through the keel and around the deck crown.
     import bmesh
     bm=bmesh.new()
@@ -97,26 +143,57 @@ def hobie_frame(stations):
 
     # X forward, Y port. Sidebars overlap each cloth edge and enter both corner castings.
     for side in (-1,1):
-        loft([(x,side*.95,.413,.042,.034) for x in (-1.40,.55)],
+        loft([(x,side*.938,.413,.042,.034) for x in (-1.40,.405)],
              (0,1,0),(0,0,1),alloy)
-    for beam_x in (-1.40,.55):
-        loft([(beam_x,y,.41,.063,.064) for y in (-1.04,1.04)],(1,0,0),(0,0,1),alloy)
-        for side in (-1,1):
-            # Seat the foot below the lofted deck crown; lean the pylon into the corner.
-            foot_x = beam_x + (-.036 if beam_x < 0 else .036)
-            crown = float(np.interp(foot_x,[s[0] for s in stations],
-                                    [sheer+.036*depth for _,_,depth,sheer in stations]))
-            foot_y,head_y = side*1.02,side*.957
-            loft([(foot_x,foot_y,crown-.017,.094,.063),
-                  (foot_x,foot_y,crown+.005,.080,.054),
-                  (foot_x,foot_y,crown+.024,.055,.040)],(1,0,0),(0,1,0),socket)
-            loft([(foot_x,foot_y,crown+.010,.053,.039),
-                  (beam_x,head_y,.387,.054,.040)],(1,0,0),(0,1,0),alloy)
-            loft([(beam_x,head_y,.348,.058,.048),(beam_x,head_y,.376,.070,.062),
-                  (beam_x,head_y,.423,.076,.068),(beam_x,head_y,.446,.062,.060)],
-                 (1,0,0),(0,1,0),casting)
-            loft([(beam_x,head_y+side*d,.372,.010,.010) for d in (.056,.067)],
+    for beam_x in (-1.40,.405):
+        if beam_x > 0:
+            # Slight crown and sweep. Ease both ends into the corner castings.
+            rings = []
+            for y in np.linspace(-1.075,1.075,25):
+                crown = max(0, 1-(y/1.02)**2)
+                tip = max(0, (abs(y)-1.02)/.055)
+                rings.append((beam_x+.035*crown,y,.41+.033*crown,
+                              .057*(1-.25*tip),.050*(1-.25*tip)))
+        else:
+            rings = [(beam_x,y,.41,.056,.05) for y in (-1.075,1.075)]
+        loft(rings,(1,0,0),(0,0,1),alloy)
+        # Integral traveler tracks follow the extrusion and share its draw call.
+        if beam_x > 0:
+            for side in (-1,1):
+                track = []
+                for y in np.linspace(.16,.90,9):
+                    crown = 1-(y/1.02)**2
+                    track.append((beam_x+.035*crown,side*y,.460+.033*crown,.014,.007))
+                loft(track,(1,0,0),(0,0,1),steel,8)
+        else:
+            loft([(beam_x,y,.460,.015,.008) for y in (-.94,.94)],
                  (1,0,0),(0,0,1),steel,8)
+        for side in (-1,1):
+            # Pylons are vertical in hull coordinates. The beam overhangs the casting.
+            crown = float(np.interp(beam_x,[s[0] for s in stations],
+                                    [sheer+.036*depth for _,_,depth,sheer in stations]))
+            pylon_y = side*1.02
+            loft([(beam_x,pylon_y,crown-.017,.094,.063),
+                  (beam_x,pylon_y,crown+.005,.080,.054),
+                  (beam_x,pylon_y,crown+.024,.055,.040)],(1,0,0),(0,1,0),socket)
+            loft([(beam_x,pylon_y,crown+.010,.053,.039),
+                  (beam_x,pylon_y,.387,.054,.040)],(1,0,0),(0,1,0),alloy)
+            loft([(beam_x,pylon_y,.348,.058,.048),(beam_x,pylon_y,.376,.070,.062),
+                  (beam_x,pylon_y,.423,.076,.068),(beam_x,pylon_y,.446,.062,.060)],
+                 (1,0,0),(0,1,0),casting)
+            loft([(beam_x,pylon_y+side*d,.372,.010,.010) for d in (.056,.067)],
+                 (1,0,0),(0,0,1),steel,8)
+    # Dolphin striker on the underside of the forward beam, on the mast axis.
+    # The post bottoms in a saddle that carries the bent transverse tension rod.
+    mast_x = .44
+    loft([(mast_x,0,z,r,r) for z,r in ((.475,.051),(.493,.056),(.506,.047))],
+         (1,0,0),(0,1,0),casting)
+    loft([(mast_x,0,z,r,r) for z,r in ((.112,.014),(.129,.014),(.134,.0095),
+                                         (.385,.0095),(.391,.020),(.400,.020))],
+         (1,0,0),(0,1,0),steel)
+    loft([(mast_x-.035*abs(y)/1.02,y,z,.0055,.0055) for y,z in ((-.995,.363),(-.94,.333),
+          (-.035,.122),(0,.118),(.035,.122),(.94,.333),(.995,.363))],
+         (1,0,0),(0,0,1),steel)
     mesh=bpy.data.meshes.new('Hobie trampoline frame')
     mesh.from_pydata(vertices,[],faces)
     mesh.update()
@@ -153,14 +230,13 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 section=[(-1,0),(-.99,-.16),(-.90,-.47),(-.69,-.77),(-.37,-.94),(0,-1),
          (.37,-.94),(.69,-.77),(.9,-.47),(.99,-.16),(1,0),(.82,.018),(0,.036),(-.82,.018)]
 white=coating('Ivory gelcoat',(.89,.91,.88),stripes=True)
-# Read the physical pontoon offsets directly so the visual loft, beach contact
-# and displacement use the same upswept stem and rocker.
+# Loft the visual hull from the same offsets used for shore contact.
 shore = (DEST.parents[1]/'viewer/board/Shore.mo').read_text()
 table = re.search(r'constant Real pontoon\[12,4\]=\[(.*?)\];', shore, re.S)[1]
 offsets = [list(map(float,row.split(','))) for row in table.split(';')]
-stations = [(x,w,sheer-keel,sheer) for x,w,sheer,keel in offsets]
+stations = [(x,w,sheer-keel,sheer) for x,w,sheer,keel in fair_pontoon(offsets)]
 for side in (-1,1):
-    hull('Port hull' if side==1 else 'Starboard hull',stations,section,white,side,side*1.02)
+    hull('Port hull' if side==1 else 'Starboard hull',stations,section,white,side,side*1.02,deck_joint=True)
 hobie_frame(stations)
 export('hobie-hulls')
 red=coating('Vermilion gelcoat',(.80,.105,.08))

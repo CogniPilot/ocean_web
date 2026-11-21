@@ -128,10 +128,14 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
 0.7778675,0.6284284,0,0.9435222];
   // END BAKED
   // x, half beam, sheer and keel height along one catamaran pontoon [m].
-  constant Real pontoon[12,4]=[-2.555,.09,.315,-.10; -2.20,.134,.28,-.235; -1.90,.156,.267,-.29;
-    -.90,.185,.239,-.36; .15,.184,.231,-.37; 1.12,.155,.256,-.31; 1.95,.093,.320,-.15;
-    2.20,.064,.357,-.048; 2.37,.042,.392,.078; 2.48,.025,.428,.205;
-    2.535,.012,.451,.342; 2.555,.004,.463,.440];
+  // Lowest keel is -0.370 m. Including the crowned deck, the floor-to-bow
+  // and floor-to-stern heights are 0.5969 and 0.6096 m. Intermediate heights
+  // follow the side-elevation outline, levelled to those endpoint measurements.
+  constant Real pontoon[12,4]=[-2.520,.090,.23078,-.01413; -1.829,.160,.17658,-.19662;
+    -.876,.185,.13108,-.32376; .018,.185,.09300,-.37000; .697,.170,.08864,-.36619;
+    1.531,.125,.12129,-.32188; 1.960,.092,.16218,-.25766; 2.222,.060,.19239,-.15398;
+    2.353,.039,.21071,-.05985; 2.425,.027,.22181,.02938; 2.484,.015,.22656,.13093;
+    2.520,.004,.22648,.21482];
   function pontoonSection
     input Real x;
     output Real profile[3];

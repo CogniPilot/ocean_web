@@ -7,7 +7,7 @@ const sailingOutputs=[
 ];
 const environmentOutputs=[
  ...group('race','countdown stage elapsed lapTime markPose launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
- ...group('wind','field thunderArrival strikeBearing strikeFlash travelE travelN localEast localNorth'),
+ ...group('wind','period field thunderArrival strikeBearing strikeFlash travelE travelN localEast localNorth'),
  ...group('waves','height driftE driftN period'),
  ...group('boatWater','tile tide wind'),
 ];
@@ -16,7 +16,7 @@ const submarineOutputs=[...group('sub','surveyTelemetry position orientation pro
  'estimate','sensor','ping'];
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
-export async function openWorld(mode='world'){
+export async function openWorld(mode='world',seaState=.45){
  const hasBoat=mode==='world'||mode==='sailing'||mode==='sloop',hasSub=mode==='world'||mode==='submarine',hasFlight=mode==='world'||mode==='flight';
  const workerUrl=new URL('./'+mode+'/ocean-world-worker.mjs',import.meta.url);
  workerUrl.search=new URL(import.meta.url).search;
@@ -28,7 +28,7 @@ export async function openWorld(mode='world'){
  worker.onmessage=({data})=>{if(data.error)pending.reject(Error(data.error));else pending.resolve(data);};
  worker.onerror=e=>{error=Error(e.message);pending?.reject(error);};
  function send(message){return new Promise((resolve,reject)=>{pending={resolve,reject};worker.postMessage({...message,id:++id});});}
- const initial={windSpeed,windBearing,epoch:Date.now()/1000};
+ const initial={windSpeed,windBearing,seaState,epoch:Date.now()/1000};
  const inputs=['seaState'];
  if(hasBoat){
    Object.assign(initial,{sailingManual:1,vang:.5,downhaul:.5});
