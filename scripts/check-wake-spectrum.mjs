@@ -13,15 +13,31 @@ for(let tick=1;tick<=100;tick++){
   water.advance(.1);
 }
 const stopped=water.get('height');
+const hullWake=water.get('wakeHeight');
+assert(maxAbs(hullWake.map((z,i)=>z-stopped[i]))<1e-12,'In still water, the hull-only grid equals the total sea');
+const real=water.get('modesR'),imaginary=water.get('modesI');
+for(const [east,north] of [[17,-2],[15,0],[13,3],[5,0],[22,-1]]){
+  let expected=0;
+  for(let j=0;j<64;j++)for(let i=0;i<64;i++){
+    const phase=2*Math.PI*(i*east+j*north)/64;
+    expected+=real[j*64+i]*Math.cos(phase)-imaginary[j*64+i]*Math.sin(phase);
+  }
+  const index=((north+64)%64)*64+east;
+  assert(Math.abs(expected/4096-hullWake[index])<1e-10,'Wake grid disagrees with inverse Fourier sum');
+}
 const tileAtOrigin=field=>maxAbs(field.slice(0,6));
 assert(maxAbs(water.get('modesR'))>1e-3);
 assert(tileAtOrigin(stopped)>1e-5,'Expected wake at least 15 m astern');
 for(let tick=0;tick<20;tick++)water.advance(.1);
 const later=water.get('height');
+water.set('omitWake',1);
+water.advance(.1);
+assert.equal(maxAbs(water.get('wakeHeight')),0,'Low must clear the hull-only grid');
 assert(tileAtOrigin(later.map((v,i)=>v-stopped[i]))>1e-5,'Waves should travel after the hull stops');
 assert(Math.abs(later.reduce((a,b)=>a+b)/later.length)<1e-10);
 const wind=await loadInstance('WakeSpectrum',{...parameters,windEast:10},read);
 wind.advance(.1);
+assert(maxAbs(wind.get('wakeHeight'))<1e-12,'An incident wind wave must not enter the hull-only grid');
 const windHeight=wind.get('height'),probe=wind.get('incident')[0];
 assert(maxAbs(windHeight)>1e-4);
 assert(Math.abs(windHeight[0]-probe)<1e-9,'Inverse FFT must agree with analytical wind-wave probe');

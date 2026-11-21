@@ -53,7 +53,7 @@ async function run(){
   const mobile=matchMedia('(pointer: coarse)').matches;
   const initialControl=url.searchParams.get('control');
   const sailingOnly=requestedHull!=='Sailboat' && url.searchParams.get('demo')!=='wreck' &&
-    (runtime==='sailing' || (runtime==='world' && !url.searchParams.has('runtime') && (mobile || url.searchParams.has('room')))) &&
+    (runtime==='sailing' || (runtime==='world' && !url.searchParams.has('runtime'))) &&
     (!initialControl || initialControl==='boat');
   const integrated=(runtime==='world'||runtime==='sailing')&&requestedHull!=='Sailboat';
   const cat=integrated||requestedHull==='Hobie16';
@@ -205,6 +205,7 @@ async function run(){
   function applyQuality(){
     omitWake=Number(selector.value==='low');
     world?.setWakeEnabled(!omitWake);
+    if(omitWake)ocean.clearWake();
     remote.setWakeReception(Boolean(world?.hasPeerWake && !omitWake));
     if(omitWake && world?.hasPeerWake)world.set('peerWake',new Float64Array(4*38));
     profile=profiles[selector.value];pixelScale=Math.min(devicePixelRatio,profile.ratio);
@@ -546,7 +547,7 @@ async function run(){
         if(running)acc=Math.max(0,acc-world.advance(steps)*.01);
         const tick=Math.round(world.time*100),waveTick=model.get('waterStamp'),fieldTick=Math.floor(tick/25);
         if(lastWorldTick!==waveTick){
-          ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'));
+          ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'),omitWake?undefined:world.get('waves.wakeHeight'));
           wavePresentation.sample(waveTick,now);lastWorldTick=waveTick;
         }
         if(lastFieldTick!==fieldTick){
@@ -588,7 +589,7 @@ async function run(){
           model.set('windEast',localEast);model.set('windNorth',localNorth);ocean.updateWind(field);
         }
         if(wakeTicks%10===0){
-          const {height,incident,sections,origin,period,load}=waterFrame;
+          const {height,wake,incident,sections,origin,period,load}=waterFrame;
           waterFrame=null;
           race.set('wakeTile',height);race.set('driftEast',origin[0]);race.set('driftNorth',origin[1]);
           race.set('swellHeight',model.get('swellAmplitude'));
@@ -597,7 +598,7 @@ async function run(){
           model.set('sectionWater',sections);model.set('waterStamp',model.time);lastSections=sections;
           model.set('waveHeight',incident[0]);model.set('wavePitch',incident[1]);model.set('waveRoll',incident[2]);
           model.set('wakeEast',load[0]);model.set('wakeNorth',load[1]);model.set('wakeYaw',load[2]);
-          ocean.updateSpectrum(height,...origin,period);
+          ocean.updateSpectrum(height,...origin,period,omitWake?undefined:wake);
           wavePresentation.sample(wakeTicks,now);
         }
         wakeTicks++;
