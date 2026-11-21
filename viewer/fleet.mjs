@@ -117,6 +117,22 @@ export function fleet(T,scene,roomName,status,weather,crew){
     ctx.font='bold 24px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.fillText(name,128,24,240);texture.needsUpdate=true;
   }
+  async function loadPeerBoat(id,peer){
+    peer.loadingHull=true;
+    try{
+      await loadVehicleShell(peer.cat?'hobie-hulls':'sloop-hull');
+      if(peers.get(id)!==peer)return;
+      peer.mesh=sailboatMesh(T,peer.cat);
+      peer.mesh.group.traverse(o=>o.layers.set(1));
+      peer.mesh.group.visible=false;
+      scene.add(peer.mesh.group);
+    }catch(error){
+      peer.retryHullAt=performance.now()+10000;
+      console.warn('Remote sailboat mesh',error);
+    }finally{
+      peer.loadingHull=false;
+    }
+  }
   function remove(id){
     clearWake(id);
     const peer=peers.get(id);
@@ -191,13 +207,11 @@ export function fleet(T,scene,roomName,status,weather,crew){
       if(peer&&(peer.kind!==kind||peer.cat!==!!data[207])){remove(peerId);peer=null;}
       if(!peer){
         if(peers.size>=channels)return;
-        let mesh,state;
-        if(kind==='boat'){
-          mesh=sailboatMesh(T,!!data[207]);mesh.group.traverse(o=>o.layers.set(1));scene.add(mesh.group);
-          state=new Float32Array(207);
-        }
-        peer={mesh,state,kind,timeline:new PeerTimeline(),cat:!!data[207],armed:false,target:new T.Vector3(),rotation:new T.Quaternion()};peers.set(peerId,peer);labelCaptain(peerId,peer);
+        peer={state:kind==='boat'?new Float32Array(207):null,kind,timeline:new PeerTimeline(),cat:!!data[207],
+          armed:false,retryHullAt:0,target:new T.Vector3(),rotation:new T.Quaternion()};
+        peers.set(peerId,peer);labelCaptain(peerId,peer);
       }
+      if(kind==='boat'&&!peer.mesh&&!peer.loadingHull&&performance.now()>=peer.retryHullAt)loadPeerBoat(peerId,peer);
       peer.timeline.receive(data,performance.now());
     };report();
   }

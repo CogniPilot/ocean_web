@@ -115,10 +115,7 @@ async function run(){
     if(!on){remote.leave();return;}
     $('online').textContent='Joining…';
     try{
-      const [transport]=await Promise.all([
-        import('./vendor/trystero.mjs'),
-        loadVehicleShell(cat?'sloop-hull':'hobie-hulls')
-      ]);
+      const transport=await import('./vendor/trystero.mjs');
       if(attempt!==joinAttempt)return;
       remote.join(transport);
       $('invite').hidden=false;
