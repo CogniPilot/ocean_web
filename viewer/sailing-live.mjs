@@ -189,7 +189,7 @@ async function run(){
   // These objects are wholly below mean sea level, including their animation ranges.
   const submergedScenery=new T.Group();scene.add(submergedScenery);
   const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;submergedScenery.add(bottom);
-  const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,submergedScenery);
+  const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,submergedScenery,renderer.capabilities.isWebGL2);
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
   const fpvForward=new T.Vector3(),drawInstruments=firstPersonInstruments($('flightHud'));
   const helmSeat=new T.Vector3(cat ? -1.2 : -.73,0,cat ? .65 : .18),orbitCenter=new T.Vector3();
