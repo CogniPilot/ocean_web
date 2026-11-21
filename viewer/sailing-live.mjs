@@ -1,5 +1,5 @@
 import {sailingStart,windBearing,windSpeed} from './sailing-start.mjs';
-import {reflectionLayer,reflectOnLow} from './render-layers.mjs';
+import {waterCaptureLayer,showInLowWaterCapture} from './render-layers.mjs';
 import {wreckCaustics} from './caustics.mjs';
 import {loadVehicleShell} from './vehicle-assets.mjs';
 import {loadInstance} from './fmi3/instance.mjs?api=2';
@@ -100,7 +100,7 @@ async function run(){
   renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
   const island=coast(T,scene,renderer.capabilities.isWebGL2 || renderer.extensions.has('ANGLE_instanced_arrays'));
-  island.traverse(reflectOnLow);
+  island.traverse(showInLowWaterCapture);
   const [simulation,,subAssets]=await simulationReady;
   const world=mode?simulation:null;
   const model=world?world.boat:simulation;
@@ -219,10 +219,10 @@ async function run(){
   for(const type of ['click','keydown'])addEventListener(type,unlockAudio);
   const hemi=new T.HemisphereLight(0xe5f8fb,0x767266,1.8);hemi.position.z=1;scene.add(hemi);
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
-  reflectOnLow(hemi);reflectOnLow(sun);
-  const ocean=atmosphere(scene,reflectionLayer),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
+  showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
+  const ocean=atmosphere(scene,waterCaptureLayer),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   const profiles={
-    low:{ratio:.75,min:.5,capture:.375,reflectionInterval:0,transmissionInterval:150,mesh:88,sky:.5},
+    low:{ratio:.75,min:.5,capture:.375,reflectionInterval:0,transmissionInterval:0,mesh:88,sky:.5},
     balanced:{ratio:1,min:.75,capture:.75,reflectionInterval:65,transmissionInterval:65,mesh:120,sky:.75},
     high:{ratio:1,min:1,capture:1.25,reflectionInterval:0,transmissionInterval:0,mesh:144,sky:1,filterTransmission:true}
   };
@@ -252,7 +252,9 @@ async function run(){
   // These objects are wholly below mean sea level, including their animation ranges.
   const submergedScenery=new T.Group();scene.add(submergedScenery);
   const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;submergedScenery.add(bottom);
+  showInLowWaterCapture(bottom);
   const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);let life;
+  wreckVisual.traverse(showInLowWaterCapture);
   let deferLife=mode==='sailing' && selector.value==='low';
   function populateSea(){life=marineLife(T,submergedScenery,renderer.capabilities.isWebGL2);}
   if(!deferLife)populateSea();

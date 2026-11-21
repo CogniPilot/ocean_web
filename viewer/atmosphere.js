@@ -206,7 +206,7 @@ function hullFoam(scene,uniforms){
  }
  return {mesh,clear,sample};
 }
-function atmosphere(scene,reflectionLayer){
+function atmosphere(scene,waterCaptureLayer){
  const U={cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  const skyTarget=new THREE.WebGLRenderTarget(512,192,{type:THREE.HalfFloatType});
  skyTarget.texture.wrapS=THREE.RepeatWrapping;
@@ -467,7 +467,7 @@ function atmosphere(scene,reflectionLayer){
  U.reflection.value=reflectRT.texture;U.transmission.value=throughRT.texture;
  const mirrorLook=new THREE.Vector3(),mirrorClip=new THREE.Plane(new THREE.Vector3(0,0,1));
  const clearThrough=new THREE.Color(0x144958);
- let simpleReflection=false;
+ let simpleCapture=false;
  function capture(renderer,camera,submergedScenery,reflect,transmit){
    camera.updateMatrixWorld();
    const oldBackground=scene.background,oldFog=scene.fog;
@@ -476,7 +476,7 @@ function atmosphere(scene,reflectionLayer){
    if(reflect){
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
-     if(simpleReflection)mirrorCamera.layers.set(reflectionLayer);
+     if(simpleCapture)mirrorCamera.layers.set(waterCaptureLayer);
      const twiceTide=2*U.tide.value;
      mirrorCamera.position.z=twiceTide-camera.position.z;mirrorLook.z=twiceTide-mirrorLook.z;
      mirrorCamera.up.set(0,0,-1);mirrorCamera.lookAt(mirrorLook);mirrorCamera.updateMatrixWorld();
@@ -493,7 +493,10 @@ function atmosphere(scene,reflectionLayer){
      U.throughMatrix.value.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
      U.throughEye.value.copy(camera.position);U.cameraRange.value.set(camera.near,camera.far);
      renderer.getDrawingBufferSize(U.viewport.value);
-     renderer.setRenderTarget(throughRT);scene.background=clearThrough;renderer.render(scene,camera);
+     renderer.setRenderTarget(throughRT);scene.background=clearThrough;
+     const viewLayers=camera.layers.mask;
+     if(simpleCapture)camera.layers.set(waterCaptureLayer);
+     try {renderer.render(scene,camera);} finally {camera.layers.mask=viewLayers;}
    }
    renderer.setRenderTarget(null);
    scene.fog=oldFog;scene.background=oldBackground;water.visible=true;trails.mesh.visible=foamVisible;dome.visible=true;
@@ -502,14 +505,14 @@ function atmosphere(scene,reflectionLayer){
    if(water.geometry.parameters.widthSegments!==profile.mesh){
      water.geometry.dispose();water.geometry=waterMesh(profile.mesh);
    }
-   simpleReflection=vertexSlope;
+   simpleCapture=vertexSlope;
    water.material.defines=vertexSlope?{VERTEX_SLOPE:1}:profile.filterTransmission?{FILTER_TRANSMISSION:1}:{};
    water.material.needsUpdate=true;
    skyTarget.setSize(Math.round(512*profile.sky),Math.round(192*profile.sky));lastSky=-Infinity;
    const scale=profile.capture;
    const width=Math.round(512*scale),height=Math.round(320*scale);
    reflectRT.samples=multisampling&&profile.filterTransmission?2:0;
-   reflectRT.setSize(simpleReflection?160:width,simpleReflection?100:height);
+   reflectRT.setSize(simpleCapture?160:width,simpleCapture?100:height);
    throughRT.setSize(width,height);U.transmissionSize.value.set(width,height);
  }
  return {U,dome,water,update,updateSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,updateSky};
