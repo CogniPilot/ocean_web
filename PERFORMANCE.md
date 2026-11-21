@@ -160,3 +160,11 @@ Chromium touch emulation with cold page caches, SwiftShader, 80 ms request laten
 ### Collapsed submarine sensors
 
 A folded onboard sensor panel no longer subscribes to image and feature arrays or paints the 180 × 120 preview. Submarine navigation still acquires and processes its observations. A Chromium touch test opened the wreck demo and alternated closed/open twice on each runtime. Each 1.3-second closed measurement recorded zero preview payloads and zero sensor canvas uploads. Open measurements recorded five to seven payloads. The estimate continued reporting feature matches and keyframes throughout. This measures avoided display work, not total frame rate.
+
+### Vehicle-selected SLAM
+
+Selecting the submarine enables its onboard camera, sonar registration, keyframe creation and loop closure. Selecting the sailboat or drone preserves the existing map and continues dead reckoning from pressure, inertial and four Doppler velocity log beams. Submarine autopilot retains obstacle ranges while deselected. Opening or folding the sensor display only changes preview transfers.
+
+The generated wreck ray hierarchy now chooses splits by child surface area and plate count. Across 50,000 seeded test rays, bounds tests fell from 902,547 to 414,427 and exact plate tests fell from 164,725 to 119,099. All first-return ranges matched. The standalone browser navigation FMU took 4.29 ms per acquisition versus 6.03 ms previously on a workstation trajectory through the wreck. All 1,770,480 compared camera, sonar, estimate, feature and keyframe values matched.
+
+Two interleaved Low runs of the integrated FMU placed the median step at the 200 ms event near 50–51 ms with the new build versus 53 ms previously. The mean across all ticks improved in one trial and regressed in the other. The wave event remains a bottleneck.

@@ -64,13 +64,13 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
 
   function renderDepth "First returns along the four DVL, 149 sonar and 864 pinhole-camera rays"
     input Real pos[3],T[3,3],d[rays,3];
-    input Boolean camera=true;
+    input Boolean camera=true,sonar=true;
     output Real depth[rays];
   protected Real eye[3],limit,hit;
   algorithm
     eye:=pos+transpose(T)*{.62,0,.09};
     depth:=zeros(rays);
-    for i in 1:(if camera then rays else 153) loop
+    for i in 1:(if camera then rays elseif sonar then 153 else 4) loop
       limit:=if i<=4 then 35 elseif i<=153 then 18 else 8;
       hit:=WreckSolids.beamRange(if i<=153 then pos else eye,transpose(T)*d[i,:],limit+1);
       depth[i]:=if hit<=limit then hit else 0;
@@ -193,7 +193,7 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
   end registration;
   function estimate "Pressure/gravity aided sonar keyframe graph; temporal optical features constrain yaw and verify revisits"
     input Real t,raw[195],d[rays,3],image[864],previousImage[864],previous[21],history[keys,stride];
-    input Boolean camera=true;
+    input Boolean camera=true,mapping=true;
     output Real s[21],graph[keys,stride],sensor[91],ft[24,5];
   protected
     Real ring[16],opticalRate,cloud[48,3],r,roll,pitch,cp,sp,cr,sr,x,y,z,kg,fix[3],rms,best,chosenFix[3],innovation[4],oldPose[4];
@@ -249,12 +249,14 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
     s[9]:=s[9]+dt^2*(if lock then .02^2 else .11^2);
     s[10]:=s[10]+dt^2*(if lock then .02^2 else .11^2);
     s[11]:=s[11]+.0025;kg:=s[11]/(s[11]+.0036);s[3]:=s[3]+kg*(.29-raw[158]/(rho*g)-s[3]);s[11]:=(1-kg)*s[11];
-    for i in 1:48 loop
+    nk:=integer(s[13]);nearest:=0;count:=0;rms:=99;
+    cloud:=zeros(48,3);
+    for i in 1:(if mapping then 48 else 0) loop
       beam:=5+3*(i-1);r:=raw[beam];x:=r*d[beam,1];y:=r*d[beam,2];z:=r*d[beam,3];
       cloud[i,:]:={cp*x+sp*(sr*y+cr*z),cr*y-sr*z,-sp*x+cp*(sr*y+cr*z)};
     end for;
-    nk:=integer(s[13]);nearest:=0;bestDist:=1e9;loopId:=0;count:=0;rms:=99;
-    for i in 1:nk loop
+    bestDist:=1e9;loopId:=0;
+    for i in 1:(if mapping then nk else 0) loop
       dist:=(s[1]-graph[i,1])^2+(s[2]-graph[i,2])^2+(s[3]-graph[i,3])^2;
       if dist<bestDist and cos(s[4]-graph[i,4])>.85 then bestDist:=dist;nearest:=i;end if;
     end for;
@@ -277,8 +279,8 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
         end if;
       end if;
     end if;
-    newKey:=nk==0;
-    if nk>0 then newKey:=(s[1]-graph[nk,1])^2+(s[2]-graph[nk,2])^2+(s[3]-graph[nk,3])^2>1.35^2 or abs(sin(s[4]-graph[nk,4]))>.45;end if;
+    newKey:=mapping and nk==0;
+    if mapping and nk>0 then newKey:=(s[1]-graph[nk,1])^2+(s[2]-graph[nk,2])^2+(s[3]-graph[nk,3])^2>1.35^2 or abs(sin(s[4]-graph[nk,4]))>.45;end if;
     if (newKey or loopId>0) and nk<keys then
       nk:=nk+1;graph[nk,1:4]:=s[1:4];
       if nk>1 then graph[nk,5:8]:=s[1:4]-graph[nk-1,1:4];end if;
@@ -333,13 +335,13 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
 
   function sampleFrame
     input Real t,truth[18],d[rays,3],overrideDepth[rays],useRaster,oldImage[864],previous[21],history[keys,stride];
-    input Boolean camera=true;
+    input Boolean camera=true,mapping=true,sonar=true;
     output Real sensor[91],elev[100],image[864],state[21],graph[keys,stride],ft[24,5];
   protected Real T[3,3],depth[rays],raw[195];
   algorithm
     T:=MultiBodyLie.Math.quaternionToT(truth[4:7]);
-    if useRaster>.5 then depth:=overrideDepth;else depth:=renderDepth(truth[1:3],T,d,camera);end if;
+    if useRaster>.5 then depth:=overrideDepth;else depth:=renderDepth(truth[1:3],T,d,camera,sonar);end if;
     (raw,image):=instruments(t,truth[1:3],T,truth[8:10],truth[16:18],truth[13:15],truth[12],depth,d,camera);
-    elev:=raw[54:153];(state,graph,sensor,ft):=estimate(t,raw,d,image,oldImage,previous,history,camera);
+    elev:=raw[54:153];(state,graph,sensor,ft):=estimate(t,raw,d,image,oldImage,previous,history,camera,mapping);
   end sampleFrame;
 end Perception;

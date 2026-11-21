@@ -4,35 +4,41 @@ import {loadInstance} from './fmi3/instance.mjs?api=2';
 // belongs to this worker so a slow render never skips a navigation update.
 const ready=Promise.all([
   loadInstance('Wreck_Plant',{manual:1,windSpeed:11,windDirection:.45}),
-  loadInstance('Wreck_Navigation',{})
+  loadInstance('Wreck_Navigation',{idleCamera:1,useSonar:0})
 ]);
 let tick=0, estimate, image, features, sentImage;
 let mapRows, mappedKeys=-1, closures=-1;
-function acquire(plant,nav){
+const blankImage=new Float64Array(864);
+function acquire(plant,nav,active){
   nav.set('stamp',tick*.01);
   const [position,orientation,velocity,yawRate,pressure,accel,rates]=plant.getMany(
     ['position','orientation','velocity','yawRate','pressure','specificForce','rates']);
   nav.set('truth',[...position,...orientation,...velocity,yawRate,pressure,...accel,...rates]);
-  const names=[
-    'sensor','elev','image','features','estimate','keyframes'
-  ];
-  const [sensor,ranges,pixels,corners,pose,history]=nav.getMany?nav.getMany(names):names.map(name=>nav.get(name));
-  image=pixels;features=corners;estimate=pose;
-  if(estimate[12]!==mappedKeys||estimate[13]!==closures){
-    mappedKeys=estimate[12];closures=estimate[13];
-    mapRows=Float32Array.from(history.slice(0,mappedKeys*180));
-  }
+  const names=active?['sensor','elev','estimate','image','features','keyframes']:['sensor','elev','estimate'];
+  const [sensor,ranges,pose,pixels,corners,history]=nav.getMany(names);
+  estimate=pose;
   plant.set('sensor',sensor);plant.set('elevationRanges',ranges);
-  nav.set('priorImage',image);nav.set('prior',estimate);nav.set('keyHistory',history);
+  nav.set('prior',estimate);
+  if(active){
+    nav.set('priorImage',pixels);nav.set('keyHistory',history);
+    if(estimate[12]!==mappedKeys||estimate[13]!==closures){
+      mappedKeys=estimate[12];closures=estimate[13];
+      mapRows=Float32Array.from(history.slice(0,mappedKeys*180));
+    }
+  }else if(image){
+    nav.set('priorImage',blankImage);
+  }
+  image=pixels;features=corners;
 }
 self.onmessage=async({data})=>{
   try{
     const [plant,nav]=await ready;
     plant.set('manual',Number(data.manual));plant.set('pilot',data.pilot);
     plant.set('windSpeed',data.wind);plant.set('windDirection',data.bearing);
+    nav.set('idleCamera',Number(!data.active));nav.set('useSonar',Number(data.active||!data.manual));
     const previousEstimate=estimate;
     for(let i=0;i<data.steps;i++){
-      if(tick%20===0)acquire(plant,nav);
+      if(tick%20===0)acquire(plant,nav,data.active);
       plant.advance(.01);tick++;
     }
     const [survey,position,q,rpm,cavitation,flow]=plant.getMany(
