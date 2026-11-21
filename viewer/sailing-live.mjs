@@ -219,9 +219,9 @@ async function run(){
   showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
   const ocean=atmosphere(scene,waterCaptureLayer),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   const profiles={
-    low:{ratio:.75,min:.5,capture:.375,reflectionInterval:0,transmissionInterval:0,mesh:88,sky:.5},
+    low:{ratio:.75,min:.5,capture:.375,reflectSamples:2,reflectionInterval:0,transmissionInterval:0,mesh:88,sky:.5},
     balanced:{ratio:1,min:.75,capture:.75,reflectionInterval:65,transmissionInterval:65,mesh:120,sky:.75},
-    high:{ratio:1,min:1,capture:1.25,reflectionInterval:0,transmissionInterval:0,mesh:144,sky:1,filterTransmission:true}
+    high:{ratio:1,min:1,capture:1.25,reflectionInterval:0,transmissionInterval:0,mesh:144,sky:1,reflectSamples:2}
   };
   let preferred;
   try{preferred=localStorage.getItem('ocean-render-quality');}catch{}
