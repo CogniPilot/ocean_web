@@ -6,8 +6,6 @@ import {sailboatMesh,observeBoat} from './board/boat.mjs';
 import {splitCamera} from "./waterline.mjs";
 import {drawCompass} from './compass.mjs';
 import {forceDisplay,firstPersonInstruments} from './instrumentation.mjs?hud=2';
-import {submarine} from './submarine.mjs?hud=2';
-import {surveyDrone} from "./drone.mjs?hud=2";
 import {mastCamera} from "./mast-camera.mjs";
 import {courseScene,raceAudio,firstLeg,trueBearing} from "./regatta.mjs";
 import {fleet} from "./fleet.mjs";
@@ -58,13 +56,13 @@ async function run(){
   const simulationReady=Promise.all([
     integrated?import('./world-view.mjs?hud=1').then(module=>module.openWorld(sailingOnly)):loadInstance(vessel,inputs),
     loadVehicleShell(cat?'hobie-hulls':'sloop-hull'),
-    sailingOnly ? undefined : loadVehicleShell('survey-pressure-housing')
+    sailingOnly ? undefined : Promise.all([import('./submarine.mjs?hud=2'),loadVehicleShell('survey-pressure-housing')])
   ]);
   const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
   renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
   coast(T,scene,renderer.capabilities.isWebGL2 || renderer.extensions.has('ANGLE_instanced_arrays'));
-  const [simulation]=await simulationReady;
+  const [simulation,,subAssets]=await simulationReady;
   const world=integrated?simulation:null;
   const model=world?.boat??simulation;
   const worker=world?null:new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
@@ -212,7 +210,10 @@ async function run(){
   // These objects are wholly below mean sea level, including their animation ranges.
   const submergedScenery=new T.Group();scene.add(submergedScenery);
   const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;submergedScenery.add(bottom);
-  const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);const life=marineLife(T,submergedScenery,renderer.capabilities.isWebGL2);
+  const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);let life;
+  let deferLife=sailingOnly && selector.value==='low';
+  function populateSea(){life=marineLife(T,submergedScenery,renderer.capabilities.isWebGL2);}
+  if(!deferLife)populateSea();
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
   const fpvForward=new T.Vector3(),drawInstruments=firstPersonInstruments($('flightHud'));
   const helmSeat=new T.Vector3(cat ? -1.2 : -.73,0,cat ? .65 : .18),orbitCenter=new T.Vector3();
@@ -254,7 +255,7 @@ async function run(){
   $('sky').onchange=()=>remote.changeWeather('sky',$('sky').value);
   const keys=new Set();let drone;
   $('subSensors').open=!mobile;
-  const sub=sailingOnly ? null : submarine(T,scene,world), sensorCanvas=$('sensorCam').getContext('2d');
+  const sub=subAssets ? subAssets[0].submarine(T,scene,world) : null, sensorCanvas=sub && $('sensorCam').getContext('2d');
   const drawForces=forceDisplay(T,scene,sub?.mesh,boat.group,cat,model);
   $('sonarMap').onchange=()=>{if(sub)sub.mapVisible=$('sonarMap').checked;};
   for(const id of ['showForces','showCompass'])$(id).onclick=()=>{
@@ -315,7 +316,7 @@ async function run(){
   const targetSelect=$('controlTarget'),wreckSurvey=url.searchParams.get('demo')==='wreck';
   let loadingDrone;
   function loadDrone(){
-    loadingDrone??=surveyDrone(T,scene,world).then(vehicle=>{
+    loadingDrone??=import('./drone.mjs').then(({surveyDrone})=>surveyDrone(T,scene,world)).then(vehicle=>{
       drone=vehicle;
       if(wreckSurvey)drone.manual=false;
     }).catch(error=>{loadingDrone=undefined;throw error;});
@@ -585,7 +586,7 @@ async function run(){
       const t=model.time;
       if(t!==meshTime){
         boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag,cat?model.get('shroudTail'):null,cat?model.get('sailTail'):null,cat?model.get('stayPath'):null);
-        life(t);causticTime.value=t;meshTime=t;
+        life?.(t);causticTime.value=t;meshTime=t;
       }
       ocean.U.tm.value=t;ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
       if(world)hullDisplay.apply(boat.group,t,now,running);
@@ -660,6 +661,11 @@ async function run(){
       if(world){
         hullDisplay.restore(boat.group);
         if(drone)flightDisplay.restore(drone.group);
+      }
+      if(deferLife && (t>0 || !running)){
+        deferLife=false;
+        if(window.requestIdleCallback)window.requestIdleCallback(populateSea,{timeout:1000});
+        else setTimeout(populateSea,0);
       }
       if(frameTest)measureFrame(now,t);
       document.body.dataset.eyeDepth=camera.position.z.toFixed(2);
