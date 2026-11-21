@@ -171,7 +171,21 @@ Two interleaved Low runs of the integrated FMU placed the median step at the 200
 
 ## Hobie acceleration and sailing speed
 
-Run `node scripts/profile-hobie-speed.mjs 11 auto` and `node scripts/profile-hobie-speed.mjs 11 .06` to repeat the open-water measurement. Each heading starts from rest, with 11 m/s true wind, zero current and a flat surface. The speed column averages the last 30 seconds of a 90-second run. Sampling uses simulation time, independently of browser frame rate.
+The Hobie’s asymmetric hulls supply lateral resistance. Their wetted surfaces already contribute skin friction and a viscous form factor. An additional zero-incidence foil drag term on each hull counted profile resistance twice. The corrected model applies the separate profile term to the two rudders and retains hull lift, induced drag and crossflow drag.
+
+| Flat-water trial, starting from rest | Speed at 5 s, before → after | Mean speed over final 30 s, before → after |
+| --- | ---: | ---: |
+| 20 kn wind, 130° true wind angle, 0.06 m payout | 11.09 → 11.94 kn | 11.98 → 13.40 kn |
+| 21.4 kn wind, 130°, 0.06 m payout | 11.88 → 12.84 kn | 12.71 → 14.24 kn |
+| 21.4 kn wind, 75°, initial 0.12 m payout | 6.73 → 7.11 kn | 7.37 → 8.16 kn |
+
+The respective broad-reach peaks after the correction were 13.46 kn and 14.31 kn. The strongest real-world run described below was faster. These trials measure a change in the modeled force balance. Establishing absolute accuracy requires matched on-water data.
+
+The coupled sailing world also ran the race launch with manual helm, neutral rudder, initial sheets, Calm sea and wakes disabled. Starting at 4.67 kn, through-water speed after 5, 10 and 15 simulated seconds changed from 6.38, 6.87 and 8.83 kn to 6.58, 7.85 and 10.24 kn. Both runs used the same wind field and initial conditions.
+
+### Baseline before the hull drag correction
+
+Run `node scripts/profile-hobie-speed.mjs 11 auto` and `node scripts/profile-hobie-speed.mjs 11 .06` at revision `1327a21` to repeat the baseline open-water measurement. Each heading starts from rest, with 11 m/s true wind, zero current and a flat surface. The speed column averages the last 30 seconds of a 90-second run. Sampling uses simulation time, independently of browser frame rate.
 
 | True wind angle | Automatic trim | Manual 0.06 m payout |
 | --- | ---: | ---: |

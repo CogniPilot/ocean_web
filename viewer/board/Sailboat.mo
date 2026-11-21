@@ -607,8 +607,10 @@ equation
     foilAlpha[k]=angle[k]+(if k==2 or k==4 then rudder else 0);
     foilCL[k]=(2*3.14159/(1+2/(.8*aspect[k])))*.5*sin(2*foilAlpha[k]);
     foilLift[k]=.5*1025*foilArea[k]*wetFoil[k]*(forward[k]^2+inflow[k]^2)*foilCL[k];
+    // On the catamaran, 1 and 3 represent the hulls' lateral planes. Their
+    // zero-incidence profile resistance is already included in skinDrag.
     foilDrag[k]=.5*1025*foilArea[k]*wetFoil[k]*(forward[k]^2+inflow[k]^2)*
-      ((if catamaran then .007 else .018)+foilCL[k]^2/(3.14159*.8*aspect[k])+1.3*sin(foilAlpha[k])^4);
+      ((if not catamaran then .018 elseif k==2 or k==4 then .007 else 0)+foilCL[k]^2/(3.14159*.8*aspect[k])+1.3*sin(foilAlpha[k])^4);
     bodyLoad[k,:]={foilLift[k]*sin(angle[k])-foilDrag[k]*cos(angle[k]),-foilLift[k]*cos(angle[k])-foilDrag[k]*sin(angle[k]),0};
     foilLoad[k,:]=rotation*bodyLoad[k,:];
     foilSide[k]=foilLoad[k,2];foilAxial[k]=foilLoad[k,1];
