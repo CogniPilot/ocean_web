@@ -28,6 +28,37 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     speed:=(waterVelocity-panelVelocity)*normal;
     force:=0.5*1025*1.2*wet*area*speed*abs(speed)*normal;
   end waterStrip;
+  function shadowWind "Reduced-order sail wake convected by wind relative to each passing boat"
+    input Real east,north,windEast,windNorth,traffic[4,9];
+    output Real localWind[2];
+  protected
+    Real dx,dy,u,v,speed,along,across,height,width,fraction,total,loss[2];
+  algorithm
+    total:=0;
+    loss:=zeros(2);
+    for p in 1:4 loop
+      if traffic[p,1]>.5 then
+        dx:=east-traffic[p,2]; dy:=north-traffic[p,3];
+        height:=if traffic[p,9]>.5 then 7.15 else 2.6;
+        if dx*dx+dy*dy<(8*height)^2 then
+          u:=windEast-traffic[p,5]; v:=windNorth-traffic[p,6];
+          speed:=sqrt(u*u+v*v);
+          if speed>.1 then
+            along:=(dx*u+dy*v)/speed;
+            across:=(dy*u-dx*v)/speed;
+            if along>0 then
+              // A spreading Gaussian deficit recovers with distance behind the rig.
+              width:=.23*height+.14*along;
+              fraction:=.40*(1-exp(-along/(.20*height)))*exp(-along/(2*height)-.5*(across/width)^2)
+                *max(0,1-(dx*dx+dy*dy)/(8*height)^2)^2;
+              loss:=loss+fraction*{u,v}; total:=total+fraction;
+            end if;
+          end if;
+        end if;
+      end if;
+    end for;
+    localWind:={windEast,windNorth}-loss/max(1,total/.65);
+  end shadowWind;
   function contactWrench "Horizontal compliant hull contact at sampled waterline sections"
     input Real pose[7], traffic[4,9];
     input Boolean twin;
@@ -229,6 +260,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real pitchRate(start=launchPitchRate,fixed=true),rigMoment[2,3],rigForce[2,3],surfaceNormal[3];
   output Real sailVertex[2,24,3],wettedArea[2],leechSpeed[2],sailMoment[3];
   Real ve,vn,awx,awy,beta,fx,fy;
+  Real sailWind[2] "Local air velocity after peer sail shadows, east/north [m/s]";
   Real foilAlpha[4],foilLift[4],foilDrag[4],foilSide[4],foilAxial[4],inflow[4],forward[4],angle[4],wetFoil[4];
   parameter Real foilX[4]={0.06,-0.93,0,0},foilY[4]={0,0,0,0},foilArea[4]={0.115,0.044,0,0},aspect[4]={3.5,2.6,1,1};
   output Real sailForward[2], sailPort[2], buoyancy;
@@ -385,8 +417,9 @@ equation
   vn=sin(heading)*surge+cos(heading)*sway+currentNorth;
   landingDeck={east,north,heave,heading,heel,-pitch,ve,vn,vertical,cos(heading)*spin[1]-sin(heading)*spin[2],sin(heading)*spin[1]+cos(heading)*spin[2],spin[3]};
   der(east)=ve; der(north)=vn;
-  awx=(windEast-ve)*cos(heading)+(windNorth-vn)*sin(heading);
-  awy=-(windEast-ve)*sin(heading)+(windNorth-vn)*cos(heading);
+  sailWind=shadowWind(east,north,windEast,windNorth,traffic);
+  awx=(sailWind[1]-ve)*cos(heading)+(sailWind[2]-vn)*sin(heading);
+  awy=-(sailWind[1]-ve)*sin(heading)+(sailWind[2]-vn)*cos(heading);
   beta=atan2(-awy,-awx);
   sheetTarget=(if sin(vane)>=0 then 1 else -1)*min(1.40,max(0,abs(atan2(sin(vane),cos(vane)))-0.32));
   boomLimit=2*asin(min(0.99,max(0,payout/(2*sheetArm))));

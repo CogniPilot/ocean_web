@@ -225,3 +225,11 @@ The release keeps the passes together. Staggering increased the long frame inter
 Open **Settings → Test frame rate (15 s)** while sailing, flying or surveying. Keep the page visible. The report gives average rendered frames per second, the 95th-percentile interval between frames, simulated seconds per wall second, the performance preset, and the final drawing-buffer dimensions. A real-time factor of 1.00 means the physics advanced one simulated second per elapsed second. The test samples the simulation's existing draw loop locally. Adaptive resolution stays active. To compare devices, use the same vehicle, view, sea, sky and preset.
 
 A tested Low shader shortcut skipped the four-octave foam pattern when crest and shore coverage were below 1e-8. Two fixed-view renders (Day and Storm) matched every tested color byte. In four 15-second SwiftShader runs with mobile viewport emulation, release/candidate/candidate/release p95 frame intervals were 49.2, 48.2, 50.4 and 48.8 ms. The shortcut did not improve sustained frame pacing consistently and was left out of the release.
+
+### Multiplayer wind shadow
+
+The Hobie and pilothouse sloop use nearby peer boat poses and velocities to estimate disturbed air at the receiving rig. Modelica evaluates the deficit along the wind relative to the source boat. It spreads across the flow and decays over a distance scaled by the source rig height. Local sail forces, the cup anemometer and telltales use this wind. The room's weather field retains its shared background wind. This is a reduced-order approximation with assumed coefficients. Sail trim and heel of the source rig are outside this approximation.
+
+Run `node scripts/check-peer-wind.mjs` to test the standalone browser FMUs. With 10 m/s background wind, a stationary catamaran 8 m directly upwind produced 7.81 m/s at the receiving rig. The test checks recovery with distance, crosswind offset, peer velocity, removal of a peer and a change in mainsail force outside collision range.
+
+In a two-tab WebRTC room with launch positions separated by 8 m, the downwind skipper's rig wind fell to 86% of local ambient speed after the peer appeared. The upwind skipper retained full ambient speed during that observation. In a separate solo run, 11,760 sampled vehicle, race and wave values matched the previous sailing FMU exactly.
