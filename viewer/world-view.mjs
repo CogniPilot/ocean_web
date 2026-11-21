@@ -32,6 +32,7 @@ export async function openWorld(mode='world'){
  const inputs=['seaState'];
  if(hasBoat){
    Object.assign(initial,{sailingManual:1,vang:.5,downhaul:.5});
+   if(mode!=='sloop')initial.ballastManual=1;
    inputs.push(...Object.values(boatInputs));
  }
  if(hasSub){initial.subManual=1;inputs.push('subPilot');}

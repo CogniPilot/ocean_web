@@ -273,8 +273,8 @@ async function run(){
       const auto=$('autoTrim').checked;
       $('ballX').disabled=$('ballY').disabled=auto;
       model.set('ballastManual',Number(!auto));
-      model.set('ballastCmdX',Number($('ballX').value)/100);
-      model.set('ballastCmdY',Number($('ballY').value)/100);
+      model.set('ballastCmdX',-Number($('ballX').value)/100);
+      model.set('ballastCmdY',-Number($('ballY').value)/100);
     };
     for(const id of ['autoTrim','ballX','ballY'])$(id).oninput=trim;
     trim();
@@ -588,7 +588,7 @@ async function run(){
         if(lastWorldTick!==waveTick){
           ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'),
             omitWake?undefined:world.get('waves.wakeHeight'),omitWake||!cat?undefined:world.get('bowHeight'));
-          if(!omitWake&&model)ocean.updateHullFoam(world.get('waves.sourceStrips'),waveTick,model.get('surge'),cat);
+          if(!omitWake&&model)ocean.updateHullFoam(world.get('waves.sourceStrips'),waveTick,world.get('bowSpeed')?.[0]??model.get('surge'),cat);
           wavePresentation.sample(waveTick,now);lastWorldTick=waveTick;
         }
         if(lastFieldTick!==fieldTick){
@@ -692,8 +692,8 @@ async function run(){
       }
       ocean.U.tm.value=previousRippleTime+(t-previousRippleTime)*ripplePresentation.blend(now,running);
       if(s){
-        ocean.U.boat.value.set(s[0],s[1],s[2],s[10]);
         if(world)hullDisplay.apply(boat.group,t,now,running);
+        ocean.U.boat.value.set(boat.group.position.x,boat.group.position.y,boat.group.rotation.z,s[10]);
         boat.group.localToWorld(orbitCenter.copy(helmSeat));
       }else{
         orbitCenter.fromArray(focus);
