@@ -31,6 +31,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: Check world worker scheduling
+        run: node scripts/check-world-worker-queue.mjs
       - run: npm install --prefix .deps/ocean-component --no-save @bytecodealliance/jco-transpile@0.23.0
       - name: Package both shipped sailing models with the same runtime
         run: |

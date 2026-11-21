@@ -101,6 +101,7 @@ async function run(){
   island.traverse(showInLowWaterCapture);
   const [simulation,,subAssets]=await simulationReady;
   const world=mode?simulation:null;
+  const worldReadyAt=performance.now();
   const model=world?world.boat:simulation;
   const worker=world?null:new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
   let waterFrame,waterError;
@@ -505,7 +506,12 @@ async function run(){
   };
   touchControls();
   $('vang').oninput=()=>model.set(cat?'downhaulInput':'vangInput',Number($('vang').value)/100);
-  $('play').onclick=()=>{running=!running;if(!running)world?.clearQueued();$('play').textContent=running?'Pause':'Resume';};
+  $('play').onclick=()=>{
+    running=!running;
+    acc=0;prev=performance.now();
+    if(!running)world?.clearQueued();
+    $('play').textContent=running?'Pause':'Resume';
+  };
   function applyWind(){const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;ocean.U.referenceWind.value=w;$('windOut').textContent=w+' m/s';}
   $('wind').oninput=()=>{applyWind();remote.changeWeather('wind',Number($('wind').value));};
   if(url.searchParams.has('room'))multiplayer(true);
@@ -535,7 +541,7 @@ async function run(){
     state.position.copy(camera.position);state.rotation.copy(camera.quaternion);
     return true;
   }
-  let prev=performance.now(),acc=0;
+  let prev=world?worldReadyAt:performance.now(),acc=0;
   let frameCost=1000/30,lastQualityCheck=0;
   let lastEnvironment,lastThunder;
   function updateLight(time){
@@ -588,6 +594,7 @@ async function run(){
     measureButton.disabled=true;frameResult.textContent='Measuring for 15 seconds…';
   };
   document.addEventListener('visibilitychange',()=>{
+    prev=performance.now();acc=0;world?.clearQueued();
     statsStart=undefined;
     if(document.hidden && frameTest)finishTest('Test interrupted while the page was hidden.');
   });
@@ -634,7 +641,7 @@ async function run(){
         lastQualityCheck=now;
       }
       const frameSeconds=Math.max(0,Math.min(.22,(now-prev)/1000));prev=now;
-      if(running)acc+=frameSeconds;
+      if(running&&!document.hidden)acc+=frameSeconds;
       if(waterError)throw waterError;
       if(world){
         if(world.hasSeaClock){
@@ -655,7 +662,9 @@ async function run(){
           const [east,north]=drone.position;
           world.set('peerDeck',remote.nearbyDeck(east,north,now));
         }
-        const steps=Math.min(5,Math.floor(acc/.01));acc=Math.min(.1,acc);
+        // Recover short foreground stalls using actual solver steps.
+        acc=Math.min(.25,acc);
+        const steps=Math.min(5,Math.floor(acc/.01));
         if(running)acc=Math.max(0,acc-world.advance(steps)*.01);
         const tick=Math.round(world.time*100),waveTick=waterStamp(),fieldTick=Math.floor(tick/25);
         if(lastWorldTick!==waveTick){
@@ -907,6 +916,6 @@ async function run(){
       document.body.dataset.runtime=mode??'fleet';document.body.dataset.simTime=t;document.body.dataset.east=focus[0];requestAnimationFrame(draw);
     }catch(e){$('readout').textContent=e.message;console.error(e);}
   }
-  requestAnimationFrame(draw);
+  requestAnimationFrame(()=>draw(performance.now()));
 }
 run().catch(e=>{document.getElementById('readout').textContent=e.message;console.error(e);});
