@@ -12,6 +12,16 @@ for(const name of ['Sailboat','Hobie16']){
   console.log(name,JSON.stringify({forward,astern,flying,bump:bump.contact}));
   assert(forward.drag<0&&astern.drag>0&&forward.skin>0);
   assert(forward.foil[1]<0&&astern.foil[1]>0);
+  if (name === 'Hobie16') {
+    const crossing = await loadInstance(name, {launchSpeed: 2, launchHeight: 0, launchHeading: 0, orbitalNorth: 1}, read);
+    const sideForce = crossing.get('foilSide');
+    for (const index of [0, 2]) {
+      assert(forward.wet[index] > 0 && Math.abs(sideForce[index]) > 1);
+      assert(Math.abs(forward.foil[index]) < 1e-9 && Math.abs(astern.foil[index]) < 1e-9);
+    }
+  } else {
+    assert(forward.foil[0] < 0 && astern.foil[0] > 0);
+  }
   assert(flying.foil.every(v=>v===0)&&flying.skin===0&&flying.drag===0);
   assert(Math.hypot(...bump.contact)>1);
 }
