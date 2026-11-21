@@ -73,6 +73,76 @@ def hull(name, stations, section, material, side=1, center=0):
     bm.free()
 
 
+def hobie_frame(stations):
+    """Four deck pylons and the raised perimeter frame, baked as one opaque mesh."""
+    vertices, faces, colors, smooth = [], [], [], []
+    alloy, casting, socket, steel = (.22,.24,.25), (.13,.14,.15), (.89,.91,.88), (.68,.71,.72)
+
+    def loft(rings, u, v, tint, count=12):
+        start = len(vertices)
+        for x,y,z,ru,rv in rings:
+            for j in range(count):
+                a = j*math.tau/count
+                du,dv = ru*math.cos(a),rv*math.sin(a)
+                vertices.append(tuple(c+du*ui+dv*vi for c,ui,vi in zip((x,y,z),u,v)))
+                colors.append(tint)
+        for k in range(len(rings)-1):
+            for j in range(count):
+                a,b = start+k*count+j,start+k*count+(j+1)%count
+                faces.append((a,b,b+count,a+count))
+                smooth.append(True)
+        end = start+(len(rings)-1)*count
+        faces.extend((tuple(reversed(range(start,start+count))),tuple(range(end,end+count))))
+        smooth.extend((False,False))
+
+    # X forward, Y port. Sidebars overlap each cloth edge and enter both corner castings.
+    for side in (-1,1):
+        loft([(x,side*.95,.413,.042,.034) for x in (-1.40,.55)],
+             (0,1,0),(0,0,1),alloy)
+    for beam_x in (-1.40,.55):
+        loft([(beam_x,y,.41,.063,.064) for y in (-1.04,1.04)],(1,0,0),(0,0,1),alloy)
+        for side in (-1,1):
+            # Seat the foot below the lofted deck crown; lean the pylon into the corner.
+            foot_x = beam_x + (-.036 if beam_x < 0 else .036)
+            crown = float(np.interp(foot_x,[s[0] for s in stations],
+                                    [sheer+.036*depth for _,_,depth,sheer in stations]))
+            foot_y,head_y = side*1.02,side*.957
+            loft([(foot_x,foot_y,crown-.017,.094,.063),
+                  (foot_x,foot_y,crown+.005,.080,.054),
+                  (foot_x,foot_y,crown+.024,.055,.040)],(1,0,0),(0,1,0),socket)
+            loft([(foot_x,foot_y,crown+.010,.053,.039),
+                  (beam_x,head_y,.387,.054,.040)],(1,0,0),(0,1,0),alloy)
+            loft([(beam_x,head_y,.348,.058,.048),(beam_x,head_y,.376,.070,.062),
+                  (beam_x,head_y,.423,.076,.068),(beam_x,head_y,.446,.062,.060)],
+                 (1,0,0),(0,1,0),casting)
+            loft([(beam_x,head_y+side*d,.372,.010,.010) for d in (.056,.067)],
+                 (1,0,0),(0,0,1),steel,8)
+    mesh=bpy.data.meshes.new('Hobie trampoline frame')
+    mesh.from_pydata(vertices,[],faces)
+    mesh.update()
+    for poly,shade in zip(mesh.polygons,smooth):
+        poly.use_smooth=shade
+    import bmesh
+    bm=bmesh.new()
+    bm.from_mesh(mesh)
+    bmesh.ops.recalc_face_normals(bm,faces=bm.faces)
+    bm.to_mesh(mesh)
+    bm.free()
+    color=mesh.color_attributes.new(name='Finish',type='BYTE_COLOR',domain='POINT')
+    for vertex,tint in zip(color.data,colors):
+        vertex.color_srgb=(*tint,1)
+    material=bpy.data.materials.new('Frame finishes')
+    material.use_nodes=True
+    shader=material.node_tree.nodes.get('Principled BSDF')
+    attr=material.node_tree.nodes.new('ShaderNodeVertexColor')
+    attr.layer_name=color.name
+    material.node_tree.links.new(attr.outputs['Color'],shader.inputs['Base Color'])
+    shader.inputs['Metallic'].default_value=.26
+    shader.inputs['Roughness'].default_value=.48
+    mesh.materials.append(material)
+    bpy.context.collection.objects.link(bpy.data.objects.new(mesh.name,mesh))
+
+
 def export(name):
     bpy.ops.export_scene.gltf(filepath=str(DEST/(name+'.glb')),export_format='GLB',export_yup=True,
                                export_extras=(name=="survey-pressure-housing"))
@@ -91,6 +161,7 @@ offsets = [list(map(float,row.split(','))) for row in table.split(';')]
 stations = [(x,w,sheer-keel,sheer) for x,w,sheer,keel in offsets]
 for side in (-1,1):
     hull('Port hull' if side==1 else 'Starboard hull',stations,section,white,side,side*1.02)
+hobie_frame(stations)
 export('hobie-hulls')
 red=coating('Vermilion gelcoat',(.80,.105,.08))
 stations=[(x,w,(.077+.19*(.48+1.55*w)),.077) for x,w in

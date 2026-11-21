@@ -371,9 +371,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      yarn.position.set(-.52+.28*.96,side*1.02*.72,.34+.28*5.51);
      yarn.visible=false;streamers[side===1?0:1]=yarn;
    }
-   for(const x of [-1.4,.55])rod([x,-1.06,.41],[x,1.06,.41],.067,black);
    group.add(hobieTrampoline(T));
-   for(const y of [-.87,.87])rod([-1.33,y,.44],[.48,y,.44],.014,black);
    carriage=ballastCooler(T);group.add(carriage);carriage.position.set(-.425,0,.52);
    mastGeometry=new T.CylinderGeometry(.043,.043,7.92,10,32);
    mastGeometry.rotateX(Math.PI/2);mastGeometry.translate(.44,0,4.37);
