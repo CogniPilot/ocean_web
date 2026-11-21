@@ -15,7 +15,7 @@ partial model OceanMission "Sea, wind and anchored race course for one local veh
     beamHalf=zeros(7),separation=0,volume=zeros(2,6),
     currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],
     windEast=wind.meanEast,windNorth=wind.meanNorth,seaAmplitude=seaState);
-  Regatta race(seaClockOffset=seaClockOffset,landingReaction=committeeLoad,wakeTile=waves.height,
+  Regatta race(seaClockOffset=seaClockOffset,landingReaction=committeeLoad,wakeTile=waves.height,hullWaveTile=waves.wakeHeight,
     backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
     tide=boatWater.tide,swellHeight=swell[1],windBearing=prevailingBearing,utc=epoch+time,
     east=focus[1],north=focus[2]);

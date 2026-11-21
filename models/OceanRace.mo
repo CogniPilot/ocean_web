@@ -38,7 +38,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     stations=boat.stationX,separation=boat.halfSpacing,volume=boat.sectionVolume,beamHalf=boat.beamHalf,
     currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],windEast=wind.meanEast,windNorth=wind.meanNorth,seaAmplitude=seaState);
   Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
-  Regatta race(seaClockOffset=seaClockOffset,landingReaction=committeeLandingWrench,wakeTile=waves.height,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
+  Regatta race(seaClockOffset=seaClockOffset,landingReaction=committeeLandingWrench,wakeTile=waves.height,hullWaveTile=waves.wakeHeight,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
     tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north);
   discrete output Real surfaceSections[2,6](each start=0,each fixed=true)
     "Tide, background sea, local wind waves and hull wake at each buoyancy strip [m]";
