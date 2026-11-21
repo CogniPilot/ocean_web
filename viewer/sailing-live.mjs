@@ -327,6 +327,12 @@ async function run(){
     $('cutMotors').textContent=cut?'Restore motors':'Cut motors';
   };
   async function selectTarget(){
+    if(targetSelect.value==='survey'){
+      const survey=new URL(location.pathname,location.href);
+      survey.searchParams.set('demo','wreck');survey.searchParams.set('view','fpv');
+      if($('multiplayer').getAttribute('aria-pressed')==='true')survey.searchParams.set('room',roomName);
+      location.assign(survey);return;
+    }
     if(sailingOnly && targetSelect.value!=='boat'){
       if($('multiplayer').getAttribute('aria-pressed')==='true')url.searchParams.set('room',roomName);
       else url.searchParams.delete('room');

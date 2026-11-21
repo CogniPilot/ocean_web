@@ -2,7 +2,7 @@
 
 Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone, and explore a listed shipwreck with a survey submarine. The browser steps precompiled Rumoca FMI 3 models and draws their outputs with Three.js. [Open the simulator](https://cognipilot.github.io/ocean_web/)
 
-Watch the submarine navigate the wreck using its onboard estimate, with the sonar map visible and the drone following overhead. Select **Autopilot** to take manual control. [Launch the wreck survey](https://cognipilot.github.io/ocean_web/?demo=wreck)
+Choose **Control → Start wreck survey demo** to open a fresh session in the submarine cockpit. Watch the submarine navigate the wreck using its onboard estimate, with the sonar map visible and the drone following overhead. Select **Autopilot** to take manual control. [Launch the cockpit wreck survey](https://cognipilot.github.io/ocean_web/?demo=wreck&view=fpv)
 
 [Request tracker](TODO.md)
 
