@@ -98,12 +98,13 @@ package Wreck
     discrete Real edge[6](each start=0,each fixed=true), Ji[6,6](each start=0,each fixed=true), Jj[6,6](each start=0,each fixed=true);
     discrete Boolean edgeValid(start=false,fixed=true);
     Real trackWeight;
-    parameter Integer waypointCount=12;
+    parameter Integer waypointCount=17;
     parameter Real waypoints[waypointCount,3]=[
       -1,0,-9.8; 3,0,-9.8; 6.5,0,-9.8; 6.5,-1.83,-9.41;
       11,-1.83,-9.41; 17.5,-1.83,-9.41; 17.5,0,-9.8; 17.5,1.83,-10.19;
-      12,1.83,-10.19; 6.5,1.83,-10.19; 6.5,0,-9.8; -1.5,0,-9.8]
-      "ENU survey stations at the stern, companionways and three deck passages";
+      12,1.83,-10.19; 6.5,1.83,-10.19; 6.5,0,-9.8; -2.5,0,-9.8;
+      -2.5,0,-5; 4,0,-4.6; 9,0,-4.6; -2.5,0,-4.6; -1.5,0,-9.8]
+      "ENU survey stations at the stern, companionways three deck passages and back over the upper hull";
     output Integer waypoint(start=1,fixed=true);
     output Boolean surveyDone(start=false,fixed=true);
     output Real surveyTelemetry[16]=cat(1,{waypoint,waypointCount,if surveyDone then 1 else 0},appliedThrust,buoy,contactForce)

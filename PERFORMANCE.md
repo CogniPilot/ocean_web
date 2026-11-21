@@ -356,3 +356,100 @@ The Hobie samples a slender-body source distribution from the changing immersed 
 In the 8 m/s launch case, the sailing guest averaged 6.71 m/s during the first 2.4 simulated seconds. Peak combined elevation in the test region outside the bows was 9.6 cm, including 1.2 cm peak elevation from the coarse grid alone. These are simulated crest heights. The physical amplitude still needs comparison with measured Hobie wakes. The committee launch test compares the closed-form solution against independent numerical integration over the source lines.
 
 On a desktop RTX 3090, five seconds in Chromium with wakes enabled gave 60.1 FPS and 1.01 simulated seconds per wall second. The preceding release gave 60.1 FPS and 1.00 in the same test. A phone-sized viewport with touch input selected Low and disabled the bow field.
+
+### Profiling the sampled race-mark regression
+
+The 10 ms integrated sailing step regressed even in Low with no renderer or
+local wake. Linux perf recorded user-space cycles on the Node main thread
+with V8 JIT code registrations. The symbol breakdown below uses only the
+measurement window after 200 warm-up steps. This excludes startup and the
+background V8 optimizing compiler.
+
+| Shipped or experimental configuration | Simulated seconds per wall second | Median physics step | p95 physics step |
+| --- | ---: | ---: | ---: |
+| Released sailing FMU, wakes off | 1.33 | 4.78 ms | 20.88 ms |
+| 100 Hz sampled mark contact and continuous horizontal moorings, wakes off | 0.40 | 21.09 ms | 50.27 ms |
+
+Both runs used 800 measured steps, the standard Hobie launch, 11 m/s wind and
+four bound output reads per step. Of 6,018 warm main-thread samples for the
+slow build, 17.4% landed in `rmc_isolation`, 12.0% in `rmc_project_complete`,
+9.1% in `rmc_project_singleton` and 5.3% in `rmc_project_block`. These are
+non-overlapping leaf samples. Holding the contact wrench and updating horizontal
+mooring position and velocity on the existing 20 Hz race clock removes these
+routines from the leading samples. Hull, bridle and trampoline contact still
+apply paired loads to the mark and the boat.
+
+The next A/B exposed a second regression. A wake-disabled early return inside
+the large spectral update improved Low, but slowed wakes-on tests to 0.42×
+against 1.13× on the same machine. Copying memory accounted for 68% of warm
+cycles with wakes on. The loss occurred at the 0.1 s wave update events. The
+three-pair benchmark failed the wakes-on case with a 2.68× cost ratio. The
+wake-enabled and disabled paths must both be benchmarked after code generation.
+
+After removing that early return and retaining the 20 Hz mooring change,
+the final three-pair local comparison measured 1.33× simulation speed with
+wakes off and 1.14× with wakes on. The median paired cost ratios were 1.05
+and 0.99 against the released FMU. A Low Chromium run advanced 15.04 simulated
+seconds in 15 wall seconds at 60 FPS. These timings describe this desktop.
+
+### Collision capability and performance targets
+
+The shared Modelica library has analytic distances and contact normals for
+sphere–sphere, sphere–capsule, sphere–box and capsule–capsule pairs. It also
+supports plane contacts. Its fixed shape and material tables, collision masks,
+paired wrenches and momentum tests are useful foundations. Body pairs iterate
+over enabled shape combinations. Box–box, capsule–box and arbitrary convex
+pairs are gaps in the current dispatcher. The default response adds individual
+Hunt–Crossley forces with regularized sliding friction. The separate
+`Optimization.frictionConeQP` has a warm-start input and offers a reference
+solver for small contact problems. [Geometry and response](https://github.com/CogniPilot/modelica_models/blob/304c510096d0246dbaedb007f3a653ed11e51068/MultiBodyLie/Collision.mo) · [Friction-cone solver](https://github.com/CogniPilot/modelica_models/blob/304c510096d0246dbaedb007f3a653ed11e51068/Optimization/frictionConeQP.mo)
+
+The Hobie-to-buoy adapter rejects distant marks, tests sampled hull, deck and
+wire points against pyramid planes, and holds the paired wrenches between
+20 Hz updates. The standalone wreck query instead uses spatial candidate
+selection and sphere–box tests for hull and thruster guards. Neither test is a
+proxy for general collision-engine performance.
+
+In the integrated Hobie, the centerline, both hull strikes and a 4 m miss
+behaved qualitatively as intended at 3.62 m/s. At 26 knots the nominal
+displacement per mark update is 0.669 m. Increasing the centerline run-up by
+0, 0.17, 0.33 or 0.50 m produced peak forces from 1.12 to 21.40 kN and eastward
+contact impulses ranging in magnitude from 67 to 988 N·s. This is a sensitivity
+test on a moving boat and buoy. It also changes their state slightly at impact.
+Reproduce with `node scripts/check-mark-impact.mjs build/timed-sailing --speed-sweep`.
+The range is too wide to infer a calibrated impact load from these runs.
+
+| Priority | Reusable algorithm and where it pays off | Acceptance measurement |
+| --- | --- | --- |
+| 1. Reliable fast contact | Represent each bridle as a capsule, the buoy as a convex polytope, the trampoline as a thin slab, and the hulls as convex sections. Use a conservative swept bound for translation and rotation. For close fast pairs, find the first time of impact and advance the contact response over the remaining step. | Replay fixed pose trajectories at different sample phases and speeds against dense reference queries. Check missed hits, impact-time error, penetration, and convergence of integrated impulse under timestep refinement. |
+| 2. Geometry coverage | Retain analytic primitive pairs. Add box–box separating axes with face clipping, and support-mapped GJK distance/witness queries plus EPA for general convex overlaps. Keep a bounded, stable set of contact points with feature identifiers for broad face contacts. | Test analytic gaps, swapped pairs, grazing edges, nearly parallel faces, deep overlap and degenerate geometry. Compare distance, normal and contact patch on identical shapes with a pinned MuJoCo build. |
+| 3. Candidate selection | Keep direct checks for a few marks. For larger fleets compare sweep-and-prune with a dynamic AABB tree. Bake a static bounding-volume hierarchy for compound scenery where it beats the existing wreck candidates. Reuse transformed bounds and buffers. | Count candidate pairs, exact tests and memory copies. Report p50/p95/p99 for separated, grazing and dense scenes as body counts grow. |
+| 4. Response under load | Retain calibrated compliant contact for inflatables. Group connected rigid contacts into independent islands and warm-start friction constraints using persistent contact identifiers for difficult multi-contact cases. Evaluate sparse or matrix-free iteration against the existing small dense reference solver. | Test resting support, sliding onset, sustained torque, energy balance, and two-body momentum. Report solver iterations and deadline misses alongside error. |
+
+For speed comparisons, run identical geometry and prescribed poses through
+both detectors first. Then benchmark full dynamics with matched masses, timestep,
+friction, and comparable compliance. Keep native-to-native and WASM-to-WASM
+results separate. The same-runner sailing CI check covers the integrated
+application. Its results cannot establish parity with MuJoCo. [MuJoCo collision
+pipeline](https://mujoco.readthedocs.io/en/stable/computation/index.html#collision-detection) · [MuJoCo constraint solver](https://mujoco.readthedocs.io/en/stable/computation/index.html#constraint-solver)
+
+#### Native sphere–box reference
+
+The Piccard thruster guards use `MultiBodyLie.Collision.sphereBox` against
+oriented wreck boxes. To compare that routine with MuJoCo, run
+`tools/collision-benchmark/run.sh /path/to/mujoco-4.0.1` after setting up
+the project compiler. Supply the extracted [MuJoCo 4.0.1 SDK](https://github.com/google-deepmind/mujoco/releases/tag/4.0.1).
+The fixture calls one Modelica function. The harness calls its Rumoca-generated
+native C entry point and MuJoCo's native sphere–box collider on the same
+8,192 seeded sphere positions around one rotated box, including embedded
+centres, face, edge and corner regions. A generous reporting margin requests
+a distance for separated pairs. The midpoint comparison converts the two
+Modelica surface witnesses to MuJoCo's world contact midpoint.
+
+On the local x86-64 desktop, the maximum signed-gap error was zero, the
+maximum normal-component error was 2.22e-16, and the maximum midpoint-component
+error was 6.66e-16 m. Across 31 alternating timed batches of 65,536 calls, the
+median batch mean was **39.0 ns/query for Rumoca and 23.4 ns/query for
+MuJoCo**. The respective p95 batch means were 40.0 and 24.8 ns/query.
+Both loops copy precomputed positions. The measurements exclude broad phase,
+integration, friction, allocation of a world and browser execution.
