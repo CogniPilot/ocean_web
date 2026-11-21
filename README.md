@@ -2,7 +2,7 @@
 
 Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone, and explore a listed shipwreck with a survey submarine. The browser steps precompiled Rumoca FMI 3 models and draws their outputs with Three.js. [Open the simulator](https://cognipilot.github.io/ocean_web/)
 
-Choose **Sub** to explore the shipwreck in Piccard. You start in the cockpit with the sonar map visible and autopilot surveying 12 stations. **Take control** lets you pilot the same dive, and **Resume survey** hands it back to autopilot. Enable **Multiplayer** and share **Copy room link** to explore together, each in your own sub. [Launch the sub](https://cognipilot.github.io/ocean_web/?control=sub)
+Choose **Piccard Sub** to explore the shipwreck. You start in the cockpit with the sonar map visible and autopilot surveying 12 stations. **Take control** lets you pilot the same dive, and **Resume survey** hands it back to autopilot. Enable **Multiplayer** and share **Copy room link** to explore together, each in your own sub. [Launch the sub](https://cognipilot.github.io/ocean_web/?control=sub)
 
 [Request tracker](TODO.md)
 
@@ -155,6 +155,6 @@ The committee board identifies the local one-lap course as **TRI 1**. Its first-
 
 Select **RDD2 drone** and **View → Drone FPV** for the nose camera. Approach the committee boat's aft H, descend with **F**, and cut motors after touchdown. Re-enable motors and climb with **R** for takeoff. Drone feet exchange forces and moments with the moving deck. The pin and both rounding marks sample waves individually and respond in heave, roll and pitch.
 
-In drone FPV, hold **Shift** with **W/A/S/D** to command twice the horizontal speed. The heading tape and pitch ladder follow the onboard attitude estimate. The side readouts show ground speed and altitude in metres. The sailboat landing surfaces are the catamaran trampoline and the sloop’s raised hatch. In **Sub FPV**, the camera looks out through the clear bow dome. The instruments show navigation heading, pitch, roll, depth and horizontal speed.
+In drone FPV, hold **Shift** with **W/A/S/D** to command twice the horizontal speed. The heading tape and pitch ladder follow the onboard attitude estimate. The side readouts show ground speed and altitude in metres. The sailboat landing surfaces are the catamaran trampoline and the sloop’s raised hatch. In **Piccard Sub FPV**, the camera looks out through the clear bow dome. The instruments show navigation heading, pitch, roll, depth and horizontal speed.
 
 In the integrated catamaran scene, boats transmit the positions and immersed volumes of twelve hull sections. The receiving Modelica solver propagates the resulting waves and applies them to hull buoyancy and wave loads. Up to four sending boats contribute inside the local 64 m water patch, with a 28.8 m source cutoff around the receiving sailboat. A new participant begins accumulating wakes upon joining. Existing waves keep propagating when a sender leaves. The separate pilothouse scene does not yet exchange hull sources.
