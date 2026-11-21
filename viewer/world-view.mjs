@@ -1,4 +1,4 @@
-import {sailingStart,windBearing,windSpeed} from './sailing-start.mjs';
+import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
 // Views share one committed worker snapshot, so every mesh uses the same clock.
 import {boatFields} from './board/boat.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
@@ -55,6 +55,7 @@ export async function openWorld(mode='world',seaState=.45){
  if(hasFlight){initial.flightManual=1;inputs.push('flightPilot','motorCut');}
  if(mode==='flight'){initial.station=[-5,0];inputs.push('peerDeck');}
  const parameters={prevailingBearing:windBearing};
+ for(const [key,value] of Object.entries(startGate))parameters['race.'+key]=value;
  if(hasBoat)for(const [key,value] of Object.entries(sailingStart(mode!=='sloop')))parameters['boat.'+key]=value;
  const outputs=[...environmentOutputs,...(hasBoat?sailingOutputs:['focus','swell','waterStamp','waterFraction']),
    ...(hasSub?submarineOutputs:[]),...(hasFlight?flightOutputs:[])];

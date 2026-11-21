@@ -475,8 +475,8 @@ function atmosphere(scene,waterCaptureLayer){
    float rippleWind=mix(wind,64.*mix(air.b,air.a,windBlend),windFieldActive);
    // Use the actual local wind and the Modelica short-wave response at this ENU position.
    float windDelta=(mix(localSpeed,rippleWind,.25)-referenceWind)/max(3.,referenceWind);
-   float puff=smoothstep(.015,.34,windDelta)*windFieldActive;
-   float lull=smoothstep(.02,.27,-windDelta)*windFieldActive;
+   float puff=smoothstep(.005,.22,windDelta)*windFieldActive;
+   float lull=smoothstep(.01,.23,-windDelta)*windFieldActive;
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
    #ifdef VERTEX_SLOPE
@@ -578,10 +578,9 @@ function atmosphere(scene,waterCaptureLayer){
      foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum)*smoothstep(.01,.16,abs(windCrest)));
 
      color=mix(color,vec3(.018,.048,.051)+reflected*.22,storm*(.48+.20*(1.-fres)));
-     // Short waves break up the bright sky band at racing distances.
-     // Apply contrast before foam and atmospheric haze so both keep their own lighting.
-     vec3 roughWater=min(color,.48*waterColor+.13*reflected);
-     color=mix(color,roughWater,.30*puff);
+     // The ripple normals disappear below a pixel before the puff itself does.
+     // Keep a footprint in the unresolved reflected sky as well as in nearby water.
+     color*=1.-puff*(.17+.25*fres);
      color*=1.+puff*resolved*(scum-.5)*.28;
      color+=.045*lull*reflected*fres;
      color=mix(color,mix(vec3(.06,.10,.14),vec3(.79,.87,.85),day),foam*.86);

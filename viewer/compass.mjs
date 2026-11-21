@@ -1,6 +1,6 @@
 // Bearings on the dial are clockwise from true north. Model vectors are east/north.
-export function drawCompass(canvas,wind,bearing,current,heading,location,noGo){
-  if(location==='surface')return drawSailingDial(canvas,wind,bearing,current,heading,noGo);
+export function drawCompass(canvas,wind,bearing,current,heading,location,noGo,target){
+  if(location==='surface')return drawSailingDial(canvas,wind,bearing,current,heading,noGo,target);
   const ctx=canvas.getContext('2d'),windColor='#ffc46e',currentColor='#71dce4';
   const currentSpeed=Math.hypot(current[0],current[1]);
   const flow=Math.atan2(current[1],current[0]);
@@ -29,7 +29,7 @@ export function drawCompass(canvas,wind,bearing,current,heading,location,noGo){
 
 // Angles from the model are east-zero and counterclockwise. The sailing dial
 // is bow-up and clockwise, with zero at twelve o'clock.
-function drawSailingDial(canvas,wind,bearing,current,heading,noGo){
+function drawSailingDial(canvas,wind,bearing,current,heading,noGo,target){
   const ctx=canvas.getContext('2d');
   const centerX=67,centerY=66,r=54;
   const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
@@ -73,15 +73,22 @@ function drawSailingDial(canvas,wind,bearing,current,heading,noGo){
   ctx.lineTo(-4,-r-7);ctx.lineTo(4,-r-7);ctx.closePath();ctx.fill();
   ctx.beginPath();ctx.moveTo(0,-21);ctx.quadraticCurveTo(11,-7,7,15);ctx.lineTo(-7,15);ctx.quadraticCurveTo(-11,-7,0,-21);
   ctx.fillStyle=inside?'#ffb6a4':'#f0f8f6';ctx.fill();
+  const targetColor='#ffade3';
+  if(target){
+    ctx.save();ctx.rotate(heading-target.angle);
+    ctx.beginPath();ctx.moveTo(0,-35);ctx.lineTo(5,-24);ctx.lineTo(0,-27);ctx.lineTo(-5,-24);ctx.closePath();
+    ctx.strokeStyle='#172831';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle=targetColor;ctx.fill();ctx.restore();
+  }
   ctx.restore();
   function label(msg,y,color,size,bold=false){
     ctx.font=(bold?'bold ':'')+size+'px system-ui,sans-serif';ctx.fillStyle=color;ctx.fillText(msg,141,y);
   }
-  label('TRUE HEADING',15,'#c1d5da',10,true);
-  label(compass(heading)+'T',42,'#fff',26,true);
-  label(hasWind?(inside?'IN NO-GO ZONE':'TRUE WIND FROM'):'CALM',63,inside?'#ffae96':'#c1d5da',11,true);
-  label(hasWind?angle+'° '+(angle===0||angle===180?'':side):'—',81,'#fff',15,true);
-  label(wind.toFixed(1)+' m/s · No-go ±'+Math.round(noGo*180/Math.PI)+'°',101,'#ffbd97',11);
-  label('Set '+(currentSpeed>.005?compass(Math.atan2(current[1],current[0])):'—')+' · '+currentSpeed.toFixed(2)+' m/s',120,'#84d9df',11);
-  canvas.setAttribute('aria-label','Bow-up sailing dial. '+(hasWind?'True wind from '+angle+' degrees'+(angle===0||angle===180?'':' '+side)+'. '+(inside?'Inside':'Outside')+' the no-go sector.':'Calm.')+' Heading '+compass(heading)+'.');
+  label('TRUE HEADING',12,'#c1d5da',10,true);
+  label(compass(heading)+'T',37,'#fff',26,true);
+  label(hasWind?(inside?'IN NO-GO ZONE':'TRUE WIND FROM'):'CALM',55,inside?'#ffae96':'#c1d5da',11,true);
+  label(hasWind?angle+'° '+(angle===0||angle===180?'':side):'—',72,'#fff',15,true);
+  label(wind.toFixed(1)+' m/s · No-go ±'+Math.round(noGo*180/Math.PI)+'°',89,'#ffbd97',11);
+  label('Set '+(currentSpeed>.005?compass(Math.atan2(current[1],current[0])):'—')+' · '+currentSpeed.toFixed(2)+' m/s',106,'#84d9df',11);
+  if(target)label(target.label+'  '+target.bearing,126,targetColor,13,true);
+  canvas.setAttribute('aria-label','Bow-up sailing dial. '+(hasWind?'True wind from '+angle+' degrees'+(angle===0||angle===180?'':' '+side)+'. '+(inside?'Inside':'Outside')+' the no-go sector.':'Calm.')+' Heading '+compass(heading)+'.'+(target?' '+target.label+' bearing '+target.bearing+'.':''));
 }
