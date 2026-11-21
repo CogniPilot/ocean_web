@@ -124,7 +124,7 @@ vec4 skyRadiance(vec3 d){
 `;
 // Render white water over the solved surface along the past wet stern sections.
 function hullFoam(scene,uniforms){
- const count=38,tracks=[[],[]],geometry=new THREE.BufferGeometry();
+ const count=52,tracks=[[],[]],geometry=new THREE.BufferGeometry();
  const along=new Float32Array(2*count*2*3);
  const foam=new Float32Array(2*count*2*3);
  const indices=[];
@@ -154,7 +154,7 @@ function hullFoam(scene,uniforms){
        float grain=noise2(location*19.);
        float edge=1.-smoothstep(.24,.83,abs(vFoam.x)+(grain-.5)*.37);
        float breakup=smoothstep(.24,.64,noise2(location*5.)*.7+grain*.3);
-       float alpha=vFoam.z*edge*(.48+.52*breakup)*exp(-age*.51)*(1.-smoothstep(2.8,3.6,age));
+       float alpha=vFoam.z*edge*(.48+.52*breakup)*exp(-age*.43)*(1.-smoothstep(3.6,5.,age));
        if(under>.5 || alpha<.015)discard;
        vec3 tint=mix(vec3(.18,.24,.29),vec3(.88,.94,.93),smoothstep(-.12,.22,sunDir.z));
        gl_FragColor=vec4(tint,alpha);
@@ -190,7 +190,7 @@ function hullFoam(scene,uniforms){
        const p=track[Math.min(j,track.length-1)]??[0,0,0,0];
        const before=track[Math.max(0,j-1)]??p,after=track[j+1]??p;
        const ux=before[0]-after[0],uy=before[1]-after[1],length=Math.hypot(ux,uy);
-       const width=(cat?.16:.20)+.07*Math.max(0,time-p[2]);
+       const width=(cat?.16:.20)+.16*p[3]+.08*Math.max(0,time-p[2]);
        const strength=j<track.length&&length>.02?p[3]:0;
        visible||=strength>.025;
        for(let side=0;side<2;side++){
@@ -359,6 +359,7 @@ function atmosphere(scene,waterCaptureLayer){
    #else
    vec2 d=surfaceSlope(wp.xy);
    #endif
+   float gravitySlope=length(d);
    d+=fade*rippleSlope(wp.xy,tm,dir,rippleWind*(1.+puff*.34));
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    float day=smoothstep(-.12,.22,sunDir.z);
@@ -413,10 +414,15 @@ function atmosphere(scene,waterCaptureLayer){
      // Wind roughens the surface and scatters the coherent sky reflection.
      color*=1.-.19*puff*(.55+.45*fade);
      color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
-     float crest=wp.z-tide-.4*length(d);
+     float windCrest=wp.z-tide-swell.x*sin(swell.y+dot(wp.xy-swellCenter,swell.zw));
      waterColor=mix(waterColor,vec3(.012,.037,.043),storm*.85);
      float scum=cloud(p*vec2(1.8,3.8)+vec2(-.9*tm,0.));
-     float foam=smoothstep(.40,.89,crest+(wind-9.)*.054)*smoothstep(.43,.67,scum);
+     // Monahan and O'Muircheartaigh's wind-dependent whitecap coverage.
+     // Use it as a density control on steep wind-wave crests.
+     float windCoverage=3.84e-6*pow(max(0.,rippleWind),3.41);
+     float densityCutoff=clamp(1.-8.*windCoverage,.36,1.);
+     float breaking=smoothstep(.085,.32,windCrest)*smoothstep(.045,.17,gravitySlope);
+     float foam=breaking*smoothstep(densityCutoff-.08,densityCutoff+.06,scum);
      float edge=wakeAvailable>.5?1.-wakeFalloff(wp.xy):0.;
      if(edge>0.){
        vec2 uvWake=spectralUV(wp.xy);
@@ -433,10 +439,9 @@ function atmosphere(scene,waterCaptureLayer){
        }
      }
      float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
-     foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum));
+     foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum)*smoothstep(.01,.16,abs(windCrest)));
 
      color=mix(color,vec3(.018,.048,.051)+reflected*.22,storm*(.48+.20*(1.-fres)));
-     foam=max(foam,storm*smoothstep(.43,1.1,crest)*smoothstep(.34,.61,scum));
      color=mix(color,mix(vec3(.06,.10,.14),vec3(.79,.87,.85),day),foam*.86);
      float haze=smoothstep(70.,430.,length(wp-cameraPosition));
      color=mix(color,skyColor(normalize(vec3(-eye.xy,.01))),haze*.90);
