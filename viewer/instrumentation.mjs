@@ -6,11 +6,14 @@ export function forceDisplay(T,scene,sub,yacht,cat,model){
    for(const m of [glyph.line,glyph.cone]){m.material.depthTest=false;m.renderOrder=12;}
    group.add(glyph);specs.push({parent,origin:new T.Vector3(...origin),glyph});
  }
- arrow(yacht,cat?[-.6,0,3.3]:[-.28,0,1.1],0xffad4d);
- arrow(yacht,cat?[1.1,0,2.2]:[.62,0,.93],0xffad4d);
- for(let k=0;k<(cat?4:2);k++)
-   arrow(yacht,[0,0,0],0x6cbcff);
- const buoyIndex=specs.length;arrow(yacht,[0,0,-.08],0x77e7ba);
+ if(yacht){
+   arrow(yacht,cat?[-.6,0,3.3]:[-.28,0,1.1],0xffad4d);
+   arrow(yacht,cat?[1.1,0,2.2]:[.62,0,.93],0xffad4d);
+   for(let k=0;k<(cat?4:2);k++)
+     arrow(yacht,[0,0,0],0x6cbcff);
+   arrow(yacht,[0,0,-.08],0x77e7ba);
+ }
+ const subStart=specs.length,buoyIndex=subStart-1;
  if(sub){
    for(const r of sub.userData.rotors)arrow(sub,r.center.toArray(),0xff82af);
    arrow(sub,[0,0,.055],0x77e7ba);arrow(sub,[0,0,0],0xff524b);
@@ -18,23 +21,24 @@ export function forceDisplay(T,scene,sub,yacht,cat,model){
  const dir=new T.Vector3(),up=new T.Vector3(0,0,1),yaw=new T.Quaternion();
  return (enabled,b,f,showSub)=>{
    group.visible=enabled;if(!enabled)return;
-   yaw.setFromAxisAngle(up,b[2]);
-   const [sails,foils,arms]=showSub?[]:model.getMany(['rigForce','foilLoad','foilArm']);
+   if(b&&!showSub)yaw.setFromAxisAngle(up,b[2]);
+   const [sails,foils,arms]=showSub||!model?[]:model.getMany(['rigForce','foilLoad','foilArm']);
    for(let i=0;i<specs.length;i++){
      const {glyph,parent,origin}=specs[i];
      if((parent===sub)!==showSub){glyph.visible=false;continue;}
      glyph.position.copy(origin).applyQuaternion(parent.quaternion).add(parent.position);
-     if(i<2)dir.fromArray(sails,3*i).applyQuaternion(yaw);
+     if(parent===sub){
+       if(!f?.thrust){glyph.visible=false;continue;}
+       const rotor=i-subStart,rotors=sub.userData.rotors;
+       if(rotor<rotors.length)dir.copy(rotors[rotor].axis).multiplyScalar(f.thrust[rotor]).applyQuaternion(sub.quaternion);
+       else if(rotor===rotors.length)dir.fromArray(f.buoyancy).applyQuaternion(sub.quaternion);
+       else dir.fromArray(f.contact);
+     }else if(i<2)dir.fromArray(sails,3*i).applyQuaternion(yaw);
      else if(i<buoyIndex){
        const offset=3*(i-2);
        glyph.position.fromArray(arms,offset).applyQuaternion(yaw).add(parent.position);
        dir.fromArray(foils,offset).applyQuaternion(yaw);
-     }
-     else if(i===buoyIndex)dir.set(0,0,b[29]);
-     else if(!f?.thrust){glyph.visible=false;continue;}
-     else if(i<=buoyIndex+7){const rotor=i-buoyIndex-1;dir.copy(sub.userData.rotors[rotor].axis).multiplyScalar(f.thrust[rotor]).applyQuaternion(sub.quaternion);}
-     else if(i===buoyIndex+8)dir.fromArray(f.buoyancy).applyQuaternion(sub.quaternion);
-     else dir.fromArray(f.contact);
+     }else dir.set(0,0,b[29]);
      const n=dir.length();glyph.visible=n>.03;
      if(glyph.visible){const len=.24*Math.log1p(n);glyph.setDirection(dir.normalize());glyph.setLength(len,Math.min(.18,len*.32),Math.min(.10,len*.18));}
    }

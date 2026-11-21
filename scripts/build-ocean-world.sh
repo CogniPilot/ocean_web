@@ -12,9 +12,16 @@ ln -sfn "$PWD/.deps/msl/Complex.mo" "$lib/Complex.mo"
 case ${1:-OceanWorld} in
   OceanWorld) modelName=OceanWorld; defaultOut=build/ocean-world ;;
   OceanSailing) modelName=OceanSailing; defaultOut=build/ocean-sailing ;;
-  *) echo "Expected OceanWorld or OceanSailing" >&2; exit 2 ;;
+  OceanSloop) modelName=OceanSloop; defaultOut=build/ocean-sloop ;;
+  OceanSubmarine) modelName=OceanSubmarine; defaultOut=build/ocean-submarine ;;
+  OceanFlight) modelName=OceanFlight; defaultOut=build/ocean-flight ;;
+  *) echo "Expected OceanWorld, OceanSailing, OceanSloop, OceanSubmarine or OceanFlight" >&2; exit 2 ;;
 esac
 roots=(--source-root "$lib" --source-root models/OceanRace.mo)
+case $modelName in
+  OceanSloop) roots+=(--source-root models/OceanSailing.mo) ;;
+  OceanSubmarine|OceanFlight) roots+=(--source-root models/OceanMission.mo) ;;
+esac
 for model in Shore Sailboat SailMembrane MarineWind WakeSpectrum Regatta Rdd2Survey; do
   roots+=(--source-root "viewer/board/$model.mo")
 done

@@ -16,7 +16,10 @@ const world = await openFmuSession({index, base, fetch: fileFetch, instanceName:
 try {
   const browserSteps = process.argv.includes('--browser-steps');
   const follow = process.argv.includes('--follow');
-  const controls = {subManual: 0, sailingManual: 1, flightManual: follow ? 0 : 1, windSpeed: 11, windBearing: .45};
+  const dedicated = index.modelName === 'OceanSubmarine';
+  assert(!dedicated || !follow, 'The standalone submarine has no drone escort');
+  const controls = {subManual: 0, windSpeed: 11, windBearing: .45};
+  if (!dedicated) Object.assign(controls, {sailingManual: 1, flightManual: follow ? 0 : 1});
   world.set_inputs(JSON.stringify(Object.entries(controls)));
   const outputs = ['sub.waypoint', 'sub.surveyDone', 'sub.position[1]', 'sub.position[2]',
     'sub.position[3]', 'estimate[1]', 'estimate[2]', 'estimate[3]',
