@@ -50,15 +50,55 @@ function seabedMaterials(T,illumination){
  }
  return {iron:textured('.18,.25,.24','metal'),deck:textured('.20,.23,.19','metal'),rib:textured('.26,.28,.23','metal'),wood:textured('.35,.20,.085','wood'),sand:textured('','sand'),dark:new T.MeshStandardMaterial({color:0x172927})};
 }
-function marineLife(T,scene){
+function marineLife(T,scene,webgl2){
  const fish=new T.Group();scene.add(fish);
  const visitors=oceanVisitors(T,scene);
- let swimmers=[];
- const ready=fetch('assets/fish.json').then(r=>r.json()).then(asset=>{
+ const count=34,pose=new T.Object3D(),swimPhase={value:0};
+ let school,swimmers=[],schoolTime=0;
+ function updateSchool(t){
+   swimPhase.value=t*6%8;
+   for(let i=0;i<(school?count:swimmers.length);i++){
+     const f=school?pose:swimmers[i],a=t*.11+i*.17;
+     f.scale.setScalar(.68+.4*Math.abs(Math.sin(i)));
+     f.position.set(-1+4*Math.sin(a)+.8*Math.sin(i*11),-3.8+1.9*Math.cos(a)+.67*Math.cos(i*2),-9.4+.8*Math.sin(i*3.2)+.18*Math.sin(t*.9+i));
+     f.rotation.z=Math.atan2(-1.9*Math.sin(a),4*Math.cos(a))+.07*Math.sin(t*6+i);
+     if(school){
+       f.updateMatrix();school.setMatrixAt(i,f.matrix);
+     }else{
+       const cycle=(swimPhase.value+i)%8,k=Math.floor(cycle);
+       f.morphTargetInfluences.fill(0);
+       f.morphTargetInfluences[k]=1-(cycle-k);f.morphTargetInfluences[(k+1)%8]=cycle-k;
+     }
+   }
+   if(school)school.instanceMatrix.needsUpdate=true;
+ }
+ fetch('assets/fish.json').then(r=>r.json()).then(asset=>{
    const geo=fishGeometry(T,asset);
    const mat=new T.MeshStandardMaterial({vertexColors:true,roughness:.42,metalness:.08,side:T.DoubleSide});
-   for(let i=0;i<34;i++){const f=new T.Mesh(geo,mat);f.scale.setScalar(.68+.4*Math.abs(Math.sin(i)));fish.add(f);}
-   swimmers=fish.children;
+   if(webgl2){
+     // All instances share the same eight absolute poses in Three's morph texture.
+     // The vertex and normal use the same two layers, offset by each fish's index.
+     mat.onBeforeCompile=shader=>{
+       shader.uniforms.swimPhase=swimPhase;
+       shader.vertexShader='uniform float swimPhase;\n'+shader.vertexShader
+         .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+           float swimFrame=mod(swimPhase+float(gl_InstanceID),float(MORPHTARGETS_COUNT));
+           int firstPose=int(floor(swimFrame)),secondPose=(firstPose+1)%MORPHTARGETS_COUNT;
+           float weight=fract(swimFrame);`)
+         .replace('#include <morphnormal_vertex>', 'objectNormal=mix(getMorph(gl_VertexID,firstPose,1).xyz,getMorph(gl_VertexID,secondPose,1).xyz,weight);')
+         .replace('#include <morphtarget_vertex>', 'transformed=mix(getMorph(gl_VertexID,firstPose,0).xyz,getMorph(gl_VertexID,secondPose,0).xyz,weight);');
+     };
+     school=new T.InstancedMesh(geo,mat,count);
+     school.morphTargetInfluences=new Array(geo.morphAttributes.position.length).fill(0);
+     school.instanceMatrix.setUsage(T.DynamicDrawUsage);
+     // Bounds cover all swim paths and the length of a fish, even between pose updates.
+     school.boundingSphere=new T.Sphere(new T.Vector3(-1,-3.8,-9.4),6);
+     fish.add(school);
+   }else{
+     for(let i=0;i<count;i++)fish.add(new T.Mesh(geo,mat));
+     swimmers=fish.children;
+   }
+   updateSchool(schoolTime);
  });
  let seed=992;function random(){seed=(1664525*seed+1013904223)>>>0;return seed/4294967296;}
  // Rooted kelp beds flank the survey corridor. All fronds share one draw call.
@@ -109,7 +149,7 @@ function marineLife(T,scene){
  const motes=new T.Points(geo,silt);motes.frustumCulled=false;scene.add(motes);
  return t=>{
    visitors(t);
-   swimmers.forEach((f,i)=>{const cycle=(t*6+i)%8,k=Math.floor(cycle);f.morphTargetInfluences.fill(0);f.morphTargetInfluences[k]=1-(cycle-k);f.morphTargetInfluences[(k+1)%8]=cycle-k;const a=t*.11+i*.17;f.position.set(-1+4*Math.sin(a)+.8*Math.sin(i*11),-3.8+1.9*Math.cos(a)+.67*Math.cos(i*2),-9.4+.8*Math.sin(i*3.2)+.18*Math.sin(t*.9+i));f.rotation.z=Math.atan2(-1.9*Math.sin(a),4*Math.cos(a))+.07*Math.sin(t*6+i);});
+   schoolTime=t;updateSchool(t);
    motes.position.set(.35*Math.sin(t*.23),.15*Math.sin(t*.18),.14*Math.cos(t*.12));
  };
 }
