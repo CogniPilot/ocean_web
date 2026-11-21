@@ -40,9 +40,10 @@ async function run(){
   const url=new URL(location.href);
   const requestedHull=url.searchParams.get('boat');
   const runtime=url.searchParams.get('runtime')??document.body.dataset.defaultRuntime;
+  const mobile=matchMedia('(pointer: coarse)').matches;
   const initialControl=url.searchParams.get('control');
   const sailingOnly=requestedHull!=='Sailboat' && url.searchParams.get('demo')!=='wreck' &&
-    (runtime==='sailing' || (runtime==='world' && !url.searchParams.has('runtime') && url.searchParams.has('room'))) &&
+    (runtime==='sailing' || (runtime==='world' && !url.searchParams.has('runtime') && (mobile || url.searchParams.has('room')))) &&
     (!initialControl || initialControl==='boat');
   const integrated=(runtime==='world'||runtime==='sailing')&&requestedHull!=='Sailboat';
   const cat=integrated||requestedHull==='Hobie16';
@@ -59,7 +60,6 @@ async function run(){
     loadVehicleShell(cat?'hobie-hulls':'sloop-hull'),
     loadVehicleShell('survey-pressure-housing')
   ]);
-  const mobile=matchMedia('(pointer: coarse)').matches;
   const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
   renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
