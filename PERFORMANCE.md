@@ -168,3 +168,19 @@ Selecting the submarine enables its onboard camera, sonar registration, keyframe
 The generated wreck ray hierarchy now chooses splits by child surface area and plate count. Across 50,000 seeded test rays, bounds tests fell from 902,547 to 414,427 and exact plate tests fell from 164,725 to 119,099. All first-return ranges matched. The standalone browser navigation FMU took 4.29 ms per acquisition versus 6.03 ms previously on a workstation trajectory through the wreck. All 1,770,480 compared camera, sonar, estimate, feature and keyframe values matched.
 
 Two interleaved Low runs of the integrated FMU placed the median step at the 200 ms event near 50–51 ms with the new build versus 53 ms previously. The mean across all ticks improved in one trial and regressed in the other. The wave event remains a bottleneck.
+
+## Hobie acceleration and sailing speed
+
+Run `node scripts/profile-hobie-speed.mjs 11 auto` and `node scripts/profile-hobie-speed.mjs 11 .06` to repeat the open-water measurement. Each heading starts from rest, with 11 m/s true wind, zero current and a flat surface. The speed column averages the last 30 seconds of a 90-second run. Sampling uses simulation time, independently of browser frame rate.
+
+| True wind angle | Automatic trim | Manual 0.06 m payout |
+| --- | ---: | ---: |
+| 60° | 3.26 kn | 6.34 kn |
+| 90° | 7.04 kn | 10.53 kn |
+| 110° | 9.05 kn | 12.15 kn |
+| 130° | 10.11 kn | 12.71 kn |
+| 150° | 11.09 kn | 12.30 kn |
+
+At 60°, tighter trim raised mean forward sail force from 24 N to 83 N. At 90° it raised drive from 108 N to 214 N. The best sustained run in these two sweeps was 12.71 kn, with a sampled peak of 12.77 kn. For scale, a racing Hobie 16 averaged 19.14 kn over a timed 380 m run in surf. The report gives no wind measurement for that run, so it provides a real-world reference rather than a matched calibration point. [International Hobie Class Association race report](https://hobieclass.com/denmark-wins-the-hobie-world-cat-2016-on-sylt-and-sets-speed-record/)
+
+The race launch uses the coupled world, including local wind and water. With the manual sheet held at its initial payout and rudder tracking the launch course, a 58° true wind angle gave 3.16 kn after 5 s and 1.94 kn after 15 s. A 75° launch gave 5.19 kn and 6.19 kn respectively from the same 4.67 kn initial speed.
