@@ -7,6 +7,7 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   final parameter Real rightE=upN,rightN=-upE "Starboard when facing the wind";
   output Real pinEast,pinNorth,committeeEast,committeeNorth,markEast[2],markNorth[2];
   input Real wakeTile[64,64],backgroundTile[32,32],driftEast,driftNorth,tide,swellHeight;
+  input Real hullWaveTile[64,64]=zeros(64,64);
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
   parameter Real swellK=.34,swellBearing=1.04159;
   parameter Real launchMass=1150,waterplaneArea=7.2,rollInertia=650,pitchInertia=3100;
@@ -44,6 +45,17 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
     a:=x-floor(x); b:=y-floor(y);
     elevation:=(1-b)*((1-a)*grid[j,i]+a*grid[j,ii])+b*((1-a)*grid[jj,i]+a*grid[jj,ii]);
   end elevationAt;
+  function localWaveElevation "Sample the incident sea plus the hull wave within a smooth radial window"
+    input Real total[:,:],hull[:,:],point[2],drift[2],center[2],period;
+    output Real elevation;
+  protected
+    Real radial,blend;
+  algorithm
+    radial:=sqrt((point-center)*(point-center))/period;
+    blend:=min(1,max(0,(radial-.35)/.14));
+    elevation:=elevationAt(total,point[1]-drift[1],point[2]-drift[2],period)
+      -blend^2*(3-2*blend)*elevationAt(hull,point[1]-drift[1],point[2]-drift[2],period);
+  end localWaveElevation;
   output Real countdown;
   discrete output Integer stage(start=0,fixed=true) "0 prestart, 1 start open, 2/3 marks, 4 finish, 5 finished";
   discrete output Real elapsed(start=0,fixed=true);
@@ -91,13 +103,13 @@ equation
   when sample(0,.1) then
     for k in 1:4 loop
       water[k]=tide+elevationAt(backgroundTile,stationE[k],stationN[k],64)
-        +elevationAt(wakeTile,stationE[k]-driftEast,stationN[k]-driftNorth,64)
+        +localWaveElevation(wakeTile,hullWaveTile,{stationE[k],stationN[k]},{driftEast,driftNorth},{east,north},64)
         +swellHeight*sin(swellK*(stationE[k]*cos(swellBearing)+stationN[k]*sin(swellBearing))-sqrt(9.80665*swellK)*(time+seaClockOffset));
     end for;
     for b in 1:3 loop
       for j in 1:3 loop
         buoyWater[b,j]=tide+elevationAt(backgroundTile,buoyEast[b]+bx[j],buoyNorth[b]+by[j],64)
-          +elevationAt(wakeTile,buoyEast[b]+bx[j]-driftEast,buoyNorth[b]+by[j]-driftNorth,64)
+          +localWaveElevation(wakeTile,hullWaveTile,{buoyEast[b]+bx[j],buoyNorth[b]+by[j]},{driftEast,driftNorth},{east,north},64)
           +swellHeight*sin(swellK*((buoyEast[b]+bx[j])*cos(swellBearing)+(buoyNorth[b]+by[j])*sin(swellBearing))-sqrt(9.80665*swellK)*(time+seaClockOffset));
       end for;
     end for;
