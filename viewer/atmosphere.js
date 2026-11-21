@@ -472,8 +472,11 @@ function atmosphere(scene,waterCaptureLayer){
    vec4 air=texture2D(windMap,wp.xy/96.+.5/48.);
    vec2 baseDir=vec2(cos(bearing),sin(bearing));
    float localSpeed=64.*mix(air.r,air.g,windBlend);
-   float puff=smoothstep(.35,2.25,localSpeed-referenceWind)*windFieldActive;
    float rippleWind=mix(wind,64.*mix(air.b,air.a,windBlend),windFieldActive);
+   // Use the actual local wind and the Modelica short-wave response at this ENU position.
+   float windDelta=(mix(localSpeed,rippleWind,.25)-referenceWind)/max(3.,referenceWind);
+   float puff=smoothstep(.025,.24,windDelta)*windFieldActive;
+   float lull=smoothstep(.025,.19,-windDelta)*windFieldActive;
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
    #ifdef VERTEX_SLOPE
@@ -483,7 +486,11 @@ function atmosphere(scene,waterCaptureLayer){
    vec2 d=surfaceSlope(wp.xy,bowSlope);
    #endif
    float gravitySlope=length(d);
-   d+=fade*rippleSlope(wp.xy,tm,baseDir,rippleWind*(1.+puff*.34));
+   d+=fade*rippleSlope(wp.xy,tm,baseDir,rippleWind)*(.70+1.15*puff-.38*lull);
+   // Resolve fine wind rows nearby; their aggregate roughness stays visible farther out.
+   float ripplePhase=12.*p.x+1.9*p.y-11.*tm+.8*sin(1.6*p.y+.5*tm);
+   float resolved=1.-smoothstep(1.,3.,fwidth(ripplePhase));
+   d+=baseDir*(.053*puff*resolved*fade*cos(ripplePhase));
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    float day=smoothstep(-.12,.22,sunDir.z);
    vec3 color;
@@ -536,8 +543,6 @@ function atmosphere(scene,waterCaptureLayer){
      vec2 frameMargin=min(screen,1.-screen);
      float visible=smoothstep(0.,.025,min(frameMargin.x,frameMargin.y))*step(.001,surfaceDepth);
      color=mix(waterColor+visible*transmitted.rgb,reflected,fres);
-     // Wind roughens the surface and scatters the coherent sky reflection.
-     color*=1.-.19*puff*(.55+.45*fade);
      color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
      float windCrest=wp.z-tide-swell.x*sin(swell.y+dot(wp.xy-swellCenter,swell.zw));
      waterColor=mix(waterColor,vec3(.012,.037,.043),storm*.85);
@@ -573,6 +578,12 @@ function atmosphere(scene,waterCaptureLayer){
      foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum)*smoothstep(.01,.16,abs(windCrest)));
 
      color=mix(color,vec3(.018,.048,.051)+reflected*.22,storm*(.48+.20*(1.-fres)));
+     // Short waves break up the bright sky band at racing distances.
+     // Apply contrast before foam and atmospheric haze so both keep their own lighting.
+     vec3 roughWater=min(color,.48*waterColor+.13*reflected);
+     color=mix(color,roughWater,.88*puff);
+     color*=1.+puff*resolved*(scum-.5)*.85;
+     color+=.12*lull*reflected*fres;
      color=mix(color,mix(vec3(.06,.10,.14),vec3(.79,.87,.85),day),foam*.86);
      float haze=smoothstep(70.,430.,length(wp-cameraPosition));
      color=mix(color,skyColor(normalize(vec3(-eye.xy,.01))),haze*.90);

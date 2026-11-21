@@ -24,7 +24,7 @@ try{
   advance(20);
   assert.equal(maxAbs(read(loadNames)),0);
   assert.equal(maxAbs(read(wakeNames)),0,'Low clears the hull-only elevation');
-  const waves=read(['waves.height[1,1]','waves.height[2,2]','waves.incident[1]']);
+  const waves=read(['boatWater.tile[1,1]','boatWater.tile[2,2]','boatWater.tile[1,2]']);
   assert(maxAbs(waves)>1e-5,'Wind-driven water remains active on Low');
   world.set_inputs(JSON.stringify([['omitWake',0]]));
   advance(10);
