@@ -204,3 +204,18 @@ Four 15-second Low-preset browser runs on the RTX 3090 used the same 393 × 852 
 ### Multiplayer wake source transfers
 
 The sailing worker reads the twelve hull-strip positions and immersed volumes when the Modelica wave sample changes and another player wants wakes. In a Chromium worker comparison, 95 consecutive 10 ms steps included 60 subscribed steps across two intervals. The worker transferred 2,304 bytes of strip data in eight reads, compared with 27,360 bytes across 95 reads previously. All 2,160 subscribed scalar observations matched the continuous readout, including the first step after each subscription. These byte counts cover hull source strips only.
+
+### Cost of drawing the ocean on Low
+
+A Chromium sailing session used SwiftShader, a 393 × 852 touch viewport, the Low preset and the dedicated sailing FMU. Diagnostic runs kept the simulation advancing while selectively omitting GPU work. At a 294 × 639 drawing-buffer size, two normal 3.5-second windows gave 26.4 and 28.9 ms p95 frame intervals. Skipping both planar captures gave 22.0 and 25.8 ms. Hiding the water surface in the final scene draw gave 20.4 ms in the one omitted-surface window that matched that resolution. The camera followed the moving boat, so scene composition varied. SwiftShader shares the host CPU with the simulation worker. These timings do not predict physical handset GPU throughput.
+
+The planar reflection and transmission passes usually run together on Low. A candidate kept both and moved transmission to the following frame, using the camera matrix from each corresponding capture. Four 15-second runs used release, candidate, candidate, release order and normal adaptive resolution.
+
+| Build | FPS | p95 frame interval | Simulated seconds per wall second |
+| --- | ---: | ---: | ---: |
+| Release | 37.4 | 40.1 ms | 0.90 |
+| Staggered | 40.0 | 51.4 ms | 0.92 |
+| Staggered | 39.3 | 54.4 ms | 0.90 |
+| Release | 38.8 | 39.2 ms | 0.93 |
+
+The release keeps the passes together. Staggering increased the long frame intervals despite slightly higher average FPS. The isolation trials point toward reducing the cost of each ocean draw as the next experiment.
