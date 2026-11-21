@@ -30,7 +30,8 @@ equation
   when sample(0,.1) then
     for i in 1:9 loop
       sampledWake[i]=Regatta.localWaveElevation(waves.height,waves.wakeHeight,receiverPosition[i,:],
-        {waves.driftE,waves.driftN},{boat.east,boat.north},waves.period);
+        {waves.driftE,waves.driftN},{boat.east,boat.north},waves.period)
+        +Regatta.nearHullElevation(bowSources,bowFrame,bowSpeed,receiverPosition[i,:]);
     end for;
     priorWake=if initial() then sampledWake else pre(sampledWake);
   end when;

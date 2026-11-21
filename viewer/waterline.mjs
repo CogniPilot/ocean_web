@@ -22,7 +22,7 @@ export function splitCamera(T){
    renderer.getDrawingBufferSize(size);above.setSize(size.x,size.y);below.setSize(size.x,size.y);
    eye.updateMatrixWorld();eye.getWorldDirection(u.forward.value);u.right.value.setFromMatrixColumn(eye.matrixWorld,0);u.up.value.setFromMatrixColumn(eye.matrixWorld,1);
    u.positionEye.value.copy(eye.position);u.slope.value=Math.tan(T.MathUtils.degToRad(eye.fov/2));u.aspect.value=eye.aspect;
-   for(const key of ['tile','tide','blend','swell','swellCenter','spectrumMap','spectrumDrift','spectrumPeriod','spectrumBlend'])u[key]=water.U[key];
+   for(const key of ['tile','tide','blend','swell','swellCenter','boat','spectrumMap','incidentMap','spectrumDrift','spectrumPeriod','spectrumBlend','wakeAvailable','bowMap','bowAvailable'])u[key]=water.U[key];
    world.fog=null;water.dome.visible=true;water.U.under.value=0;
    renderer.setRenderTarget(above);renderer.render(world,eye);
    world.fog=fog;water.dome.visible=false;water.U.under.value=1;

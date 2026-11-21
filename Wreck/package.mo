@@ -86,7 +86,7 @@ package Wreck
     Real swayCommand;
     parameter Real propellerDiameter=0.17, thrustCoefficient=0.035, inceptionNumber=3.5;
     output Real propellerRPM[7], cavitation[7], appliedThrust[7];
-    parameter Real propMount[7,3]=[0,.32,0;0,-.32,0;.4,.32,0;.4,-.32,0;-.4,.32,0;-.4,-.32,0;0,0,0];
+    parameter Real propMount[7,3]=[.36,.32,0;.36,-.32,0;.065,.32,0;.065,-.32,0;-.43,.32,0;-.43,-.32,0;0,0,0] "Photo-estimated Piccard mounts, forward/port/up in metres";
     parameter Real propAxis[7,3]=[1,0,0;1,0,0;0,0,1;0,0,1;0,0,1;0,0,1;0,1,0];
     parameter Real propMomentArm[7,3]={cross(propMount[i,:],propAxis[i,:]) for i in 1:7};
     Real propPosition[7,3],propDiskHeight[7],diskCut[7],localSurface[7];
@@ -110,6 +110,7 @@ package Wreck
       "Survey station, total, completion, applied motor forces, body buoyancy and world contact";
     Real goal[3],eastError,northError,verticalError,surgeRef,swayRef,depthEst,surge,yawCmd,heave,rollCmd,pitchCmd;
     Real goalDepth;
+    Real foreLift,aftLift;
     Real cmd[6], thrust[6](each stateSelect=StateSelect.always,each start=0,each fixed=true), rel[3], up[3], buoy[3], ballast[3], wet;
     parameter Real airDensity=1.225, windageCdA[3]={0.12,0.32,0.25} "Exposed hull drag areas [m2]";
     parameter Real windageCenter[3]={0.04,0,0.12} "Centre of wind pressure in body axes [m]";
@@ -164,9 +165,12 @@ package Wreck
     pitch=attitude[2];
     rollCmd=-3*roll-sensor[89];
     pitchCmd=-4*pitch-2*sensor[90];
-    cmd={surge/2-yawCmd/0.64,surge/2+yawCmd/0.64,
-         heave/4+rollCmd/1.28-pitchCmd/1.6,heave/4-rollCmd/1.28-pitchCmd/1.6,
-         heave/4+rollCmd/1.28+pitchCmd/1.6,heave/4-rollCmd/1.28+pitchCmd/1.6};
+    // Split lift so net force and pitch torque both match their commands.
+    foreLift=(-pitchCmd-propMount[5,1]*heave)/(propMount[3,1]-propMount[5,1]);
+    aftLift=heave-foreLift;
+    cmd={surge/2-yawCmd/(2*propMount[1,2]),surge/2+yawCmd/(2*propMount[1,2]),
+         foreLift/2+rollCmd/(4*propMount[3,2]),foreLift/2-rollCmd/(4*propMount[3,2]),
+         aftLift/2+rollCmd/(4*propMount[5,2]),aftLift/2-rollCmd/(4*propMount[5,2])};
     for i in 1:6 loop
       der(thrust[i])=(max(-14,min(14,cmd[i]))-thrust[i])/0.14;
     end for;

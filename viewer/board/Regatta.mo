@@ -9,6 +9,7 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   output Real pinEast,pinNorth,committeeEast,committeeNorth,markEast[2],markNorth[2];
   input Real wakeTile[64,64],backgroundTile[32,32],driftEast,driftNorth,tide,swellHeight;
   input Real hullWaveTile[64,64]=zeros(64,64);
+  input Real bowSources[14,6]=zeros(14,6),bowFrame[4]=zeros(4),bowSpeed[2]=zeros(2);
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
   parameter Real swellK=.34,swellBearing=1.04159;
   parameter Real swellOmega=sqrt(9.80665*swellK);
@@ -77,6 +78,16 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
       crossedGate:=distance>.70 and distance<=limit;
     end if;
   end passedToPort;
+  function nearHullElevation "Sample the bound wake in the same coordinates as the water surface"
+    input Real sources[14,6],pose[4],velocity[2],point[2];
+    output Real elevation;
+  protected
+    Real relative[2];
+  algorithm
+    relative:=point-pose[1:2];
+    elevation:=if (abs(pose[3])+abs(pose[4]))>.5 and relative*relative<3.8^2 then
+      BowWavePatch.potentialHead(relative*pose[3:4],relative*{-pose[4],pose[3]},velocity,sources) else 0;
+  end nearHullElevation;
   output Real countdown;
   discrete output Integer stage(start=0,fixed=true) "0 prestart, 1 start open, 2/3 marks, 4 finish, 5 finished";
   discrete output Real elapsed(start=0,fixed=true);
@@ -126,12 +137,14 @@ equation
     for k in 1:4 loop
       water[k]=tide+elevationAt(backgroundTile,stationE[k],stationN[k],64)
         +localWaveElevation(wakeTile,hullWaveTile,{stationE[k],stationN[k]},{driftEast,driftNorth},{east,north},64)
+        +nearHullElevation(bowSources,bowFrame,bowSpeed,{stationE[k],stationN[k]})
         +swellHeight*sin(swellK*(stationE[k]*cos(swellBearing)+stationN[k]*sin(swellBearing))-swellOmega*(time+seaClockOffset));
     end for;
     for b in 1:3 loop
       for j in 1:3 loop
         buoyWater[b,j]=tide+elevationAt(backgroundTile,buoyEast[b]+bx[j],buoyNorth[b]+by[j],64)
           +localWaveElevation(wakeTile,hullWaveTile,{buoyEast[b]+bx[j],buoyNorth[b]+by[j]},{driftEast,driftNorth},{east,north},64)
+          +nearHullElevation(bowSources,bowFrame,bowSpeed,{buoyEast[b]+bx[j],buoyNorth[b]+by[j]})
           +swellHeight*sin(swellK*((buoyEast[b]+bx[j])*cos(swellBearing)+(buoyNorth[b]+by[j])*sin(swellBearing))-swellOmega*(time+seaClockOffset));
       end for;
     end for;

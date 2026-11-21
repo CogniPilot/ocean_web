@@ -43,7 +43,11 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],windEast=0,windNorth=0,seaAmplitude=0);
   Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,seaState=seaState,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
   Regatta race(seaClockOffset=seaClockOffset,swellK=swellK,swellOmega=swellOmega,landingReaction=committeeLandingWrench,wakeTile=waves.height,hullWaveTile=waves.wakeHeight,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
-    tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north);
+    tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north,
+    bowSources=bowSources,bowFrame=bowFrame,bowSpeed=bowSpeed);
+  discrete output Real bowSources[14,6](each start=0,each fixed=true) "Bound near-hull flow from immersed cross sections";
+  discrete output Real bowSpeed[2](each start=0,each fixed=true) "Water-relative boat velocity in the moving frame";
+  discrete output Real bowFrame[4](each start=0,each fixed=true) "East, north, cosine and sine of heading, or zeros when disabled";
   discrete output Real surfaceSections[2,6](each start=0,each fixed=true)
     "Tide, background sea, local wind waves and hull wake at each buoyancy strip [m]";
   discrete Real priorSections[2,6](each start=0,each fixed=true),sectionStamp(start=0,fixed=true);
@@ -57,6 +61,12 @@ equation
     end for;
   end for;
   when sample(0,.1) then
+    bowFrame=if hobie and omitWake<.5 then {boat.east,boat.north,cos(boat.heading),sin(boat.heading)} else zeros(4);
+    bowSpeed=if hobie and omitWake<.5 then
+      {bowFrame[3]*(boat.ve-waves.currentEast)+bowFrame[4]*(boat.vn-waves.currentNorth),
+       bowFrame[3]*(boat.vn-waves.currentNorth)-bowFrame[4]*(boat.ve-waves.currentEast)} else zeros(2);
+    bowSources=if hobie and omitWake<.5 then BowWavePatch.hullSources(
+      bowSpeed,BowWavePatch.localStrips(waves.sourceStrips,bowFrame),boat.stationX,boat.beamHalf) else zeros(14,6);
     for hull in 1:2 loop
       for panel in 1:6 loop
         surfaceSections[hull,panel]=waves.sectionHeight[hull,panel]+boatWater.tide+

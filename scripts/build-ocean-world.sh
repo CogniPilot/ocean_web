@@ -22,7 +22,7 @@ case $modelName in
   OceanSloop) roots+=(--source-root models/OceanSailing.mo) ;;
   OceanSubmarine|OceanFlight) roots+=(--source-root models/OceanMission.mo) ;;
 esac
-for model in Shore Sailboat SailMembrane MarineWind WakeSpectrum Regatta Rdd2Survey; do
+for model in Shore Sailboat SailMembrane MarineWind WakeSpectrum BowWavePatch Regatta Rdd2Survey; do
   roots+=(--source-root "viewer/board/$model.mo")
 done
 # The coupled FMI kernel holds event snapshots and sensor tensor temporaries

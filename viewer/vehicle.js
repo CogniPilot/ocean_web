@@ -28,9 +28,9 @@ function surveyVehicle(T,housing){
   lens(.044,.04,.558,plastic);
   lens(.031,.009,.582,finish(0x183344,.35,.12));
 
-  // Local centres, axes and order match the seven propMount entries in Wreck.Plant.
-  const mounts=[[0,.32,0],[0,-.32,0],[.4,.32,0],[.4,-.32,0],[-.4,.32,0],[-.4,-.32,0],[0,0,0]];
-  const axes=[[1,0,0],[1,0,0],[0,0,1],[0,0,1],[0,0,1],[0,0,1],[0,1,0]];
+  // The GLB carries Modelica body-frame coordinates and shaft axes in motor order.
+  const carrier=housing.getObjectByProperty('name','PiccardFrame');
+  const {mounts,axes}=JSON.parse(carrier.userData.thrusterLayout);
   // Flared, open motor guards. Each profile runs up the outside and back along the bore.
   const profile=[[.092,-.047],[.101,-.040],[.102,.036],[.106,.043],[.106,.048],
     [.095,.048],[.092,.040],[.091,-.039],[.092,-.047]].map(([r,z])=>new T.Vector2(r,z));

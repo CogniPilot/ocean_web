@@ -44,7 +44,7 @@ export async function openWorld(mode='world'){
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,surveyMap:hasSub,sampledFields:true,surveyView,
    optionalInputs:['seaClockOffset','windAnchor','peerWake','idleCamera','omitWake'],
-   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','waves.wakeHeight']});
+   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','waves.wakeHeight','bowSources','bowSpeed']});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
@@ -56,6 +56,7 @@ export async function openWorld(mode='world'){
  }
  function receive(f){time=f.time;
    if(f.mapRows)state.set('keyframes',f.mapRows);
+   if(f.bowHeight)state.set('bowHeight',f.bowHeight);
    unpack(layout.outputs,f.values);
    f.sampled?.forEach((values,i)=>{if(values)unpack(layout.sampled[i],values);});
  }
@@ -93,6 +94,6 @@ export async function openWorld(mode='world'){
   },setWakeEnabled(enabled){
    if(offsets.has('omitWake'))set('omitWake',Number(!enabled));
    surveyView.wakeSurface=enabled;
-   if(!enabled)state.delete('waves.wakeHeight');
+   if(!enabled){state.delete('waves.wakeHeight');state.delete('bowHeight');}
  },hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map){surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

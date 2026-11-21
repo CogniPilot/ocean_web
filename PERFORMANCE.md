@@ -348,3 +348,11 @@ The estimated boat mass budget uses two 38 kg hulls, an 18 kg mast, 4 kg boom, 3
 Summing rod and panel approximations with the parallel-axis theorem yields approximately 610 kg m² roll, 715 kg m² pitch and 320 kg m² yaw about the centred solo system's mass centre. Including the float, the previous model used about 280, 385 and 315 kg m². The revised nominal roll and pitch totals are 613 and 718 kg m². A parallel-axis correction increases the appropriate moments as the crew equivalent moves along the trampoline. Dry mass and rudder parameters retain their previous values. The mast bend equation's 6 kg remains an effective modal mass. Measuring physical inertia and water-added inertia remains open.
 
 At a fixed test height, opposite 5.2° pitch tilts changed the buoyant centre from 0.91 m aft to 0.38 m forward of the model origin. At opposite cross-slopes it moved ±0.64 m sideways. The total hydrostatic lift matched seawater density times gravity times the sum of the immersed strip volumes to 1e-12 N. Run `node scripts/check-water-loads.mjs` to repeat the check.
+
+### Near-field bow rise
+
+The Hobie samples a slender-body source distribution from the changing immersed cross-sections of both hulls. Modelica evaluates the linear Bernoulli head at nearby receivers. The worker evaluates the same distribution on an 8 m square with 25 cm spacing for the water surface. The correction tapers to zero at 3.8 m from the boat. The spectral solver carries the propagating wake beyond it. Low disables the correction and the existing hull-wake calculation.
+
+In the 8 m/s launch case, the sailing guest averaged 6.71 m/s during the first 2.4 simulated seconds. Peak combined elevation in the test region outside the bows was 9.6 cm, including 1.2 cm peak elevation from the coarse grid alone. These are simulated crest heights. The physical amplitude still needs comparison with measured Hobie wakes. The committee launch test compares the closed-form solution against independent numerical integration over the source lines.
+
+On a desktop RTX 3090, five seconds in Chromium with wakes enabled gave 60.1 FPS and 1.01 simulated seconds per wall second. The preceding release gave 60.1 FPS and 1.00 in the same test. A phone-sized viewport with touch input selected Low and disabled the bow field.

@@ -50,10 +50,7 @@ function waterPresentation(nominal=1){
 function vehicleLink(url,choice){
   const link=new URL(url);
   for(const name of ['runtime','boat','control','demo','view'])link.searchParams.delete(name);
-  if(choice==='survey'){
-    link.searchParams.set('demo','wreck');
-    link.searchParams.set('view','fpv');
-  }else if(choice==='drone'||choice==='sub')link.searchParams.set('control',choice);
+  if(choice==='drone'||choice==='sub')link.searchParams.set('control',choice);
   else if(choice==='sloop')link.searchParams.set('boat','Sailboat');
   else if(choice==='hobie')link.searchParams.set('boat','Hobie16');
   return link;
@@ -167,8 +164,8 @@ async function run(){
   }
   $('multiplayer').onclick=()=>multiplayer($('multiplayer').getAttribute('aria-pressed')!=='true');
   addEventListener('pagehide',()=>multiplayer(false));
-  $('invite').onclick=async()=>{const link=vehicleLink(location.href);link.searchParams.set('room',roomName);
-    try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Race room link',link.href);}};
+  $('invite').onclick=async()=>{const link=vehicleLink(location.href,sub?.active?'sub':undefined);link.searchParams.set('room',roomName);
+    try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Multiplayer room link',link.href);}};
   const theme=$('theme'),music=$('music');
   let musicContext,musicGain;
   function volumeControl(id,apply){
@@ -333,7 +330,7 @@ async function run(){
     document.querySelector('aside[aria-label="Race committee"]').hidden=!boatActive;
     $('showForces').hidden=$('showCompass').hidden=Boolean(drone?.active);
     $('dial').hidden=drone?.active||$('showCompass').getAttribute('aria-pressed')!=='true';
-    $('helm').textContent=manualSelected()?'Manual':'Autopilot';
+    $('helm').textContent=sub?.active?(sub.manual?'Resume survey':'Take control'):(manualSelected()?'Manual':'Autopilot');
     pad.replaceChildren();pad.hidden=!mobile || !manualSelected();
     helm();
     if(pad.hidden)return;
@@ -377,8 +374,9 @@ async function run(){
     drone.cut(cut);$('cutMotors').setAttribute('aria-pressed',String(cut));
     $('cutMotors').textContent=cut?'Restore motors':'Cut motors';
   };
+  let enteredSub=false;
   async function selectTarget(){
-    if(targetSelect.value==='survey'||(packaged&&!fullWorld&&targetSelect.value!==selectedRole)){
+    if(packaged&&!fullWorld&&targetSelect.value!==selectedRole){
       changeVehicle(targetSelect.value==='boat'?'hobie':targetSelect.value);
       return;
     }
@@ -393,7 +391,16 @@ async function run(){
       if(targetSelect.value!=='drone'&&drone)return;
     }
     if(sub)sub.active=targetSelect.value==='sub';
-    if(sub?.active){angle=Math.PI-.48;tilt=.32;}
+    if(sub?.active){
+      angle=Math.PI-.48;tilt=.32;
+      if(!enteredSub){
+        enteredSub=true;
+        sub.manual=false;
+        sub.mapVisible=true;
+        $('sonarMap').checked=true;
+        $('cameraDepth').value='onboard';
+      }
+    }
     if(!world && drone?.active && targetSelect.value!=='drone' && drone.manual){
       race.set('landingReaction',[0,0,0,0,0,0]);model.set('droneLoad',[0,0,0,0,0,0]);
     }
@@ -405,13 +412,10 @@ async function run(){
     if((!sub?.active&&$('cameraDepth').value==='onboard')||(!flying&&$('cameraDepth').value==='fpv'))$('cameraDepth').value='deck';
     $('subPanel').hidden=!sub?.active;
     $('cutMotors').hidden=$('flightKeys').hidden=!flying;
-    document.querySelector('h1').textContent=sub?.active?'Survey submarine':flying?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
+    document.querySelector('h1').textContent=sub?.active?'Sub':flying?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
     touchControls();
   }
   targetSelect.disabled=false;targetSelect.onchange=selectTarget;
-  if(wreckSurvey&&sub){
-    sub.manual=false;sub.mapVisible=true;$('sonarMap').checked=true;
-  }
   if(fullWorld||(!packaged&&wreckSurvey))loadDrone().catch(error=>{targetSelect.title=error.message;});
   if(initialTarget==='drone'||initialTarget==='sub'){
     targetSelect.value=initialTarget;
@@ -582,7 +586,8 @@ async function run(){
         if(running)acc=Math.max(0,acc-world.advance(steps)*.01);
         const tick=Math.round(world.time*100),waveTick=waterStamp(),fieldTick=Math.floor(tick/25);
         if(lastWorldTick!==waveTick){
-          ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'),omitWake?undefined:world.get('waves.wakeHeight'));
+          ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'),
+            omitWake?undefined:world.get('waves.wakeHeight'),omitWake||!cat?undefined:world.get('bowHeight'));
           if(!omitWake&&model)ocean.updateHullFoam(world.get('waves.sourceStrips'),waveTick,model.get('surge'),cat);
           wavePresentation.sample(waveTick,now);lastWorldTick=waveTick;
         }
