@@ -264,3 +264,10 @@ Four cache-disabled localhost runs used Chromium with SwiftShader and a 393 × 8
 The ray has 442 wing vertices. Two relative morph targets now encode the traveling wave. A simulation update writes two weights per wing. This removes the two CPU vertex-normal rebuilds and the position and normal buffer uploads on each update. Three.js can also cull the wings using a bound covering the full stroke.
 
 In a Chromium microbenchmark, 4,000 synchronous visitor updates per run averaged 102–104 µs per update with the old mesh and 0.27–0.48 µs with the morphs. The test isolated the ray before the other animal assets finished loading. Across 40 phases the largest vertex difference was below 0.00000003 m and the largest unit-normal difference was below 0.000014. In five 360 × 240 SwiftShader renders, no pixel differed by more than two intensity levels in any RGB channel. These results measure animation work and image agreement. They do not measure whole-scene frame rate.
+
+
+### Delayed contact between two skippers
+
+The browser delivers new boat positions to Modelica on the next drawing frame, and clears a departing boat on that frame. The 50 ms race update also checks for stale packets and boats that have separated since spawning together. A solo client skips the peer-traffic read and write.
+
+Run `node scripts/check-delayed-contact.mjs` to replay two compiled Hobies starting 9 m apart on reciprocal headings at 2.4 m/s each. In five simulated seconds, boats sent poses at 10 Hz on independent sender clocks. With no packet delay the first opposing force on each hull appeared at 0.92 s and the minimum center distance was 3.81 m. With 40–210 ms of one-way delay, 14 dropped packets and 26 reordered packets rejected, polling at 50 ms alone reduced minimum distance to 1.11 m. Consuming fresh snapshots at the next 10 ms replay step gave 3.23 m. Peak opposing forces were 2.48 and 2.40 kN, compared with 1.71 kN each in the zero-delay run. These results describe one deterministic head-on encounter. Browser frame cadence and internet transport introduce additional variability.

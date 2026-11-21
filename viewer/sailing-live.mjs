@@ -458,6 +458,9 @@ async function run(){
   }
   function draw(now){
     try{
+      if(remote.needsTraffic(now>=raceTick)){
+        model.set('traffic',remote.contacts(model.get('east'),model.get('north')));
+      }
       if(now>=raceTick){
         raceTick=now+50;
         const left=Math.ceil(race.get('countdown')),stage=race.get('stage');
@@ -476,7 +479,6 @@ async function run(){
         }
         $('raceCourse').textContent='TRI 1 · First leg '+firstLeg(race)+' · 1 & 2 to port';
         $('raceStatus').textContent=cue+(stage>=2?' · Lap '+timer:lastLap?' · Last lap '+lastLap:'');
-        model.set('traffic',remote.contacts(model.get('east'),model.get('north')));
       }
       frameCost=.94*frameCost+.06*Math.min(120,now-prev);
       if(profile.min<profile.ratio&&now-lastQualityCheck>1500){

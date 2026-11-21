@@ -3,6 +3,7 @@ export class PeerTimeline {
   constructor() {
     this.samples = [];
     this.clockOffset = Infinity;
+    this.armed = false;
   }
 
   receive(data, arrival) {
@@ -17,6 +18,15 @@ export class PeerTimeline {
     this.clockOffset = Math.min(this.clockOffset, arrival - sent);
     this.samples.push({sent, arrival, data});
     if (this.samples.length > 8) this.samples.shift();
+    return true;
+  }
+
+  writeTraffic(now, east, north, rows, offset) {
+    if (!this.latest || this.age(now) > 650) return false;
+    const {data} = this.latest;
+    if (Math.hypot(east - data[0], north - data[1]) > 5.5) this.armed = true;
+    if (!this.armed) return false;
+    rows.set([1, data[0], data[1], data[2], data[212], data[213], data[214], data[3], data[207]], offset);
     return true;
   }
 
