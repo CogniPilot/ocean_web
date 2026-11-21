@@ -356,3 +356,19 @@ The Hobie samples a slender-body source distribution from the changing immersed 
 In the 8 m/s launch case, the sailing guest averaged 6.71 m/s during the first 2.4 simulated seconds. Peak combined elevation in the test region outside the bows was 9.6 cm, including 1.2 cm peak elevation from the coarse grid alone. These are simulated crest heights. The physical amplitude still needs comparison with measured Hobie wakes. The committee launch test compares the closed-form solution against independent numerical integration over the source lines.
 
 On a desktop RTX 3090, five seconds in Chromium with wakes enabled gave 60.1 FPS and 1.01 simulated seconds per wall second. The preceding release gave 60.1 FPS and 1.00 in the same test. A phone-sized viewport with touch input selected Low and disabled the bow field.
+
+### Pull-request regression check
+
+The Hobie physics performance workflow runs the base and proposed sailing FMUs
+on the same Ubuntu runner using Node 22 and identical initial conditions.
+It measures 400 ten-millisecond steps after 200 warm-up steps, with a pose
+read after every step. Each of the two wake settings gets three sequential
+pairs in alternating order. A median candidate/reference cost ratio above
+1.25 in either setting fails the check. The 25% margin is an initial noise
+allowance. The job summary includes absolute simulation speed and p95 step
+time for context. The artifact retains every timing group and the runner CPU.
+
+This measures the packaged WebAssembly physics and FMI calls. GPU rendering,
+browser scheduling and mobile performance need separate browser measurements.
+For a local comparison of two packaged sailing runtime directories, run
+`node scripts/compare-sailing-performance.mjs build/reference build/candidate build/hobie-performance.json`.
