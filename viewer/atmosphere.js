@@ -272,12 +272,13 @@ function atmosphere(scene){
    #include <colorspace_fragment>
  }`}));
  scene.add(water);
+ const encodeHeight=h=>Math.round(65535*Math.max(0,Math.min(1,(h+8)/16)));
  function update(old,f){
    if(!f.tile || f.tile.length!==1024)throw Error('Missing Modelica spectral tile');
    for(let i=0;i<1024;i++){
-     const encode=h=>Math.round(65535*Math.max(0,Math.min(1,(h+8)/16)));
-     const a=encode(old.tile[i]),b=encode(f.tile[i]);
-     pixels.set([a>>8,a&255,b>>8,b&255],i*4);
+     const a=encodeHeight(old.tile[i]),b=encodeHeight(f.tile[i]),k=i*4;
+     pixels[k]=a>>8;pixels[k+1]=a&255;
+     pixels[k+2]=b>>8;pixels[k+3]=b&255;
    }
    tile.needsUpdate=true;U.tide.value=f.tide;U.wind.value=f.wind;
  }
