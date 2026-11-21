@@ -1,6 +1,7 @@
 // Exercise the shipped WebAssembly scorer with a rotated course and timed crossings.
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {lapTable,lapClock} from '../viewer/lap-board.mjs';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
 const read=async url=>new Response(await readFile(url));
 for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
@@ -84,3 +85,31 @@ for(let i=0;i<9;i++){
 }
 assert(difference>.1);
 console.log({markRanges:hi.map((v,i)=>v-lo[i]),difference});
+
+// Ranking uses the same tenth-second precision as the race clock. Replayed
+// peer snapshots and simultaneous browser sessions must preserve each finish.
+const items=new Map();
+const storage={
+  get length(){return items.size;},
+  key:i=>Array.from(items.keys())[i],
+  getItem:key=>items.get(key),
+  setItem:(key,value)=>items.set(key,value),
+  removeItem:key=>items.delete(key)
+};
+const table=()=>lapTable(storage,'room/regatta','Hobie16');
+const first=table(),second=table();
+const finish=i=>({id:i.toString(16).padStart(32,'0'),captain:'Captain Kai',tenths:700+i});
+for(let i=0;i<12;i++)(i%2?first:second).add([finish(i)]);
+const ranked=table();
+assert.deepEqual(ranked.rows,Array.from({length:10},(_,i)=>finish(i)));
+assert.equal(items.size,10);
+assert.equal(ranked.add([finish(0)]),false);
+assert.equal(ranked.add([{...finish(0),tenths:NaN}]),false);
+assert.equal(ranked.add([{...finish(20),tenths:-1}]),false);
+assert.equal(ranked.add(Array(11).fill(finish(20))),false);
+assert.equal(lapTable(storage,'room/regatta','Sailboat').rows.length,0);
+assert.equal(lapTable(storage,'room/private','Hobie16').rows.length,0);
+assert.equal(lapTable(storage,'personal','Hobie16').rows.length,0);
+assert.equal(lapClock(600),'1:00.0');
+assert.equal(lapClock(599),'0:59.9');
+console.log('Lap leaderboard passed ordering, persistence, top-ten limit, replay and room/hull isolation.');
