@@ -361,18 +361,24 @@ function atmosphere(scene,waterCaptureLayer){
      *smoothstep(-1.35,-.35,nose)*(1.-smoothstep(.45,1.62,nose));
  }
  float viewDepth(float z){return cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}
- #ifdef FILTER_TRANSMISSION
- float behindSurface(vec2 uv,float depth,float edgeWidth){
-   return smoothstep(-edgeWidth,edgeWidth,viewDepth(texture2D(transmissionDepth,uv).r)-depth);
+ // Reconstruct color after the waterline test and attenuation of each texel.
+ // Interpolating a hull depth with the distant seabed invents water between them.
+ vec4 throughSample(vec2 uv,float surface,float rayScale,float edgeWidth,vec3 waterColor){
+   float dz=viewDepth(texture2D(transmissionDepth,uv).r)-surface;
+   float behind=smoothstep(-edgeWidth,edgeWidth,dz);
+   float path=clamp(dz*rayScale,0.,60.);
+   vec3 attenuation=exp(-vec3(.22,.085,.055)*path)*(1.-smoothstep(9.,32.,path));
+   return vec4(behind*attenuation*(texture2D(transmission,uv).rgb-waterColor),behind);
  }
- float depthCoverage(vec2 uv,float depth,float edgeWidth){
-   vec2 texel=1./transmissionSize;
-   vec2 pixel=uv*transmissionSize-.5,f=fract(pixel),lo=(floor(pixel)+.5)*texel;
-   float a=behindSurface(lo,depth,edgeWidth),b=behindSurface(lo+vec2(texel.x,0.),depth,edgeWidth);
-   float c=behindSurface(lo+vec2(0.,texel.y),depth,edgeWidth),d=behindSurface(lo+texel,depth,edgeWidth);
+ vec4 filteredThrough(vec2 uv,float surface,float rayScale,float edgeWidth,vec3 waterColor){
+   vec2 pixel=uv*transmissionSize-.5,f=fract(pixel),texel=1./transmissionSize;
+   vec2 lo=(floor(pixel)+.5)*texel;
+   vec4 a=throughSample(lo,surface,rayScale,edgeWidth,waterColor);
+   vec4 b=throughSample(lo+vec2(texel.x,0.),surface,rayScale,edgeWidth,waterColor);
+   vec4 c=throughSample(lo+vec2(0.,texel.y),surface,rayScale,edgeWidth,waterColor);
+   vec4 d=throughSample(lo+texel,surface,rayScale,edgeWidth,waterColor);
    return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
  }
- #endif
  void main(){
    vec3 eye=normalize(cameraPosition-wp);
    vec4 air=texture2D(windMap,wp.xy/96.+.5/48.);
@@ -416,7 +422,7 @@ function atmosphere(scene,waterCaptureLayer){
      vec4 mirrorRay=clip+mirrorMatrix*vec4(.055*eyeDistance*reflectedDeflection,0.);
      vec2 uv=clamp(mirrorRay.xy/max(.001,mirrorRay.w)*.5+.5,.001,.999);
      vec4 objects=texture2D(reflection,uv,.65);
-     vec3 reflected=mix(skyColor(ref),objects.rgb,objects.a);
+     vec3 reflected=skyColor(ref)*(1.-objects.a)+objects.rgb;
      // Compare both depths in the camera that captured the seabed.
      vec4 captureClip=throughMatrix*vec4(wp,1.);
      vec2 screen=captureClip.xy/max(.001,captureClip.w)*.5+.5;
@@ -424,23 +430,25 @@ function atmosphere(scene,waterCaptureLayer){
      vec4 refractedClip=captureClip+throughMatrix*vec4(.085*eyeDistance*(bentRay-levelRay),0.);
      vec2 refrUV=clamp(refractedClip.xy/max(.001,refractedClip.w)*.5+.5,.001,.999);
      float surfaceDepth=captureClip.w;
-     float hitDepth=viewDepth(texture2D(transmissionDepth,refrUV).r);
-     if(hitDepth<surfaceDepth){refrUV=screen;hitDepth=viewDepth(texture2D(transmissionDepth,screen).r);}
-     float path=clamp((hitDepth-surfaceDepth)*length(throughEye-wp)/max(.01,surfaceDepth),0.,60.);
-     vec2 frameMargin=min(screen,1.-screen);
-     float coverage=step(surfaceDepth,hitDepth);
-     #ifdef FILTER_TRANSMISSION
-     float filterWeight=1.-smoothstep(8.,12.,length(wp.xy-boat.xy));
-     if(filterWeight>0.){
-       float edgeWidth=max(.008,.5*fwidth(surfaceDepth));
-       coverage=mix(coverage,depthCoverage(refrUV,surfaceDepth,edgeWidth),filterWeight);
+     float rayScale=length(throughEye-wp)/max(.01,surfaceDepth);
+     float edgeWidth=max(.008,.5*fwidth(surfaceDepth));
+     vec4 transmitted;
+     bool nearSurface=eyeDistance<32. || length(wp.xy-boat.xy)<8.;
+     if(nearSurface){
+       transmitted=filteredThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor);
+     }else{
+       transmitted=throughSample(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor);
      }
-     #endif
-     float visible=smoothstep(0.,.025,min(frameMargin.x,frameMargin.y))
-        *step(.001,surfaceDepth)*coverage*(1.-smoothstep(9.,32.,path));
-     vec3 below=texture2D(transmission,refrUV).rgb;
-     vec3 trans=visible*exp(-vec3(.22,.085,.055)*path);
-     color=mix(waterColor*(1.-trans)+below*trans,reflected,fres);
+     // A bent ray can land on the dry hull. Use only the additional submerged
+     // coverage in the straight view, avoiding a hard switch or a doubled edge.
+     if(transmitted.a<.999){
+       vec4 straight=nearSurface?filteredThrough(screen,surfaceDepth,rayScale,edgeWidth,waterColor)
+                                :throughSample(screen,surfaceDepth,rayScale,edgeWidth,waterColor);
+       transmitted.rgb+=straight.rgb*max(0.,straight.a-transmitted.a)/max(.001,straight.a);
+     }
+     vec2 frameMargin=min(screen,1.-screen);
+     float visible=smoothstep(0.,.025,min(frameMargin.x,frameMargin.y))*step(.001,surfaceDepth);
+     color=mix(waterColor+visible*transmitted.rgb,reflected,fres);
      // Wind roughens the surface and scatters the coherent sky reflection.
      color*=1.-.19*puff*(.55+.45*fade);
      color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
@@ -556,14 +564,15 @@ function atmosphere(scene,waterCaptureLayer){
      water.geometry.dispose();water.geometry=waterMesh(profile.mesh);
    }
    simpleCapture=vertexSlope;
-   water.material.defines=vertexSlope?{VERTEX_SLOPE:1,DISABLE_BOW_FIELD:1}:profile.filterTransmission?{FILTER_TRANSMISSION:1}:{};
+   water.material.defines=vertexSlope?{VERTEX_SLOPE:1,DISABLE_BOW_FIELD:1}:{};
    water.material.needsUpdate=true;
    skyTarget.setSize(Math.round(512*profile.sky),Math.round(192*profile.sky));lastSky=-Infinity;
    const scale=profile.capture;
    const width=Math.round(512*scale),height=Math.round(320*scale);
-   reflectRT.samples=multisampling&&profile.filterTransmission?2:0;
-   reflectRT.setSize(simpleCapture?160:width,simpleCapture?100:height);
-   throughRT.setSize(width,height);U.transmissionSize.value.set(width,height);
+   reflectRT.samples=multisampling?(profile.reflectSamples??0):0;
+   reflectRT.setSize(simpleCapture?256:width,simpleCapture?160:height);
+   const throughWidth=Math.max(320,width),throughHeight=Math.max(200,height);
+   throughRT.setSize(throughWidth,throughHeight);U.transmissionSize.value.set(throughWidth,throughHeight);
  }
  return {U,dome,water,update,updateSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,updateSky};
 }
