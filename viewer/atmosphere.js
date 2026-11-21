@@ -55,8 +55,8 @@ function stormRain(T,scene,water,mobile){
 }
 // Optical short-wave slopes shared by the surface BRDF and the sunlight rays.
 const oceanRippleGLSL=`
-vec2 rippleSlope(vec2 world,float clock,float bearing,float wind){
-  vec2 along=vec2(cos(bearing),sin(bearing)),crossSea=vec2(-along.y,along.x);
+vec2 rippleSlope(vec2 world,float clock,vec2 along,float wind){
+  vec2 crossSea=vec2(-along.y,along.x);
   vec2 p=vec2(dot(world,along),dot(world,crossSea));
   vec2 k1=vec2(3.4,.72),k2=vec2(4.75,-1.95),k3=vec2(7.1,2.65);
   float spread=.68+.32*sin(dot(p,vec2(.41,.27))-.78*clock);
@@ -249,10 +249,16 @@ function atmosphere(scene,waterCaptureLayer){
  const windBytes=new Uint8Array(48*48*4),windMap=new THREE.DataTexture(windBytes,48,48);
  windMap.wrapS=windMap.wrapT=THREE.RepeatWrapping;windMap.minFilter=windMap.magFilter=THREE.LinearFilter;windMap.needsUpdate=true;
  U.windMap={value:windMap};U.windFieldActive={value:0};
+ U.windBlend={value:1};U.referenceWind={value:11};
  function updateWind(field){
    for(let i=0;i<48*48;i++){
+     const k=i*4;
+     const incoming=Math.hypot(field[3*i],field[3*i+1]);
+     const previous=Math.hypot(windBytes[k]*64/255-32,windBytes[k+1]*64/255-32);
+     const shown=U.windFieldActive.value?
+       windBytes[k+3]*(1-U.windBlend.value)+previous*255/64*U.windBlend.value:incoming*255/64;
      for(let k=0;k<3;k++)windBytes[4*i+k]=Math.round(Math.max(0,Math.min(255,(field[3*i+k]+(k===2?0:32))*255/64)));
-     windBytes[4*i+3]=255;
+     windBytes[k+3]=Math.round(Math.max(0,Math.min(255,shown)));
    }
    windMap.needsUpdate=true;U.windFieldActive.value=1;
  }
@@ -311,7 +317,8 @@ function atmosphere(scene,waterCaptureLayer){
  #endif
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
- uniform sampler2D windMap; uniform float windFieldActive; uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
+ uniform sampler2D windMap; uniform float windFieldActive,windBlend,referenceWind;
+ uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
  uniform vec3 forebodyPort,forebodyStarboard;
  uniform highp sampler2D transmissionDepth;uniform mat4 throughMatrix;uniform vec3 throughEye;uniform vec2 cameraRange;
  uniform vec2 transmissionSize;
@@ -338,11 +345,13 @@ function atmosphere(scene,waterCaptureLayer){
  #endif
  void main(){
    vec3 eye=normalize(cameraPosition-wp);
-   vec3 air=texture2D(windMap,wp.xy/96.+.5/48.).rgb;
+   vec4 air=texture2D(windMap,wp.xy/96.+.5/48.);
    vec2 localAir=air.rg*64.-32.;
-   vec2 dir=windFieldActive>.5 && length(localAir)>.4?normalize(localAir):vec2(cos(bearing),sin(bearing));
-   vec2 crosswind=vec2(-dir.y,dir.x);float rippleWind=mix(wind,air.b*64.,windFieldActive);
    vec2 baseDir=vec2(cos(bearing),sin(bearing));
+   float localSpeed=length(localAir);
+   vec2 dir=windFieldActive>.5 && localSpeed>.4?localAir/localSpeed:baseDir;
+   float puff=smoothstep(.35,2.25,mix(air.a*64.,localSpeed,windBlend)-referenceWind)*windFieldActive;
+   float rippleWind=mix(wind,air.b*64.,windFieldActive);
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
    #ifdef VERTEX_SLOPE
@@ -350,7 +359,7 @@ function atmosphere(scene,waterCaptureLayer){
    #else
    vec2 d=surfaceSlope(wp.xy);
    #endif
-   d+=fade*rippleSlope(wp.xy,tm,bearing,rippleWind);
+   d+=fade*rippleSlope(wp.xy,tm,dir,rippleWind*(1.+puff*.34));
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    float day=smoothstep(-.12,.22,sunDir.z);
    vec3 color;
@@ -369,16 +378,20 @@ function atmosphere(scene,waterCaptureLayer){
      float fres=.021+.979*pow(1.-clamp(abs(dot(n,eye)),0.,1.),5.);
      float back=pow(max(0.,dot(-eye,sunDir)),3.)*smoothstep(-.45,.9,wp.z-tide);
      vec3 waterColor=mix(vec3(.001,.008,.019),vec3(.004,.061,.093)+back*vec3(.012,.13,.10),day);
+     vec3 levelNormal=vec3(0.,0.,1.);
+     float eyeDistance=length(cameraPosition-wp);
      vec4 clip=mirrorMatrix*vec4(wp,1.);
-     // A distant reflected canopy occupies just a few pixels near the horizon.
-     float normalOffset=.023*mix(.16,1.,smoothstep(.025,.24,abs(eye.z)));
-     vec2 uv=clamp(clip.xy/clip.w*.5+.5-d*normalOffset,.001,.999);
+     vec3 reflectedDeflection=ref-reflect(-eye,levelNormal);
+     vec4 mirrorRay=clip+mirrorMatrix*vec4(.055*eyeDistance*reflectedDeflection,0.);
+     vec2 uv=clamp(mirrorRay.xy/max(.001,mirrorRay.w)*.5+.5,.001,.999);
      vec4 objects=texture2D(reflection,uv,.65);
      vec3 reflected=mix(skyColor(ref),objects.rgb,objects.a);
      // Compare both depths in the camera that captured the seabed.
      vec4 captureClip=throughMatrix*vec4(wp,1.);
      vec2 screen=captureClip.xy/max(.001,captureClip.w)*.5+.5;
-     vec2 refrUV=clamp(screen+d*.009,.001,.999);
+     vec3 bentRay=refract(-eye,n,1./1.333),levelRay=refract(-eye,levelNormal,1./1.333);
+     vec4 refractedClip=captureClip+throughMatrix*vec4(.085*eyeDistance*(bentRay-levelRay),0.);
+     vec2 refrUV=clamp(refractedClip.xy/max(.001,refractedClip.w)*.5+.5,.001,.999);
      float surfaceDepth=captureClip.w;
      float hitDepth=viewDepth(texture2D(transmissionDepth,refrUV).r);
      if(hitDepth<surfaceDepth){refrUV=screen;hitDepth=viewDepth(texture2D(transmissionDepth,screen).r);}
@@ -397,6 +410,8 @@ function atmosphere(scene,waterCaptureLayer){
      vec3 below=texture2D(transmission,refrUV).rgb;
      vec3 trans=visible*exp(-vec3(.22,.085,.055)*path);
      color=mix(waterColor*(1.-trans)+below*trans,reflected,fres);
+     // Wind roughens the surface and scatters the coherent sky reflection.
+     color*=1.-.19*puff*(.55+.45*fade);
      color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
      float crest=wp.z-tide-.4*length(d);
      waterColor=mix(waterColor,vec3(.012,.037,.043),storm*.85);

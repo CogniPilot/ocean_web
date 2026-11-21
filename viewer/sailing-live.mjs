@@ -431,7 +431,7 @@ async function run(){
   touchControls();
   $('vang').oninput=()=>model.set(cat?'downhaulInput':'vangInput',Number($('vang').value)/100);
   $('play').onclick=()=>{running=!running;if(!running)world?.clearQueued();$('play').textContent=running?'Pause':'Resume';};
-  function applyWind(){const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;$('windOut').textContent=w+' m/s';}
+  function applyWind(){const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;ocean.U.referenceWind.value=w;$('windOut').textContent=w+' m/s';}
   $('wind').oninput=()=>{applyWind();remote.changeWeather('wind',Number($('wind').value));};
   if(url.searchParams.has('room'))multiplayer(true);
   function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
@@ -484,6 +484,7 @@ async function run(){
   const waterStamp=()=>model?model.get('waterStamp'):world.get('waterStamp');
   let meshTime,observedBoat;
   const wavePresentation=waterPresentation(100), seaPresentation=waterPresentation(200), ripplePresentation=waterPresentation();
+  const windPresentation=waterPresentation(250);
   let previousRippleTime;
   let lastWorldTick=-1,lastFieldTick=-1,lastSurfaceTick=-1,previousSurface;
   const measureButton=$('measureFrames'),frameResult=$('frameResult'),runStats=$('runStats');
@@ -587,6 +588,7 @@ async function run(){
         }
         if(lastFieldTick!==fieldTick){
           ocean.updateWind(windField.get('field'));
+          windPresentation.sample(fieldTick,now);
           ocean.U.cloudTravel.value.set(windField.get(world.hasWindAnchor?'gustEast':'travelE'),windField.get(world.hasWindAnchor?'gustNorth':'travelN'));
           ocean.U.lightning.value.set(windField.get('strikeBearing'),windField.get('strikeFlash'));
           const thunder=windField.get('thunderArrival');if($('sky').value==='Storm'&&lastThunder!==undefined&&thunder>lastThunder)audio.thunder();
@@ -622,6 +624,7 @@ async function run(){
           ocean.U.cloudTravel.value.set(travelE,travelN);
           if(drone){drone.wind(droneWind);if(sub?.frame)drone.station(sub.frame.estimate[0],sub.frame.estimate[1]);}
           model.set('windEast',localEast);model.set('windNorth',localNorth);ocean.updateWind(field);
+          windPresentation.sample(wakeTicks,now);
         }
         if(wakeTicks%10===0){
           const {height,wake,incident,sections,origin,period,load}=waterFrame;
@@ -645,6 +648,7 @@ async function run(){
         if(drone && (drone.active||!drone.manual)){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);race.set('landingReaction',drone.deckReaction);model.set('droneLoad',drone.sailReaction);}acc-=.01;
       }
       ocean.U.spectrumBlend.value=wavePresentation.blend(now,running);
+      ocean.U.windBlend.value=windPresentation.blend(now,running);
       const t=world?.time??model.time;
       if(model&&t!==meshTime){
         observedBoat=observeBoat(model);
