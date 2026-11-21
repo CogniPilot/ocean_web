@@ -550,7 +550,8 @@ async function run(){
           }
         }
       }
-      if(running)sub.update(t,axis,ocean.U.wind.value,ocean.U.bearing.value);
+      const showSensorImage=sub.active && $('subSensors').open;
+      if(running)sub.update(t,axis,ocean.U.wind.value,ocean.U.bearing.value,showSensorImage);
       if(sub.active){
         const p=sub.mesh.position;
         if($('cameraDepth').value==='onboard'){
@@ -561,7 +562,7 @@ async function run(){
         }else{
           camera.position.set(p.x+.6*distance*Math.cos(angle),p.y+.6*distance*Math.sin(angle),p.z+.6*distance*Math.sin(tilt));camera.lookAt(p);
         }
-        drawFeatures(sub.frame);
+        if(showSensorImage)drawFeatures(sub.frame);
       }
       ocean.dome.position.copy(camera.position);ocean.water.position.set(s[0],s[1],0);updateLight(t);caustics.update(t,selector.value!=='low'||camera.position.z<ocean.U.tide.value+.5);
       const surfaceBand=.55+1.8*Number($('seaState').value)+Math.abs(ocean.U.swell.value.x);

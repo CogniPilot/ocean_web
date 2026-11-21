@@ -20,7 +20,8 @@ export function submarine(T,scene,world){
     blendMs=frame?Math.max(16,Math.min(800,now-receivedAt)):1;
     // The plant publishes poses between camera acquisitions. Retain the last
     // sensor frame until the navigation clock supplies the next image.
-    if(frame && !data.image){data.image=frame.image;data.features=frame.features;data.estimate??=frame.estimate;}
+    if(frame && !data.image){data.image=frame.image;data.features=frame.features;}
+    data.estimate??=frame?.estimate;
     receivedAt=now;frame=data;previous=data.time;
   };
   if(worker){
@@ -29,9 +30,9 @@ export function submarine(T,scene,world){
     addEventListener('pagehide',()=>worker.terminate(),{once:true});
   }
   return {manual:true,active:false,mapVisible:false,get frame(){return frame;},get error(){return error;},mesh,
-    update(time,axis,wind,bearing){
+    update(time,axis,wind,bearing,showSensorImage){
       map.group.visible=this.active&&this.mapVisible;
-      world?.setSurveyView(this.active,map.group.visible);
+      world?.setSurveyView(this.active,showSensorImage,map.group.visible);
       if(frame){
         const blend=Math.min(1,(performance.now()-receivedAt)/blendMs);
         mesh.position.lerpVectors(fromPosition,toPosition,blend);
@@ -54,6 +55,6 @@ export function submarine(T,scene,world){
         if(rows)displayedMap=rows;
         return;
       }
-      worker.postMessage({manual:this.manual,pilot,wind,bearing,steps:Math.min(20,Math.floor((time-previous)*100+1e-6))});
+      worker.postMessage({manual:this.manual,pilot,wind,bearing,showSensorImage,steps:Math.min(20,Math.floor((time-previous)*100+1e-6))});
     }};
 }
