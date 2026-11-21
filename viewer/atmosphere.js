@@ -159,7 +159,21 @@ function atmosphere(scene){
    }
    windMap.needsUpdate=true;U.windFieldActive.value=1;
  }
- function updateSpectrum(heights,x,y,period){
+ const wakeBytes=new Uint8Array(64*64*2);
+ const wakeTexture=new THREE.DataTexture(wakeBytes,64,64,THREE.RGFormat);
+ wakeTexture.wrapS=wakeTexture.wrapT=THREE.RepeatWrapping;
+ wakeTexture.minFilter=wakeTexture.magFilter=THREE.LinearFilter;
+ U.wakeMap={value:wakeTexture};U.wakeAvailable={value:0};
+ function clearWake(){U.wakeAvailable.value=0;}
+ function updateSpectrum(heights,x,y,period,wake){
+   if(wake){
+     for(let i=0;i<wake.length;i++){
+       const packed=Math.max(0,Math.min(255,Math.round(128+wake[i]*512)));
+       wakeBytes[2*i]=U.wakeAvailable.value?wakeBytes[2*i+1]:packed;
+       wakeBytes[2*i+1]=packed;
+     }
+     wakeTexture.needsUpdate=true;U.wakeAvailable.value=1;
+   }
    for(let i=0;i<heights.length;i++){
      const packed=Math.round(32768+Math.max(-4,Math.min(3.99987,heights[i]))*8192);
      const k=i*4;
@@ -197,7 +211,7 @@ function atmosphere(scene){
  #endif
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
- uniform sampler2D windMap; uniform float windFieldActive; uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;uniform vec4 boat;varying vec3 wp;
+ uniform sampler2D windMap,wakeMap; uniform float windFieldActive,wakeAvailable; uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;uniform vec4 boat;varying vec3 wp;
  uniform highp sampler2D transmissionDepth;uniform mat4 throughMatrix;uniform vec3 throughEye;uniform vec2 cameraRange;
  float viewDepth(float z){return cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}
  void main(){
@@ -258,6 +272,18 @@ function atmosphere(scene){
      waterColor=mix(waterColor,vec3(.012,.037,.043),storm*.85);
      float scum=cloud(p*vec2(1.8,3.8)+vec2(-.9*tm,0.));
      float foam=smoothstep(.40,.89,crest+(wind-9.)*.054)*smoothstep(.43,.67,scum);
+     if(wakeAvailable>.5){
+       vec2 relative=wp.xy-boat.xy;
+       float edge=1.-smoothstep(.35,.49,max(abs(relative.x),abs(relative.y))/spectrumPeriod);
+       vec2 history=texture2D(wakeMap,(wp.xy-spectrumDrift)/spectrumPeriod+.5/64.).rg;
+       float hullCrest=(mix(history.r,history.g,spectrumBlend)*255.-128.)/512.;
+       if(hullCrest>.012 && edge>0.){
+         // Use small drifting patches to break up the visible foam on the crest.
+         float bubbles=noise2((wp.xy-spectrumDrift)*6.);
+         float coverage=smoothstep(.012,.062,hullCrest)*edge;
+         foam=max(foam,coverage*(.20+.64*smoothstep(.24,.73,bubbles)));
+       }
+     }
      float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
      foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum));
 
@@ -331,5 +357,5 @@ function atmosphere(scene){
    const width=Math.round(512*scale),height=Math.round(320*scale);
    reflectRT.setSize(width,height);throughRT.setSize(width,height);
  }
- return {U,dome,water,update,updateSpectrum,updateWind,capture,setQuality,updateSky};
+ return {U,dome,water,update,updateSpectrum,clearWake,updateWind,capture,setQuality,updateSky};
 }

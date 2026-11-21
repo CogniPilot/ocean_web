@@ -284,3 +284,23 @@ On this workstation the physics steps used 182.2 wall seconds and reading the bo
 The status panel reports drawn frames per second and simulated seconds per wall second over successive one-second windows. Pausing keeps the FPS number and marks the clock as paused. The 15-second Settings test still reports the 95th-percentile frame interval.
 
 In one baseline and one candidate run using Low, a 412 × 870 touch viewport and SwiftShader, planar reflection refreshes rose from 6.0 to 11.8 per second. Transmission stayed near 6 per second. Water presentation uniforms changed on 22.4 versus 32.7 frames per second. Final rendering averaged 31.4 versus 33.0 FPS and the simulation ran at 0.90× versus 0.87× real time. The renderer blends the last two sea samples over their observed delivery interval. Physics and the live real-time factor use the committed simulation clock. These short desktop runs measure cadence. Sustained device performance remains unverified.
+
+### What limits real-time speed in the current build
+
+The comparison used the November 21 browser release before switching desktop Hobie launches to the sailing component. The full-world and sailing runs used the same sailing start, calm sea and 11 m/s wind. Physics advanced in 10 ms communication steps. The browser was Chromium with ANGLE Vulkan on an RTX 3090 at 1440 × 900.
+
+| Browser session over 15 wall seconds | FPS | Simulation speed | Worker stepping | Worker input and output |
+| --- | ---: | ---: | ---: | ---: |
+| Full world, High, sailboat selected | 59.9 | 0.943× | 14.36 s | 0.16 s |
+| Sailing component, High | 60.0 | 1.005× | 11.17 s | 0.23 s |
+| Full world, Low, wreck survey cockpit | 60.1 | 0.852× | 14.52 s | 0.18 s |
+
+The worker spans and browser timings are concurrent. In the full-world High run, CPU time in Three.js render submission was about 4.78 s across all passes, with 3.11 s of that in reflection and transmission passes. That measures browser CPU work and driver submission. GPU execution time was outside this measurement. The submerged survey skipped both planar passes and still fell below real time. A warmed headless run took 10.73 ms per 10 ms step for the full world on High, versus 7.65 ms with the sailing component on High and 6.58 ms on Low. Including four bound reads each step, the respective throughputs were 0.90×, 1.26× and 1.45×. The interactive browser targets real time and uses the extra capacity to absorb slow updates.
+
+A warmed V8 stack sample on the full-world High run put 55.3% of samples under Rumoca event updates, 44.3% under scheduled discrete work and 33.6% under the integrator. Derivative evaluations accounted for 25.4% of samples. These figures are inclusive. The ordinary step median was 6.43 ms. The median on 100 ms wave boundaries without the 200 ms background update was 32.72 ms. The median on 200 ms boundaries without the wind event was 58.34 ms, even while the sub camera was idle. Camera activation added work at that boundary. Hardware counter sampling with Linux perf also found a large startup cost. In a process-wide capture beginning at launch, one V8 optimizer routine accounted for 67% of sampled user cycles, and the libc move routine accounted for 6.7%. The process-wide capture includes background compilation and should be interpreted separately from the warmed step profile.
+
+To repeat the headless timing, package the page with `scripts/package-pages.sh build/pages --world` and run `node scripts/profile-world.mjs build/pages/world 500` and `node scripts/profile-world.mjs build/pages/sailing 500`. Add `--low` to omit wake forcing or `--camera` to enable simulated camera and SLAM where the submarine is present. On suitable Linux hosts, prefix the command with `perf stat -e cycles,instructions,cache-misses,task-clock --`. Browser users can use the live status readout or the 15-second Settings test. The next large savings are fewer active vehicle equations and less scheduled wave and sonar work. The measurements give CPU utilization on desktop hardware and do not establish physical handset performance.
+
+### Visible crests from the solved hull wake
+
+Balanced and High receive a hull-only elevation grid from the same spectral solver that feeds buoyancy and wave resistance. One inverse FFT yields both the total surface and the hull-only surface by packing their Hermitian spectra into its real and imaginary channels. The renderer shades positive hull-wake crests with a foam approximation. It does not add height or load. Low skips the extra grid and shading. The paired-model comparison of total height, wave loads and boat state differed by less than 1e-12 in normalized units.

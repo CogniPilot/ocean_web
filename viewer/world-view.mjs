@@ -22,7 +22,7 @@ export async function openWorld(sailingOnly=false){
  addEventListener('pagehide',()=>worker.terminate(),{once:true});
  let id=0,pending,error,time=0;
  const state=new Map();
- const surveyView={camera:false,map:false,wakeSource:false};
+ const surveyView={camera:false,map:false,wakeSource:false,wakeSurface:false};
  worker.onmessage=({data})=>{if(data.error)pending.reject(Error(data.error));else pending.resolve(data);};
  worker.onerror=e=>{error=Error(e.message);pending?.reject(error);};
  function send(message){return new Promise((resolve,reject)=>{pending={resolve,reject};worker.postMessage({...message,id:++id});});}
@@ -31,7 +31,7 @@ export async function openWorld(sailingOnly=false){
  const inputs=[...new Set([...Object.keys(initial),...Object.values(boatInputs),'seaState',...(sailingOnly?[]:['subPilot','flightPilot','motorCut'])])];
  const parameters={prevailingBearing:windBearing};
  for(const [key,value] of Object.entries(sailingStart(true)))parameters['boat.'+key]=value;
- const frame=await send({type:'open',outputs:sailingOnly?outputs:[...outputs,...vehicleOutputs],inputs,initial,parameters,surveyMap:!sailingOnly,sampledFields:true,surveyView,optionalInputs:['seaClockOffset','windAnchor','peerWake','idleCamera','omitWake'],optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips']});
+ const frame=await send({type:'open',outputs:sailingOnly?outputs:[...outputs,...vehicleOutputs],inputs,initial,parameters,surveyMap:!sailingOnly,sampledFields:true,surveyView,optionalInputs:['seaClockOffset','windAnchor','peerWake','idleCamera','omitWake'],optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','waves.wakeHeight']});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
@@ -77,5 +77,9 @@ export async function openWorld(sailingOnly=false){
  return {advance,setWakeSourceRequested(enabled){
    surveyView.wakeSource=enabled;
    if(!enabled)state.delete('waves.sourceStrips');
- },setWakeEnabled(enabled){if(offsets.has('omitWake'))set('omitWake',Number(!enabled));},hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map){surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
+  },setWakeEnabled(enabled){
+   if(offsets.has('omitWake'))set('omitWake',Number(!enabled));
+   surveyView.wakeSurface=enabled;
+   if(!enabled)state.delete('waves.wakeHeight');
+ },hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map){surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight,boat:view('boat',(n,v)=>set(boatInputs[n],v)),race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

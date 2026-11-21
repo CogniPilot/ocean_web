@@ -14,6 +14,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
   discrete Real modesR[n,n](each start=0,each fixed=true),modesI[n,n](each start=0,each fixed=true);
   discrete Real displacementR[n,n](each start=0,each fixed=true),displacementI[n,n](each start=0,each fixed=true);
   discrete output Real height[n,n](each start=0,each fixed=true);
+  discrete output Real wakeHeight[n,n](each start=0,each fixed=true) "Hull-only elevation for surface shading [m]";
   discrete output Real waveLoad[3](each start=0,each fixed=true) "Wave resistance east, north [N] and yaw [Nm]";
   discrete output Real incident[3](each start=0,each fixed=true) "Wind-wave elevation, pitch and roll at hull";
   discrete output Real sectionHeight[2,6](each start=0,each fixed=true) "Metres at each pontoon strip on the displayed FFT grid";
@@ -155,16 +156,16 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     input Boolean first;
     input Real peers[4,38],oldPeers[4,38],driftE,driftN,oldDrift[4,2];
     input Boolean active=true;
-    output Real wr[n,n],wi[n,n],displacedR[n,n],displacedI[n,n],tile[n,n],probe[3],load[3];
+    output Real wr[n,n],wi[n,n],displacedR[n,n],displacedI[n,n],tile[n,n],probe[3],load[3],wake[n,n];
   protected
     Real rowR[n],rowI[n],windR[n],windI[n],sourceR[n],sourceI[n],dx,kx,ky,k,omega,c,s,atten,along,across,ex,ny,a,b,amplitude,phase,slope;
-    Integer mx,my,strip;
+    Integer mx,my,strip,oppositeRow,opposite[n];
     Real km,peak,windSpeed,directional,seed,trial;
     Real sr,si,mr,mi,stripR,stripI,momentArm,crossTerm,forceScale;
     Real cx[12,n],sx[12,n],cy[12,n],sy[12,n],ka,kb,length,width,draft,weight;
     Real peerR[n,n],peerI[n,n];
     Real armAlong[12],armAcross[12];
-    Real re[n,n],im[n,n],unused[n,n];
+    Real re[n,n],im[n,n],packedR[n,n],packedI[n,n],unused[n,n];
   algorithm
     if active then
       (peerR,peerI):=peerForcing(peers,oldPeers,driftE,driftN,oldDrift,x+driftE,y+driftN,L);
@@ -267,7 +268,21 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
       wr[j,:]:=rowR;wi[j,:]:=rowI;re[j,:]:=rowR+windR;im[j,:]:=rowI+windI;
     end for;
     probe[2]:=atan(probe[2]);probe[3]:=atan(probe[3]);
-    (tile,unused):=transform(re,im,true);
+    packedR:=re;
+    packedI:=im;
+    if active then
+      // The Hermitian part of each spectrum reconstructs a real field.
+      // Put the total sea in the real channel and the hull wake in the
+      // imaginary channel to recover both fields in one inverse FFT.
+      opposite:={1+mod(1-i,n) for i in 1:n};
+      for j in 1:n loop
+        oppositeRow:=opposite[j];
+        packedR[j,:]:={.5*(re[j,i]+re[oppositeRow,opposite[i]]-wi[j,i]+wi[oppositeRow,opposite[i]]) for i in 1:n};
+        packedI[j,:]:={.5*(im[j,i]-im[oppositeRow,opposite[i]]+wr[j,i]+wr[oppositeRow,opposite[i]]) for i in 1:n};
+      end for;
+    end if;
+    (tile,unused):=transform(packedR,packedI,true);
+    wake:=if active then unused else zeros(n,n);
   end step;
 equation
   der(driftE)=currentEast;der(driftN)=currentNorth;
@@ -281,7 +296,7 @@ equation
           then (if axis==1 then driftE else driftN) else pre(priorDrift[peer,axis]);
       end for;
     end for;
-    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time+seaClockOffset,time<dt/2 or not pre(wakeActive),peers,pre(priorPeers),driftE,driftN,pre(priorDrift),wakeActive);
+    (modesR,modesI,displacementR,displacementI,height,incident,waveLoad,wakeHeight)=step(pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,period,depth,dt,decay,time+seaClockOffset,time<dt/2 or not pre(wakeActive),peers,pre(priorPeers),driftE,driftN,pre(priorDrift),wakeActive);
     sectionHeight=sampleSections(height,east-driftE,north-driftN,heading,heel,pitch,stations,separation,period);
   end when;
 end WakeSpectrum;
