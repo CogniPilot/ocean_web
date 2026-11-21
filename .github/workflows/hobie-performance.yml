@@ -1,0 +1,46 @@
+name: Hobie physics performance
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: Reference revision or tag
+        required: true
+        default: main
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || inputs.baseline }}
+          path: .reference
+          sparse-checkout: viewer/fmi3/OceanSailing.fmu
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: CogniPilot/microduck_web
+          ref: f567b8c452d5c759436a568ffad5632dc1046916
+          path: .deps/microduck_web
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --prefix .deps/ocean-component --no-save @bytecodealliance/jco-transpile@0.23.0
+      - name: Package both shipped sailing models with the same runtime
+        run: |
+          node scripts/prepare-world-runtime.mjs build/reference .reference/viewer/fmi3/OceanSailing.fmu OceanSailing
+          node scripts/prepare-world-runtime.mjs build/candidate viewer/fmi3/OceanSailing.fmu OceanSailing
+      - name: Compare warmed physics steps on this runner
+        run: node scripts/compare-sailing-performance.mjs build/reference build/candidate build/hobie-performance.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hobie-physics-timings
+          path: build/hobie-performance.json
+          if-no-files-found: ignore
