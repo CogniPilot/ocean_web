@@ -94,8 +94,8 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
             // Sample the two bow bridles and the lower forestay where an inflatable can reach.
             alpha:=j/24;
             if body<6 then
-              x:=2.29+alpha*(2.555-2.29);y:=(if body==4 then 1 else -1)*alpha*(offset-.004);
-              z:=.65+alpha*(.463-.65);
+              x:=2.29+alpha*(2.520-2.29);y:=(if body==4 then 1 else -1)*alpha*(offset-.004);
+              z:=.65+alpha*(.2261-.65);
             else
               x:=2.29+alpha*(.44-2.29);y:=0;z:=.65+alpha*(5.85-.65);
             end if;

@@ -339,7 +339,7 @@ function atmosphere(scene,waterCaptureLayer){
  Object.assign(U,{spectrumMap:{value:spectrumTexture},spectrumDrift:{value:new THREE.Vector2()},spectrumPeriod:{value:0},spectrumBlend:{value:1},swell:{value:new THREE.Vector4()},swellCenter:{value:new THREE.Vector2()}});
  const windBytes=new Uint8Array(48*48*4),windMap=new THREE.DataTexture(windBytes,48,48);
  windMap.wrapS=windMap.wrapT=THREE.RepeatWrapping;windMap.minFilter=windMap.magFilter=THREE.LinearFilter;windMap.needsUpdate=true;
- U.windMap={value:windMap};U.windFieldActive={value:0};
+ U.windMap={value:windMap};U.windPeriod={value:288};U.windFieldActive={value:0};
  U.windBlend={value:1};U.referenceWind={value:11};
  function updateWind(field){
    for(let i=0;i<48*48;i++){
@@ -435,7 +435,7 @@ function atmosphere(scene,waterCaptureLayer){
  #endif
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
- uniform sampler2D windMap; uniform float windFieldActive,windBlend,referenceWind;
+ uniform sampler2D windMap; uniform float windFieldActive,windBlend,referenceWind,windPeriod;
  uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
  uniform vec3 forebodyPort,forebodyStarboard;
  uniform highp sampler2D transmissionDepth;uniform mat4 throughMatrix;uniform vec3 throughEye;uniform vec2 cameraRange;
@@ -469,14 +469,14 @@ function atmosphere(scene,waterCaptureLayer){
  }
  void main(){
    vec3 eye=normalize(cameraPosition-wp);
-   vec4 air=texture2D(windMap,wp.xy/96.+.5/48.);
+   vec4 air=texture2D(windMap,wp.xy/windPeriod+.5/48.);
    vec2 baseDir=vec2(cos(bearing),sin(bearing));
    float localSpeed=64.*mix(air.r,air.g,windBlend);
    float rippleWind=mix(wind,64.*mix(air.b,air.a,windBlend),windFieldActive);
    // Use the actual local wind and the Modelica short-wave response at this ENU position.
    float windDelta=(mix(localSpeed,rippleWind,.25)-referenceWind)/max(3.,referenceWind);
-   float puff=smoothstep(.025,.24,windDelta)*windFieldActive;
-   float lull=smoothstep(.025,.19,-windDelta)*windFieldActive;
+   float puff=smoothstep(.015,.34,windDelta)*windFieldActive;
+   float lull=smoothstep(.02,.27,-windDelta)*windFieldActive;
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
    #ifdef VERTEX_SLOPE
@@ -486,11 +486,11 @@ function atmosphere(scene,waterCaptureLayer){
    vec2 d=surfaceSlope(wp.xy,bowSlope);
    #endif
    float gravitySlope=length(d);
-   d+=fade*rippleSlope(wp.xy,tm,baseDir,rippleWind)*(.70+1.15*puff-.38*lull);
+   d+=fade*rippleSlope(wp.xy,tm,baseDir,rippleWind)*(.80+.50*puff-.23*lull);
    // Resolve fine wind rows nearby; their aggregate roughness stays visible farther out.
    float ripplePhase=12.*p.x+1.9*p.y-11.*tm+.8*sin(1.6*p.y+.5*tm);
    float resolved=1.-smoothstep(1.,3.,fwidth(ripplePhase));
-   d+=baseDir*(.053*puff*resolved*fade*cos(ripplePhase));
+   d+=baseDir*(.029*puff*resolved*fade*cos(ripplePhase));
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    float day=smoothstep(-.12,.22,sunDir.z);
    vec3 color;
@@ -581,9 +581,9 @@ function atmosphere(scene,waterCaptureLayer){
      // Short waves break up the bright sky band at racing distances.
      // Apply contrast before foam and atmospheric haze so both keep their own lighting.
      vec3 roughWater=min(color,.48*waterColor+.13*reflected);
-     color=mix(color,roughWater,.88*puff);
-     color*=1.+puff*resolved*(scum-.5)*.85;
-     color+=.12*lull*reflected*fres;
+     color=mix(color,roughWater,.30*puff);
+     color*=1.+puff*resolved*(scum-.5)*.28;
+     color+=.045*lull*reflected*fres;
      color=mix(color,mix(vec3(.06,.10,.14),vec3(.79,.87,.85),day),foam*.86);
      float haze=smoothstep(70.,430.,length(wp-cameraPosition));
      color=mix(color,skyColor(normalize(vec3(-eye.xy,.01))),haze*.90);

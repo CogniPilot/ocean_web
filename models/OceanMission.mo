@@ -12,7 +12,7 @@ partial model OceanMission "Sea, wind and anchored race course for one local veh
   Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,seaState=seaState,pos=focus,windSpeed=windSpeed,windDirection=windBearing);
   WakeSpectrum waves(sharedDrift=true,localHull=false,omitWake=omitWake,peers=peerWake,seaClockOffset=seaClockOffset,
     east=focus[1],north=focus[2],heading=0,heel=0,pitch=0,
-    stations={-2.555,-1.9,-.9,.15,1.12,1.95,2.555},
+    stations={-2.520,-1.9,-.9,.15,1.12,1.95,2.520},
     beamHalf=zeros(7),separation=0,volume=zeros(2,6),
     currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],
     windEast=0,windNorth=0,seaAmplitude=0);

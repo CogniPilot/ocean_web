@@ -1,6 +1,6 @@
 import {vehicleShell} from '../vehicle-assets.mjs';
 import {showInLowWaterCapture} from '../render-layers.mjs';
-import {hobieTrampoline} from './trampoline.mjs';
+import {hobieTrampoline,forwardBeam} from './trampoline.mjs';
 import {loadInstance} from '../fmi3/instance.mjs?api=2';
 export function advanceHullWake(model,wake){
   for(const name of ['east','north','heading','surge','sway','sectionVolume'])wake.set(name,model.get(name));
@@ -336,7 +336,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    hulls.traverse(showInLowWaterCapture);
    group.add(hulls);
    for(const side of [-1,1]){
-     const blade=new T.Group();group.add(blade);blade.position.set(-2.58,side*1.02,.16);
+     const blade=new T.Group();group.add(blade);blade.position.set(-2.545,side*1.02,.16);
      showInLowWaterCapture(mesh(foilShape,white,blade));
      for(const y of [-.025,.025]){
        rod([-.18,y,.08],[-.035,y,.13],.027,black,blade);
@@ -348,9 +348,9 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      rod([-.16,0,.09],[-.13,0,.24],.027,black,blade);
      rod([-.13,0,.24],[.89,0,.31],.023,black,blade);
      if(side===1)rudder=blade;else otherRudder=blade;
-     // Terminal loft station of Shore.pontoon: 4 mm half-beam, .463 m sheer.
-     const bowEye=[2.555,side*(1.02-.004),.463];
-     rod([2.548,side*1.02,.452],bowEye,.004,pin);
+     // Terminal loft station of Shore.pontoon: 4 mm half-beam at the deck seam.
+     const bowEye=[2.520,side*(1.02-.004),.2261];
+     rod([2.513,side*1.02,.222],bowEye,.004,pin);
      const bridle=rod(bowEye,[2.29,0,.65],.003,pin);
      bridle.name=side===1?'Port bow bridle':'Starboard bow bridle';
      installStay(side===1?0:1,[-.52,side*1.02,.34]);
@@ -373,8 +373,9 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    }
    group.add(hobieTrampoline(T));
    carriage=ballastCooler(T);group.add(carriage);carriage.position.set(-.425,0,.52);
-   mastGeometry=new T.CylinderGeometry(.043,.043,7.92,10,32);
-   mastGeometry.rotateX(Math.PI/2);mastGeometry.translate(.44,0,4.37);
+   const mastLength=8.07,mastStepZ=.41;
+   mastGeometry=new T.CylinderGeometry(.043,.043,mastLength,10,32);
+   mastGeometry.rotateX(Math.PI/2);mastGeometry.translate(.44,0,mastStepZ+mastLength/2);
    mesh(mastGeometry,black);
    const positions=mastGeometry.attributes.position;
    mastRest=positions.clone();
@@ -388,9 +389,8 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    installStay(2,[2.26,0,.75]);
    jibHalyard=rod([0,0,0],[0,1,0],.004,paint(0xe7c85c));
    jibHalyard.name="Jib head halyard";
-   crossTiller=rod([-1.69,-1.02,.47],[-1.69,1.02,.47],.021,black);
-   for(const x of [-1.4,.55])rod([x,-.94,.465],[x,.94,.465],.014,paint(0xbdc5c4));
-   for(const x of [-1.4,.55,.55]){
+   crossTiller=rod([-1.655,-1.02,.47],[-1.655,1.02,.47],.021,black);
+   for(const x of [-1.4,.44,.44]){
      const jibCar=x>0;
      const car=mesh(jibCar?new T.BoxGeometry(.070,.055,.028):new T.BoxGeometry(.095,.085,.075),black);
      car.position.set(x,0,jibCar?.482:.48);deckCars.push(car);
@@ -573,8 +573,11 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      for(const port of cameraPorts){port[0]+=dx;port[1]+=dy;}
    }
    if(cars){
-     crossTiller.position.set(-2.58+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.47);
-     deckCars[0].position.y=cars[0];deckCars[1].position.y=cars[1];deckCars[2].position.y=-cars[1];
+     crossTiller.position.set(-2.545+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.47);
+     deckCars[0].position.y=cars[0];for(const [i,side] of [[1,1],[2,-1]]){
+       const y=side*cars[1],beam=forwardBeam(y);
+       deckCars[i].position.set(beam.x,y,beam.z+.067);
+     }
      // Attachment positions in the hull frame. The front clew follows the actual cloth.
      const top=new T.Vector3(-1.84*Math.cos(s[206]),0,1.84*Math.sin(s[206])+sails[0].boomHinge.position.z).applyQuaternion(sails[0].pivot.quaternion).add(sails[0].pivot.position);
      const lowerBlock=deckCars[0].position.clone();lowerBlock.z+=.04;

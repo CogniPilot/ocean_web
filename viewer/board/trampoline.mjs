@@ -24,11 +24,27 @@ function trampolineMaterials(T){
   return materials;
 }
 
+// Same crowned extrusion as the baked forward crossbeam, in hull coordinates.
+export function forwardBeam(y){
+  const crown=Math.max(0,1-(y/1.02)**2);
+  return {x:.405+.035*crown,z:.410+.033*crown};
+}
+
 export function hobieTrampoline(T){
   const deck=new T.Group();
   deck.name='Laced Hobie 16 trampoline';
   const cloth=trampolineMaterials(T);
-  const rear=-1.30,front=.52,edge=.923,seam=.036,surface=.414;
+  const rear=-1.225,edge=.910,seam=.040,surface=.414;
+  // Canvas slides into the sidebars and the curved front beam. It is tensioned
+  // aft and at the centre seam. The corners are cut back around the castings.
+  function clothPoint(u,y){
+    const corner=Math.max(0,(Math.abs(y)-(edge-.12))/.12);
+    const relief=.105*(1-Math.sqrt(Math.max(0,1-corner*corner)));
+    const bow=forwardBeam(y),aft=rear+relief,fore=bow.x-.047-relief;
+    const span=(Math.abs(y)-seam)/(edge-seam);
+    const sag=.024*Math.sin(Math.PI*u)*Math.sin(Math.PI*span);
+    return [aft+(fore-aft)*u,y,surface+u**3*(bow.z-.41)-sag];
+  }
   const eyelets=[],laces=[];
   function mesh(position,index,material,uv){
     const g=new T.BufferGeometry();
@@ -48,34 +64,35 @@ export function hobieTrampoline(T){
   const vertices=[],triangles=[],uv=[],straps=[],strapTriangles=[];
   for(const side of [-1,1]){
     const inner=side===1?seam:-edge,outer=side===1?edge:-seam;
-    sheet(vertices,triangles,14,8,(u,v)=>{
+    sheet(vertices,triangles,18,18,(u,v)=>{
       uv.push(u*19,v*9);
-      const sag=.014*Math.sin(Math.PI*u)*Math.sin(Math.PI*v);
-      return [rear+(front-rear)*u,inner+(outer-inner)*v,surface-sag];
+      return clothPoint(u,inner+(outer-inner)*v);
     });
-    sheet(straps,strapTriangles,20,1,(u,v)=>[
-      -1.21+1.62*u,side*.40+(v-.5)*.058,surface+.004+.036*Math.sin(Math.PI*u)
-    ]);
+    sheet(straps,strapTriangles,20,1,(u,v)=>{
+      const point=clothPoint(.035+.93*u,side*.40+(v-.5)*.058);
+      point[2]+=.007+.039*Math.sin(Math.PI*u);
+      return point;
+    });
   }
   mesh(vertices,triangles,cloth.cloth,uv);
   mesh(straps,strapTriangles,cloth.webbing);
 
-  const innerEye=seam+.012,rearEye=rear+.018;
+  const innerEye=seam+.014;
+  const centres=[];
   for(let j=0;j<16;j++){
-    const x=-1.24+j*.110;
-    const p=[x,-innerEye,surface+.003],q=[x,innerEye,surface+.003];
-    eyelets.push(p,q);
-    if(j<15){
-      laces.push([p,[x+.110,innerEye,surface+.004]]);
-      laces.push([q,[x+.110,-innerEye,surface+.009]]);
-    }
+    const u=.022+.95*j/15;
+    const pair=[-innerEye,innerEye].map(y=>{
+      const p=clothPoint(u,y);p[2]+=.004;return p;
+    });
+    eyelets.push(...pair);
+    if(j){laces.push([centres[j-1][0],pair[1]],[centres[j-1][1],pair[0]]);}
+    centres.push(pair);
   }
   for(const side of [-1,1]){
     for(let j=0;j<9;j++){
-      const y=side*(.115+j*.092),p=[rearEye,y,surface+.004];
+      const y=side*(.115+j*.092),p=clothPoint(.011,y);p[2]+=.004;
       eyelets.push(p);
-      laces.push([p,[-1.414,y-side*.030,.470]]);
-      laces.push([p,[-1.414,y+side*.030,.470]]);
+      laces.push([p,[-1.414,y-side*.030,.458]],[p,[-1.414,y+side*.030,.458]]);
     }
   }
   const ring=new T.TorusGeometry(.010,.002,4,9);

@@ -1,6 +1,6 @@
-model MarineWind "Advected gusts, directional shifts and short-wave response on a periodic 96 m patch"
+model MarineWind "Advected gusts, directional shifts and short-wave response on a periodic 288 m patch"
   constant Integer n=48;
-  parameter Real period=96,dt=.25,seed=1;
+  parameter Real period=288,dt=.25,seed=1;
   input Real meanEast,meanNorth,east,north;
   output Real strikeBearing,strikeFlash,thunderArrival "Atmospheric signal at the observer";
   input Real phaseOffset=0 "Room phase minus local simulation time [s]";
@@ -19,12 +19,13 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
   protected
     Real amplitude,shift,ex,ny,along,across,w,theta,u,relax;
   algorithm
-    amplitude:=1;shift:=meanShift;
+    amplitude:=.975;shift:=meanShift;
     for g in 1:8 loop
       ex:=mod(east-cx[g]+period/2,period)-period/2;
       ny:=mod(north-cy[g]+period/2,period)-period/2;
       along:=ex*c+ny*s;across:=-ex*s+ny*c;
-      w:=exp(-.5*((along/lengths[g])^2+(across/width[g])^2));
+      // Compact smooth footprint, with zero slope at the perimeter.
+      w:=max(0,1-(along/lengths[g])^2-(across/width[g])^2)^3;
       amplitude:=amplitude+gain[g]*w;shift:=shift+turn[g]*w;
     end for;
     theta:=direction+shift;u:=speed*amplitude;
@@ -36,19 +37,30 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
     input Real prev[n,n,3],baseE,baseN,travelE,travelN,t,seed,period,dt;
     output Real tile[n,n,3];
   protected
-    Real speed,direction,meanShift;
+    Real speed,direction,meanShift,c,s,anchorE,anchorN,along,across,hand;
+    Integer member,groupIndex;
+    // A broad gust, two offset lobes and a trailing lull travel together.
+    constant Real alongOffset[4]={0,-.108,.105,-.18},crossOffset[4]={0,.031,.018,-.09};
+    constant Real halfLength[4]={.235,.145,.123,.195},halfWidth[4]={.117,.076,.093,.124};
+    constant Real peak[4]={.27,.20,.17,-.23};
     Real cx[8],cy[8],turn[8],gain[8],width[8],lengths[8];
   algorithm
     speed:=sqrt(baseE^2+baseN^2);direction:=atan2(baseN,baseE);
+    c:=cos(direction);s:=sin(direction);
     meanShift:=.12*sin(t/37+seed)+.075*sin(t/21+.3*seed);
     for g in 1:8 loop
-      cx[g]:=mod(59.17*g+7.3*seed+travelE+.6*g*sin(.027*t+g),period);
-      cy[g]:=mod(37.61*g+3.6*seed+travelN+.4*g*cos(.043*t+g),period);
-      width[g]:=3.5+mod(g*1.45,4);lengths[g]:=6+mod(g*4.3,10);
-      turn[g]:=.30*sin(2.3*g+seed);
-      gain[g]:=(if mod(g,4)==0 then -.30 else .48)*(.72+.28*sin(t/(7+g)+g+seed));
+      member:=1+mod(g-1,4);groupIndex:=div(g-1,4);hand:=1-2*groupIndex;
+      anchorE:=travelE+period*(.09+.46*groupIndex+.07*sin(seed+groupIndex));
+      anchorN:=travelN+period*(.16+.42*groupIndex+.05*cos(seed-groupIndex));
+      along:=period*(alongOffset[member]+.018*sin(t/39+g+seed));
+      across:=period*hand*(crossOffset[member]+.026*cos(.031*t+.9*g+seed));
+      cx[g]:=anchorE+along*c-across*s;cy[g]:=anchorN+along*s+across*c;
+      width[g]:=period*halfWidth[member]*(1+.15*sin(t/46+g));
+      lengths[g]:=period*halfLength[member]*(1+.12*cos(t/53+g));
+      turn[g]:=.17*hand*cos(.7*member+seed);
+      gain[g]:=peak[member]*(.9+.1*sin(t/34+g+seed));
     end for;
-    tile:={gustCell((i-1)*period/n,(j-1)*period/n,prev[j,i,3],speed,direction,cos(direction),sin(direction),
+    tile:={gustCell((i-1)*period/n,(j-1)*period/n,prev[j,i,3],speed,direction,c,s,
       meanShift,cx,cy,width,lengths,turn,gain,period,t,1-exp(-dt/1.4),1-exp(-dt/3.5)) for i in 1:n, j in 1:n};
   end fieldStep;
   function sampleWind

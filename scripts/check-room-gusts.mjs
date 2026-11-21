@@ -10,9 +10,8 @@ const manifest=JSON.parse(await readFile(new URL('manifest.json',base)));
 const index=JSON.parse(await readFile(new URL(manifest.index,base)));
 const names=['wind.gustEast','wind.gustNorth','wind.strikeBearing','wind.strikeFlash','wind.thunderArrival'];
 for(let j=1;j<=48;j++)for(let i=1;i<=48;i++)for(const k of [1,2])names.push(`wind.field[${j},${i},${k}]`);
-function windAt(fields,east,north,axis){
-  // The 96 m periodic wind grid has 2 m cells, ordered north by east.
-  const x=east/2,y=north/2,i=Math.floor(x),j=Math.floor(y),a=x-i,b=y-j;
+function windAt(fields,east,north,axis,period){
+  const x=48*east/period,y=48*north/period,i=Math.floor(x),j=Math.floor(y),a=x-i,b=y-j;
   const wrap=k=>(k%48+48)%48;
   const at=(row,col)=>fields[5+2*(48*wrap(row)+wrap(col))+axis];
   return (1-b)*((1-a)*at(j,i)+a*at(j,i+1))+b*((1-a)*at(j+1,i)+a*at(j+1,i+1));
@@ -26,6 +25,7 @@ try{
   const tick=(host,n)=>{for(let i=0;i<n;i++)host.step(.01);};
   writes(first,{windSpeed:18,windBearing:Math.PI/2});
   tick(first,50);
+  const [period]=read(first,['wind.period']);
   const [east,north]=read(first,['wind.gustEast','wind.gustNorth']);
   for(const host of hosts)writes(host,{windSpeed:7,windBearing:-.4});
   writes(late,{seaClockOffset:.5,'windAnchor[2]':east,'windAnchor[3]':north});
@@ -39,8 +39,8 @@ try{
       const [x,y,boatE,boatN,u,v,droneE,droneN]=read(host,['boat.east','boat.north','boat.windEast','boat.windNorth',
         'drone.position[1]','drone.position[2]','drone.windENU[1]','drone.windENU[2]']);
       for(const [east,north,wx,wy] of [[x,y,boatE,boatN],[u,v,droneE,droneN]]){
-        assert(Math.abs(windAt(field,east,north,0)-wx)<1e-7);
-        assert(Math.abs(windAt(field,east,north,1)-wy)<1e-7);
+        assert(Math.abs(windAt(field,east,north,0,period)-wx)<1e-7);
+        assert(Math.abs(windAt(field,east,north,1,period)-wy)<1e-7);
       }
     }
     for(let i=0;i<a.length;i++){

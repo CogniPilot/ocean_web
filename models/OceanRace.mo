@@ -15,7 +15,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     launchHeight=if hobie then .2 else .069,ballastMass=if hobie then 60 else 0,
     halfSpacing=if hobie then 1.02 else 0,deckZ=if hobie then .23 else .077,
     centerMassX=if hobie then -.28 else -.14846,
-    stationX=if hobie then {-2.555,-1.9,-.9,.15,1.12,1.95,2.555} else {-1.1,-.82,-.3,.18,.63,.98,1.22},
+    stationX=if hobie then {-2.520,-1.9,-.9,.15,1.12,1.95,2.520} else {-1.1,-.82,-.3,.18,.63,.98,1.22},
     beamHalf=if hobie then {.09,.156,.185,.184,.155,.093,.009} else {.22,.29,.335,.32,.235,.12,.01},
     spans=if hobie then {7.15,4.56} else {2.6,2.12},feet=if hobie then {2.78,1.98} else {1.28,.60},
     mainRoach=if hobie then .82 else 0,forestaySlope=if hobie then 1.82/5.1 else 1.04/2.69,
