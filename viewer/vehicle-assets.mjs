@@ -1,13 +1,16 @@
-
 const shells=new Map();
-export async function loadVehicleShells(){
-  const {GLTFLoader}=await import('./vendor/gltf-loader.mjs');
-  const loader=new GLTFLoader();
-  await Promise.all(['hobie-hulls','sloop-hull','survey-pressure-housing'].map(async name=>{
-    const {scene}=await loader.loadAsync(new URL('./assets/'+name+'.glb',import.meta.url).href);
-    scene.rotation.x=Math.PI/2;
-    shells.set(name,scene);
-  }));
+const pending=new Map();
+export function loadVehicleShell(name){
+  if(shells.has(name))return;
+  if(!pending.has(name)){
+    const request=import('./vendor/gltf-loader.mjs').then(async ({GLTFLoader})=>{
+      const {scene}=await new GLTFLoader().loadAsync(new URL('./assets/'+name+'.glb',import.meta.url).href);
+      scene.rotation.x=Math.PI/2;
+      shells.set(name,scene);
+    }).finally(()=>pending.delete(name));
+    pending.set(name,request);
+  }
+  return pending.get(name);
 }
 export function vehicleShell(name){
   const shell=shells.get(name).clone(true);

@@ -150,3 +150,9 @@ Four 512 × 256 orthographic comparison renders captured poses at 0, 0.29, 1.125
 All 46 rock transforms and tints share one static instanced draw on supported devices. Three 512 × 256 shoreline views took 46, 46 and 28 rock draws before batching and one each afterward. No RGB channel differed by more than two levels. Regenerating the Modelica collision planes produced identical source. WebGL 1 devices without instancing draw individual meshes.
 
 Four cache-disabled Chromium runs (393 × 852 touch viewport, SwiftShader, Low, 180 running frames each) measured 47.6, 43.3, 44.0 and 41.7 FPS in release/candidate/candidate/release order for the default sailing view. Adaptive drawing-buffer width ranged from 255 to 294 pixels. This run did not establish a general frame-rate improvement or measure physical phone performance.
+
+### Solo page startup
+
+The default Hobie page defers the sloop hull and peer transport until multiplayer starts, removing two requests totaling 345,827 uncompressed bytes from solo loading. The sloop similarly defers 221,207 bytes. Both hulls and the transport are ready before a room accepts snapshots.
+
+Chromium touch emulation with cold page caches, SwiftShader, 80 ms request latency and a 10 Mbps page download limit reported the first positive simulation time at 3.87, 3.51, 3.47 and 3.53 seconds (release, candidate, candidate, release). This emulation applies to the page target. It does not reproduce a physical phone or a network-wide throttle. Both boat selections also passed solo startup, immediate cancellation of a pending join, subsequent room entry and room exit.
