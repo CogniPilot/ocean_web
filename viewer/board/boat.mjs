@@ -1,5 +1,5 @@
 import {vehicleShell} from '../vehicle-assets.mjs';
-import {reflectOnLow} from '../render-layers.mjs';
+import {showInLowWaterCapture} from '../render-layers.mjs';
 import {loadInstance} from '../fmi3/instance.mjs?api=2';
 export function advanceHullWake(model,wake){
   for(const name of ['east','north','heading','surge','sway','sectionVolume'])wake.set(name,model.get(name));
@@ -332,11 +332,11 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      }
    }
    const hulls=vehicleShell('hobie-hulls');
-   hulls.traverse(reflectOnLow);
+   hulls.traverse(showInLowWaterCapture);
    group.add(hulls);
    for(const side of [-1,1]){
      const blade=new T.Group();group.add(blade);blade.position.set(-2.58,side*1.02,.16);
-     mesh(foilShape,white,blade);
+     showInLowWaterCapture(mesh(foilShape,white,blade));
      for(const y of [-.025,.025]){
        rod([-.18,y,.08],[-.035,y,.13],.027,black,blade);
        rod([-.035,y,.13],[-.018,y,-.045],.024,black,blade);
@@ -402,11 +402,11 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  }else{
    sheets.push(sheetRope(0xad4045),sheetRope(0x2e7485));
  const hull=vehicleShell('sloop-hull');
- hull.traverse(reflectOnLow);
+ hull.traverse(showInLowWaterCapture);
  group.add(hull);
  const keel=mesh(new T.BoxGeometry(.28,.037,.64),black);keel.position.set(keelX,0,-.43);
  const bulb=mesh(new T.SphereGeometry(1,24,12),red);bulb.position.set(keelX,0,-.77);bulb.scale.set(.26,.075,.075);
- rudder=mesh(new T.BoxGeometry(.19,.026,.37),black);rudder.position.set(-.93,0,-.22);
+ rudder=showInLowWaterCapture(mesh(new T.BoxGeometry(.19,.026,.37),black));rudder.position.set(-.93,0,-.22);
  function block(x,y,z,l,w,h,material){
    const m=mesh(new T.BoxGeometry(l,w,h),material);m.position.set(x,y,z);return m;
  }
@@ -442,7 +442,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      if(row<5&&col<3)idx.push(i,i+1,i+5,i,i+5,i+4);
    }
    geo.setAttribute('position',coords);geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));geo.setIndex(idx);
-   reflectOnLow(mesh(geo,sailMaterial(T,cat,index===0?8:4),pivot)).frustumCulled=false;
+   showInLowWaterCapture(mesh(geo,sailMaterial(T,cat,index===0?8:4),pivot)).frustumCulled=false;
    const boomHinge=new T.Group();pivot.add(boomHinge);
    if(!cat||index===0)rod([0,0,0],[-spec.width,0,0],.012,black,boomHinge);
    const vang=!cat&&index===0?rod([0,0,-vangDrop],[-vangReach,0,0],.005,black,pivot):null;
