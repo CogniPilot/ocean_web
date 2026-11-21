@@ -15,7 +15,7 @@ const clamp = value => Math.max(-1, Math.min(1, value));
 const degrees = radians => radians * 180 / Math.PI;
 const wrap = radians => Math.atan2(Math.sin(radians), Math.cos(radians));
 console.log('TWA_deg,kn_at_5s,mean_kn_last30s,peak_kn,mean_abs_heading_error_deg,mean_drive_N,mean_skin_drag_N,mean_axial_foil_N');
-for (const angle of [45, 60, 80, 90, 100, 110, 120, 130, 150]) {
+for (const angle of [45, 60, 75, 80, 90, 100, 110, 120, 130, 140, 150]) {
   const bearing = course + angle * Math.PI / 180 + Math.PI;
   const boat = await loadInstance('Hobie16', {
     launchEast: -1200, launchNorth: -1200, launchHeading: course, launchHeight: .2, launchSpeed: 0,

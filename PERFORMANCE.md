@@ -181,9 +181,13 @@ Run `node scripts/profile-hobie-speed.mjs 11 auto` and `node scripts/profile-hob
 | 130° | 10.11 kn | 12.71 kn |
 | 150° | 11.09 kn | 12.30 kn |
 
-At 60°, tighter trim raised mean forward sail force from 24 N to 83 N. At 90° it raised drive from 108 N to 214 N. The best sustained run in these two sweeps was 12.71 kn, with a sampled peak of 12.77 kn. For scale, a racing Hobie 16 averaged 19.14 kn over a timed 380 m run in surf. The report gives no wind measurement for that run, so it provides a real-world reference rather than a matched calibration point. [International Hobie Class Association race report](https://hobieclass.com/denmark-wins-the-hobie-world-cat-2016-on-sylt-and-sets-speed-record/)
+At 60°, tighter trim raised mean forward sail force from 24 N to 83 N. At 90° it raised drive from 108 N to 214 N. The best sustained run in these two sweeps was 12.71 kn, with a sampled peak of 12.77 kn. For scale, a racing Hobie 16 averaged 19.14 kn over a timed 380 m run in surf. The organizer gives approximately 20 kn of wind for the speed course. Surf, crew placement and exact sailing angle limit the comparison with these flat-water trials. [Organizer’s event report (PDF)](https://www.jens-hannemann.de/archiv.html?file=files%2FPR%2F2016%2FAugust%2FPM+Hobie+World+Cat+2016+Sylt.pdf) [International Hobie Class Association race report](https://hobieclass.com/denmark-wins-the-hobie-world-cat-2016-on-sylt-and-sets-speed-record/)
 
 The race launch uses the coupled world, including local wind and water. With the manual sheet held at its initial payout and rudder tracking the launch course, a 58° true wind angle gave 3.16 kn after 5 s and 1.94 kn after 15 s. A 75° launch gave 5.19 kn and 6.19 kn respectively from the same 4.67 kn initial speed.
+
+At the initial 0.12 m manual payout, a flat-water start from rest in 11 m/s of wind reached 4.75 kn after five seconds at 60° and 6.73 kn at 75°. Speeds averaged 4.96 and 7.37 kn over the last 30 seconds respectively.
+
+A second sweep at 10.29 m/s (20 kn) covered 110°, 120°, 130°, 140° and 150° with manual payouts of 0.012, 0.06, 0.18 and 0.35 m. The fastest of those 20 runs held 11.98 kn and peaked at 12.04 kn at 130° with 0.06 m payout. That run reached 11.09 kn in five seconds. The model accelerates quickly on this reach and then settles well below the timed surf run. These tests do not isolate a single drag or sail-force coefficient responsible for the difference.
 
 ### Hobie deck hardware at sailing distance
 
