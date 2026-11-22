@@ -121,5 +121,5 @@ const steady=await open(gustCase),gusty=await open(gustCase);
 gusty.set('gust',[-3,2]);
 advance(steady,40);advance(gusty,40);
 const calm=steady.get('x'),gusted=gusty.get('x');
-assert(gusted[5]>calm[5]+.4&&gusted[3]>calm[3]+.01,'A headwind and crosswind gust should change the aerodynamic trajectory');
+assert(gusted[5]>calm[5]+.4&&gusted[3]<calm[3]-.01,'A headwind should add lift and crosswind should turn the bill into the gust');
 console.log('Gust response',{verticalSpeedChange:gusted[5]-calm[5],headingChange:gusted[3]-calm[3]});

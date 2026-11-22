@@ -136,7 +136,8 @@ equation
   der(x[1])=groundSpeed*courseE-(windSide+wet*(waterSide-windSide))*courseN;
   der(x[2])=groundSpeed*courseN+(windSide+wet*(waterSide-windSide))*courseE;
   der(x[3])=x[6];
-  yawRate=(1-wet)*(lift*sin(bank)/(mass*max(2,airSpeed))+
+  // Crosswind on the aft tail turns the bill toward the oncoming air.
+  yawRate=(1-wet)*(lift*sin(bank)/(mass*max(2,airSpeed))-
     .38*gustCross/max(2,airSpeed))+wet*wetYaw;
   der(x[4])=yawRate;
   der(x[5])=((1-wet)*(forward+6*mass*runAssist)+wet*(waterThrust-waterDrag))/mass

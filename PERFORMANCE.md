@@ -699,6 +699,12 @@ Chromium on the RTX 3090 held approximately 30 FPS. High advanced at
 30 to 15 per second. These runs used desktop hardware with 3× DevTools CPU
 throttling. The physical phone result and the last gap to 2× remain open.
 
+WebGL timer queries on the same GPU measured 117 → 90 ms of main and water
+capture render time per wall second in High, and 106 → 77 ms in Medium.
+These samples exclude the caustics pass and use the same 393 × 852 drawing
+buffer in both builds. Separate FFT and hull-probe rewrites produced no
+consistent simulation speedup in the paired runs and were left out.
+
 The offline speed selector requests up to 2×. The HUD reports achieved
 simulation speed. Multiplayer uses its normal clock. The 30 FPS display cap
 also applies to accelerated playback.
@@ -713,3 +719,12 @@ over their final 30 seconds. At 150° in 30 kn, the sails provided 344 N of
 mean forward force, with 301 N of modeled skin resistance and 30 N of foil
 resistance. Relative to the 19.14 kn timed run cited above, faster-reaching
 calibration is still needed. The timed run included surf and race crew trim.
+
+In a calm-water tow with centered ballast and level water, mean surge at
+the highest setting was 11.98 m/s (23.3 kn). The hull reference point rose
+8.2 mm from rest, and wetted area fell from 3.30 to 3.12 m². The model's
+normal-velocity pressure term supported about 9% of its weight, and running
+pitch changed by about 0.04°. Samples averaged the final six seconds of a
+21-second tow using the existing longitudinal force input. The test
+characterizes the current approximation. Calibration needs running trim,
+sinkage and resistance data at matched speeds and crew loading.
