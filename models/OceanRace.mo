@@ -17,7 +17,8 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   input Real animals[2,6](each start=0);
   discrete Real animalWrench[6](each start=0,each fixed=true);
   Sailboat boat(seaClockOffset=seaClockOffset,catamaran=hobie,droneLoad=sailLandingWrench+race.racerLoad+animalWrench,mass=if hobie then 205 else 64,
-    launchHeight=if hobie then .2 else .069,ballastMass=if hobie then 60 else 0,
+    // Launch the Hobie near static flotation at the default initial tide (.28766 m).
+    launchHeight=if hobie then .45737 else .069,ballastMass=if hobie then 60 else 0,
     halfSpacing=if hobie then 1.02 else 0,deckZ=if hobie then .23 else .077,
     centerMassX=if hobie then -.28 else -.14846,
     stationX=if hobie then {-2.520,-1.9,-.9,.15,1.12,1.95,2.520} else {-1.1,-.82,-.3,.18,.63,.98,1.22},
@@ -43,7 +44,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     wakeEast=waves.waveLoad[1],wakeNorth=waves.waveLoad[2],wakeYaw=waves.waveLoad[3]);
   MarineWind wind(phaseOffset=seaClockOffset,advectionAnchor=windAnchor,meanEast=windSpeed*cos(windBearing),meanNorth=windSpeed*sin(windBearing),
     east=boat.east,north=boat.north,droneEast=windProbe[1],droneNorth=windProbe[2]);
-  WakeSpectrum waves(sharedDrift=true,omitWake=omitWake,peers=peerWake,seaClockOffset=seaClockOffset,east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
+  WakeSpectrum waves(sharedDrift=true,separatePeerSurface=true,omitWake=omitWake,peers=peerWake,seaClockOffset=seaClockOffset,east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
     stations=boat.stationX,separation=boat.halfSpacing,volume=boat.sectionVolume,beamHalf=boat.beamHalf,
     currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],windEast=0,windNorth=0,seaAmplitude=0);
   Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,seaState=seaState,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
@@ -55,7 +56,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   discrete output Real bowSpeed[2](each start=0,each fixed=true) "Water-relative boat velocity in the moving frame";
   discrete output Real bowFrame[4](each start=0,each fixed=true) "East, north, cosine and sine of heading, or zeros when disabled";
   discrete output Real surfaceSections[2,6](each start=0,each fixed=true)
-    "Tide, background sea, local wind waves and hull wake at each buoyancy strip [m]";
+    "Tide, background sea, swimmer and peer wakes at each buoyancy strip [m]";
   discrete output Real hydroSurfaceProbes[2,boat.hydroPanelCount,3](each start=0,each fixed=true)
     "East, north and complete elevation of the native hull probes at the sample instant [m]";
   discrete Real hydroSurfaceSamples[2,boat.hydroPanelCount](each start=0,each fixed=true);
@@ -120,7 +121,7 @@ equation
     end for;
     (hydroSurfaceSamples,hydroSurfaceProbes)=sampleHydroSurface(
       hydroAlong,stripAcross,boat.east,boat.north,boat.heading,waves.driftE,waves.driftN,waves.period,boatWater.tide,
-      boatWater.tile,waves.height,swimmerWater,surfaceSections,boat.stationX,boat.hydroStationGeometry[:,1],
+      boatWater.tile,waves.peerHeight,swimmerWater,surfaceSections,boat.stationX,boat.hydroStationGeometry[:,1],
       swellK*{cos(swellBearing),sin(swellBearing)},-swellOmega*(time+seaClockOffset),boat.swellAmplitude,hobie);
     priorSections=if initial() then surfaceSections else pre(surfaceSections);
     priorHydroSamples=if initial() then hydroSurfaceSamples else pre(hydroSurfaceSamples);

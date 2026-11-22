@@ -21,9 +21,12 @@ elif name in ('HarborTraffic', 'HerringGull'):
     optimization = '-O3'
 else:
     optimization = '-O2'
+# The spectral event solves several 64×64 tensors in nested C calls.
+# Use the same stack budget as the integrated World for this model.
+stack_size = 8388608 if name == 'WakeSpectrum' else 4194304
 subprocess.run(['emcc',optimization, '-I'+str(headers), '-I'+str(c),
                 *map(str, sorted(c.glob('*.c'))), 'scripts/browser-fmi3.c',
-                '-sSTACK_SIZE=4194304','-sMODULARIZE=1','-sEXPORT_ES6=1','-sENVIRONMENT=web,worker,node',
+                f'-sSTACK_SIZE={stack_size}','-sMODULARIZE=1','-sEXPORT_ES6=1','-sENVIRONMENT=web,worker,node',
                 '-sEXPORTED_FUNCTIONS=_create_instance,_initialize,_set_real,_set_reals,_read_real,_read_integer,_advance,_buffer,_reference_buffer,_read_batch',
                 '-sEXPORTED_RUNTIME_METHODS=ccall,HEAPF64','-o', str(destination / (name+'.mjs'))],check=True)
 variables = {v.attrib['name']: [int(v.attrib['valueReference']), v.tag,

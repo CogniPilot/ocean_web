@@ -27,16 +27,16 @@ function elevation(tile,east,north,period){
 }
 
 try{
-  const [geometry,probes,nativeVolume,volume,strips,sources,speed,stations,background,wave]=[
+  const [geometry,probes,nativeVolume,volume,strips,sources,speed,stations,background,incoming,radiated]=[
     'boat.hydroStationGeometry','hydroSurfaceProbes','boat.hydroSectionVolume','boat.sectionVolume',
-    'waves.sourceStrips','bowSources','bowSpeed','boat.stationX','boatWater.tile','waves.height'
+    'waves.sourceStrips','bowSources','bowSpeed','boat.stationX','boatWater.tile','waves.peerHeight','waves.height'
   ].map(bind);
   const pose=session.bind_outputs(JSON.stringify(['sectionStamp','boat.east','boat.north','boat.heading',
     'boat.heel','boat.pitch','boat.halfSpacing','boatWater.tide','waves.driftE','waves.driftN',
     'waves.period','boat.swellAmplitude','swellK','swellBearing','swellOmega','seaClockOffset']));
   session.set_inputs(JSON.stringify([['windSpeed',11],['seaState',.6],['sailingManual',1]]));
   assert.equal(geometry().length,12*6);
-  let sampled=0,positionError=0,waterError=0,bandError=0,wakeError=0,bowError=0,maximumFlux=0;
+  let sampled=0,positionError=0,waterError=0,bandError=0,wakeError=0,bowError=0,maximumFlux=0,maximumWake=0;
   for(let step=0;step<=90;step++){
     const volumes=nativeVolume(),bands=volume();
     assert.equal(volumes.length,24);
@@ -45,7 +45,9 @@ try{
     const [stamp,east,north,heading,heel,pitch,separation,tide,driftE,driftN,period,amp,k,bearing,omega,clock]=session.read_bound(pose);
     if(stamp>0&&Math.abs(stamp-session.time())<1e-6){
       sampled++;
-      const nodes=probes(),sections=geometry(),sea=background(),wake=wave();
+      const nodes=probes(),sections=geometry(),sea=background(),wake=incoming();
+      assert(wake.every(value=>value===0),'A local hull must not sample its own outgoing wake');
+      maximumWake=Math.max(maximumWake,...radiated().map(Math.abs));
       for(let i=0;i<24;i++){
         const side=i<12?1:-1,panel=i%12;
         const along=sections[6*panel]*Math.cos(pitch)+side*separation*Math.sin(heel)*Math.sin(pitch);
@@ -74,11 +76,12 @@ try{
     }
     if(step<90)session.step(.01);
   }
-  console.log({sampled,positionError,waterError,bandError,wakeError,bowError,maximumFlux});
+  console.log({sampled,positionError,waterError,bandError,wakeError,bowError,maximumFlux,maximumWake});
   assert(sampled>=7,'Expected multiple native water samples');
   assert(positionError<.001&&waterError<.002,'Native buoyancy sites disagree with the modeled water');
   assert(bandError<1e-8&&wakeError<.001,'Refined displaced volume did not reach the FFT source bands');
   assert(maximumFlux>.01&&bowError<1e-7,'Near-hull source flux disagrees with the displacement bands');
+  assert(maximumWake>.001,'Underway hull still radiates a visible wake');
 }finally{
   session.free();
 }

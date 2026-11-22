@@ -1,7 +1,8 @@
 model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
-  constant Integer cols=4,rows=6,n=cols*rows;
+  constant Integer cols=4;
   parameter Real cutAngle=0 "Foot angle in the unstrained sail pattern";
   parameter Integer battenCount=0;
+  final parameter Integer rows=if battenCount>0 then battenCount+2 else 6, n=cols*rows;
   parameter Real battenEI(unit="N.m2")=.8 "Effective chordwise fiberglass flexural rigidity";
   parameter Real battenLinearMass(unit="kg/m")=.045;
   // Pocket ends measured from the Hobie sail plan. The main leech fractions
@@ -10,9 +11,20 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     {.12,.33,.51,.70,0,0,0,0} else {.09,.20,.30,.40,.50,.61,.72,.86};
   final parameter Real battenLeech[8]=if battenCount==4 then
     {.19,.38,.55,.73,0,0,0,0} else {.160,.263,.357,.455,.557,.666,.774,.886};
-  final parameter Real battenWeight[rows,cols]={sum(max(0,1-abs((r-1)-(rows-1)*
-    (battenLuff[b]+(battenLeech[b]-battenLuff[b])*(c-1)/(cols-1))))
-    for b in 1:battenCount) for c in 1:cols,r in 1:rows};
+  function rowFractions "Luff or leech coordinates of the simulated cloth rows"
+    input Integer count,rowCount;
+    input Real battens[8];
+    output Real fractions[rowCount];
+  algorithm
+    fractions[1]:=0;
+    fractions[rowCount]:=1;
+    for row in 2:rowCount-1 loop
+      fractions[row]:=if count>0 then battens[row-1] else (row-1)/(rowCount-1);
+    end for;
+  end rowFractions;
+  final parameter Real rowLuff[rows]=rowFractions(battenCount,rows,battenLuff);
+  final parameter Real rowLeech[rows]=rowFractions(battenCount,rows,battenLeech);
+  final parameter Boolean battenRow[rows]={battenCount>0 and r>1 and r<rows for r in 1:rows};
   parameter Real span=2.6,foot=1.12,rake=0,stepSize=.01,arealMass=.17;
   parameter Boolean attachedAirflow=false "Resolve attached-flow lift in addition to post-stall pressure";
   // Trapezoidal integral of the six chord fractions below.
@@ -21,9 +33,10 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   final parameter Real liftSlope=if attachedAirflow then 2*Modelica.Constants.pi/(1+2/(.85*aspectRatio)) else 1.4;
   parameter Integer telltaleCount=2;
   parameter Integer telltaleRows[3]={2,4,5} "One-based cloth row below each telltale";
+  output Real telltalePanelRows[3] "One-based cloth rows for the corresponding pair of telltales";
   parameter Real mastSupport=.68 "Fractional luff height at the stay tang";
   // Static overhanging beam under a unit tip load, normalized at the head.
-  final parameter Real modeShape[rows]={bendShape((r-1)/(rows-1),mastSupport) for r in 1:rows};
+  final parameter Real modeShape[rows]={bendShape(rowLuff[r],mastSupport) for r in 1:rows};
   function bendShape
     input Real z,s;
     output Real phi;
@@ -41,14 +54,113 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   input Real air[3], water[3], omega[3], gravity[3], waterPlane[4] "Signed immersion = plane[4]+plane[1:3]*p";
   // Rows run from the tack toward the head. The luff is attached to the stay.
   // The clew at the other end of the foot is attached to the boom.
-  // Approximate girths from the Hobie side elevation for the tracked main.
-  final parameter Real mesh[n,3]={
-    {-rake*div(i-1,cols)/(rows-1)-foot*(if footInTrack then
-       (if i<=cols then 1 elseif i<=2*cols then .945 elseif i<=3*cols then .855
-        elseif i<=4*cols then .746 elseif i<=5*cols then .53 else .015)
-       else 1-.985*div(i-1,cols)/(rows-1))*mod(i-1,cols)/(cols-1),
-     -.025*sin(3.14159*mod(i-1,cols)/(cols-1))*(1-div(i-1,cols)/(rows-1)),
-     span*div(i-1,cols)/(rows-1)+foot*sin(cutAngle)*(1-div(i-1,cols)/(rows-1))*mod(i-1,cols)/(cols-1)} for i in 1:n};
+  function sectionGirth "Piecewise-linear leech outline from the sail plan"
+    input Real fraction;
+    input Boolean tracked;
+    output Real girth;
+  protected
+    constant Real stations[6]={1,.945,.855,.746,.53,.015};
+    Integer lower;
+    Real t;
+  algorithm
+    if tracked then
+      lower:=min(5,1+integer(5*fraction));
+      t:=5*fraction+1-lower;
+      girth:=(1-t)*stations[lower]+t*stations[lower+1];
+    else
+      girth:=1-.985*fraction;
+    end if;
+  end sectionGirth;
+  final parameter Real nativeSpan[rows,cols]={(1-(c-1)/(cols-1))*rowLuff[r]+
+    (c-1)/(cols-1)*rowLeech[r] for c in 1:cols,r in 1:rows};
+  function makeMesh "Loft the cloth between corresponding luff and leech stations"
+    input Real luff[:],leech[size(luff,1)],span,foot,rake,cutAngle;
+    input Boolean tracked;
+    output Real points[size(luff,1)*cols,3];
+  protected
+    Integer node;
+    Real t,f,leechWidth;
+  algorithm
+    points:=zeros(size(luff,1)*cols,3);
+    for row in 1:size(luff,1) loop
+      leechWidth:=foot*sectionGirth(leech[row],tracked);
+      for col in 1:cols loop
+        node:=(row-1)*cols+col;
+        t:=(col-1)/(cols-1);
+        f:=(1-t)*luff[row]+t*leech[row];
+        points[node,:]:={-rake*f-leechWidth*t,-.025*sin(3.14159*t)*(1-f),
+          span*f+foot*sin(cutAngle)*(1-leech[row])*t};
+      end for;
+    end for;
+  end makeMesh;
+  final parameter Real mesh[n,3]=makeMesh(rowLuff,rowLeech,span,foot,rake,cutAngle,footInTrack);
+  function clothLinks "Rest length and compliance of warp, weft and bias links"
+    input Real rest[:,3],span;
+    input Boolean battens[:],tracked;
+    input Integer count;
+    output Real properties[size(rest,1),4,2];
+  protected
+    Integer k;
+    Boolean batten;
+    Real d[3],length,allowance,scale;
+  algorithm
+    properties:=zeros(size(rest,1),4,2);
+    for j in 1:size(rest,1) loop
+      for link in 1:4 loop
+        k:=if link==1 then j+1 elseif link==2 then j+cols elseif link==3 then j+cols+1 else j+cols-1;
+        if k<=size(rest,1) and (link==2 or (link==4 and mod(j-1,cols)>0) or (link<>4 and mod(j,cols)<>0)) then
+          batten:=link==1 and battens[div(j-1,cols)+1];
+          d:=rest[k,:]-rest[j,:];length:=sqrt(d*d);
+          allowance:=if batten then 0 elseif link==1 then .012 elseif link==2 then (if tracked then .003 else .012)
+            else (if tracked then .009 else .025);
+          // A shorter strip in series with its neighbours has less extension
+          // at the same load. Retain the reference fabric compliance per unit span.
+          scale:=if count>0 and link>1 then max(.15,abs(d[3])/(span/5)) else 1;
+          properties[j,link,:]:={length*(1+allowance),.00005*scale};
+        end if;
+      end for;
+    end for;
+  end clothLinks;
+  final parameter Real linkProperties[n,4,2]=clothLinks(mesh,span,battenRow,footInTrack,battenCount);
+  function coarseStencil "Compatibility mapping to six evenly spaced rows"
+    input Real stations[:,cols];
+    output Real weights[24,2] "Lower node index and interpolation weight";
+  protected
+    Integer row,i;
+    Real h;
+  algorithm
+    weights:=zeros(24,2);
+    for k in 1:6 loop
+      h:=(k-1)/5;
+      for col in 1:cols loop
+        i:=(k-1)*cols+col;
+        row:=1;
+        for r in 2:size(stations,1)-1 loop
+          if stations[r,col]<=h then
+            row:=r;
+          end if;
+        end for;
+        weights[i,1]:=(row-1)*cols+col;
+        weights[i,2]:=(h-stations[row,col])/(stations[row+1,col]-stations[row,col]);
+      end for;
+    end for;
+  end coarseStencil;
+  function coarseVertices
+    input Real points[:,3];
+    input Real weights[24,2];
+    output Real vertices[24,3];
+  protected
+    Integer lower;
+    Real t;
+  algorithm
+    vertices:=zeros(24,3);
+    for j in 1:24 loop
+      lower:=integer(weights[j,1]);
+      t:=weights[j,2];
+      vertices[j,:]:=(1-t)*points[lower,:]+t*points[lower+cols,:];
+    end for;
+  end coarseVertices;
+  output Real legacyVertex[24,3];
   discrete output Real vertex[n,3](start=mesh,each fixed=true);
   discrete Real velocity[n,3](each start=0,each fixed=true);
   discrete output Real fluidForce[3],fluidMoment[3],wetArea,leechSpeed,clewForce[3],mastLoad[3];
@@ -56,7 +168,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   discrete output Real separated[6] "Incidence-based separation estimate at each ribbon";
   discrete output Real luffLevel "Airflow-weighted luffing intensity averaged across the sail";
   function sailTelltales
-    input Real points[n,3],vel[n,3],wind[3],spin[3],t;
+    input Real points[:,3],vel[size(points,1),3],wind[3],spin[3],t;
     input Integer count, windowRows[3];
     output Real tail[6,3],separation[6],luffLevel;
   protected
@@ -92,7 +204,11 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     end for;
   end sailTelltales;
   function advanceCloth
-    input Real rest[n,3], old[n,3], oldV[n,3],air[3],water[3],omega[3],gravity[3],plane[4],dt,mu,t,elevation,outhaul,battenRows[rows,cols],EI,lineMass;
+    input Real rest[:,3];
+    input Integer rows,n;
+    input Real old[n,3], oldV[n,3],air[3],water[3],omega[3],gravity[3],plane[4],dt,mu,t,elevation,outhaul;
+    input Boolean battenRows[rows];
+    input Real EI,lineMass,links[n,4,2];
     input Boolean contact,trackedFoot;
     input Real airLiftSlope,inducedDrag;
     input Real footStay[2,3],headStay[3],tipOffset[3],shape[rows],edgeTension,shift[rows,3],wireMid[2,3],contactK[2];
@@ -100,9 +216,10 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   protected
     Real invMass[n],boomArm[n],mass[n],nodal[n,3],normal[3],a[3],b[3],c[3],center[3],dv[3],q[3],load[3],relative[3];
     Real implicitFactor,gust,pressureSlope,stall,attached,normalWind,liftCoefficient,d[3],low,mid,high,wet,area,u,vn,dist,reference,extension,wa,wb,correction,restArea;
-    Real spacing,stiffness,wCenter,relaxation,warpAllowance,biasAllowance;
+    Real spacing,stiffness,wCenter,relaxation;
     Real upper[rows],rhs[rows],leftK,rightK,pivot;
-    Real panelWind[3],wire[3],wireStart[3],offset[3],denom,along,edge,penetration,loadY,totalInv,direction;
+    Real panelWind[3],wire[3],wireStart[3],wireEnd[3],offset[3],denom,along,edge,penetration,loadY,totalInv,direction;
+    Real wireMinX,wireMaxX,wireMinZ,wireMaxZ,wireMinSide;
     Integer left,j,k,c1,c2,c3,backRow;
   algorithm
     p:=old;v:=oldV;mass:=fill(.0001,n);nodal:=zeros(n,3);force:=zeros(3);moment:=zeros(3);wetArea:=0;
@@ -121,34 +238,36 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
             else 1-low/(low-high)*low/(low-mid);
           wetArea:=wetArea+wet*area;load:=zeros(3);
           for fluid in 1:2 loop
-            relative:=(if fluid==1 then air else water)-dv;
-            if fluid==1 then
-              // Synthetic crosswind gusts vary across the rig and scale with apparent wind.
-              gust:=.09*sin(2.1*t+.8*center[3])+.055*sin(4.7*t-1.6*center[3])+.035*sin(7.2*t+2.9*center[3]);
-              relative:=relative+gust*{-air[2],air[1],0};
-            end if;
-            u:=sqrt(relative*relative);vn:=relative*normal;
-            if fluid==1 and airLiftSlope>1.4 then
-              // Attached finite-span circulation produces lift across the
-              // apparent flow. Blend to separated plate pressure at stall.
-              stall:=max(0,min(1,(abs(vn)/max(.001,u)-.22)/.34));
-              attached:=1-stall*stall*(3-2*stall);
-              pressureSlope:=1.4+(airLiftSlope-1.4)*attached;
-              implicitFactor:=1/(1+.5*dt*1.225*u*(1-wet)*pressureSlope/(mu+wet*1025*.04));
-              // Dampen the panel's motion relative to the rig. Applying
-              // this factor to the entire load attenuates even a fixed sail.
-              panelWind:=relative+dv-cross(omega,center);
-              normalWind:=panelWind*normal;
-              normalWind:=normalWind+(vn-normalWind)*implicitFactor;
-              liftCoefficient:=airLiftSlope*normalWind/max(.001,u);
-              load:=load+.5*1.225*(1-wet)*area*(u*(1.4*(1-attached)*normalWind*normal+
-                attached*liftCoefficient*(u*normal-vn/max(.001,u)*relative))+
-                (.008+attached*inducedDrag*liftCoefficient^2)*u*relative);
-            else
-              // Retain the added-mass limit for submerged fabric.
-              implicitFactor:=if fluid==1 then 1/(1+dt*.7*1.225*u*(1-wet)/(mu+wet*1025*.04)) else 1/(1+dt*.7*1025*u*wet/(mu+wet*1025*.04));
-              load:=load+implicitFactor*.5*(if fluid==1 then 1.225*(1-wet) else 1025*wet)*area*
-                (1.4*u*vn*normal+.008*u*(relative-vn*normal));
+            if (fluid==1 and wet<1) or (fluid==2 and wet>0) then
+              relative:=(if fluid==1 then air else water)-dv;
+              if fluid==1 then
+                // Synthetic crosswind gusts vary across the rig and scale with apparent wind.
+                gust:=.09*sin(2.1*t+.8*center[3])+.055*sin(4.7*t-1.6*center[3])+.035*sin(7.2*t+2.9*center[3]);
+                relative:=relative+gust*{-air[2],air[1],0};
+              end if;
+              u:=sqrt(relative*relative);vn:=relative*normal;
+              if fluid==1 and airLiftSlope>1.4 then
+                // Attached finite-span circulation produces lift across the
+                // apparent flow. Blend to separated plate pressure at stall.
+                stall:=max(0,min(1,(abs(vn)/max(.001,u)-.22)/.34));
+                attached:=1-stall*stall*(3-2*stall);
+                pressureSlope:=1.4+(airLiftSlope-1.4)*attached;
+                implicitFactor:=1/(1+.5*dt*1.225*u*(1-wet)*pressureSlope/(mu+wet*1025*.04));
+                // Dampen the panel's motion relative to the rig. Applying
+                // this factor to the entire load attenuates even a fixed sail.
+                panelWind:=relative+dv-cross(omega,center);
+                normalWind:=panelWind*normal;
+                normalWind:=normalWind+(vn-normalWind)*implicitFactor;
+                liftCoefficient:=airLiftSlope*normalWind/max(.001,u);
+                load:=load+.5*1.225*(1-wet)*area*(u*(1.4*(1-attached)*normalWind*normal+
+                  attached*liftCoefficient*(u*normal-vn/max(.001,u)*relative))+
+                  (.008+attached*inducedDrag*liftCoefficient^2)*u*relative);
+              else
+                // Retain the added-mass limit for submerged fabric.
+                implicitFactor:=if fluid==1 then 1/(1+dt*.7*1.225*u*(1-wet)/(mu+wet*1025*.04)) else 1/(1+dt*.7*1025*u*wet/(mu+wet*1025*.04));
+                load:=load+implicitFactor*.5*(if fluid==1 then 1.225*(1-wet) else 1025*wet)*area*
+                  (1.4*u*vn*normal+.008*u*(relative-vn*normal));
+              end if;
             end if;
           end for;
           force:=force+load;moment:=moment+cross(center,load);
@@ -162,15 +281,14 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
       end for;
     end for;
     for r in 1:rows loop
-      for col in 1:cols-1 loop
-        if battenRows[r,col]+battenRows[r,col+1]>0 then
+      if battenRows[r] then
+        for col in 1:cols-1 loop
           j:=(r-1)*cols+col;
-          q:=rest[j+1,:]-rest[j,:];
-          spacing:=sqrt(q*q);
-          mass[j]:=mass[j]+.5*spacing*lineMass*(battenRows[r,col]+battenRows[r,col+1])/2;
-          mass[j+1]:=mass[j+1]+.5*spacing*lineMass*(battenRows[r,col]+battenRows[r,col+1])/2;
-        end if;
-      end for;
+          spacing:=links[j,1,1];
+          mass[j]:=mass[j]+.5*spacing*lineMass;
+          mass[j+1]:=mass[j+1]+.5*spacing*lineMass;
+        end for;
+      end if;
     end for;
     for i in 1:n loop
       invMass[i]:=if mod(i-1,cols)==0 or i==cols or (trackedFoot and i<=cols) then 0 else 1/mass[i];
@@ -194,11 +312,6 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
         clewForce:=clewForce+boomArm[i]*(nodal[i,:]+mass[i]*gravity);
       end if;
     end for;
-    // The bolt-rope foot and luff are both held in tracks on the Hobie main.
-    // Use less unstrained length across those panels so tack travel loads
-    // the cloth instead of mostly taking up slack. The bias has more give.
-    warpAllowance:=if trackedFoot then .003 else .012;
-    biasAllowance:=if trackedFoot then .009 else .025;
     // Tension-only warp, weft and bias links can still collapse when unloaded.
     for pass in 1:6 loop
       for index in 1:n loop
@@ -206,19 +319,18 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
         for link in 1:4 loop
           k:=if link==1 then j+1 elseif link==2 then j+cols elseif link==3 then j+cols+1 else j+cols-1;
           if k<=n and (link==2 or (link==4 and mod(j-1,cols)>0) or (link<>4 and mod(j,cols)<>0)) then
-            q:=p[k,:]-p[j,:];dist:=sqrt(q*q);dv:=rest[k,:]-rest[j,:];
-            reference:=sqrt(dv*dv)*(1+(if link==1 then .012 elseif link==2 then warpAllowance else biasAllowance));
+            q:=p[k,:]-p[j,:];dist:=sqrt(q*q);
+            reference:=links[j,link,1];
             // Fiberglass carries axial compression as well as tension. Preserve the
             // segment length while allowing the pocket to curve through its joints.
-            if link==1 and battenRows[div(j-1,cols)+1,mod(j-1,cols)+1]>0 then
-              reference:=sqrt(dv*dv);
+            if link==1 and battenRows[div(j-1,cols)+1] then
               extension:=dist-reference;
             else
               extension:=max(0,dist-reference);
             end if;
             wa:=invMass[j];
             wb:=invMass[k];
-            correction:=extension/(max(1e-8,dist)*(wa+wb+.00005/dt^2));
+            correction:=extension/(max(1e-8,dist)*(wa+wb+links[j,link,2]/dt^2));
             if mod(j-1,cols)==0 then
               mastLoad:=mastLoad+shape[div(j-1,cols)+1]*correction*q/dt^2;
             end if;
@@ -234,11 +346,11 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     // Implicit discrete beam bending energy EI/2 * integral(curvature^2 ds).
     for r in 1:rows loop
       for col in 2:cols-1 loop
-        if battenRows[r,col]>0 and not (trackedFoot and r==1) then
+        if battenRows[r] then
           j:=(r-1)*cols+col;
           d:=rest[j+1,:]-rest[j-1,:];
           spacing:=max(.001,.5*sqrt(d*d));
-          stiffness:=EI*battenRows[r,col]/spacing^3;
+          stiffness:=EI/spacing^3;
           wa:=if col==2 then 0 else 1/mass[j-1];
           wb:=if j+1==cols then 0 else 1/mass[j+1];
           wCenter:=1/mass[j];
@@ -285,8 +397,8 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
         for col in 1:cols-1 loop
           k:=if mod(pass,2)==1 then col else cols-col;
           j:=(r-1)*cols+k;
-          if battenRows[r,k]+battenRows[r,k+1]>0 then
-            d:=rest[j+1,:]-rest[j,:];reference:=sqrt(d*d);
+          if battenRows[r] then
+            reference:=links[j,1,1];
             q:=p[j+1,:]-p[j,:];dist:=sqrt(q*q);
             correction:=(dist-reference)/(max(1e-8,dist)*(invMass[j]+invMass[j+1]+.000005/dt^2));
             p[j,:]:=p[j,:]+invMass[j]*correction*q;
@@ -305,47 +417,61 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
       for pass in 1:3 loop
         for side in 1:2 loop
           for half in 1:2 loop
-          wireStart:=if half==1 then footStay[side,:] else wireMid[side,:];
-          wire:=(if half==1 then wireMid[side,:] else headStay)-wireStart;
-          direction:=if side==1 then 1 else -1;
-          for j in 1:n loop
-            for link in 1:3 loop
-              k:=if link==1 then j+1 elseif link==2 then j+cols else j+cols+1;
-              if k<=n and (link==2 or mod(j,cols)<>0) then
-                d:=p[k,:]-p[j,:];offset:=wireStart-p[j,:];
-                denom:=d[1]*wire[3]-d[3]*wire[1];
-                if abs(denom)>1e-9 then
-                  edge:=(offset[1]*wire[3]-offset[3]*wire[1])/denom;
-                  along:=(offset[1]*d[3]-offset[3]*d[1])/denom;
-                  if edge>=0 and edge<=1 and along>=0 and along<=1 then
-                    penetration:=direction*(p[j,2]+edge*d[2]-wireStart[2]-along*wire[2])+.009;
-                    if penetration>0 then
-                      wa:=invMass[j];
-                      wb:=invMass[k];
-                      totalInv:=wa*(1-edge)^2+wb*edge^2;
-                      if totalInv>1e-8 then
-                        loadY:=-direction*penetration/(totalInv+1/(max(1,contactK[side])*dt^2));
-                        wireForce[side]:=wireForce[side]-loadY/dt^2;
-                        p[j,2]:=p[j,2]+wa*(1-edge)*loadY;
-                        p[k,2]:=p[k,2]+wb*edge*loadY;
-                        clewForce[2]:=clewForce[2]+(boomArm[j]*(1-edge)+boomArm[k]*edge)*loadY/dt^2;
+            wireStart:=if half==1 then footStay[side,:] else wireMid[side,:];
+            wireEnd:=if half==1 then wireMid[side,:] else headStay;
+            wire:=wireEnd-wireStart;
+            direction:=if side==1 then 1 else -1;
+            // Reject separated edge bounds before the projected intersection.
+            wireMinX:=min(wireStart[1],wireEnd[1])-1e-9;
+            wireMaxX:=max(wireStart[1],wireEnd[1])+1e-9;
+            wireMinZ:=min(wireStart[3],wireEnd[3])-1e-9;
+            wireMaxZ:=max(wireStart[3],wireEnd[3])+1e-9;
+            wireMinSide:=min(direction*wireStart[2],direction*wireEnd[2])-.009-1e-9;
+            for j in 1:n loop
+              for link in 1:3 loop
+                k:=if link==1 then j+1 elseif link==2 then j+cols else j+cols+1;
+                if k<=n and (link==2 or mod(j,cols)<>0) then
+                  if (invMass[j]>0 or invMass[k]>0)
+                    and max(p[j,1],p[k,1])>=wireMinX and min(p[j,1],p[k,1])<=wireMaxX
+                    and max(p[j,3],p[k,3])>=wireMinZ and min(p[j,3],p[k,3])<=wireMaxZ
+                    and max(direction*p[j,2],direction*p[k,2])>=wireMinSide then
+                    d:=p[k,:]-p[j,:];offset:=wireStart-p[j,:];
+                    denom:=d[1]*wire[3]-d[3]*wire[1];
+                    if abs(denom)>1e-9 then
+                      edge:=(offset[1]*wire[3]-offset[3]*wire[1])/denom;
+                      along:=(offset[1]*d[3]-offset[3]*d[1])/denom;
+                      if edge>=0 and edge<=1 and along>=0 and along<=1 then
+                        penetration:=direction*(p[j,2]+edge*d[2]-wireStart[2]-along*wire[2])+.009;
+                        if penetration>0 then
+                          wa:=invMass[j];
+                          wb:=invMass[k];
+                          totalInv:=wa*(1-edge)^2+wb*edge^2;
+                          if totalInv>1e-8 then
+                            loadY:=-direction*penetration/(totalInv+1/(max(1,contactK[side])*dt^2));
+                            wireForce[side]:=wireForce[side]-loadY/dt^2;
+                            p[j,2]:=p[j,2]+wa*(1-edge)*loadY;
+                            p[k,2]:=p[k,2]+wb*edge*loadY;
+                            clewForce[2]:=clewForce[2]+(boomArm[j]*(1-edge)+boomArm[k]*edge)*loadY/dt^2;
+                          end if;
+                        end if;
                       end if;
                     end if;
                   end if;
                 end if;
-              end if;
+              end for;
             end for;
           end for;
-        end for;
         end for;
       end for;
     end if;
     v:=(p-old)/dt;
-    leechSpeed:=sqrt(v[3*cols,:]*v[3*cols,:]);
+    leechSpeed:=sqrt(v[div(rows,2)*cols,:]*v[div(rows,2)*cols,:]);
   end advanceCloth;
 equation
+  telltalePanelRows={telltaleRows[i] for i in 1:3};
+  legacyVertex=if battenCount>0 then coarseVertices(vertex,coarseStencil(nativeSpan)) else vertex[1:24,:];
   when sample(0,stepSize) then
-    (vertex,velocity,fluidForce,fluidMoment,wetArea,leechSpeed,clewForce,mastLoad,wireReaction)=advanceCloth(mesh,pre(vertex),pre(velocity),air,water,omega,gravity,waterPlane,stepSize,arealMass,time,boomElevation,clewOffset,battenWeight,battenEI,battenLinearMass,hasShrouds,footInTrack,liftSlope,inducedDragFactor,shroudFoot,shroudHead,mastOffset,modeShape,leechTension,luffShift,shroudMid,wireK);
+    (vertex,velocity,fluidForce,fluidMoment,wetArea,leechSpeed,clewForce,mastLoad,wireReaction)=advanceCloth(mesh,rows,n,pre(vertex),pre(velocity),air,water,omega,gravity,waterPlane,stepSize,arealMass,time,boomElevation,clewOffset,battenRow,battenEI,battenLinearMass,linkProperties,hasShrouds,footInTrack,liftSlope,inducedDragFactor,shroudFoot,shroudHead,mastOffset,modeShape,leechTension,luffShift,shroudMid,wireK);
     (faceTail,separated,luffLevel)=sailTelltales(vertex,velocity,air,omega,time,telltaleCount,telltaleRows);
   end when;
 end SailMembrane;
