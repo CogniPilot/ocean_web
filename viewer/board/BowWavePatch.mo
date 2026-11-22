@@ -1,10 +1,15 @@
 model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source distribution"
   constant Integer n=32;
+  constant Integer fineColumns=27,fineRows=37;
   constant Real pi=Modelica.Constants.pi;
   parameter Real length=8;
+  parameter Real refineBows(min=0,max=1)=0 "Set to one to sample the finer bow rectangle";
+  final parameter Real fineOrigin[2]={1.2,-1.8} "Forward and port coordinates of the first fine node [m]";
+  final parameter Real fineSpacing=.10 "Distance between fine nodes on both axes [m]";
   input Real relativeSpeed[2] "Water-relative hull velocity in the forward/port axes [m/s]";
   input Real sources[14,6] "Modelica line sources used by the vehicle hydrodynamics";
   output Real height[n,n] "Short-range linear Bernoulli head in the local axes";
+  output Real fineHeight[fineRows,fineColumns] "Nested bow elevations, port rows and forward columns [m]";
 
   function lineFlow
     input Real x,y,low,high,core2,velocity[2];
@@ -96,6 +101,21 @@ model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source dis
     end for;
   end sampleGrid;
 
+  function sampleFineGrid
+    input Real velocity[2],sources[14,6],origin[2],spacing,enabled;
+    output Real eta[fineRows,fineColumns];
+  protected
+    Real side;
+  algorithm
+    eta:=zeros(fineRows,fineColumns);
+    if enabled>.5 then
+      for j in 1:fineRows loop
+        side:=origin[2]+(j-1)*spacing;
+        eta[j,:]:={potentialHead(origin[1]+(i-1)*spacing,side,velocity,sources) for i in 1:fineColumns};
+      end for;
+    end if;
+  end sampleFineGrid;
+
   function localStrips
     input Real worldStrips[12,3],pose[4] "East, north, cosine and sine of heading";
     output Real local[12,3];
@@ -108,4 +128,5 @@ model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source dis
   end localStrips;
 equation
   height=sampleGrid(relativeSpeed,sources,length);
+  fineHeight=sampleFineGrid(relativeSpeed,sources,fineOrigin,fineSpacing,refineBows);
 end BowWavePatch;

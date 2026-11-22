@@ -1,6 +1,8 @@
 import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
 // Views share one committed worker snapshot, so every mesh uses the same clock.
 import {boatFields} from './board/boat.mjs';
+import {sailPanelFields} from './board/sail-battens.mjs';
+import {boatInertiaFields,cruiserInertiaFields,droneInertiaFields,subInertiaFields} from './inertia-view.mjs';
 import {hullInspectionFields,refinedHullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
 const sailingOutputs=[
@@ -65,11 +67,16 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  if(hasBoat)for(const [key,value] of Object.entries(sailingStart(mode!=='sloop')))parameters['boat.'+key]=value;
  const outputs=[...environmentOutputs,...(hasBoat?sailingOutputs:['focus','swell','waterStamp','waterFraction']),
    ...(mode==='motorboat'?['boatPose','engine']:[]),...(hasSub?submarineOutputs:[]),...(hasFlight?flightOutputs:[])];
+ const inertiaOutputs=[...(hasBoat?boatInertiaFields.map(name=>'boat.'+name):[]),
+   ...(hasSub?subInertiaFields.map(name=>'sub.'+name):[]),...(hasFlight?droneInertiaFields.map(name=>'drone.'+name):[]),
+   ...(mode==='motorboat'?cruiserInertiaFields:[])].filter(name=>!outputs.includes(name));
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
+   refineBows:hasBoat&&mode!=='sloop',
    optionalInputs:['animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
-   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed',
-     ...(hasBoat&&mode!=='sloop'?['boat.ballastZ','boat.rightingSide',...battenInspectionFields.map(name=>'boat.'+name)]:[]),
+   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed',...inertiaOutputs,
+     ...(hasBoat&&mode!=='sloop'?['boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins',
+       ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.stationX','boat.beamHalf']:[]),
      ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
      ...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea']:[]),...(hasFlight?[...flightNavigationOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount']:[])]});
@@ -88,7 +95,8 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  function receive(f,revision){time=f.time;
    if(f.mapRows)state.set('keyframes',f.mapRows);
    const acceptWake=surveyView.wakeSurface && revision===wakeRevision;
-   if(acceptWake && f.bowHeight)state.set('bowHeight',f.bowHeight);
+   if(acceptWake&&f.bowHeight)state.set('bowHeight',f.bowHeight);
+   if(acceptWake&&f.bowFineHeight)state.set('bowFineHeight',f.bowFineHeight);
    unpack(layout.outputs,f.values);
    f.sampled?.forEach((values,i)=>{if(values && (i!==wakeGroup || acceptWake))unpack(layout.sampled[i],values);});
  }
@@ -142,6 +150,6 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    if(offsets.has('omitWake'))set('omitWake',Number(!enabled));
    if(surveyView.wakeSurface!==enabled)wakeRevision++;
    surveyView.wakeSurface=enabled;
-   if(!enabled){state.delete('waves.height');state.delete('bowHeight');}
+   if(!enabled){state.delete('waves.height');state.delete('bowHeight');state.delete('bowFineHeight');}
  },hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map,dvl=false){surveyView.dvl=camera||dvl;surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

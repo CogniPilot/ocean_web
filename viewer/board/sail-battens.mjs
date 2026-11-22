@@ -8,14 +8,37 @@ const design=[
     luff:[.12,.33,.51,.70],leech:[.19,.38,.55,.73]}
 ];
 
-export const clothTopology=(()=>{
+export function sailTopology(rows){
   const indices=[];
-  for(let row=0;row<5;row++)for(let col=0;col<3;col++){
+  for(let row=0;row<rows-1;row++)for(let col=0;col<3;col++){
     const i=4*row+col;
     indices.push(i,i+1,i+5,i,i+5,i+4);
   }
   return new Uint16Array(indices);
-})();
+}
+
+export const clothTopology=sailTopology(6);
+
+export const sailPanelFields=[1,2].map(sail=>
+  ['rowLuff','rowLeech','telltalePanelRows','vertex'].map(name=>`cloth[${sail}].${name}`));
+
+export function sailPanelTexture(luff,leech,telltaleRows){
+  const uv=[],pockets=[];
+  for(let row=0;row<luff.length;row++){
+    const path=[];
+    for(let col=0;col<4;col++){
+      const u=col/3,v=luff[row]+u*(leech[row]-luff[row]);
+      uv.push(u,v);
+      path.push([u,1-v]);
+    }
+    if(row>0&&row<luff.length-1)pockets.push(path);
+  }
+  const windows=telltaleRows.map(row=>{
+    const i=8*row;
+    return 1-(.40*uv[i+1]+.12*uv[i+3]+.48*uv[i+11]);
+  });
+  return {uv,pockets,windows};
+}
 
 export function battenPath(mesh,triangles,luff,leech){
   function edgePoint(span,col){

@@ -14,17 +14,10 @@ export function physicsView(T,canvas,status){
   const colors={main:'#79edff',jib:'#b2ffa8',mast:'#ffd080',joint:'#ff9cce',batten:'#fff07b',
     wet:'#5af2e9',dry:'#a1aab7',wind:'#7ebaff',wake:'#bd96ff',near:'#ffce74',swimmer:'#62ffe3',surface:'#d8faff'};
   const surfaceField={size:32,length:64,emphasis:true};
-  const clothEdges=new Set();
-  for(let row=0;row<5;row++)for(let col=0;col<3;col++){
-    const i=row*4+col;
-    for(const [a,b] of [[i,i+1],[i,i+4],[i,i+5],[i+1,i+5],[i+4,i+5]])
-      clothEdges.add(Math.min(a,b)*24+Math.max(a,b));
-  }
   const gridPixels=new Float64Array(32*32*2);
-  const rigPoints=Array.from({length:24},()=>new T.Vector3());
   const a=new T.Vector3(),b=new T.Vector3(),center=new T.Vector3();
   let width,height,camera;
-  const labelRects=[],markCache=new WeakMap(),battenPaths=new WeakMap();
+  const labelRects=[],markCache=new WeakMap(),battenPaths=new WeakMap(),rigMeshes=new WeakMap();
 
   function project(point,object){
     clip.copy(point);
@@ -64,47 +57,83 @@ export function physicsView(T,canvas,status){
     ink.strokeText(caption,x,y);
     ink.fillStyle=color;ink.fillText(caption,x,y);
   }
+  function rigMesh(sail){
+    let mesh=rigMeshes.get(sail);
+    if(!mesh){
+      const count=sail.coords.count,edges=[];
+      for(let i=0;i<count;i++){
+        const col=i%4;
+        if(col<3)edges.push([i,i+1]);
+        if(i<count-4){
+          edges.push([i,i+4]);
+          if(col<3)edges.push([i,i+5]);
+        }
+      }
+      mesh={edges,points:Array.from({length:count},()=>new T.Vector3())};
+      rigMeshes.set(sail,mesh);
+    }
+    return mesh;
+  }
   function drawRig(rig){
     for(const [index,sail] of rig.sails.entries()){
       const color=index===0?colors.main:colors.jib;
-      for(let i=0;i<24;i++)rigPoints[i].fromBufferAttribute(sail.coords,i);
+      const {points:rigPoints,edges}=rigMesh(sail);
+      for(let i=0;i<rigPoints.length;i++)rigPoints[i].fromBufferAttribute(sail.coords,i);
       ink.strokeStyle=color;ink.lineWidth=1;ink.beginPath();
-      for(const edge of clothEdges)
-        segment(rigPoints[Math.floor(edge/24)],rigPoints[edge%24],sail.pivot);
+      for(const [i,j] of edges)segment(rigPoints[i],rigPoints[j],sail.pivot);
       ink.stroke();
       for(const node of rigPoints)dot(node,sail.pivot,color,2.5);
-      label(rigPoints[14],sail.pivot,index===0?'Main · 24 nodes':'Jib · 24 nodes',color);
-      if(rig.battens?.[index]?.[0]>0)drawBattens(sail,rig.battens[index]);
+      label(rigPoints[4*Math.floor(rigPoints.length/7)+2],sail.pivot,
+        (index===0?'Main':'Jib')+' · '+rigPoints.length+' nodes',color);
+      const battens=rig.battens?.[index];
+      if(sail.battenRows||battens?.[0]>0)drawBattens(sail,rigPoints,battens);
       if(index===0){
+        const stations=rig.mastStations;
+        const frame=stations?sail.pivot.parent:sail.pivot;
+        const count=stations?stations.length/3:6;
         ink.strokeStyle=colors.mast;ink.lineWidth=2;ink.beginPath();
-        for(let row=1;row<6;row++)segment(rigPoints[(row-1)*4],rigPoints[row*4],sail.pivot);
+        for(let row=1;row<count;row++){
+          if(stations)segment(a.fromArray(stations,3*(row-1)),b.fromArray(stations,3*row),frame);
+          else segment(rigPoints[(row-1)*4],rigPoints[row*4],frame);
+        }
         ink.stroke();
-        for(let row=0;row<6;row++){
-          const node=rigPoints[row*4];
-          dot(node,sail.pivot,colors.mast,4);
-          label(node,sail.pivot,'M'+(row+1),colors.mast,-24,-5);
+        for(let row=0;row<count;row++){
+          const node=stations?a.fromArray(stations,3*row):rigPoints[row*4];
+          dot(node,frame,colors.mast,4);
+          label(node,frame,'M'+(row+1),colors.mast,-24,-5);
         }
       }
     }
     drawJoints(rig.joints,.27);
   }
-  function drawBattens(sail,battens){
-    const [count,luff,leech,rest]=battens;
-    let paths=battenPaths.get(battens);
-    if(!paths){
-      paths=Array.from({length:count},(_,i)=>battenPath(rest,sail.geo.index.array,luff[i],leech[i]));
-      battenPaths.set(battens,paths);
-    }
-    const point=(target,[i,j,k,wi,wj,wk])=>target.copy(rigPoints[i]).multiplyScalar(wi)
-      .addScaledVector(rigPoints[j],wj).addScaledVector(rigPoints[k],wk);
+  function drawBattens(sail,rigPoints,battens){
+    const count=sail.battenRows||battens[0];
     ink.save();
     ink.lineCap='round';ink.beginPath();
-    for(const path of paths)for(const {from,to} of path)segment(point(a,from),point(b,to),sail.pivot);
+    let anchor;
+    if(sail.battenRows){
+      for(let row=1;row<=count;row++)for(let col=0;col<3;col++){
+        const i=4*row+col;
+        segment(rigPoints[i],rigPoints[i+1],sail.pivot);
+      }
+      anchor=rigPoints[4*(Math.floor(count/2)+1)+3];
+    }else{
+      const [,luff,leech,rest]=battens;
+      let paths=battenPaths.get(battens);
+      if(!paths){
+        paths=Array.from({length:count},(_,i)=>battenPath(rest,sail.geo.index.array,luff[i],leech[i]));
+        battenPaths.set(battens,paths);
+      }
+      const point=(target,[i,j,k,wi,wj,wk])=>target.copy(rigPoints[i]).multiplyScalar(wi)
+        .addScaledVector(rigPoints[j],wj).addScaledVector(rigPoints[k],wk);
+      for(const path of paths)for(const {from,to} of path)segment(point(a,from),point(b,to),sail.pivot);
+      const middle=paths[Math.floor(count/2)];
+      if(middle.length)anchor=point(a,middle.at(-1).to);
+    }
     ink.strokeStyle='#071d2b';ink.lineWidth=4.6;ink.stroke();
     ink.strokeStyle=colors.batten;ink.lineWidth=2.2;ink.stroke();
     ink.restore();
-    const middle=paths[Math.floor(paths.length/2)];
-    if(middle.length)label(point(a,middle.at(-1).to),sail.pivot,count+' full-length battens',colors.batten,8,8);
+    if(anchor)label(anchor,sail.pivot,count+' full-length battens',colors.batten,8,8);
   }
   function drawJoints(joints,length){
     for(const [joint,axis,name] of joints){
@@ -183,14 +212,15 @@ export function physicsView(T,canvas,status){
 
   function drawGrid(field,x,y,tide,color,requireSignal=false){
     const {values,subtract,length,east=0,north=0,cos=1,sin=0,local=false,bounded=false,stride=1,heightAt,emphasis=false}=field;
-    const size=field.size??Math.sqrt(values.length),spacing=length/size;
+    const size=field.size??Math.sqrt(values.length),spacing=field.spacing??length/size;
+    const width=field.columns??size,height=field.rows??size;
     // Crop the periodic fields around the subject without changing their
     // origin or sample spacing. The near field uses the solver's signed indices.
     const radius=Math.min(12,12*spacing),first=-size/2,last=first+size-1;
     const i0=bounded?0:local?first:Math.ceil((x-east-radius)/spacing);
-    const i1=bounded?size-1:local?last:Math.floor((x-east+radius)/spacing);
+    const i1=bounded?width-1:local?last:Math.floor((x-east+radius)/spacing);
     const j0=bounded?0:local?first:Math.ceil((y-north-radius)/spacing);
-    const j1=bounded?size-1:local?last:Math.floor((y-north+radius)/spacing);
+    const j1=bounded?height-1:local?last:Math.floor((y-north+radius)/spacing);
     const columns=Math.floor((i1-i0)/stride)+1;
     const index=(i)=>(i%size+size)%size;
     ink.strokeStyle=color;ink.lineWidth=emphasis?1.6:local||bounded?1.15:1;
@@ -198,7 +228,7 @@ export function physicsView(T,canvas,status){
     let k=0,hasSignal=!requireSignal;
     for(let j=j0;j<=j1;j+=stride)for(let i=i0;i<=i1;i+=stride){
       const e=east+spacing*(i*cos-j*sin),n=north+spacing*(i*sin+j*cos);
-      const offset=bounded?j*size+i:index(j)*size+index(i);
+      const offset=bounded?j*width+i:index(j)*size+index(i);
       const height=heightAt?heightAt(e,n):values[offset]-(subtract?.[offset]??0);
       hasSignal||=Math.abs(height)>.00001;
       a.set(e,n,tide+height);
@@ -217,7 +247,7 @@ export function physicsView(T,canvas,status){
     }
     if(hasSignal)ink.stroke();
     ink.globalAlpha=1;
-    return hasSignal?size+'×'+size+' / '+spacing.toPrecision(2)+' m':null;
+    return hasSignal?width+'×'+height+' / '+spacing.toPrecision(2)+' m':null;
   }
   function drawSources(field,tide){
     const {sources,east,north,cos,sin}=field;
@@ -248,6 +278,10 @@ export function physicsView(T,canvas,status){
   }
   function drawWater(fields,x,y,layer){
     if(layer==='auto')layer=fields?.swimmerKind?'swimmer':fields?.pontoons?'pontoons':'surface';
+    if(layer==='near'){
+      if(fields?.swimmerKind)layer='swimmer';
+      else if(!fields?.near&&fields?.wake)layer='wake';
+    }
     if(layer==='pontoons'&&fields?.pontoons)return drawPontoonTraces(fields.pontoons);
     const captions=[];
     if(layer==='swimmer'||layer==='all'){
@@ -259,13 +293,13 @@ export function physicsView(T,canvas,status){
           if(sources[i+2]>.0003)dot(a.set(sources[i],sources[i+1],tide),null,colors.near,2.4);
         }
         const name=swimmerKind==='whale'?'Humpback':'Great white';
-        captions.push(name+' wake · '+dimensions+' Modelica grid · alternate nodes · elevations relative to tide');
+        captions.push('Local displacement wake · '+name+' · '+dimensions+' Modelica grid · alternate nodes · elevations relative to tide');
         captions.push('Gold · displaced-water sources');
       }else if(layer==='swimmer'||fields?.swimmerKind){
-        captions.push('No active swimmer wake for this view');
+        captions.push('No active local displacement wake for this view');
       }
     }
-    for(const [key,name] of [['wind','Blue wind sea'],['wake','Violet shared wake FFT'],['near','Gold near-hull field']]){
+    for(const [key,name] of [['wind','Blue wind sea'],['wake','Violet shared displacement wake'],['near','Gold local displacement wake']]){
       if(layer!==key&&layer!=='all')continue;
       const field=fields?.[key];
       if(!field?.values)continue;
@@ -274,7 +308,10 @@ export function physicsView(T,canvas,status){
       if(!dimensions)continue;
       const frame=field.local?'follows hull heading, offset from incident sea':key==='wake'||field.advected?'current drift':'world axes';
       captions.push(name+' '+dimensions+' · '+frame);
-      if(key==='near')drawSources(field,height);
+      if(key==='near'){
+        if(field.refined)captions.push('Bow refinement · '+drawGrid(field.refined,x,y,height,'#fff2c1'));
+        drawSources(field,height);
+      }
       if(key==='wind')captions.push('Long swell is analytic');
     }
     if((layer==='surface'||layer==='all')&&fields?.surfaceAt){
@@ -324,7 +361,9 @@ export function physicsView(T,canvas,status){
       drawProbes(body.probes);
       captions.push('White dots · Buoyancy surface samples');
     }
-    if(options.rig&&body.rig?.battens?.some(([count])=>count>0))
+    if(options.rig&&body.rig?.sails.some(sail=>sail.battenRows))
+      captions.push('Yellow · Batten rows in the cloth mesh');
+    else if(options.rig&&body.rig?.battens?.some(([count])=>count>0))
       captions.push('Yellow battens · stiffness distributed across cloth rows');
     const caption=captions.join(' | ');
     if(status.textContent!==caption)status.textContent=caption;

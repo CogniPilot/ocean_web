@@ -5,9 +5,9 @@ const ring=Array.from({length:ringSteps},(_,i)=>{
   return [Math.cos(angle),Math.sin(angle)];
 });
 
-export function collisionOverlay(T){
+export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768){
   const scene=new T.Scene(),colors=new Map(),point=new T.Vector3();
-  scene.name='Collision shapes';
+  scene.name=name;
   function batch(make,material,capacity){
     const geometry=new T.BufferGeometry();
     const mesh=make(geometry,material);
@@ -45,7 +45,7 @@ export function collisionOverlay(T){
     };
   }
   const style={vertexColors:true,depthTest:false,depthWrite:false,transparent:true,toneMapped:false};
-  const segments=batch((g,m)=>new T.LineSegments(g,m),new T.LineBasicMaterial({...style,opacity:.64}),32768);
+  const segments=batch((g,m)=>new T.LineSegments(g,m),new T.LineBasicMaterial({...style,opacity:.64}),segmentCapacity);
   const samples=batch((g,m)=>new T.Points(g,m),new T.PointsMaterial({...style,opacity:.95,size:5,sizeAttenuation:false}),256);
   function tint(value){
     if(!colors.has(value)){
@@ -58,18 +58,19 @@ export function collisionOverlay(T){
     const color=tint(value);
     for(let i=0;i<coords.length;i+=3)buffer.add(frame,coords[i],coords[i+1],coords[i+2],color);
   }
-  function ellipsoid(frame,center,radii,value){
-    const color=tint(value),coord=[0,0,0];
-    for(let axis=0;axis<3;axis++){
-      const a=(axis+1)%3,b=(axis+2)%3;
-      coord[axis]=center[axis];
-      for(let step=0;step<ringSteps;step++){
-        for(const k of [step,(step+1)%ringSteps]){
-          coord[a]=center[a]+radii[a]*ring[k][0];coord[b]=center[b]+radii[b]*ring[k][1];
-          segments.add(frame,coord[0],coord[1],coord[2],color);
-        }
+  function ellipse(frame,center,radii,axis,color){
+    const coord=[0,0,0],a=(axis+1)%3,b=(axis+2)%3;
+    coord[axis]=center[axis];
+    for(let step=0;step<ringSteps;step++){
+      for(const k of [step,(step+1)%ringSteps]){
+        coord[a]=center[a]+radii[a]*ring[k][0];coord[b]=center[b]+radii[b]*ring[k][1];
+        segments.add(frame,coord[0],coord[1],coord[2],color);
       }
     }
+  }
+  function ellipsoid(frame,center,radii,value){
+    const color=tint(value);
+    for(let axis=0;axis<3;axis++)ellipse(frame,center,radii,axis,color);
   }
   return {
     begin(){segments.clear();samples.clear();},
@@ -81,6 +82,7 @@ export function collisionOverlay(T){
     },
     sphere(frame,center,radius,value){ellipsoid(frame,center,[radius,radius,radius],value);},
     ellipsoid,
+    circle(frame,center,axis,radius,value){ellipse(frame,center,[radius,radius,radius],axis,tint(value));},
     lines(frame,coords,value){vertices(segments,frame,coords,value);},
     points(frame,coords,value){vertices(samples,frame,coords,value);},
     render(renderer,camera){

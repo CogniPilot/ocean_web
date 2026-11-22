@@ -1,5 +1,5 @@
 import {sailTelltale} from './sail-telltale.mjs';
-import {battenTexturePaths,clothTopology} from './sail-battens.mjs';
+import {battenTexturePaths,clothTopology,sailPanelTexture,sailTopology} from './sail-battens.mjs';
 import {vehicleShell} from '../vehicle-assets.mjs';
 import {showInLowWaterCapture} from '../render-layers.mjs';
 import {hobieTrampoline,forwardBeam} from './trampoline.mjs';
@@ -21,6 +21,7 @@ export function elevation(frame,x,y){
  const at=(ix,iy)=>frame.tile[wrap(iy)*32+wrap(ix)];
  return frame.tide+(1-a)*(1-b)*at(i,j)+a*(1-b)*at(i+1,j)+(1-a)*b*at(i,j+1)+a*b*at(i+1,j+1);
 }
+const mastStationHeights=[.443,.97,2.40,3.83,5.26,6.69,8.12,8.44];
 const poseFields=['east','north','heading','heave','heel','pitch','sheet','rudder'];
 const navFields=['buoyancy','vane','navE','navN','courseEstimate','speedE','speedN','cupSpeed','p11','fixE','fixN','drumAngle','payout'];
 export const boatFields=['sailVertex','sailForward','sailPort','foilAxial','foilSide','sheetRotation','footX','boomElevation','surge',...poseFields,...navFields];
@@ -72,7 +73,7 @@ function sailStitches(context,path,width,height){
  context.stroke();
 }
 
-function sailMaterial(T,cat,sail,telltaleRows){
+function sailMaterial(T,cat,sail,telltaleRows,panelTexture){
  const c=document.createElement('canvas');c.width=512;c.height=1024;
  let pocketRelief;
  const g=c.getContext('2d');g.fillStyle='#e9edef';g.fillRect(0,0,512,1024);
@@ -85,7 +86,7 @@ function sailMaterial(T,cat,sail,telltaleRows){
      ['#da2729','#da2729','#da2729','#fb5d18','#fb5d18','#ffca32','#ffca32','#ffca32','#ffca32']:
      ['#da2729','#da2729','#fb5d18','#fb5d18','#ffca32']):
      Array.from({length:sail===0?9:5},(_,i)=>['#3ca726','#f6f7f7','#04a9c7','#cfdf00'][i%4]);
-   const pockets=battenTexturePaths(sail);
+   const pockets=panelTexture?.pockets??battenTexturePaths(sail);
    const panels=[[[0,1],[1,1]],...pockets];
    // Upper panels cover the preceding fill so antialiased seam edges do not leave gaps.
    for(let i=0;i<colors.length;i++){
@@ -104,8 +105,9 @@ function sailMaterial(T,cat,sail,telltaleRows){
    g.fillStyle='rgba(52,39,31,.21)';
    g.fillRect(0,0,7,1024);g.fillRect(508,0,4,1024);g.fillRect(0,1018,512,6);
    // Small inspection windows sit just aft of their paired ribbons.
-   for(const row of telltaleRows){
-     const x=.20*512,y=(1-(row+.48)/5)*1024;
+   const windows=panelTexture?.windows??telltaleRows.map(row=>1-(row+.48)/5);
+   for(const v of windows){
+     const x=.20*512,y=v*1024;
      g.beginPath();g.moveTo(x+6,y);g.lineTo(x+55,y-13);g.lineTo(x+55,y+13);g.closePath();
      g.strokeStyle='#d9d1b6';g.lineWidth=6;g.stroke();
      g.save();g.clip();g.clearRect(x+4,y-16,54,32);g.restore();
@@ -279,7 +281,7 @@ function ballastMarker(T){
  return marker;
 }
 
-export function sailboatMesh(T,cat=false,keelX=.06){
+export function sailboatMesh(T,cat=false,keelX=.06,sailPanels){
  const group=new T.Group();
  const paint=(c)=>new T.MeshStandardMaterial({color:c,roughness:.42,metalness:.12});
  const red=paint(0xca2526);
@@ -467,7 +469,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    const mastLength=8.07,mastStepZ=.41;
    mastGeometry=new T.CylinderGeometry(.043,.043,mastLength,10,32);
    mastGeometry.rotateX(Math.PI/2);mastGeometry.translate(.44,0,mastStepZ+mastLength/2);
-   mesh(mastGeometry,black);
+   mesh(mastGeometry,black).name='Hobie mast';
    const positions=mastGeometry.attributes.position;
    mastRest=positions.clone();
    // This interpolates the six luff nodes reported by the cloth FMU.
@@ -525,21 +527,24 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  const sails=(cat?[{width:2.78,z:.97},{width:1.98,z:jibTackZ}]:[{width:1.28,z:.19},{width:.60,z:.19}]).map((spec,index)=>{
    const pivot=new T.Group();pivot.position.z=spec.z;group.add(pivot);
    const geo=new T.BufferGeometry();
-   const coords=new T.Float32BufferAttribute(new Float32Array(24*3),3);
-   const uv=[];
-   for(let row=0;row<6;row++)for(let col=0;col<4;col++){
-     uv.push(col/3,row/5);
+   const panel=sailPanels?.[index],rows=panel?.luff.length??6;
+   const coords=new T.Float32BufferAttribute(new Float32Array(rows*4*3),3);
+   const telltaleRows=panel?.telltaleRows??(index===0?[1,2,4]:[1,3]);
+   const panelTexture=panel?sailPanelTexture(panel.luff,panel.leech,telltaleRows):null;
+   const uv=panelTexture?.uv??[];
+   if(!panelTexture){
+     for(let row=0;row<rows;row++)for(let col=0;col<4;col++)uv.push(col/3,row/(rows-1));
    }
    geo.setAttribute('position',coords);geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
-   geo.setIndex(new T.BufferAttribute(clothTopology,1));
-   const telltaleRows=index===0?[1,2,4]:[1,3];
-   showInLowWaterCapture(mesh(geo,sailMaterial(T,cat,index,telltaleRows),pivot)).frustumCulled=false;
+   geo.setIndex(new T.BufferAttribute(panel?sailTopology(rows):clothTopology,1));
+   showInLowWaterCapture(mesh(geo,sailMaterial(T,cat,index,telltaleRows,panelTexture),pivot)).frustumCulled=false;
    const boomHinge=new T.Group();pivot.add(boomHinge);
-   let outhaul;
+   let outhaul,bail,downhaulBase;
    if(cat&&index===0){
      const end=-spec.width-.13;
-     rod([0,0,-.029],[end,0,-.029],.035,black,boomHinge).scale.z=1.27;
-     const bail=mesh(new T.TorusGeometry(.016,.004,6,16).rotateX(Math.PI/2),paint(0xa7afb2),boomHinge);
+     const boom=rod([0,0,-.029],[end,0,-.029],.035,black,boomHinge);
+     boom.name='Hobie boom';boom.scale.z=1.27;
+     bail=mesh(new T.TorusGeometry(.016,.004,6,16).rotateX(Math.PI/2),paint(0xa7afb2),boomHinge);
      bail.name='Mainsheet boom bail';
      bail.position.copy(mainBail);bail.position.z+=.016;
      outhaul={line:rod([0,0,0],[end,0,0],.0034,paint(0xf1e7c6),boomHinge),end};
@@ -551,7 +556,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      for(const y of [-.009,0,.009]){
        downhaul.push(rod([-.055,y,-.38],[-.055,y,-.03],.0028,line,pivot));
      }
-     rod([-.055,-.014,-.38],[-.055,.014,-.38],.012,black,pivot);
+     downhaulBase=rod([-.055,-.014,-.38],[-.055,.014,-.38],.012,black,pivot);
      rod([-.055,-.014,-.03],[-.055,.014,-.03],.013,black,boomHinge);
    }
    const tufts=[];
@@ -562,7 +567,8 @@ export function sailboatMesh(T,cat=false,keelX=.06){
        pivot.add(tuft.mesh);tufts.push(tuft);
      }
    }
-   return {pivot,geo,coords,boomHinge,vang,downhaul,outhaul,tufts,telltaleRows};
+   return {pivot,geo,coords,boomHinge,bail,vang,downhaul,downhaulBase,outhaul,tufts,telltaleRows,
+     battenRows:panel?rows-2:0};
  });
  const podRadius=cat?.17:.075,podHeight=cat?8.44:3.02,podX=cat?.44:.12;
  const halfLength=cat?.29:podRadius;
@@ -594,7 +600,9 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    ...(otherRudder?[[otherRudder,[0,0,1],'']]:[])
  ]};
  return {group,cameraPorts,inspection,ballastPosition:carriage?.position,setBallastVisible(visible){if(carriage)carriage.visible=visible;},patrolTrim(main,jib){sails[0].pivot.rotation.z=main;sails[1].pivot.rotation.z=jib;},
-   update(s,ballast,cars,rope,tails,faceTails,stayPath,time){
+   update(s,ballast,cars,rope,tails,faceTails,stayPath,time,geometry){
+   const [mastStations,gooseneck,blockPins]=geometry?.rig??[];
+   inspection.mastStations=mastStations;
    if(stayPath){
      for(let i=0;i<3;i++){
        const a=side.fromArray(stayPath,9*i);
@@ -625,17 +633,36 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      }
    }
    group.position.set(s[0],s[1],s[3]);group.rotation.set(s[4],s[5],s[2],'ZYX');rudder.rotation.z=-s[7];
-   sails.forEach(({pivot,geo,coords,boomHinge,vang,downhaul,outhaul,tufts,telltaleRows},m)=>{
+   sails.forEach(({pivot,geo,coords,boomHinge,bail,vang,downhaul,downhaulBase,outhaul,tufts,telltaleRows},m)=>{
      const r=42+2*24*3+m*9;
      sheetMatrix.set(s[r],s[r+1],s[r+2],0,s[r+3],s[r+4],s[r+5],0,s[r+6],s[r+7],s[r+8],0,0,0,0,1);
      pivot.quaternion.setFromRotationMatrix(sheetMatrix);
      pivot.position.x=s[42+2*24*3+18+m];
      if(m===0){
        boomHinge.rotation.y=s[206];
-       boomHinge.position.z=cat?s[44]:0;
-       for(const line of downhaul){
-         line.position.z=(-.41+boomHinge.position.z)/2;
-         line.scale.y=(.35+boomHinge.position.z)/.35;
+       if(gooseneck){
+         inverse.copy(pivot.quaternion).invert();
+         boomHinge.position.fromArray(gooseneck).sub(pivot.position).applyQuaternion(inverse);
+         const height=pivot.position.z-.38;
+         const t=(height-mastStations[2])/(mastStations[5]-mastStations[2]);
+         downhaulBase.position.set(T.MathUtils.lerp(mastStations[0],mastStations[3],t),
+           T.MathUtils.lerp(mastStations[1],mastStations[4],t),height)
+           .sub(pivot.position).applyQuaternion(inverse);
+         downhaulBase.position.x-=.055;
+         if(bail&&blockPins){
+           bail.position.fromArray(blockPins,3).sub(pivot.position).applyQuaternion(inverse)
+             .sub(boomHinge.position).applyQuaternion(inverse.copy(boomHinge.quaternion).invert());
+           bail.position.z+=.016;
+         }
+       }else boomHinge.position.z=cat?s[44]:0;
+       for(const [i,line] of downhaul.entries()){
+         const y=.009*(i-1);
+         side.copy(downhaulBase.position);side.y+=y;
+         binormal.set(-.055,y,-.03).applyQuaternion(boomHinge.quaternion).add(boomHinge.position);
+         tangent.subVectors(binormal,side);
+         line.position.copy(side).lerp(binormal,.5);
+         line.scale.y=tangent.length()/.35;
+         line.quaternion.setFromUnitVectors(stayUp,tangent.normalize());
        }
      }
      if(vang){
@@ -645,17 +672,19 @@ export function sailboatMesh(T,cat=false,keelX=.06){
        vang.position.set(line.x/2,0,-vangDrop+line.z/2);
        vang.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),line.normalize());
      }
-     for(let i=0;i<24;i++){
+     const vertices=geometry?.cloth?.[m];
+     if(vertices)coords.array.set(vertices);
+     else for(let i=0;i<24;i++){
        const offset=42+m*72+i*3;
        coords.setXYZ(i,s[offset],s[offset+1],s[offset+2]);
      }
      if(outhaul){
-       const clew=Math.hypot(coords.getX(3),coords.getZ(3)-boomHinge.position.z);
+       const clew=Math.hypot(coords.getX(3)-boomHinge.position.x,coords.getZ(3)-boomHinge.position.z);
        outhaul.line.position.x=(outhaul.end-clew)/2;
        outhaul.line.scale.y=Math.max(.001,(-outhaul.end-clew)/(-outhaul.end));
      }
      if(m===1 && jibHalyard && stayPath){
-       const head=side.fromBufferAttribute(coords,20).applyQuaternion(pivot.quaternion).add(pivot.position);
+       const head=side.fromBufferAttribute(coords,coords.count-4).applyQuaternion(pivot.quaternion).add(pivot.position);
        const tang=binormal.fromArray(stayPath,24);
        head.y+=.012;
        tang.y+=.012;
@@ -682,20 +711,37 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      }
    });
    if(mastGeometry){
-     const main=sails[0],nodes=main.coords;
-     const bend=Array.from({length:6},(_,r)=>s[186]*nodes.getX(4*r)+s[187]*nodes.getY(4*r));
-     const lateral=Array.from({length:6},(_,r)=>s[189]*nodes.getX(4*r)+s[190]*nodes.getY(4*r));
      const pos=mastGeometry.attributes.position;
-     for(let i=0;i<pos.count;i++){
-       const w=mastWeights[i],lo=Math.floor(w),hi=Math.min(5,lo+1);
-       pos.setX(i,mastRest.getX(i)+bend[lo]+(w-lo)*(bend[hi]-bend[lo]));
-       pos.setY(i,mastRest.getY(i)+lateral[lo]+(w-lo)*(lateral[hi]-lateral[lo]));
+     let headX,headY,headZ=podHeight;
+     if(mastStations){
+       const last=mastStations.length-3;
+       for(let i=0;i<pos.count;i++){
+         const height=mastRest.getZ(i);
+         let a=0;
+         while(a+3<last&&mastStationHeights[a/3+1]<height)a+=3;
+         const b=a+3,lower=mastStationHeights[a/3],upper=mastStationHeights[b/3];
+         const t=T.MathUtils.clamp((height-lower)/(upper-lower),0,1);
+         const x=T.MathUtils.lerp(mastStations[a],mastStations[b],t);
+         const y=T.MathUtils.lerp(mastStations[a+1],mastStations[b+1],t);
+         pos.setX(i,mastRest.getX(i)-podX+x);
+         pos.setY(i,mastRest.getY(i)+y);
+         pos.setZ(i,T.MathUtils.lerp(mastStations[a+2],mastStations[b+2],t));
+       }
+       headX=mastStations[last];headY=mastStations[last+1];headZ=mastStations[last+2];
+     }else{
+       const bend=Array.from({length:6},(_,r)=>s[186]*s[42+12*r]+s[187]*s[43+12*r]);
+       const lateral=Array.from({length:6},(_,r)=>s[189]*s[42+12*r]+s[190]*s[43+12*r]);
+       for(let i=0;i<pos.count;i++){
+         const w=mastWeights[i],lo=Math.floor(w),hi=Math.min(5,lo+1);
+         pos.setX(i,mastRest.getX(i)+T.MathUtils.lerp(bend[lo],bend[hi],w-lo));
+         pos.setY(i,mastRest.getY(i)+T.MathUtils.lerp(lateral[lo],lateral[hi],w-lo));
+       }
+       headX=podX+bend[5];headY=lateral[5];
      }
      pos.needsUpdate=true;
-     const dx=podX+bend[5]-pod.position.x;
-     const dy=lateral[5]-pod.position.y;
-     for(const part of podParts){part.position.x+=dx;part.position.y+=dy;}
-     for(const port of cameraPorts){port[0]+=dx;port[1]+=dy;}
+     const dx=headX-pod.position.x,dy=headY-pod.position.y,dz=headZ-pod.position.z;
+     for(const part of podParts){part.position.x+=dx;part.position.y+=dy;part.position.z+=dz;}
+     for(const port of cameraPorts){port[0]+=dx;port[1]+=dy;port[2]+=dz;}
    }
    if(cars){
      crossTiller.position.set(-2.545+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.47);
@@ -705,9 +751,11 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      }
      // Attachment positions in the hull frame. The front clew follows the actual cloth.
      const {boomHinge,pivot}=sails[0];
-     const top=mainBail.clone().applyQuaternion(boomHinge.quaternion).add(boomHinge.position)
-       .applyQuaternion(pivot.quaternion).add(pivot.position);
-     const lowerBlock=deckCars[0].position.clone();lowerBlock.z+=.04;
+     const top=blockPins?new T.Vector3().fromArray(blockPins,3):
+       mainBail.clone().applyQuaternion(boomHinge.quaternion).add(boomHinge.position)
+         .applyQuaternion(pivot.quaternion).add(pivot.position);
+     const lowerBlock=blockPins?new T.Vector3().fromArray(blockPins):deckCars[0].position.clone();
+     if(!blockPins)lowerBlock.z+=.04;
      const axis=new T.Vector3().subVectors(top,lowerBlock).normalize();
      sheetBlocks.forEach((block,i)=>{
        block.position.copy(i?top:lowerBlock);

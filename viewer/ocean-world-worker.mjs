@@ -6,7 +6,7 @@ import {scalarNames} from './fmu-page-contract.js';
 import {loadInstance} from '../fmi3/instance.mjs';
 
 let session,observations,inputs,surveyMap;
-let bowField,bowFields;
+let bowField,bowFields,refineBows=false;
 let sampledGroups=[],stepCount=0,stepTicks=1;
 // These discrete outputs share sample events in OceanWorld. The initial
 // right limit can differ from the initialization snapshot on the first step.
@@ -28,6 +28,7 @@ async function handle(request){
   if(request.type==='open'){
     if(session)throw Error('World already initialized');
     stepTicks=request.stepTicks??1;
+    refineBows=Boolean(request.refineBows);
     if(stepTicks!==1&&stepTicks!==2)throw Error('Expected a 10 or 20 ms communication step');
     const base=new URL('./',import.meta.url);
     const {index:file}=await (await fetch(new URL('manifest.json',base),{cache:'no-cache'})).json();
@@ -104,18 +105,23 @@ async function handle(request){
     transfer.push(data.buffer);
     return data;
   });
-  let bowHeight;
+  let bowHeight,bowFineHeight;
   const bowSnapshot=bowFields&&sampled[bowFields.index];
   if(bowSnapshot){
     const {sources,speed}=bowFields;
     const values=bowSnapshot.subarray(sources.offset,sources.offset+sources.count);
     const velocity=bowSnapshot.subarray(speed.offset,speed.offset+speed.count);
     if(bowField||values.some(v=>v!==0)){
-      bowField??=await loadInstance('BowWavePatch',{});
+      bowField??=await loadInstance('BowWavePatch',refineBows?{refineBows:1}:{});
       bowField.set('sources',values);bowField.set('relativeSpeed',velocity);
       bowField.advance(.01);
-      bowHeight=Float32Array.from(bowField.get('height'));
+      const [coarse,fine]=refineBows?bowField.getMany(['height','fineHeight']):[bowField.get('height')];
+      bowHeight=Float32Array.from(coarse);
       transfer.push(bowHeight.buffer);
+      if(fine){
+        bowFineHeight=Float32Array.from(fine);
+        transfer.push(bowFineHeight.buffer);
+      }
     }
   }
   let mapRows;
@@ -130,7 +136,7 @@ async function handle(request){
       surveyMap.closures=closures;
     }
   }
-  self.postMessage({id:request.id,time:session.time(),values,layout,mapRows,sampled,bowHeight},transfer);
+  self.postMessage({id:request.id,time:session.time(),values,layout,mapRows,sampled,bowHeight,bowFineHeight},transfer);
 }
 // Opening the guest is asynchronous. Process later control packets in order.
 let queue=Promise.resolve();

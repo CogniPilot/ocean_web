@@ -1,4 +1,5 @@
 import {pilotSticks} from './keyboard-sticks.mjs';
+import {droneInertia} from './inertia-view.mjs';
 import {GLTFLoader} from './vendor/gltf-loader.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
 function loadAirframe(){
@@ -66,6 +67,7 @@ export async function surveyDrone(T,scene,world){
     return {position:position.map(sigma),velocity:velocity.map(sigma),wind:sigma(wind)};
   }
   return {group,instruments,hasNavigation,covariance,bladeCount,
+    inertia(){return droneInertia(name=>flight.has(name)?flight.get(name):undefined);},
     get throttle(){return flight.get('throttle');},get rotorAngles(){return flight.get('rotorAngle');},
     get rotorSpeeds(){return hasRotorSpeeds?flight.get('rotorSpeed'):null;},
     get estimatedPosition(){return flight.get(instrumentsFields[1]);},
