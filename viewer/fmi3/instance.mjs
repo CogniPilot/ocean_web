@@ -30,10 +30,10 @@ export async function loadInstance(name,inputs,read=fetch){
     return destination;
   }
   function getMany(names) {
-    if (!m._read_batch || names.length>128) return names.map(get);
+    if (!m._read_batch || names.length>128) return names.map(name=>get(name));
     const variables=names.map(name=>metadata.variables[name]);
     const total=variables.reduce((sum,v)=>sum+v[2],0);
-    if (total>16384 || variables.some(v=>v[1]!=='Float64')) return names.map(get);
+    if (total>16384 || variables.some(v=>v[1]!=='Float64')) return names.map(name=>get(name));
     const refs=new Uint32Array(m.HEAPF64.buffer,m._reference_buffer(),names.length);
     variables.forEach(([reference],i)=>{refs[i]=reference;});
     check(m._read_batch(names.length,total));

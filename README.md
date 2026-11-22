@@ -4,6 +4,8 @@ Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone
 
 On a phone, try **Fast (simplified water)** under **Settings → Performance**. It uses the animated sky for water reflections and omits object reflections, refraction and hull wakes. [Launch the Hobie in Fast mode](https://cognipilot.github.io/ocean_web/?boat=Hobie16&quality=fast)
 
+Choose the **Inboard cabin cruiser**, **Humpback whale**, or **Great white shark** in the vehicle picker. To add a herring gull, open **Settings → Spawn wildlife**, select **Herring gull**, and tap **Spawn NPC**. The camera switches to the new gull. [Launch the cruiser](https://cognipilot.github.io/ocean_web/?control=motorboat&quality=fast) · [Swim as the humpback](https://cognipilot.github.io/ocean_web/?control=whale&quality=fast) · [Swim as the great white](https://cognipilot.github.io/ocean_web/?control=shark&quality=fast)
+
 Choose **Piccard Sub** to explore the shipwreck. You start in the cockpit with the sonar map visible and autopilot surveying the wreck interior and upper hull. **Take control** lets you pilot the same dive, and **Resume survey** hands it back to autopilot. Enable **Multiplayer** and share **Copy room link** to explore together, each in your own sub. [Launch the sub](https://cognipilot.github.io/ocean_web/?control=sub)
 
 [Request tracker](TODO.md)

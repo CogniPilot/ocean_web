@@ -25,6 +25,10 @@ Four six-second samples in Chromium with SwiftShader used a 393 × 852 touch vie
 
 The packaged worker now skips the zero-filled 64 × 64 wake grid in Low and Fast. At ten updates per simulated second this removes 320 KiB/s of worker messages and 160 KiB/s of texture uploads during steady rendering. The incoming sea tile still updates. Selecting Balanced or High resumes the wake grid on the next worker reply.
 
+With the cruiser and coastal wildlife active, four six-second Chromium samples in the same phone viewport ran in Low, Fast, Fast, Low order. They recorded 18.2, 28.3, 26.2 and 17.3 FPS and p95 frame intervals of 139.1, 93.5, 88.4 and 141.8 ms. The simulation advanced at 0.95–1.02× real time. Fast removed approximately 19–21 planar renders per second in this scene.
+
+A second change uses single-scale foam detail in Fast and evaluates additional wildlife foam detail only where the wake has foam. Four Fast samples in reference, candidate, candidate, reference order ran at 26.6, 28.7, 25.6 and 19.3 FPS. Their p95 frame intervals were 79.8, 79.7, 61.4 and 134.2 ms. Frame timing varied with the shared workstation load.
+
 ### Hobie solver work in Swell
 
 The incident sea skips modes whose directional energy is zero. Rumoca saves only the coordinates written by direct assignment plans that lack a projection fallback. In the Hobie derivative plan, that reduced each backup from 10,681 doubles to 644. The compiler also reuses small pure tuple results when their input bytes match. The packaged components were rebuilt with `CARGO_PROFILE_RELEASE_OPT_LEVEL=2`.

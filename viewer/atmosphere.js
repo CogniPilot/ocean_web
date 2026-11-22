@@ -577,14 +577,19 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
      float windCrest=wp.z-tide-swell.x*sin(swell.y+dot(wp.xy-swellCenter,swell.zw));
      waterColor=mix(waterColor,vec3(.012,.037,.043),storm*.85);
-     float scum=cloud(p*vec2(1.8,3.8)+vec2(-.9*tm,0.));
+     vec2 foamUV=p*vec2(1.8,3.8)+vec2(-.9*tm,0.);
+     #ifdef SIMPLE_SURFACE
+     float scum=noise2(foamUV);
+     #else
+     float scum=cloud(foamUV);
+     #endif
      // Monahan and O'Muircheartaigh's wind-dependent whitecap coverage.
      // Use it as a density control on steep wind-wave crests.
      float windCoverage=3.84e-6*pow(max(0.,rippleWind),3.41);
      float densityCutoff=clamp(1.-8.*windCoverage,.36,1.);
      float breaking=smoothstep(.085,.32,windCrest)*smoothstep(.045,.17,gravitySlope);
      float foam=breaking*smoothstep(densityCutoff-.08,densityCutoff+.06,scum);
-     foam=max(foam,min(1.,swimmer.y)*(.40+.60*smoothstep(.22,.75,noise2(wp.xy*12.+.28*tm))));
+     if(swimmer.y>0.)foam=max(foam,min(1.,swimmer.y)*(.40+.60*smoothstep(.22,.75,noise2(wp.xy*12.+.28*tm))));
      float edge=wakeAvailable>.5?1.-wakeFalloff(wp.xy):0.;
      if(edge>0.){
        vec2 uvWake=spectralUV(wp.xy);

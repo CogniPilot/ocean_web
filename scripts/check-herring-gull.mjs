@@ -52,6 +52,7 @@ assert(Math.abs(beatHz-3.13)<.06&&gaps>=2&&airspeed/samples>11&&airspeed/samples
 console.log('Harbour circuit',{airspeed:airspeed/samples,beatHz,flapGlideChanges:gaps,meanPower:power/samples,peakPower,stepWithTelemetryUs:stepUs});
 
 const [state,memory]=bird.getMany(['x','memory']);
+assert.deepEqual(bird.getMany(Array(129).fill('x')),Array(129).fill(state));
 const successor=await open({wind:[0,11],startState:state,startMemory:memory});
 for(let i=0;i<100;i++){bird.advance(dt);successor.advance(dt);}
 const [a,b]=[bird,successor].map(m=>m.getMany(['x','memory']).flat());
