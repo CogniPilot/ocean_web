@@ -1724,7 +1724,6 @@ async function run(){
         camera.position.copy(boat.ballastPosition);
         camera.position.z+=.72;
         boat.group.localToWorld(camera.position);
-        camera.up.applyQuaternion(orientation);
         fpvForward.set(horizontalLook*Math.cos(skipper.yaw),horizontalLook*Math.sin(skipper.yaw),Math.sin(skipper.pitch));
         camera.lookAt(fpvForward.applyQuaternion(orientation).add(camera.position));
       }else{
