@@ -44,23 +44,32 @@ export async function loadBoat(read=fetch){
  }};
 }
 function sailclothLighting(shader){
- shader.fragmentShader=shader.fragmentShader
-   .replace('#include <roughnessmap_fragment>',`#include <roughnessmap_fragment>
-     // The translucent inspection windows are smooth vinyl.
-     float fabricCoverage = smoothstep( 0.43, 0.92, diffuseColor.a );
-     roughnessFactor = mix( 0.26, roughnessFactor, fabricCoverage );`)
-   .replace('#include <lights_fragment_end>',`#include <lights_fragment_end>
-     float backlight = 0.0;
-     #if NUM_DIR_LIGHTS > 0
-       float backFace = max( dot( -nonPerturbedNormal, directionalLights[ 0 ].direction ), 0.0 );
-       backlight = backFace * saturate( dot( directionalLights[ 0 ].color, vec3( 0.2126, 0.7152, 0.0722 ) ) );
-       reflectedLight.indirectDiffuse += fabricCoverage * diffuseColor.rgb *
-         directionalLights[ 0 ].color * ( 0.32 * RECIPROCAL_PI * backFace );
-     #endif
-     // Oblique paths cross more yarn, so transparency falls toward grazing angles.
-     float throughFabric = ( 0.045 + 0.13 * backlight ) * smoothstep( 0.08, 0.90,
-       dot( nonPerturbedNormal, geometryViewDir ) );
-     diffuseColor.a *= 1.0 - fabricCoverage * throughFabric;`);
+ shader.fragmentShader=shader.fragmentShader.replace('#include <roughnessmap_fragment>',`#include <roughnessmap_fragment>
+   // The transparent inspection windows are smoother than woven polyester.
+   float fabricCoverage = smoothstep( 0.43, 0.92, diffuseColor.a );
+   roughnessFactor = mix( 0.23, roughnessFactor, fabricCoverage );`);
+}
+
+function sailStitches(context,path,width,height){
+ context.beginPath();
+ let distance=0,remaining=0;
+ for(let segment=1;segment<path.length;segment++){
+   const [u,v]=path[segment-1],x=u*width,y=v*height;
+   const dx=path[segment][0]*width-x,dy=path[segment][1]*height-y;
+   const length=Math.hypot(dx,dy);
+   if(length<.01)continue;
+   const alongX=dx/length,alongY=dy/length;
+   for(;remaining<length;remaining+=3){
+     const offset=distance%2===0?1.5:4.1;
+     const a=x+remaining*alongX-offset*alongY,b=y+remaining*alongY+offset*alongX;
+     if(distance++===0)context.moveTo(a,b);
+     else context.lineTo(a,b);
+   }
+   remaining-=length;
+ }
+ context.strokeStyle='rgba(255,241,225,.45)';
+ context.lineWidth=.86;
+ context.stroke();
 }
 
 function sailMaterial(T,cat,sail,telltaleRows){
@@ -137,9 +146,7 @@ function sailMaterial(T,cat,sail,telltaleRows){
      pocket('rgba(55,31,19,.12)',5);
      pocket('rgba(255,232,179,.22)',1.4,-2);
      pocket('rgba(55,31,19,.22)',1,2);
-     g.setLineDash([1.7,2.8]);
-     pocket('rgba(255,235,206,.28)',.85,-2.2);
-     g.setLineDash([]);
+     sailStitches(g,path,512,1024);
      const y1=1024*path.at(-1)[1];
      g.fillStyle='rgba(53,42,36,.5)';g.fillRect(508,y1-2,4,4);
    }
@@ -149,7 +156,8 @@ function sailMaterial(T,cat,sail,telltaleRows){
  if(!cat)return new T.MeshStandardMaterial({map:tex,roughness:.74,side:T.DoubleSide,forceSinglePass:true});
  tex.anisotropy=4;
  const material=new T.MeshPhysicalMaterial({name:'Woven sailcloth and vinyl windows',map:tex,bumpMap:pocketRelief,bumpScale:.001,
-   roughness:.68,sheen:.35,sheenColor:0xcfc3b7,sheenRoughness:.65,side:T.DoubleSide,transparent:true,forceSinglePass:true});
+   roughness:.46,clearcoat:.22,clearcoatRoughness:.36,sheen:.20,sheenColor:0xcfc3b7,
+   sheenRoughness:.58,side:T.DoubleSide,transparent:true,forceSinglePass:true});
  material.onBeforeCompile=sailclothLighting;
  return material;
 }
@@ -281,8 +289,8 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    roughness:.34,clearcoat:.25,clearcoatRoughness:.28}):paint(0x252c30);
  function mesh(geo,mat,parent=group){const m=new T.Mesh(geo,mat);parent.add(m);return m;}
  function rod(a,b,r,mat,parent=group){a=new T.Vector3(...a);b=new T.Vector3(...b);const d=b.clone().sub(a);const m=mesh(new T.CylinderGeometry(r,r,d.length(),10),mat,parent);m.position.copy(a).lerp(b,.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return m;}
- let vane,drum,rudder,otherRudder,carriage,crossTiller;
- let jibHalyard;
+ let vane,drum,rudder,otherRudder,carriage,crossTiller,rightingLine;
+ let jibHalyard,stayEyes,staySleeves;
  const deckCars=[],sheets=[],sheetBlocks=[],podParts=[],streamers=[],staySegments=[[],[],[]];
  const jibTackZ=.87,jibTackX=2.26-(jibTackZ-.75)*1.82/5.1;
  let mastGeometry,mastRest,mastWeights;
@@ -303,6 +311,27 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  const ropeSides=6,ropeRings=9;
  const circle=Array.from({length:ropeSides},(_,i)=>[Math.cos(i*2*Math.PI/ropeSides),Math.sin(i*2*Math.PI/ropeSides)]);
  const stayUp=new T.Vector3(0,1,0);
+ const connectorPose=new T.Matrix4(),connectorRotation=new T.Quaternion(),connectorAxis=new T.Vector3();
+ const connectorScale=new T.Vector3(1,1,1),terminationLength=.064;
+ function setStaySegment(stay,part,start,end){
+   const segment=staySegments[stay][part],direction=tangent.subVectors(end,start);
+   const length=direction.length();
+   direction.normalize();
+   const sideStay=stay<2;
+   const inset=sideStay?Math.min(terminationLength,length*.42):0;
+   segment.position.copy(start).lerp(end,.5).addScaledVector(direction,part===0?inset*.5:-inset*.5);
+   segment.scale.y=(length-inset)/segment.geometry.parameters.height;
+   segment.quaternion.setFromUnitVectors(stayUp,direction);
+   if(sideStay){
+     const point=part===0?start:end;
+     connectorAxis.copy(direction).multiplyScalar(part===0?1:-1);
+     connectorRotation.setFromUnitVectors(stayUp,connectorAxis);
+     connectorPose.compose(point,connectorRotation,connectorScale);
+     const index=2*stay+part;
+     stayEyes.setMatrixAt(index,connectorPose);
+     staySleeves.setMatrixAt(index,connectorPose);
+   }
+ }
  const side=new T.Vector3(),tangent=new T.Vector3(),binormal=new T.Vector3();
  function sheetRope(color){
    const geometry=new T.BufferGeometry(),faces=[];
@@ -365,12 +394,31 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    foilShape.setAttribute('position',new T.Float32BufferAttribute(vertices,3));
    foilShape.setIndex(faces);foilShape.computeVertexNormals();
    const pin=paint(0xa7afb2);
+   const jacket=new T.MeshPhysicalMaterial({name:'Black coated sidestay cable',color:0x131619,roughness:.35,
+     clearcoat:.32,clearcoatRoughness:.29});
+   const stainless=new T.MeshStandardMaterial({name:'Stainless sidestay terminals',color:0xb2b9c1,
+     metalness:.74,roughness:.31});
+   const eyeShape=new T.TorusGeometry(.0095,.0025,6,14).scale(.77,1.6,1).translate(0,.0145,0);
+   const sleeveShape=new T.CylinderGeometry(.0048,.0057,.036,10).translate(0,.046,0);
+   stayEyes=new T.InstancedMesh(eyeShape,stainless,4);
+   staySleeves=new T.InstancedMesh(sleeveShape,stainless,4);
+   stayEyes.name='Sidestay terminal eyes';staySleeves.name='Sidestay swage sleeves';
+   for(const fitting of [stayEyes,staySleeves]){
+     fitting.frustumCulled=false;
+     fitting.instanceMatrix.setUsage(T.DynamicDrawUsage);
+     group.add(fitting);
+   }
    function installStay(index,anchor){
      const head=[.44,0,5.85],mid=head.map((x,i)=>(x+anchor[i])/2);
-     for(const [a,b] of [[anchor,mid],[mid,head]]){
-       const segment=rod(a,b,.003,pin);
+     const points=[anchor,mid,head];
+     for(let part=0;part<2;part++){
+       const a=points[part],b=points[part+1];
+       const segment=rod(a,b,.003,index<2?jacket:pin);
+       segment.name=index===0?'Port sidestay':index===1?'Starboard sidestay':'Forestay';
        staySegments[index].push(segment);
+       setStaySegment(index,part,side.fromArray(a),binormal.fromArray(b));
      }
+     stayEyes.instanceMatrix.needsUpdate=staySleeves.instanceMatrix.needsUpdate=true;
    }
    const hulls=vehicleShell('hobie-hulls');
    hulls.traverse(showInLowWaterCapture);
@@ -413,6 +461,9 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    }
    group.add(hobieTrampoline(T));
    carriage=ballastMarker(T);group.add(carriage);carriage.position.set(-.425,0,.52);
+   rightingLine=sheetRope(0xc65845);
+   rightingLine.name='Hobie righting line';
+   rightingLine.visible=false;
    const mastLength=8.07,mastStepZ=.41;
    mastGeometry=new T.CylinderGeometry(.043,.043,mastLength,10,32);
    mastGeometry.rotateX(Math.PI/2);mastGeometry.translate(.44,0,mastStepZ+mastLength/2);
@@ -536,6 +587,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  }
  if(vane)vane.position.z=podHeight+podRadius+.035;
  const ribbonGravity=new T.Vector3(),inverse=new T.Quaternion(),anchor=new T.Vector3(),ribbonNormal=new T.Vector3();
+ const rightingLead=new T.Vector3(),rightingGrip=new T.Vector3();
  const inspection={sails,joints:[
    [sails[0].pivot,[0,0,1],'Main rotation'],[sails[0].boomHinge,[0,1,0],'Boom hinge'],
    [sails[1].pivot,[cat?-1.82/5.1:-1.04/2.69,0,1],'Jib rotation'],[rudder,[0,0,1],'Rudder hinge'],
@@ -548,14 +600,12 @@ export function sailboatMesh(T,cat=false,keelX=.06){
        const a=side.fromArray(stayPath,9*i);
        for(let j=0;j<2;j++){
          const b=binormal.fromArray(stayPath,9*i+3*(j+1));
-         const segment=staySegments[i][j],direction=tangent.subVectors(b,a);
-         segment.position.copy(a).lerp(b,.5);
-         segment.scale.y=direction.length()/segment.geometry.parameters.height;
-         segment.quaternion.setFromUnitVectors(stayUp,direction.normalize());
+         setStaySegment(i,j,a,b);
          if(i<2 && j===0)streamers[i].position.copy(a).lerp(b,.56);
          a.copy(b);
        }
      }
+     stayEyes.instanceMatrix.needsUpdate=staySleeves.instanceMatrix.needsUpdate=true;
    }
    for(let i=0;i<streamers.length;i++){
      streamers[i].visible=Boolean(tails);
@@ -563,7 +613,17 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    }
    if(vane)vane.rotation.z=s[30];if(drum)drum.rotation.y=s[40];
    if(otherRudder)otherRudder.rotation.z=-s[7];
-   if(carriage && ballast)carriage.position.set(-.425+ballast[0],ballast[1],.52);
+   if(carriage&&ballast)carriage.position.set(-.425+ballast[0],ballast[1],ballast[2]??.52);
+   if(rightingLine){
+     const support=ballast?.[3]??0;
+     rightingLine.visible=Math.abs(support)>.5;
+     if(rightingLine.visible){
+       rightingLead.set(carriage.position.x,-1.04*support,.27);
+       rightingGrip.copy(carriage.position);
+       rightingGrip.y-=.18*support;rightingGrip.z+=.16;
+       drawRope(rightingLine,rightingLead,rightingGrip,.012);
+     }
+   }
    group.position.set(s[0],s[1],s[3]);group.rotation.set(s[4],s[5],s[2],'ZYX');rudder.rotation.z=-s[7];
    sails.forEach(({pivot,geo,coords,boomHinge,vang,downhaul,outhaul,tufts,telltaleRows},m)=>{
      const r=42+2*24*3+m*9;

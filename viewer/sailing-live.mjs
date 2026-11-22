@@ -1,5 +1,5 @@
 import {harborMap} from './harbor-map.mjs';
-import {physicsView,hullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
+import {physicsView,hullInspectionFields,refinedHullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
 import {collisionOverlay,drawAnimalCollision,drawSailboatContacts} from './collision-view.mjs';
 import {surfaceCollisionShapes} from './surface-collision-view.mjs';
 import {subCollisionShapes} from './sub-collision-view.mjs';
@@ -189,7 +189,7 @@ async function run(){
   collisionToggle.checked=url.searchParams.get('collisions')==='1';
   const waveGrids=$('physicsWater'),waveLayer=$('waveLayer');
   waveGrids.onchange=()=>$('waveLayerControl').hidden=!waveGrids.checked;
-  let inspector,physicsEnabled=false,inspectionHull,inspectionTime,hullGridSamples;
+  let inspector,physicsEnabled=false,inspectionHull,inspectionTime,hullGridSamples,shownPontoonProbes;
   function physicsVisibility(){
     physicsEnabled=physicsToggle.checked;
     physicsCanvas.hidden=physicsLayers.hidden=!physicsEnabled;
@@ -1086,8 +1086,10 @@ async function run(){
 
   let lastDial=-Infinity;
   const requestedView=url.searchParams.get('view');
-  if(Object.hasOwn(wildlifeOrbits,requestedView))$('cameraDepth').value=requestedView;
-  if(targetSelect.value==='boat'&&skipperOption&&['ballast','trapeze-port','trapeze-starboard'].includes(requestedView))cameraMenu.value=skipperOption.value;
+  if(targetSelect.value==='boat'){
+    const useSkipper=skipperOption&&['ballast','trapeze-port','trapeze-starboard'].includes(requestedView);
+    cameraMenu.value=useSkipper?skipperOption.value:'deck';
+  }else if(Object.hasOwn(wildlifeOrbits,requestedView))cameraMenu.value=requestedView;
 
   function helm(){
     for(const draw of stickIndicators)draw();
@@ -1511,14 +1513,17 @@ async function run(){
       if(s){
         const [ballastX,ballastY,k,direction,amplitude,phase,mainCar,jibCar,ve,vn,yawRate,sag,vang]=model.getMany(
           ['ballastX','ballastY','swellK','swellBearing','swellAmplitude','swellPhase','mainCar','jibCar','ve','vn','yawRate','exposedSheetSag',cat?'downhaulTension':'vangTension']);
-        const ballast=cat?[ballastX,ballastY]:null;
+        const ballastZ=cat&&model.has('ballastZ')?model.get('ballastZ'):.52;
+        const rightingSide=cat&&model.has('rightingSide')?model.get('rightingSide'):0;
+        const ballast=cat?[ballastX,ballastY,ballastZ,rightingSide]:null;
         ocean.U.swellCenter.value.set(s[0],s[1]);
         ocean.U.swell.value.set(amplitude,phase,k*Math.cos(direction),k*Math.sin(direction));
         if(cat){
-          $('weightPos').textContent='X '+ballastX.toFixed(2)+' m · Y '+ballastY.toFixed(2)+' m';
+          $('weightPos').textContent='X '+ballastX.toFixed(2)+' m · Y '+ballastY.toFixed(2)+' m'+
+            (rightingSide?' · Righting · Z '+ballastZ.toFixed(2)+' m':'');
           if(!$('setup').hidden)$('clewTravel').textContent=(100*model.get('mainClewOffset')).toFixed(1)+' cm';
         }
-        extra=[...(ballast||[0,0]),mainCar,jibCar,ve,vn,yawRate,0];
+        extra=[cat?ballastX:0,cat?ballastY:0,mainCar,jibCar,ve,vn,yawRate,0];
         if(t!==meshTime)boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag,cat?model.get('shroudTail'):null,cat?model.get('sailTail'):null,cat?model.get('stayPath'):null,t);
         $('vangLoad').textContent=vang.toFixed(0)+' N';
         if(!drone?.active&&!sub?.active)$('readout').textContent='Speed '+(Math.hypot(ve,vn)*1.94384449).toFixed(1)+' kn';
@@ -1903,15 +1908,39 @@ async function run(){
           rig.battens=[data.slice(0,4),data.slice(4,8)];
         }
         if(sailing&&showHulls&&(!inspectionHull||inspectionTime!==t)){
-          const data=world?hullInspectionFields.map(name=>world.get('boat.'+name)):model.getMany(hullInspectionFields);
-          const [stations,fractions,separation,volume,heights]=data;
-          if(stations){inspectionHull={stations,fractions,separation,volume,heights};inspectionTime=t;}
+          if(hullInspectionFields.every(name=>model.has(name))){
+            const [stations,fractions,separation,volume,heights]=model.getMany(hullInspectionFields);
+            const [fineStations,fineVolume]=cat&&refinedHullInspectionFields.every(name=>model.has(name))?
+              model.getMany(refinedHullInspectionFields):[];
+            inspectionHull={stations:fineStations??stations,fractions,separation,volume:fineVolume??volume,heights};
+            inspectionTime=t;
+          }
         }
         if(inspected){
           const body={group:inspected,kind,rig,thrust:kind==='sub'?subFrame?.thrust:null,
             strips:showHulls&&kind==='motorboat'&&motor?cruiserInspectionFields.map(name=>world.get(name)):null};
+          const probes=cat&&sailing?world?.get('hydroSurfaceProbes'):null;
+          if(probes?.length){
+            let points=probes;
+            if(s&&hullBlend<1){
+              // Carry sampled elevations with the same horizontal presentation offset as the hull.
+              shownPontoonProbes??=new Float64Array(probes.length);
+              const [east,north,heading]=s,{x,y}=inspected.position;
+              const angle=inspected.rotation.z-heading,c=Math.cos(angle),sn=Math.sin(angle);
+              for(let i=0;i<probes.length;i+=3){
+                const dx=probes[i]-east,dy=probes[i+1]-north;
+                shownPontoonProbes[i]=x+c*dx-sn*dy;
+                shownPontoonProbes[i+1]=y+sn*dx+c*dy;
+                shownPontoonProbes[i+2]=probes[i+2];
+              }
+              points=shownPontoonProbes;
+            }
+            body.probes={points,sections:probes.length/6};
+          }
           if(waveGrids.checked){
-            const water=body.water={tide:previousSurface?.tide??ocean.U.tide.value};
+            const water=body.water={tide:previousSurface?.tide??ocean.U.tide.value,
+              surfaceAt:(east,north)=>ocean.sampleSurface(east,north,true)};
+            if(body.probes)water.pontoons=body.probes;
             if(swimmer){
               water.swimmerKind=swimmer.kind;
               water.swimmer=ocean.swimmerWater.inspection(swimmer.kind,swimmer.id);
@@ -1921,7 +1950,8 @@ async function run(){
               const drift=ocean.U.spectrumDrift.value;
               water.wake={values:lastHullHeight,length:world.get('waves.period'),east:drift.x,north:drift.y};
               const localHull=sailing||inspected===motor?.group;
-              if(localHull&&ocean.U.bowAvailable.value&&['auto','near','all'].includes(waveLayer.value)){
+              const showBowGrid=waveLayer.value==='near'||waveLayer.value==='all';
+              if(localHull&&showBowGrid&&ocean.U.bowAvailable.value){
                 hullGridSamples??=new Float32Array(32*32);
                 ocean.readBowGrid(hullGridSamples);
                 const {x:east,y:north,z:heading}=ocean.U.boat.value;
@@ -1934,7 +1964,7 @@ async function run(){
               if(wake&&!omitWake)water.wake={values:wake,east,north,length};
             }
           }
-          if(showHulls&&sailing&&inspectionHull?.heights){
+          if(!body.probes&&showHulls&&sailing&&inspectionHull?.heights){
             const strips=world?.get('waves.sourceStrips')??lastWaveFrame?.strips;
             if(strips)body.probes={strips,heights:inspectionHull.heights,count:inspectionHull.separation>0?12:6};
           }

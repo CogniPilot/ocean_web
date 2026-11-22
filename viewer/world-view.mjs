@@ -1,7 +1,7 @@
 import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
 // Views share one committed worker snapshot, so every mesh uses the same clock.
 import {boatFields} from './board/boat.mjs';
-import {hullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
+import {hullInspectionFields,refinedHullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
 const sailingOutputs=[
  ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail sailLuff mainClewOffset stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
@@ -69,8 +69,10 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
    optionalInputs:['animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
    optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed',
-     ...(hasBoat&&mode!=='sloop'?battenInspectionFields.map(name=>'boat.'+name):[]),
-     ...(hasBoat?[...hullInspectionOutputs,'boat.stationX','boat.beamHalf']:[]),...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea']:[]),...(hasFlight?flightNavigationOutputs:[])]});
+     ...(hasBoat&&mode!=='sloop'?['boat.ballastZ','boat.rightingSide',...battenInspectionFields.map(name=>'boat.'+name)]:[]),
+     ...(hasBoat?[...hullInspectionOutputs,'boat.stationX','boat.beamHalf']:[]),
+     ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
+     ...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea']:[]),...(hasFlight?flightNavigationOutputs:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);

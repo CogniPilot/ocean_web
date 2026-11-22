@@ -36,6 +36,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     windEast=wind.localEast,windNorth=wind.localNorth,currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],
     orbitalEast=boatWater.velocity[1]-boatWater.meanFlow[1],orbitalNorth=boatWater.velocity[2]-boatWater.meanFlow[2],orbitalUp=boatWater.velocity[3],
     useSectionWater=1,sectionWater=surfaceSections,previousWater=priorSections,waterStamp=sectionStamp,
+    useRefinedSectionWater=hobie,refinedSectionWater=hydroSurfaceSamples,previousRefinedSectionWater=priorHydroSamples,
     waveHeight=boatWater.surface+swimmerWater[13],wavePitch=-atan(swimmerWater[14]+boatWater.surfaceSlope*{cos(boat.heading),sin(boat.heading)}),
     waveRoll=atan(swimmerWater[15]+boatWater.surfaceSlope*{-sin(boat.heading),cos(boat.heading)}),
     swellK=swellK,swellBearing=swellBearing,swellOmega=swellOmega,swellAmplitude=Wreck.SpectralSea.swellHeight(seaState),
@@ -55,8 +56,36 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   discrete output Real bowFrame[4](each start=0,each fixed=true) "East, north, cosine and sine of heading, or zeros when disabled";
   discrete output Real surfaceSections[2,6](each start=0,each fixed=true)
     "Tide, background sea, local wind waves and hull wake at each buoyancy strip [m]";
+  discrete output Real hydroSurfaceProbes[2,boat.hydroPanelCount,3](each start=0,each fixed=true)
+    "East, north and complete elevation of the native hull probes at the sample instant [m]";
+  discrete Real hydroSurfaceSamples[2,boat.hydroPanelCount](each start=0,each fixed=true);
+  discrete Real priorHydroSamples[2,boat.hydroPanelCount](each start=0,each fixed=true);
   discrete Real priorSections[2,6](each start=0,each fixed=true),sectionStamp(start=0,fixed=true);
   Real stripAlong[2,6],stripAcross[2];
+  Real hydroAlong[2,boat.hydroPanelCount];
+  function sampleHydroSurface
+    input Real along[:,:],across[2],east,north,heading,driftE,driftN,wakePeriod,tide;
+    input Real windGrid[32,32],wakeGrid[64,64],swimmer[15],oldSurface[2,6],stations[7],nativeX[size(along,2)];
+    input Real swellWave[2],swellPhase,swellAmplitude;
+    input Boolean refine;
+    output Real sampled[2,size(along,2)],probes[2,size(along,2),3];
+  protected
+    Real c,s,x,y;
+  algorithm
+    c:=cos(heading);s:=sin(heading);
+    for hull in 1:2 loop
+      for panel in 1:size(along,2) loop
+        x:=east+c*along[hull,panel]-s*across[hull];
+        y:=north+s*along[hull,panel]+c*across[hull];
+        sampled[hull,panel]:=if refine then tide
+          +Regatta.elevationAt(wakeGrid,x-driftE,y-driftN,wakePeriod)
+          +Wreck.Perception.seaHeight(windGrid,x,y)
+          +Sailboat.samplePanelWater({swimmer[(hull-1)*6+i] for i in 1:6},stations,nativeX[panel])
+          else oldSurface[hull,min(6,panel)];
+        probes[hull,panel,:]:={x,y,sampled[hull,panel]+swellAmplitude*sin(x*swellWave[1]+y*swellWave[2]+swellPhase)};
+      end for;
+    end for;
+  end sampleHydroSurface;
 equation
   when sample(0,.025) then
     animalWrench=WildlifeContact(animals,{boat.east,boat.north,boat.heave,boat.heel,boat.pitch,boat.heading},
@@ -67,6 +96,10 @@ equation
     stripAcross[hull]=(3-2*hull)*boat.halfSpacing*cos(boat.heel);
     for panel in 1:6 loop
       stripAlong[hull,panel]=.5*(boat.stationX[panel]+boat.stationX[panel+1])*cos(boat.pitch)
+        +(3-2*hull)*boat.halfSpacing*sin(boat.heel)*sin(boat.pitch);
+    end for;
+    for panel in 1:boat.hydroPanelCount loop
+      hydroAlong[hull,panel]=boat.hydroStationGeometry[panel,1]*cos(boat.pitch)
         +(3-2*hull)*boat.halfSpacing*sin(boat.heel)*sin(boat.pitch);
     end for;
   end for;
@@ -85,7 +118,12 @@ equation
             boat.north+sin(boat.heading)*stripAlong[hull,panel]+cos(boat.heading)*stripAcross[hull]);
       end for;
     end for;
+    (hydroSurfaceSamples,hydroSurfaceProbes)=sampleHydroSurface(
+      hydroAlong,stripAcross,boat.east,boat.north,boat.heading,waves.driftE,waves.driftN,waves.period,boatWater.tide,
+      boatWater.tile,waves.height,swimmerWater,surfaceSections,boat.stationX,boat.hydroStationGeometry[:,1],
+      swellK*{cos(swellBearing),sin(swellBearing)},-swellOmega*(time+seaClockOffset),boat.swellAmplitude,hobie);
     priorSections=if initial() then surfaceSections else pre(surfaceSections);
+    priorHydroSamples=if initial() then hydroSurfaceSamples else pre(hydroSurfaceSamples);
     sectionStamp=time;
   end when;
 end OceanRace;

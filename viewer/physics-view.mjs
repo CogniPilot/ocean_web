@@ -4,6 +4,7 @@ import {battenPath} from './board/sail-battens.mjs';
 // annotations in a separate canvas also keeps them out of water captures.
 export const cruiserInspectionFields=['stripEast','stripNorth','stripZ','stripForce','stripVolume'];
 export const hullInspectionFields=['stationGeometry','beamFraction','halfSpacing','sectionVolume','sectionWater'];
+export const refinedHullInspectionFields=['hydroStationGeometry','hydroSectionVolume'];
 export const battenInspectionFields=[1,2].flatMap(sail=>
   ['battenCount','battenLuff','battenLeech','mesh'].map(name=>`cloth[${sail}].${name}`));
 
@@ -11,7 +12,8 @@ export function physicsView(T,canvas,status){
   const ink=canvas.getContext('2d');
   const clip=new T.Vector3(),projected=new T.Vector2();
   const colors={main:'#79edff',jib:'#b2ffa8',mast:'#ffd080',joint:'#ff9cce',batten:'#fff07b',
-    wet:'#5af2e9',dry:'#a1aab7',wind:'#7ebaff',wake:'#bd96ff',near:'#ffce74',swimmer:'#62ffe3'};
+    wet:'#5af2e9',dry:'#a1aab7',wind:'#7ebaff',wake:'#bd96ff',near:'#ffce74',swimmer:'#62ffe3',surface:'#d8faff'};
+  const surfaceField={size:32,length:64,emphasis:true};
   const clothEdges=new Set();
   for(let row=0;row<5;row++)for(let col=0;col<3;col++){
     const i=row*4+col;
@@ -161,9 +163,10 @@ export function physicsView(T,canvas,status){
 
   function drawHull(hull,boat){
     const {stations,fractions,separation,volume}=hull;
-    for(let side=0;side<(separation>0?2:1);side++)for(let i=0;i<6;i++){
+    const sections=stations.length/6;
+    for(let side=0;side<(separation>0?2:1);side++)for(let i=0;i<sections;i++){
       const offset=6*i,x=stations[offset],beam=stations[offset+1],y=(1-2*side)*separation;
-      const wet=volume[6*side+i];
+      const wet=volume[sections*side+i];
       const color=wet>1e-5?colors.wet:colors.dry;
       ink.strokeStyle=color;ink.lineWidth=1.7;ink.beginPath();
       for(const sign of [-1,1])for(let j=0;j<3;j++){
@@ -174,12 +177,12 @@ export function physicsView(T,canvas,status){
       a.set(x,y-beam,stations[offset+5]);b.set(x,y+beam,stations[offset+5]);
       segment(a,b,boat);ink.stroke();
       a.set(x,y+beam,stations[offset+5]);
-      if(wet>=.0005)label(a,boat,Math.round(wet*1000)+' L',color);
+      if(wet>=.0005&&(sections<=6||i%2===0))label(a,boat,Math.round(wet*1000)+' L',color);
     }
   }
 
   function drawGrid(field,x,y,tide,color,requireSignal=false){
-    const {values,subtract,length,east=0,north=0,cos=1,sin=0,local=false,bounded=false,stride=1,heightAt}=field;
+    const {values,subtract,length,east=0,north=0,cos=1,sin=0,local=false,bounded=false,stride=1,heightAt,emphasis=false}=field;
     const size=field.size??Math.sqrt(values.length),spacing=length/size;
     // Crop the periodic fields around the subject without changing their
     // origin or sample spacing. The near field uses the solver's signed indices.
@@ -190,8 +193,8 @@ export function physicsView(T,canvas,status){
     const j1=bounded?size-1:local?last:Math.floor((y-north+radius)/spacing);
     const columns=Math.floor((i1-i0)/stride)+1;
     const index=(i)=>(i%size+size)%size;
-    ink.strokeStyle=color;ink.lineWidth=local||bounded?1.15:1;
-    ink.globalAlpha=(local||bounded)?.77:.48;ink.beginPath();
+    ink.strokeStyle=color;ink.lineWidth=emphasis?1.6:local||bounded?1.15:1;
+    ink.globalAlpha=emphasis?.9:local||bounded?.77:.48;ink.beginPath();
     let k=0,hasSignal=!requireSignal;
     for(let j=j0;j<=j1;j+=stride)for(let i=i0;i<=i1;i+=stride){
       const e=east+spacing*(i*cos-j*sin),n=north+spacing*(i*sin+j*cos);
@@ -230,8 +233,22 @@ export function physicsView(T,canvas,status){
       center.copy(a).lerp(b,.5);dot(center,null,ink.strokeStyle,2.3);
     }
   }
+  function drawPontoonTraces({points,sections}){
+    for(let side=0;side<2;side++){
+      const offset=3*side*sections;
+      ink.strokeStyle=colors.near;ink.lineWidth=1.4;ink.beginPath();
+      a.fromArray(points,offset);
+      for(let i=1;i<sections;i++){
+        b.fromArray(points,offset+3*i);segment(a,b);a.copy(b);
+      }
+      ink.stroke();
+      label(a,null,side===0?'Port water samples':'Starboard water samples',colors.near);
+    }
+    return sections+' native Modelica water samples per pontoon';
+  }
   function drawWater(fields,x,y,layer){
-    if(layer==='auto')layer=fields?.swimmerKind?'swimmer':fields?.near?'near':'wind';
+    if(layer==='auto')layer=fields?.swimmerKind?'swimmer':fields?.pontoons?'pontoons':'surface';
+    if(layer==='pontoons'&&fields?.pontoons)return drawPontoonTraces(fields.pontoons);
     const captions=[];
     if(layer==='swimmer'||layer==='all'){
       if(fields?.swimmer){
@@ -260,10 +277,19 @@ export function physicsView(T,canvas,status){
       if(key==='near')drawSources(field,height);
       if(key==='wind')captions.push('Long swell is analytic');
     }
+    if((layer==='surface'||layer==='all')&&fields?.surfaceAt){
+      surfaceField.heightAt=fields.surfaceAt;
+      drawGrid(surfaceField,x,y,0,colors.surface);
+      captions.unshift('Pale cyan · Combined sea surface sampled every 2 m · analytic swell, wind sea and active wakes');
+    }
     return captions.length?captions.join(' | '):
       'Selected wave field unavailable in this view or quality';
   }
   function drawProbes(probes){
+    if(probes?.points){
+      for(let i=0;i<probes.points.length;i+=3)dot(a.fromArray(probes.points,i),null,'#f4f8ff',2.5);
+      return;
+    }
     if(!probes?.heights)return;
     const {heights,strips,east,north,count=heights.length}=probes;
     for(let i=0;i<count;i++){
@@ -283,6 +309,7 @@ export function physicsView(T,canvas,status){
     const {group}=body;
     camera=viewCamera;camera.updateMatrixWorld();group.updateMatrixWorld(true);
     const captions=[];
+    const pontoonTraces=options.water&&body.water?.pontoons&&['auto','pontoons'].includes(options.waveLayer);
     if(options.water)captions.push(drawWater(body.water,group.position.x,group.position.y,options.waveLayer));
     if(options.rig){
       drawBody(body);
@@ -292,10 +319,10 @@ export function physicsView(T,canvas,status){
     if(options.hulls){
       if(hull?.stations)drawHull(hull,group);
       if(body.strips)drawCruiserStrips(body.strips);
-      if(body.probes){
-        drawProbes(body.probes);
-        captions.push('White dots · Buoyancy surface samples');
-      }
+    }
+    if(body.probes&&(options.hulls||pontoonTraces)){
+      drawProbes(body.probes);
+      captions.push('White dots · Buoyancy surface samples');
     }
     if(options.rig&&body.rig?.battens?.some(([count])=>count>0))
       captions.push('Yellow battens · stiffness distributed across cloth rows');

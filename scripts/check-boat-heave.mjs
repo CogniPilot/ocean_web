@@ -5,7 +5,10 @@ import {advanceHullWake} from '../viewer/board/boat.mjs';
 
 const read=async url=>new Response(await readFile(url));
 for(const [vessel,launchHeight,limit] of [['Sailboat',.069,.02],['Hobie16',.20,.05]]){
-  const boat=await loadInstance(vessel,{launchHeight,windEast:10,windNorth:4,currentEast:.2,currentNorth:.04,vangInput:.5},read);
+  // Hold the controls fixed so an autopilot tack or flying hull cannot be
+  // mistaken for a vertical oscillation at the boat origin.
+  const boat=await loadInstance(vessel,{launchHeight,launchSpeed:1,manualHelm:1,
+    windEast:10,windNorth:4,currentEast:.2,currentNorth:.04,vangInput:.5},read);
   const wake=await loadInstance('HullWake',{east:-8,north:-7,currentEast:.2,currentNorth:.04,stations:boat.get('stationX'),separation:boat.get('halfSpacing')},read);
   let low=Infinity,high=-Infinity,peakWake=0;
   for(let tick=0;tick<3200;tick++){
