@@ -27,7 +27,7 @@ A checked item records the specific result described. Open items include partial
 - [x] Verify the full 600 m Hobie race in the site’s default north wind through both mark roundings and finish. The shipping Regatta Wasm scored a 598.0 s lap.
 
 - [x] Sharpen the gull’s upper bill and taper the lower bill into a shorter, separate tip. Checked the new profile in flight in Chromium.
-- [x] Keep the cruiser throttle where the skipper leaves it. Verified W/S, touch release and restoring the lever after reloading the tab.
+- [x] Return the cruiser throttle to neutral when the pilot releases the keyboard, touch stick or lever. Start with the searchlight and underwater lights off.
 - [x] Separate the room’s storm switch from time of day. Rain, clouds and lighting were exercised with both Day and Moonlit.
 - [x] Use the cruiser’s 3D sonar as its only sonar instrument, including at the helm. Large contacts repeat the supplied hit.mp3 faster at short range. A 9.2 m return repeated every 1.68 s and a 23.2 m return every 2.87 s. Two clients verified six consecutive shared alerts, silence on the seabed and muted listeners.
 - [x] Add a separate cruiser 3D imaging sonar panel. A compiled 36 m scan and browser pick resolved range, bearing and elevation. Night alerts can use the same scanner when its display is closed.

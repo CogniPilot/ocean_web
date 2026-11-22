@@ -762,16 +762,28 @@ async function run(){
   }
   const analog=new Map(),keyboard=keyboardSticks(),stickIndicators=[];
   const shaftLever=$('shaftLever');
-  let shaftCommand=0;
-  function setShaft(value){
-    shaftCommand=Math.max(-1,Math.min(1,value));
-    shaftLever.value=String(Math.round(100*shaftCommand));
-    $('shaftPercent').value=shaftLever.value+'%';
+  let shaftCommand=0,heldLever;
+  function updateShaft(){
+    if(!motor)return;
+    const forward=(keys.has('KeyW')?keyboard.get('KeyW'):0)+(analog.get('KeyW')??0);
+    const reverse=(keys.has('KeyS')?keyboard.get('KeyS'):0)+(analog.get('KeyS')??0);
+    const command=animalId||document.hidden?0:Math.max(-1,Math.min(1,heldLever??(forward-reverse)));
+    if(command!==shaftCommand){
+      shaftCommand=command;
+      shaftLever.value=String(Math.round(100*command));
+      $('shaftPercent').value=shaftLever.value+'%';
+    }
+    world.set('throttleLever',command);
   }
   if(motor){
-    try{const saved=Number(sessionStorage.getItem('ocean.cruiserThrottle'));if(Number.isFinite(saved))setShaft(saved);}catch{}
-    shaftLever.oninput=()=>{setShaft(shaftLever.valueAsNumber/100);helm();};
-    addEventListener('pagehide',()=>{try{sessionStorage.setItem('ocean.cruiserThrottle',String(shaftCommand));}catch{}});
+    shaftLever.value='0';$('shaftPercent').value='0%';
+    shaftLever.oninput=()=>{heldLever=shaftLever.valueAsNumber/100;helm();};
+    function releaseLever(){
+      if(heldLever===undefined)return;
+      heldLever=undefined;helm();
+    }
+    for(const event of ['blur','keyup'])shaftLever.addEventListener(event,releaseLever);
+    for(const event of ['pointerup','pointercancel'])addEventListener(event,releaseLever);
   }
   const subMode=$('subMode');
   subMode.onchange=()=>{
@@ -960,8 +972,7 @@ async function run(){
         let x=horizontal?(e.clientX-rect.left-half)/(half*.73):0,y=vertical?(rect.top+half-e.clientY)/(half*.73):0;
         const scale=Math.max(1,Math.hypot(x,y));x/=scale;y/=scale;
         if(horizontal)analog.set(horizontal,x);
-        if(motor&&!animalId)setShaft(y);
-        else if(vertical)analog.set(vertical,y);
+        if(vertical)analog.set(vertical,y);
         helm();
       }
       stick.onpointerdown=e=>{if(finger!==null)return;e.preventDefault();finger=e.pointerId;stick.setPointerCapture(finger);move(e);};
@@ -1092,6 +1103,7 @@ async function run(){
   }else if(Object.hasOwn(wildlifeOrbits,requestedView))cameraMenu.value=requestedView;
 
   function helm(){
+    updateShaft();
     for(const draw of stickIndicators)draw();
     drone?.input(axis,keys.has('ShiftLeft')||keys.has('ShiftRight'));
     const atHelm=!animalId&&!drone?.active&&!sub?.active,stick=pilotSticks(axis);
@@ -1127,7 +1139,10 @@ async function run(){
       if(e.code.startsWith('Arrow'))e.preventDefault();
     }else if(sub?.active&&e.code.startsWith('Arrow'))e.preventDefault();
     keys.add(e.code);keyboard.press(e.code,performance.now());helm();}});
-  addEventListener('keyup',e=>{keys.delete(e.code);keyboard.release(e.code,performance.now());helm();});addEventListener('blur',()=>{keys.clear();keyboard.clear();analog.clear();helm();});
+  addEventListener('keyup',e=>{keys.delete(e.code);keyboard.release(e.code,performance.now());helm();});
+  function releaseControls(){keys.clear();keyboard.clear();analog.clear();heldLever=undefined;helm();}
+  addEventListener('blur',releaseControls);
+
   $('helm').onclick=()=>{
     if(sub?.active)sub.manual=!sub.manual;
     else if(drone?.active){drone.manual=!drone.manual;world?.set('racePilot',Number(!drone.manual));}
@@ -1265,7 +1280,10 @@ async function run(){
   document.addEventListener('visibilitychange',()=>{
     prev=physicsWall=performance.now();acc=0;world?.clearQueued();
     statsStart=undefined;
-    if(document.hidden && frameTest)finishTest('Test interrupted while the page was hidden.');
+    if(document.hidden){
+      releaseControls();
+      if(frameTest)finishTest('Test interrupted while the page was hidden.');
+    }
   });
   function measureFrame(now,t){
     const test=frameTest;
@@ -1368,16 +1386,7 @@ async function run(){
       if(!world&&running&&!document.hidden)acc+=frameSeconds;
       if(waterError)throw waterError;
       if(world){
-        if(motor){
-          const stick=pilotSticks(axis);
-          const leverDirection=Number(keys.has('KeyW'))-Number(keys.has('KeyS'));
-          if(!animalId&&running&&leverDirection){
-            setShaft(shaftCommand+leverDirection*.65*frameSeconds);
-            for(const drawStick of stickIndicators)drawStick();
-          }
-          world.set('throttleLever',animalId?0:shaftCommand);
-          world.set('helmLever',animalId?0:stick.yaw);
-        }
+        if(motor)world.set('helmLever',animalId?0:pilotSticks(axis).yaw);
         if(world.hasSeaClock){
           const phase=remote.seaTime(world.time,now);
           world.set('seaClockOffset',phase-world.time);

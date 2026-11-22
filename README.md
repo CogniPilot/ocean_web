@@ -96,6 +96,11 @@ current sonar coverage. **Fit sonar range** changes the chart scale to show
 the full fan. Choose **Sonar** or **Chart** on a narrow screen. Both views
 also appear at the helm.
 
+Hold **W** or **S** for forward or reverse throttle. The lever returns to
+neutral when you release the key or touch control. The searchlight and
+underwater lights start off. Toggle them with **Z** and **X** or the
+corresponding controls.
+
 The cruiser samples the incident sea for buoyancy and renders the displacement
 wake separately. Keel and chine contact points follow the hull and react to
 the island terrain. The water shader excludes the cockpit interior as the

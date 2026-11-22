@@ -340,13 +340,13 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   const bezel=new T.CylinderGeometry(.081,.081,.025,16);bezel.rotateX(Math.PI/2);
   const disk=new T.CircleGeometry(.063,16);disk.rotateY(Math.PI);
   const emitters=new T.InstancedMesh(disk,new T.MeshBasicMaterial({color:0xffd38a}),hullLamps.length);
-  emitters.name='Underwater downlight lenses';group.add(emitters);
+  emitters.name='Underwater downlight lenses';emitters.visible=false;group.add(emitters);
   const underwaterLamps=hullLamps.map(([x,y,z],i)=>{
     part(bezel.clone(),steel,[x,y,z+.015],null,null,metal);
     emitters.setMatrixAt(i,new T.Matrix4().makeTranslation(x,y,z));
     const flood=i===1||i===8;
     const led=new T.SpotLight(0xffc476,flood?122:62,flood?22:11,.91,.89,1.25);
-    led.name='Hull downlight '+(i+1);
+    led.name='Hull downlight '+(i+1);led.visible=false;
     led.userData.scatterGain=.24;led.userData.diffuseHullOnly=!flood;
     if(!flood)led.layers.set(31); // Overlapping hull glow carries these fixtures in the water.
     led.position.set(x,y,z-.002);led.target.position.set(x,y,z-1.002);
@@ -365,7 +365,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   const lens=fixed(new T.CircleGeometry(.11,20),0xfff1c6,swivel,true);
   lens.rotation.y=Math.PI/2;lens.position.x=.096;
   const light=new T.SpotLight(0xffedcd,125,48,.21,.65,1.25);light.position.set(.097,0,0);
-  light.name='Roof searchlight emitter';
+  light.name='Roof searchlight emitter';light.visible=lens.visible=false;
   light.target.position.set(1,0,0);swivel.add(light,light.target);
   installSearchlightDepth(T);
   const resolution=64,depthPixels=new Uint8Array(4*resolution*resolution);
@@ -426,6 +426,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
       texture.needsUpdate=true;
     };
   }
+  beam.visible=false;
   let previousTime,shaftRPM=0;
   function update(t,rpm,steer,settings,seaTime=t){
     radar.rotation.z=(seaTime%2.5)*(2*Math.PI/2.5);
