@@ -41,7 +41,8 @@ export async function surveyDrone(T,scene,world){
   ]);
   const {group,props}=assembleAirframe(T,model,flight.get('aircraft.rotorGeometry.positionBodyFlu_m'));
   scene.add(group);
-  const hasNavigation=flight.has('estimatedPosition');
+  const hasNavigation=flight.has('estimatedPosition'),hasRotorSpeeds=flight.has('rotorSpeed');
+  const bladeCount=flight.has('aircraft.bladeCount')?flight.get('aircraft.bladeCount'):2;
   const instrumentsFields=['attitude',...(hasNavigation?['estimatedPosition','estimatedVelocity']:['gps','gpsVelocity'])];
   const compassFields=[...instrumentsFields,'estimatedWindENU','windEstimateValid'];
   const covarianceFields=['positionCovariance','velocityCovariance','windCovariance'];
@@ -64,7 +65,9 @@ export async function surveyDrone(T,scene,world){
     const sigma=v=>Math.sqrt(Math.max(0,v));
     return {position:position.map(sigma),velocity:velocity.map(sigma),wind:sigma(wind)};
   }
-  return {group,instruments,hasNavigation,covariance,get throttle(){return flight.get('throttle');},get rotorAngles(){return flight.get('rotorAngle');},
+  return {group,instruments,hasNavigation,covariance,bladeCount,
+    get throttle(){return flight.get('throttle');},get rotorAngles(){return flight.get('rotorAngle');},
+    get rotorSpeeds(){return hasRotorSpeeds?flight.get('rotorSpeed'):null;},
     get estimatedPosition(){return flight.get(instrumentsFields[1]);},
     set flightMode(value){flight.set('flightMode',value);},get active(){return active;},get position(){return flight.get('position');},
     get drag(){return flight.get('dragBody');},

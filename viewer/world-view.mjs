@@ -72,7 +72,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
      ...(hasBoat&&mode!=='sloop'?['boat.ballastZ','boat.rightingSide',...battenInspectionFields.map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.stationX','boat.beamHalf']:[]),
      ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
-     ...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea']:[]),...(hasFlight?flightNavigationOutputs:[])]});
+     ...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea']:[]),...(hasFlight?[...flightNavigationOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount']:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);

@@ -43,28 +43,39 @@ function engineVoice(context,output,wave,noise){
 }
 
 // Mix only the nearest audible cruisers, using the same shaft telemetry their
-// propellers use. Each boat keeps its voice through quiet throttle changes.
+// propellers use. Keep a short audible rundown after propulsion goes neutral.
 export function inboardMixer(context,output,noise){
   const voices=new Map(),wave=exhaustWave(context);
   let next=0;
-  return (local,peers,listener,underwater,running)=>{
-    if(context.currentTime<next)return;
-    next=context.currentTime+.07;
+  const neutralDelay=1.8;
+  return (local,peers,listener,underwater,running,localThrottle=0)=>{
+    const now=context.currentTime;
+    if(now<next)return;
+    next=now+.07;
     const pos=listener.position,right=listener.matrixWorld.elements;
     const nearby=[];
-    function collect(c){
-      const p=c.group.position,dx=p.x-pos.x,dy=p.y-pos.y,dz=p.z-pos.z;
+    function collect(boat,powered){
+      const existing=voices.get(boat);
+      if(!powered&&(!existing||now-existing.lastPowered>=neutralDelay))return;
+      const p=boat.group.position,dx=p.x-pos.x,dy=p.y-pos.y,dz=p.z-pos.z;
       const d=Math.hypot(dx,dy,dz);
-      if(d<=150)nearby.push({c,d,balance:(dx*right[0]+dy*right[1]+dz*right[2])/Math.max(2,d)});
+      if(d<=150)nearby.push({boat,powered,d,balance:(dx*right[0]+dy*right[1]+dz*right[2])/Math.max(2,d)});
     }
-    if(running){if(local)collect(local);for(const boat of peers)collect(boat);}
+    if(running){
+      if(local)collect(local,Math.abs(localThrottle)>.008);
+      for(const boat of peers)collect(boat,Math.abs(boat.shaftRPM)>90);
+    }
     nearby.sort((a,b)=>a.d-b.d);
     const active=new Set();
-    for(const {c,d,balance} of nearby.slice(0,4)){
-      let voice=voices.get(c);
-      if(!voice){voice=engineVoice(context,output,wave,noise);voices.set(c,voice);}
-      active.add(c);voice.set(c.shaftRPM,d,balance,underwater);
+    for(const {boat,powered,d,balance} of nearby.slice(0,4)){
+      let entry=voices.get(boat);
+      if(!entry){
+        entry={voice:engineVoice(context,output,wave,noise),lastPowered:now};
+        voices.set(boat,entry);
+      }
+      if(powered)entry.lastPowered=now;
+      active.add(boat);entry.voice.set(boat.shaftRPM,d,balance,underwater);
     }
-    for(const [c,voice] of voices)if(!active.has(c)&&voice.fade()){voice.dispose();voices.delete(c);}
+    for(const [boat,{voice}] of voices)if(!active.has(boat)&&voice.fade()){voice.dispose();voices.delete(boat);}
   };
 }

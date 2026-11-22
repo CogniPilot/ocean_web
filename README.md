@@ -52,7 +52,7 @@ world.postMessage({id: 2, type: 'advance', steps: 21, values: Float64Array.of(0.
 
 The **Room** field defaults to `regatta`. Enter a name and enable **Multiplayer** to join that room. Editing the name while connected moves you to the new room. **Copy room link** under **Settings** preserves the name. The sailing compass opens with wind speed, speed over ground, true heading and the bearing and distance to the next gate or mark. **Settings → Forces** shows loads at their hull or rig attachment points. The committee flag and island palms respond to the wind field at their locations.
 
-Select **Control → RDD2 drone** to fly, or open `?control=drone`. Manual flight starts in **Position hold**. W/S controls throttle or climb and descent in position hold. A/D controls yaw. ↑/↓ controls pitch or forward/back, and ←/→ controls roll or strafe. The right touch stick follows the same axes. Space controls the motor switch. On touchscreens W/A/S/D correspond to the left stick and the arrows correspond to the right stick. Sailboats combine helm and sheet on the left stick. The cruiser combines helm and throttle there and retains its separate searchlight controls. Holding a direction progressively increases the stick command. Select **Engage race autopilot** in the Hobie or RDD2 to sail or fly the scored regatta. **Take the helm** returns control to the player.
+Select **Control → RDD2 drone** to fly, or open `?control=drone`. Manual flight starts in **Position hold**. W/S controls throttle or climb and descent in position hold. A/D controls yaw. ↑/↓ controls pitch or forward/back, and ←/→ controls roll or strafe. With sound enabled, each propeller has a blade-pass tone driven by its simulated rotor speed. The right touch stick follows the same axes. Space controls the motor switch. On touchscreens W/A/S/D correspond to the left stick and the arrows correspond to the right stick. Sailboats combine helm and sheet on the left stick. The cruiser combines helm and throttle there and retains its separate searchlight controls. Holding a direction progressively increases the stick command. Select **Engage race autopilot** in the Hobie or RDD2 to sail or fly the scored regatta. **Take the helm** returns control to the player.
 
 The drone compass shows heading, the next course target and estimated true wind speed and direction. The controller predicts position, velocity and accelerometer bias at 50 Hz from simulated inertial measurements, then corrects them with 10 Hz simulated GNSS fixes. Attitude propagates from the launch pose using the gyroscope. A separate filter estimates horizontal wind from drag inferred by the accelerometer and rotor speeds. Enable **Settings → Drone covariance** to see the one-standard-deviation uncertainty for position, velocity and horizontal wind.
 
@@ -97,7 +97,8 @@ the full fan. Choose **Sonar** or **Chart** on a narrow screen. Both views
 also appear at the helm.
 
 Hold **W** or **S** for forward or reverse throttle. The lever returns to
-neutral when you release the key or touch control. The searchlight and
+neutral when you release the key or touch control. The engine sound fades
+after a short pause in neutral. The searchlight and
 underwater lights start off. Toggle them with **Z** and **X** or the
 corresponding controls.
 

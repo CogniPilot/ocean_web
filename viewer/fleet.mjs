@@ -47,7 +47,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
   let remoteAirframe,loadingAirframe,remoteSub,loadingSub,retrySubAt=0;
   let selfId,room,action,lastSend=-Infinity,participants=new Set();
   const npc=npcRoom();
-  const peers=new Map(),lamps=[],cruisers=[],lampStates=new Map();
+  const peers=new Map(),lamps=[],cruisers=[],drones=[],lampStates=new Map();
   let lampChannel,sentLamp,rotorChannel,imagingChannel,imagingSequence=0;
   const imagingSource=new T.Vector3();
   function imagingHit(range,position){
@@ -264,7 +264,11 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
       const peer=peers.get(peerId);
       if(room!==active || peer?.kind!=='drone' || !Array.isArray(sample) ||
         sample.length!==5 || !sample.every(Number.isFinite) || sample[0]<=0)return;
-      peer.rotorTimeline.receive(sample,performance.now());
+      const previous=peer.rotorTimeline.latest;
+      if(!peer.rotorTimeline.receive(sample,performance.now()))return;
+      const dt=sample[0]-(previous?.data[0]??sample[0]);
+      peer.rotorAudio=dt>.02&&dt<.7?{group:peer.drone,
+        rotorSpeeds:sample.slice(1).map((angle,i)=>Math.min(1400,Math.abs(angle-previous.data[i+1])/dt))}:null;
     };
     action=room.makeAction('sail-pose');
     room.onPeerJoin=id=>{
@@ -306,7 +310,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
     };report();
   }
   function frame(now,s,cat,extra,sub,drone,kind,lampOn,aircraft,motor,motorState,radarTime){
-    lamps.length=cruisers.length=0;
+    lamps.length=cruisers.length=drones.length=0;
     if(!room)return;
     npc.tick(now);
     if(shownHost!==npc.owner){
@@ -377,6 +381,9 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
       if(peer.rotors && peer.rotorTimeline?.latest){
         const {left,right,fraction}=peer.rotorTimeline.at(now);
         for(let i=0;i<4;i++)peer.rotors[i].rotation.z=left[i+1]+fraction*(right[i+1]-left[i+1]);
+        if(peer.drone.visible&&peer.rotorAudio&&peer.rotorTimeline.age(now)<650){
+          peer.rotorAudio.group=peer.drone;drones.push(peer.rotorAudio);
+        }
       }
       if(peer.label && !peer.mesh){
         const vessel=peer[peer.kind];
@@ -471,5 +478,5 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
     }
     return result;
   }
-  return {join,leave,frame,lamps,cruisers,imagingHit,contacts,nearbyDeck,npc,vessels,players,get captain(){return roster.get(selfId);},captainName:id=>roster.get(id),get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
+  return {join,leave,frame,lamps,cruisers,drones,imagingHit,contacts,nearbyDeck,npc,vessels,players,get captain(){return roster.get(selfId);},captainName:id=>roster.get(id),get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
 }

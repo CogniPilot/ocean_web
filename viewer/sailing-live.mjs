@@ -357,7 +357,7 @@ async function run(){
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
   const makeWater=(T,u)=>wildlifeWater(T,u,undefined,renderer.capabilities.isWebGL2);
-  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange},makeWater,surfaceSpray,
+  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface:Boolean(motor)},makeWater,surfaceSpray,
     cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes);
   const sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   ocean.U.windPeriod.value=windField.get('period');
@@ -1885,7 +1885,8 @@ async function run(){
       }else lastReflection=-Infinity;
       rain.visible=storm && eyeHeight>=-surfaceBand;
       if(rain.visible)rain.material.uniforms.rainWind.value.set(...wind);
-      audio.motorSound(motor,remote.cruisers,camera,eyeHeight<0,running);
+      audio.motorSound(motor,remote.cruisers,camera,eyeHeight<0,running,shaftCommand);
+      audio.droneSound(drone,remote.drones,camera,eyeHeight<0,running);
       if(audio.audible){
         const sailLuff=running&&cat&&s&&targetSelect.value==='boat'?model.get('sailLuff'):null;
         audio.update(model?.get('cupSpeed')??Math.hypot(...wind),storm,camera.position.z-ocean.U.tide.value,

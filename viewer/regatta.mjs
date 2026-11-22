@@ -1,4 +1,5 @@
 import {inboardMixer} from './inboard-audio.mjs';
+import {droneMixer} from './drone-audio.mjs';
 import {showInLowWaterCapture} from './render-layers.mjs';
 
 // Compass bearing clockwise from true north in the east/north world frame.
@@ -544,11 +545,17 @@ export function raceAudio(){
     src.onended=()=>{for(const n of [src,band,gain,stereo])n.disconnect();};
     src.start(t);src.stop(t+length);
   }
-  function motorSound(local,peers,camera,underwater,running){
+  let rotors;
+  function droneSound(local,peers,camera,underwater,running){
+    if(!enabled||(!rotors&&!local&&!peers.length))return;
+    rotors??=droneMixer(audio,effects,noise);
+    rotors(local,peers,camera,underwater,running);
+  }
+  function motorSound(local,peers,camera,underwater,running,throttle){
     if(!enabled||(!engines&&!local&&!peers.length))return;
     engines??=inboardMixer(audio,effects,noise);
-    engines(local,peers,camera,underwater,running);
+    engines(local,peers,camera,underwater,running,throttle);
   }
   return {get enabled(){return enabled;},get audible(){return enabled&&level>0;},
-    setEnabled,update,water,signal,thunder,setVolume,wildlife,imagingHit,motorSound};
+    setEnabled,update,water,signal,thunder,setVolume,wildlife,imagingHit,motorSound,droneSound};
 }
