@@ -1,9 +1,9 @@
 // Four equidistant 200-degree cameras at the mast pod. All projection and
 // stitching happens on the GPU. Images and calibration share a capture time.
-export function mastCamera(T,renderer,world,boat){
+export function mastCamera(T,renderer,world,boat,drawRange){
   const face=144,lens=256;
   const cubes=Array.from({length:4},()=>new T.WebGLCubeRenderTarget(face));
-  const eye=new T.CubeCamera(.025,400,cubes[0]);
+  const eye=new T.CubeCamera(.025,drawRange,cubes[0]);
   eye.layers.enable(1);
   // Cube textures use Three's native +Y-up cube convention, transformed here
   // from local forward (+X), port (+Y), up (+Z) via world-from-body rotation.

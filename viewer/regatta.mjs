@@ -1,5 +1,5 @@
 import {inboardMixer} from './inboard-audio.mjs';
-import {showInLowWaterCapture} from './render-layers.mjs';
+import {courseMarkerLayer,showInLowWaterCapture} from './render-layers.mjs';
 
 // Compass bearing clockwise from true north in the east/north world frame.
 export function trueBearing(east,north){
@@ -89,8 +89,37 @@ export function courseScene(T,scene,race){
   }
   mark(race.get('pinEast'),race.get('pinNorth'));
   race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i]));
+  const markers=[['RC',boat,4.7],['PIN',marks[0],3.2],['1',marks[1],3.2],['2',marks[2],3.2]].map(([label,subject,height])=>{
+    const plate=document.createElement('canvas');plate.width=128;plate.height=64;
+    const ink=plate.getContext('2d');
+    const width=label.length===1?48:label.length===2?76:108;
+    const x=(plate.width-width)/2;
+    ink.fillStyle='#102532';ink.fillRect(x,4,width,47);
+    ink.lineWidth=4;ink.strokeStyle='#ffac57';ink.strokeRect(x+2,6,width-4,43);
+    ink.fillStyle='#fff4d9';ink.textAlign='center';ink.textBaseline='middle';
+    ink.font='bold 35px sans-serif';ink.fillText(label,64,29);
+    ink.fillStyle='#ffac57';ink.beginPath();ink.moveTo(56,51);ink.lineTo(72,51);ink.lineTo(64,62);ink.fill();
+    const map=new T.CanvasTexture(plate);map.colorSpace=T.SRGBColorSpace;
+    const marker=new T.Sprite(new T.SpriteMaterial({map,sizeAttenuation:false,depthTest:false,depthWrite:false,
+      fog:false,toneMapped:false,transparent:true}));
+    marker.name='Course marker '+label;marker.layers.set(courseMarkerLayer);marker.renderOrder=3;
+    marker.visible=false;group.add(marker);
+    return {marker,subject,height};
+  });
+  function positionMarkers(eye,viewportHeight,aboveWater){
+    const scale=44*Math.tan(eye.fov*Math.PI/360)/Math.max(1,viewportHeight);
+    for(const {marker,subject,height} of markers){
+      const {x,y,z}=subject.position,range=Math.hypot(x-eye.position.x,y-eye.position.y);
+      const opacity=T.MathUtils.smoothstep(range,65,110);
+      marker.visible=aboveWater&&opacity>0;
+      if(!marker.visible)continue;
+      marker.position.set(x,y,z+height);
+      marker.scale.set(2*scale,scale,1);
+      marker.material.opacity=opacity;
+    }
+  }
   let previous;
-  return (label,time=0,sampleWind)=>{
+  function update(label,time=0,sampleWind){
     const [heave,roll,pitch]=race.get('launchPose');
     boat.position.z=heave;boat.rotation.x=roll;boat.rotation.y=-pitch;
     if(sampleWind){
@@ -116,7 +145,8 @@ export function courseScene(T,scene,race){
     ctx.fillText('TRI 1   '+bearing,256,49);
     ctx.font='bold 35px monospace';ctx.fillText('S – 1p – 2p – F',256,99);
     ctx.fillStyle='#ffbe52';ctx.font='bold 43px monospace';ctx.fillText(label,256,151);texture.needsUpdate=true;
-  };
+  }
+  return {update,positionMarkers};
 }
 export function sailFlapRate(){
   const sampleRate=32,windowSize=96,firstFrequency=.5,frequencyStep=.25,binCount=47;

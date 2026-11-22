@@ -248,7 +248,7 @@ function hullFoam(scene,uniforms,cruiserHullGLSL){
  }
  return {mesh,clear,sample};
 }
-function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
+function atmosphere(scene,{waterCaptureLayer,courseMarkerLayer,objectDrawRange},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
  const U={cruiserTilt:{value:new Float32Array(10)},cruiserCount:{value:0},cruiserPose:{value:new Float32Array(20)},cruiserAim:{value:new Float32Array(20)},cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  const swimmerWater=makeSwimmerWater(THREE,U);
  const skyTarget=new THREE.WebGLRenderTarget(512,192,{type:THREE.HalfFloatType});
@@ -281,10 +281,10 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
    if(key===skyKey && time-lastSky<(U.storm.value>.3?.075:.35))return;
    lastSky=time;skyKey=key;renderer.setRenderTarget(skyTarget);renderer.render(skyPass,skyEye);renderer.setRenderTarget(null);
  }
- const dome=new THREE.Mesh(new THREE.SphereGeometry(280,40,24),new THREE.ShaderMaterial({uniforms:U,side:THREE.BackSide,depthWrite:false,
+ const dome=new THREE.Mesh(new THREE.SphereGeometry(280,40,24),new THREE.ShaderMaterial({uniforms:U,side:THREE.BackSide,depthTest:false,depthWrite:false,
  vertexShader:'varying vec3 dir;void main(){dir=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
  fragmentShader:lookup+'varying vec3 dir;void main(){gl_FragColor=vec4(skyColor(normalize(dir)),1.);\n#include <tonemapping_fragment>\n#include <colorspace_fragment>\n}'}));
- scene.add(dome);
+ dome.renderOrder=-1;scene.add(dome);
  const spectrumBytes=new Uint8Array(64*64*4),spectrumTexture=new THREE.DataTexture(spectrumBytes,64,64);
  spectrumTexture.wrapS=spectrumTexture.wrapT=THREE.RepeatWrapping;
  spectrumTexture.minFilter=spectrumTexture.magFilter=THREE.LinearFilter;
@@ -394,6 +394,8 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  // across the bows. Spend the same vertex budget over coarser open water.
  const stretch=v=>{
    const u=2*Math.abs(v);
+   // Stretch only the outermost ring to cover the extended horizon.
+   if(u===1)return Math.sign(v)*(objectDrawRange+128);
    if(segments<120)return Math.sign(v)*(15*u+580*u**4);
    const outer=Math.max(0,(u-.52)/.48);
    return Math.sign(v)*(7.5*u+587.5*outer**3);
@@ -407,12 +409,20 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  vertexShader:field+`varying vec3 wp;
  void main(){
  wp=(modelMatrix*vec4(position,1.)).xyz;
- vec2 sampled=sampledHeightsAt(wp.xy);
- windCrest=sampled.y;
- wp.z=tide+swell.x*sin(swell.y+dot(wp.xy-swellCenter,swell.zw))+sampled.x+bowElevation(wp.xy)+wildlifeWave(wp.xy).x;
+ float detail=1.-smoothstep(420.,550.,max(abs(position.x),abs(position.y)));
+ wp.z=tide;windCrest=0.;
  #ifdef VERTEX_SLOPE
- resolvedSlope=surfaceSlope(wp.xy,resolvedIncidentSlope);
+ resolvedSlope=vec2(0.);resolvedIncidentSlope=vec2(0.);
  #endif
+ if(detail>0.){
+   vec2 sampled=sampledHeightsAt(wp.xy);
+   windCrest=detail*sampled.y;
+   wp.z+=detail*(swell.x*sin(swell.y+dot(wp.xy-swellCenter,swell.zw))+sampled.x+bowElevation(wp.xy)+wildlifeWave(wp.xy).x);
+   #ifdef VERTEX_SLOPE
+   resolvedSlope=surfaceSlope(wp.xy,resolvedIncidentSlope)*detail;
+   resolvedIncidentSlope*=detail;
+   #endif
+ }
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
  uniform sampler2D windMap; uniform float windFieldActive,windBlend,referenceWind,windPeriod;
@@ -490,9 +500,9 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
    }
    return total;
  }
- void main(){
+ vec3 surfaceColor(vec3 eye,float eyeDistance,float day){
+   vec3 color;
    if(cruiserWaterExcluded(wp))discard;
-   vec3 eye=normalize(cameraPosition-wp);
    vec4 air=texture2D(windMap,wp.xy/windPeriod+.5/48.);
    vec2 baseDir=vec2(cos(bearing),sin(bearing));
    float localSpeed=64.*mix(air.r,air.g,windBlend);
@@ -504,7 +514,7 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
    float puff=smoothstep(.001,.15,windDelta)*windFieldActive;
    float lull=smoothstep(.01,.23,-windDelta)*windFieldActive;
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
-   float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
+   float fade=1.-smoothstep(16.,110.,eyeDistance);
    #ifdef VERTEX_SLOPE
    vec2 d=resolvedSlope,incidentSlope=resolvedIncidentSlope;
    #else
@@ -520,8 +530,6 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
    float resolved=1.-smoothstep(1.,3.,fwidth(ripplePhase));
    d+=baseDir*(.029*puff*resolved*fade*cos(ripplePhase));
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
-   float day=smoothstep(-.12,.22,sunDir.z);
-   vec3 color;
    if(under>.5){
      vec3 ray=normalize(wp-cameraPosition);
      // Trace the underwater viewing ray across the water/air interface.
@@ -532,7 +540,7 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      vec3 underside=mix(vec3(.006,.040,.061),vec3(.015,.14,.17),incidence)*(.24+.76*day);
      color=mix(underside,through,transmissionGate*(1.-pow(1.-incidence,5.)));
      color=mix(color,vec3(.48,.66,.67)*(.24+.76*day),.78*swimmer.y);
-     vec3 attenuation=exp(-vec3(.18,.057,.032)*length(wp-cameraPosition));
+     vec3 attenuation=exp(-vec3(.18,.057,.032)*eyeDistance);
      color=mix(vec3(.013,.105,.145)*(.22+.78*day),color,attenuation);
    }else{
      float fres=.021+.979*pow(1.-clamp(abs(dot(n,eye)),0.,1.),5.);
@@ -543,7 +551,6 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      color=mix(waterColor,reflected,fres);
      #else
      vec3 levelNormal=vec3(0.,0.,1.);
-     float eyeDistance=length(cameraPosition-wp);
      vec4 clip=mirrorMatrix*vec4(wp,1.);
      vec3 reflectedDeflection=ref-reflect(-eye,levelNormal);
      vec4 mirrorRay=clip+mirrorMatrix*vec4(.055*eyeDistance*reflectedDeflection,0.);
@@ -606,10 +613,19 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      color*=1.+puff*resolved*(scum-.5)*.28;
      color+=.045*lull*reflected*fres;
      color=mix(color,mix(vec3(.06,.10,.14),vec3(.79,.87,.85),day),foam*.86);
-     float haze=smoothstep(70.,430.,length(wp-cameraPosition));
-     color=mix(color,skyColor(normalize(vec3(-eye.xy,.01))),haze*.90);
+     float haze=.9*smoothstep(70.,430.,eyeDistance)+.1*smoothstep(430.,540.,eyeDistance);
+     color=mix(color,skyColor(normalize(vec3(-eye.xy,.01))),haze);
    }
    if(cruiserCount>0)color+=lampScatter(wp,day)*(.70+.30*smoothstep(-.14,.14,dot(d,baseDir)));
+   return color;
+ }
+ void main(){
+   vec3 offset=cameraPosition-wp;
+   float eyeDistance=length(offset);
+   vec3 eye=offset/max(.001,eyeDistance);
+   float day=smoothstep(-.12,.22,sunDir.z);
+   vec3 color=eyeDistance<=540.?surfaceColor(eye,eyeDistance,day):
+     under>.5?vec3(.013,.105,.145)*(.22+.78*day):skyColor(normalize(vec3(-eye.xy,.01)));
    gl_FragColor=vec4(color,1.);
    #include <tonemapping_fragment>
    #include <colorspace_fragment>
@@ -723,6 +739,7 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
    if(refreshReflection){
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
+     mirrorCamera.layers.disable(courseMarkerLayer);
      if(simpleCapture)mirrorCamera.layers.set(waterCaptureLayer);
      const twiceTide=2*U.tide.value;
      mirrorCamera.position.z=twiceTide-camera.position.z;mirrorLook.z=twiceTide-mirrorLook.z;
@@ -746,6 +763,7 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      renderer.setRenderTarget(throughRT);scene.background=clearThrough;
      const viewLayers=camera.layers.mask;
      if(simpleCapture)camera.layers.set(waterCaptureLayer);
+     else camera.layers.disable(courseMarkerLayer);
      try {renderer.render(scene,camera);} finally {camera.layers.mask=viewLayers;}
    }
    renderer.setRenderTarget(null);

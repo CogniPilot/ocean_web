@@ -3,7 +3,7 @@ import {physicsView,hullInspectionFields,cruiserInspectionFields,battenInspectio
 import {cruiserSonar,imagingBeepInterval} from './cruiser-sonar.mjs';
 import {cruiserChart} from './cruiser-chart.mjs';
 import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
-import {waterCaptureLayer,showInLowWaterCapture} from './render-layers.mjs';
+import {courseMarkerLayer,waterCaptureLayer,showInLowWaterCapture} from './render-layers.mjs';
 import {wreckCaustics} from './caustics.mjs';
 import {loadVehicleShell} from './vehicle-assets.mjs';
 import {loadInstance} from './fmi3/instance.mjs?api=2';
@@ -24,6 +24,7 @@ import {gullIndex,vesselNpcNames} from './npc-room.mjs';
 import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
 const renderInterval=1000/30;
+const objectDrawRange=5500;
 const directControls=['drone','sub','whale','shark','gull','motorboat'];
 const profiles={
   fast:{target:20,ratio:.6,min:.4,mesh:48,sky:.375,omitWake:true,skipCaptures:true},
@@ -131,7 +132,7 @@ async function run(){
   ]);
   const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
   renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
-  const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,550);camera.up.set(0,0,1);
+  const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,objectDrawRange);camera.up.set(0,0,1);
   const clouds=harborClouds(T,scene);
   const island=coast(T,scene,renderer.capabilities.isWebGL2 || renderer.extensions.has('ANGLE_instanced_arrays'));
   island.traverse(showInLowWaterCapture);
@@ -223,7 +224,7 @@ async function run(){
   };
   $('mastPort').onchange=()=>{lastMastPreview=-Infinity;};
   function fromMast(render){
-    mast??=mastCamera(T,renderer,scene,boat);
+    mast??=mastCamera(T,renderer,scene,boat,objectDrawRange);
     const underwater=boat.group.localToWorld(mastPosition.fromArray(boat.cameraPorts[Number($('mastPort').value)])).z<ocean.U.tide.value;
     const fog=scene.fog,background=scene.background,dome=ocean.dome.visible,under=ocean.U.under.value;
     scene.fog=underwater?underwaterFog:null;scene.background=underwater?underwaterFog.color:null;
@@ -239,7 +240,7 @@ async function run(){
   if(!world){
     for(const [input,field] of [['hullStations','stationX'],['hullWidths','beamHalf'],['hullOffset','halfSpacing']])race.set(input,model.get(field));
   }
-  const boardClock=courseScene(T,scene,race),audio=raceAudio();
+  const course=courseScene(T,scene,race),audio=raceAudio();
   let lastCountdown=null,raceTick=0;
   const lastLaps=new Map();
   const normalizeRoom=value=>value.trim().slice(0,64)||'regatta';
@@ -256,7 +257,7 @@ async function run(){
       if(settings.sky!==undefined)$('sky').value=settings.sky;
       if(settings.storm!==undefined)$('storm').checked=settings.storm;
     }
-  },$('crew'),laps,playImagingHit);camera.layers.enable(1);camera.layers.enable(3);
+  },$('crew'),laps,playImagingHit);camera.layers.enable(1);camera.layers.enable(3);camera.layers.enable(courseMarkerLayer);
   let npcTraffic,npcTrafficLoad,npcRows,npcRaceUtc,npcCamCount=0;
   let joinAttempt=0;
   async function multiplayer(on){
@@ -352,7 +353,9 @@ async function run(){
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
   const makeWater=(T,u)=>wildlifeWater(T,u,undefined,renderer.capabilities.isWebGL2);
-  const ocean=atmosphere(scene,waterCaptureLayer,makeWater,surfaceSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
+  const ocean=atmosphere(scene,{waterCaptureLayer,courseMarkerLayer,objectDrawRange},makeWater,surfaceSpray,
+    cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes);
+  const sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   ocean.U.windPeriod.value=windField.get('period');
   let lastReflection=-Infinity;
   const reflectionEye=new T.Vector3(),reflectionOrientation=new T.Quaternion();
@@ -636,7 +639,7 @@ async function run(){
     if(motor&&!animalId){$(e.code==='KeyZ'?'searchLamp':'keelLamp').click();e.preventDefault();}
     else if(sub?.active&&e.code==='KeyZ'){toggleLamp();e.preventDefault();}
   });
-  const sensorEye=sub && new T.PerspectiveCamera(64,320/238,.045,550);
+  const sensorEye=sub && new T.PerspectiveCamera(64,320/238,.045,objectDrawRange);
   const sensorTarget=sub && new T.WebGLRenderTarget(320,238);
   if(sensorTarget)sensorTarget.texture.colorSpace=T.SRGBColorSpace;
   const sensorPixels=sub && new Uint8Array(320*238*4);
@@ -656,7 +659,7 @@ async function run(){
   // Render one active sensor per tick. The four-way display shares a GPU target
   // and independently retains the latest image from each camera.
   const feedWidth=256,feedHeight=144;
-  const motorEye=motor&&new T.PerspectiveCamera(64,feedWidth/feedHeight,.045,550);
+  const motorEye=motor&&new T.PerspectiveCamera(64,feedWidth/feedHeight,.045,objectDrawRange);
   const feedTarget=motor&&new T.WebGLRenderTarget(feedWidth,feedHeight);
   if(feedTarget){feedTarget.texture.colorSpace=T.SRGBColorSpace;motorEye.layers.enable(1);motorEye.layers.enable(3);}
   const feedPixels=motor&&new Uint8Array(feedWidth*feedHeight*4);
@@ -1276,7 +1279,7 @@ async function run(){
         if(lastCountdown!==null&&lastCountdown<5&&left>295)audio.signal();
         lastCountdown=left;const label=left>298?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
         const sceneryTime=world?.time??model.time;
-        boardClock(label,sceneryTime,ocean.sampleWind);island.userData.updatePalms(sceneryTime,ocean.sampleWind);$('countdown').textContent=label;
+        course.update(label,sceneryTime,ocean.sampleWind);island.userData.updatePalms(sceneryTime,ocean.sampleWind);$('countdown').textContent=label;
         const lap=scorer.get('lapTime');
         const tenths=Math.round(lap*10);
         const timer=lapClock(tenths);
@@ -1796,6 +1799,7 @@ async function run(){
       const nearHull=Math.hypot(eyeX-ocean.U.boat.value.x,eyeY-ocean.U.boat.value.y)<5;
       const surfaceBand=nearHull?.92:.60;
       const eyeHeight=camera.position.z-ocean.sampleSurface(eyeX,eyeY,true);
+      course.positionMarkers(camera,renderer.domElement.clientHeight,eyeHeight>0);
       caustics.update(opticalTime,!omitWake);
       const storm=$('storm').checked;
       const cloudFog=clouds(ocean.U.cloudTravel.value,camera.position,storm,ocean.U);

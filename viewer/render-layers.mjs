@@ -1,5 +1,7 @@
-// Main views use layers 0 and 1. Low water captures use only this layer.
+// Low-quality water captures use only this layer.
 export const waterCaptureLayer=2;
+// Course labels appear in the player view.
+export const courseMarkerLayer=4;
 
 export function showInLowWaterCapture(mesh){
   mesh.layers.enable(waterCaptureLayer);
