@@ -8,6 +8,12 @@ Four six-second samples in Chromium with SwiftShader used a 393 × 852 touch vie
 
 The packaged worker now skips the zero-filled 64 × 64 wake grid in Low and Fast. At ten updates per simulated second this removes 320 KiB/s of worker messages and 160 KiB/s of texture uploads during steady rendering. The incoming sea tile still updates. Selecting Balanced or High resumes the wake grid on the next worker reply.
 
+### Hobie solver work in Swell
+
+The incident sea skips modes whose directional energy is zero. Rumoca saves only the coordinates written by direct assignment plans that lack a projection fallback. In the Hobie derivative plan, that reduced each backup from 10,681 doubles to 644. The compiler also reuses small pure tuple results when their input bytes match. The packaged components were rebuilt with `CARGO_PROFILE_RELEASE_OPT_LEVEL=2`.
+
+The existing paired benchmark compared the new Hobie component against `152a0cf` on the Ryzen 9 5950X with Node 22. Three alternating pairs per wake setting each measured 400 fixed 10 ms steps after 200 warmup steps, including a pose read after every step. Median paired step cost fell 9.1% with wakes off and 6.1% with wakes on. Median throughput went from 1.24× to 1.35× real time with wakes off and from 1.03× to 1.10× with wakes on. A separate eight-second replay matched all 410,960 sampled values across changes in wind, sea state, trim, steering and wake settings.
+
 ## Published integrated Hobie scene
 
 On November 20, 2026, the deployed world manifest selected `OceanWorld.fmu.f2e68b8f094c95b1.json`. Measurements used an AMD Ryzen 9 5950X development workstation under shared load. The browser run used Chromium with a 393 × 852 CSS pixel touch viewport, device scale factor 2 and SwiftShader software rendering. These figures establish where time goes on this build. Physical Android and iPhone measurements are still needed.

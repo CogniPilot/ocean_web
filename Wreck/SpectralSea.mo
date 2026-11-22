@@ -73,7 +73,7 @@ package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
     Real dk=2*pi/length;
     Real kx,ky,k,omega,f,groupSpeed,sigma,peak,hs,energy,amp,phase,atProbe;
     Real total=0,scale,directional,level,phaseSeed,amplitudeSeed;
-    Real period,unusedSwell,gradient;
+    Real period,unusedSwell,gradient,cb,sb,along,depthSpeed,cp,sp;
     Integer mx,my,opx,opy;
   algorithm
     re:=zeros(N,N); im:=zeros(N,N); probe:=zeros(5);slope:=zeros(2);
@@ -84,15 +84,19 @@ package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
       (hs,period,unusedSwell):=seaPreset(seaState,wind);
       peak:=1/period;
     end if;
+    cb:=cos(bearing);sb:=sin(bearing);
     for ix in 1:N loop
       mx:=if ix-1<N/2 then ix-1 else ix-1-N;
+      kx:=dk*mx;
       for iy in 1:N loop
         my:=if iy-1<N/2 then iy-1 else iy-1-N;
-        if (mx<>0 or my<>0) and abs(mx)<N/2 and abs(my)<N/2 then
-          kx:=dk*mx; ky:=dk*my; k:=sqrt(kx*kx+ky*ky);
+        ky:=dk*my;
+        along:=kx*cb+ky*sb;
+        if along>0 and abs(mx)<N/2 and abs(my)<N/2 then
+          k:=sqrt(kx*kx+ky*ky);
           omega:=sqrt(g*k*tanh(k*waterDepth)); f:=omega/(2*pi);
           groupSpeed:=g*(tanh(k*waterDepth)+k*waterDepth/cosh(k*waterDepth)^2)/(2*omega);
-          directional:=max(0,(kx*cos(bearing)+ky*sin(bearing))/k)^4;
+          directional:=(along/k)^4;
           sigma:=if f<peak then 0.07 else 0.09;
           energy:=f^(-5)*exp(-1.25*(peak/f)^4)*3.3^exp(-0.5*((f-peak)/(peak*sigma))^2)
             *directional*groupSpeed/(2*pi*k)*dk^2;
@@ -107,12 +111,13 @@ package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
           re[opy,opx]:=re[opy,opx]+0.5*amp*cos(phase);
           im[opy,opx]:=im[opy,opx]-0.5*amp*sin(phase);
           atProbe:=kx*pos[1]+ky*pos[2]+phase;
-          probe[1]:=probe[1]+amp*cos(atProbe);
-          probe[2]:=probe[2]+amp*omega*(kx/k)*cosh(k*level)/sinh(k*waterDepth)*cos(atProbe);
-          probe[3]:=probe[3]+amp*omega*(ky/k)*cosh(k*level)/sinh(k*waterDepth)*cos(atProbe);
-          probe[4]:=probe[4]+amp*omega*sinh(k*level)/sinh(k*waterDepth)*sin(atProbe);
-          probe[5]:=probe[5]+amp*cosh(k*level)/cosh(k*waterDepth)*cos(atProbe);
-          gradient:=-amp*sin(atProbe);
+          cp:=cos(atProbe);sp:=sin(atProbe);depthSpeed:=cosh(k*level);
+          probe[1]:=probe[1]+amp*cp;
+          probe[2]:=probe[2]+amp*omega*(kx/k)*depthSpeed/sinh(k*waterDepth)*cp;
+          probe[3]:=probe[3]+amp*omega*(ky/k)*depthSpeed/sinh(k*waterDepth)*cp;
+          probe[4]:=probe[4]+amp*omega*sinh(k*level)/sinh(k*waterDepth)*sp;
+          probe[5]:=probe[5]+amp*depthSpeed/cosh(k*waterDepth)*cp;
+          gradient:=-amp*sp;
           slope:=slope+gradient*{kx,ky};
         end if;
       end for;
