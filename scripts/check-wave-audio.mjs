@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import {waveAmbience} from '../viewer/regatta.mjs';
+import {hullGurgle,waveAmbience} from '../viewer/regatta.mjs';
 
-const silent={swell:0,crest:0,wake:0};
+const silent={swell:0,crest:0,wake:0,crash:0};
 const probes=waveAmbience();
 let firstLocations;
 for(let i=0;i<180;i++){
@@ -39,4 +39,25 @@ assert.equal(rough.wake,0);
 const wake=meanWash(0,.12,true);
 assert(wake.wake>.05&&wake.swell===0&&wake.crest===0);
 assert.deepEqual(meanWash(0,.12,false),silent);
-console.log({calm,rough,wake});
+assert.equal(calm.crash,0);
+assert(rough.crash>0);
+
+// The independent 100-foot mode should give one event just after each crest.
+probes.reset();
+const k=2*Math.PI/30.48,omega=Math.sqrt(9.80665*k*Math.tanh(k*13.7)),step=.08;
+const period=2*Math.PI/omega,crashes=[];
+for(let i=0;i<=3.5*period/step;i++){
+  const time=i*step,surface=east=>.48*Math.sin(k*east-omega*time);
+  const mix=probes.sample(surface,time,0,0,0,false);
+  if(mix.crash)crashes.push(time);
+  assert.equal(probes.sample(surface,time,0,0,0,false).crash,0,'A duplicate frame repeated a crash');
+}
+assert.equal(crashes.length,3);
+assert(crashes.every((time,i)=>time-(i+.75)*period>=0&&time-(i+.75)*period<2.1*step));
+
+assert.equal(hullGurgle(undefined,.3,.2),0);
+assert.equal(hullGurgle(0,0,0),0);
+assert(hullGurgle(0,.3,0)>0);
+assert(hullGurgle(1,0,0)>.2);
+assert.equal(hullGurgle(4,.3,.2),0);
+console.log({calm,rough,wake,crashes});

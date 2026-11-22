@@ -48,9 +48,9 @@ async function handle(request){
     if(request.sampledFields){
       const [waveDt,windDt]=session.read_values(JSON.stringify(['waves.dt','wind.dt']));
       const battenFields=[1,2].flatMap(sail=>
-        ['battenCount','battenLuff','battenLeech'].map(name=>`boat.cloth[${sail}].${name}`));
+        ['battenCount','battenLuff','battenLeech','mesh'].map(name=>`boat.cloth[${sail}].${name}`));
       const schedules=[
-        [waveDt*100,['waves.height','waves.driftE','waves.driftN','bowSources','bowSpeed','bowFrame'],'wakeSurface'],
+        [waveDt*100,['waves.height','waves.driftE','waves.driftN','bowSources','bowSpeed'],'wakeSurface'],
         [waveDt*100,['waves.sourceStrips'],'wakeSource'],
         [waveDt*100,['boat.stationGeometry','boat.beamFraction','boat.halfSpacing','boat.sectionVolume','boat.sectionWater',
           'stripEast','stripNorth','stripZ','stripForce','stripVolume','panelSea',...battenFields],'physics'],

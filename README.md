@@ -20,11 +20,13 @@ Enable **Wave grids** to see the solver's sampled fields. **Automatic** shows th
 
 Choose **View → Skipper** to ride with the Hobie’s movable ballast. The eye stays just above the marker as the ballast shifts on deck or out on the trapeze. Drag or swipe to look around. Scroll or pinch to zoom in any 3D view. **Settings → Ballast marker** toggles the sphere marking the movable ballast’s center of mass. In apparent-wind mode the gold arrow shows the vane direction and the red no-go sector uses true wind estimated from the vane, cups and boat velocity. [Skipper view](https://cognipilot.github.io/ocean_web/?boat=Hobie16&view=ballast)
 
-While steering by hand, press **↑/↓** to move the main traveler out/in and **←/→** to move the jib travelers inboard/outboard. The first shortcut switches the travelers from Auto to manual.
+While steering by hand, press **↑/↓** to move the main traveler leeward/windward across the track and **←/→** to move the jib travelers inboard/outboard. The first shortcut switches the travelers from Auto to manual.
 
-With **Auto ballast** enabled, the Hobie shifts crew weight windward as the rig loads up. Under sustained load, it can move the weight to the trapeze stance, 2.10 m from the centerline on either side.
+With **Auto ballast** enabled, the Hobie shifts crew weight windward as the rig loads up. Under sustained load, it can move the weight to the trapeze stance, 2.10 m from the centerline on either side. It also moves fore and aft to trim the hull against the local wave face and ease excess pitch.
 
-With sound enabled, simulated water motion near the listener drives the surface wash. Steep passing waves and nearby wakes add their own sound.
+Choose **Swell** for waves 1.3 m high or **Steep swell** for waves 2.4 m high. Both have a 100 ft (30.48 m) wavelength. The Hobie can catch a following wave as the pressure on its immersed hull accelerates it down the face.
+
+With sound enabled, simulated water motion near the listener drives the surface wash. Passing steep crests trigger a crash, and slow hull motion adds close gurgles and lapping.
 
 ## Combined simulation component
 

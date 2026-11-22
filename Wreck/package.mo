@@ -12,7 +12,7 @@ package Wreck
     parameter Real tidePhase=0.5, currentPhase=1.2, tidalSpeed=0.12;
     input Real windSpeed "10 m wind speed, m/s";
     input Real windDirection "Direction toward which wind blows, radians from east";
-    parameter Real fetch=45000, waterDepth=13.7;
+    parameter Real fetch=45000, waterDepth=SpectralSea.nearshoreDepth;
     Real wind(stateSelect=StateSelect.always,start=11,fixed=true), bearing(stateSelect=StateSelect.always,start=0.45,fixed=true);
     discrete Real tile[SpectralSea.N,SpectralSea.N],probe[5];
     discrete output Real surfaceSlope[2];

@@ -69,7 +69,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
    optionalInputs:['animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
-   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame',
+   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed',
      ...(hasBoat&&mode!=='sloop'?battenInspectionFields.map(name=>'boat.'+name):[]),
      ...(hasBoat?hullInspectionOutputs:[]),...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea']:[]),...(hasFlight?flightNavigationOutputs:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
@@ -141,6 +141,6 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    if(offsets.has('omitWake'))set('omitWake',Number(!enabled));
    if(surveyView.wakeSurface!==enabled)wakeRevision++;
    surveyView.wakeSurface=enabled;
-   if(!enabled){state.delete('waves.height');state.delete('bowHeight');state.delete('bowFrame');}
+   if(!enabled){state.delete('waves.height');state.delete('bowHeight');}
  },hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map,dvl=false){surveyView.dvl=camera||dvl;surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

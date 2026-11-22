@@ -224,10 +224,10 @@ function leechDeflection(state,offset){
 export function waveAmbience(){
   const spacing=2.3,offsets=[[0,0],[spacing,0],[-spacing,0],[0,spacing],[0,-spacing]];
   const incident=new Float64Array(offsets.length),wake=new Float64Array(offsets.length);
-  const mix={swell:0,crest:0,wake:0};
-  let anchorEast,anchorNorth,lastTime,lastWake;
-  function silence(){mix.swell=mix.crest=mix.wake=0;return mix;}
-  function reset(){lastTime=undefined;silence();}
+  const mix={swell:0,crest:0,wake:0,crash:0};
+  let anchorEast,anchorNorth,lastTime,lastWake,rise=0,lastCrash=-Infinity;
+  function silence(){mix.swell=mix.crest=mix.wake=mix.crash=rise=0;return mix;}
+  function reset(){lastTime=undefined;lastCrash=-Infinity;silence();}
   function slope(values){
     let sum=0;
     for(let i=1;i<values.length;i++)sum+=Math.abs(values[i]-values[0]);
@@ -236,7 +236,8 @@ export function waveAmbience(){
   function sample(surface,time,east,north,tide,includeWake){
     const moved=lastTime===undefined||(east-anchorEast)**2+(north-anchorNorth)**2>36;
     if(moved){anchorEast=east;anchorNorth=north;}
-    const dt=time-lastTime;
+    const dt=time-lastTime,previousCenter=incident[0];
+    mix.crash=0;
     if(!moved&&dt===0&&includeWake===lastWake)return mix;
     // Initialize the new probe coordinates before taking differences.
     const continuous=!moved&&dt>0&&dt<.32;
@@ -262,15 +263,35 @@ export function waveAmbience(){
     mix.swell=.62*moving/(.16+moving);
     mix.crest=.48*falling/(.22+falling)*seaSlope/(.045+seaSlope);
     mix.wake=.42*radiating/(.13+radiating)*wakeSlope/(.02+wakeSlope);
+    // Fire once when a substantial crest turns from rising to falling.
+    // Strength needs both sustained motion and a raised, sloping surface.
+    const centerSpeed=(incident[0]-previousCenter)/dt;
+    if(centerSpeed>.025)rise=Math.max(rise,centerSpeed);
+    else if(centerSpeed<-.012&&rise>0){
+      const elevation=Math.max(previousCenter,incident[0]);
+      if(rise>.075&&elevation>.082&&seaSlope>.009&&time-lastCrash>.85){
+        mix.crash=Math.min(1,.85*(elevation-.062)+.60*rise+1.7*seaSlope);
+        lastCrash=time;
+      }
+      rise=0;
+    }
     return mix;
   }
   return {sample,reset};
+}
+
+export function hullGurgle(speed,swell,wake){
+  if(!Number.isFinite(speed))return 0;
+  const flow=Math.abs(speed);
+  const fade=Math.max(0,Math.min(1,(3.2-flow)/1.65));
+  return fade*fade*(3-2*fade)*Math.min(1,.52*flow/(.55+flow)+.45*swell+.45*wake);
 }
 
 export function raceAudio(){
   let engines,audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
   let submerged,effects,luffGain,flapOscillator,flapRate,level=.15;
   let waves,waveGains,lastWaveMix=-Infinity,lastWaveTime,waveTimeWall,wavesActive=false;
+  let waveEvents,crashRecording,crashLoading=false,lastCrashSound=-Infinity,nextBubble=-Infinity,crashClip=0;
   function silenceLuff(){
     flapRate?.reset();
     if(luffGain)luffGain.gain.setTargetAtTime(0,audio.currentTime,.06);
@@ -279,6 +300,8 @@ export function raceAudio(){
     if(!wavesActive)return;
     wavesActive=false;
     waves?.reset();
+    nextBubble=-Infinity;
+    waveEvents?.gain.setTargetAtTime(0,audio.currentTime,.09);
     for(const gain of waveGains??[])gain.gain.setTargetAtTime(0,audio.currentTime,.15);
   }
   function setVolume(value){
@@ -287,15 +310,15 @@ export function raceAudio(){
     if(!level){silenceLuff();silenceWaves();}
   }
   const loading=new Set();
+  async function decodeRecording(file){
+    const response=await fetch(new URL('./assets/audio/'+file,import.meta.url));
+    if(!response.ok)throw Error('Ambience HTTP '+response.status);
+    return audio.decodeAudioData(await response.arrayBuffer());
+  }
   function startAmbience(file,destination){
     if(loading.has(file))return;
     loading.add(file);
-    fetch(new URL('./assets/audio/'+file,import.meta.url))
-      .then(response=>{
-        if(!response.ok)throw Error('Ambience HTTP '+response.status);
-        return response.arrayBuffer();
-      })
-      .then(bytes=>audio.decodeAudioData(bytes))
+    decodeRecording(file)
       .then(buffer=>{
         const source=audio.createBufferSource();
         source.buffer=buffer;source.loop=true;
@@ -398,22 +421,82 @@ export function raceAudio(){
     source.start();
     return gains;
   }
-  function water(surface,time,east,north,tide,height,includeWake){
+  function eventOutput(){
+    if(!waveEvents){
+      waveEvents=audio.createGain();
+      waveEvents.connect(effects);
+    }
+    return waveEvents;
+  }
+  function waveCrash(strength,wall,exposure){
+    if(wall-lastCrashSound<.66)return;
+    lastCrashSound=wall;
+    if(!crashLoading){
+      crashLoading=true;
+      decodeRecording('calm-waves.mp3').then(recording=>{crashRecording=recording;})
+        .catch(error=>console.warn('Wave crash excerpts unavailable',error));
+    }
+    const source=audio.createBufferSource(),filter=audio.createBiquadFilter(),gain=audio.createGain();
+    const excerpts=[3.88,14.43,20.42,24.42,26.29,38.30];
+    source.buffer=crashRecording??noise;
+    const length=crashRecording?1.12+.85*strength:.82+.55*strength;
+    const offset=crashRecording?excerpts[crashClip++%excerpts.length]:Math.random()*(noise.duration-length);
+    const peak=exposure*(.18+1.3*strength)*(crashRecording?1:1.65);
+    filter.type='lowpass';
+    filter.frequency.setValueAtTime(1700+3600*strength,wall);
+    filter.frequency.exponentialRampToValueAtTime(550,wall+length);
+    gain.gain.setValueAtTime(0,wall);
+    gain.gain.linearRampToValueAtTime(peak,wall+.055);
+    gain.gain.exponentialRampToValueAtTime(peak*.35,wall+.38);
+    gain.gain.linearRampToValueAtTime(0,wall+length);
+    source.connect(filter).connect(gain).connect(eventOutput());
+    source.onended=()=>{source.disconnect();filter.disconnect();gain.disconnect();};
+    source.start(wall,offset,length);
+  }
+  function bubbleBurst(strength,wall){
+    const source=audio.createBufferSource(),bubble=audio.createBiquadFilter(),gain=audio.createGain();
+    source.buffer=noise;bubble.type='bandpass';bubble.Q.value=3.2;
+    let next=wall;
+    gain.gain.setValueAtTime(0,wall);
+    for(let i=0;i<3;i++){
+      const pitch=220+260*Math.random(),length=.055+.050*Math.random();
+      bubble.frequency.setValueAtTime(pitch,next);
+      bubble.frequency.exponentialRampToValueAtTime(pitch*1.42,next+length);
+      gain.gain.setValueAtTime(0,next);
+      gain.gain.linearRampToValueAtTime(strength*(1.7-.25*i),next+.018);
+      gain.gain.setTargetAtTime(0,next+.028,.015);
+      next+=length+.012+.035*Math.random();
+    }
+    const duration=next-wall+.035;
+    source.connect(bubble).connect(gain).connect(eventOutput());
+    source.onended=()=>{source.disconnect();bubble.disconnect();gain.disconnect();};
+    source.start(wall,Math.random()*(noise.duration-duration),duration);
+  }
+  function water(surface,time,east,north,tide,height,includeWake,hullSpeed,hullDistance=Infinity){
     if(!enabled||!level)return;
     if(!surface||height<=-.35){silenceWaves();return;}
     const wall=audio.currentTime;
     if(time!==lastWaveTime){lastWaveTime=time;waveTimeWall=wall;}
     else if(wall-waveTimeWall>.3){silenceWaves();return;}
     if(wall-lastWaveMix<.07)return;
-    lastWaveMix=wall;wavesActive=true;
+    lastWaveMix=wall;
+    if(!wavesActive)waveEvents?.gain.setTargetAtTime(1,wall,.06);
+    wavesActive=true;
     waves??=waveAmbience();
-    const {swell,crest,wake}=waves.sample(surface,time,east,north,tide,includeWake);
-    if(!waveGains&&swell+crest+wake<.002)return;
-    waveGains??=startWaves();
+    const {swell,crest,wake,crash}=waves.sample(surface,time,east,north,tide,includeWake);
     const exposure=Math.min(1,(height+.35)/.7)/(1+Math.max(0,height)/16);
-    waveGains[0].gain.setTargetAtTime(swell*exposure,wall,.22);
-    waveGains[1].gain.setTargetAtTime(crest*exposure,wall,.09);
-    waveGains[2].gain.setTargetAtTime(wake*exposure,wall,.12);
+    if(waveGains||swell+crest+wake>=.002){
+      waveGains??=startWaves();
+      waveGains[0].gain.setTargetAtTime(.76*swell*exposure,wall,.22);
+      waveGains[1].gain.setTargetAtTime(.32*crest*exposure,wall,.09);
+      waveGains[2].gain.setTargetAtTime(.66*wake*exposure,wall,.12);
+    }
+    if(crash>.03)waveCrash(crash,wall,exposure);
+    const gurgle=hullGurgle(hullSpeed,swell,wake)*exposure/(1+(hullDistance/15)**2);
+    if(gurgle>.024&&time>=nextBubble){
+      bubbleBurst(gurgle,wall);
+      nextBubble=time+(.65+.85*Math.random())/(1+.35*Math.abs(hullSpeed));
+    }
   }
   function signal(){
     if(!enabled)return;const src=audio.createBufferSource(),gain=audio.createGain(),t=audio.currentTime;

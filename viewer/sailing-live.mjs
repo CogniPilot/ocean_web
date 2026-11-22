@@ -435,15 +435,10 @@ async function run(){
   const wildlifeOrbit=()=>wildlifeOrbits[cameraMenu.value.split('-')[0]];
   const cameraZoom=new Map();
   const fixedView=view=>view==='ballast'||view==='fpv'||view==='onboard'||Object.hasOwn(cruiserViews,view);
-  const skipperLens=Math.tan(Math.PI/6);
-  // Bound both vertical and horizontal field of view on wide displays.
-  const skipperZoomLimit=()=>Math.min(Math.tan(32*Math.PI/180),Math.tan(47.5*Math.PI/180)/camera.aspect)/skipperLens;
   function zoomView(scale){
     const view=cameraMenu.value,orbit=wildlifeOrbit();
     if(fixedView(view)||view.startsWith('npc-')){
-      const limit=view==='ballast'?skipperZoomLimit():2.5;
-      const zoom=Math.min(cameraZoom.get(view)??1,limit);
-      cameraZoom.set(view,T.MathUtils.clamp(zoom*scale,Math.min(.32,limit),limit));
+      cameraZoom.set(view,T.MathUtils.clamp((cameraZoom.get(view)??1)*scale,.32,2.5));
     }else if(orbit){
       orbit.distance=T.MathUtils.clamp(orbit.distance*scale,2,45);
     }else{
@@ -531,12 +526,9 @@ async function run(){
         auto.checked=false;
       }
       const step=5;
-      if(code==='ArrowUp'){
+      if(code==='ArrowUp'||code==='ArrowDown'){
         const leeward=Math.sin(model.get('vane'))>=0?-1:1;
-        main.value=main.valueAsNumber+leeward*step;
-      }else if(code==='ArrowDown'){
-        const position=main.valueAsNumber;
-        main.value=Math.sign(position)*Math.max(0,Math.abs(position)-step);
+        main.value=main.valueAsNumber+(code==='ArrowUp'?leeward:-leeward)*step;
       }else{
         jib.value=jib.valueAsNumber+(code==='ArrowRight'?step:-step);
       }
@@ -546,7 +538,7 @@ async function run(){
   function applySea(){
     const level=Number($('seaState').value);
     if(world)world.set('seaState',level);
-    else model.set('swellAmplitude',.30*level);
+    else model.set('swellAmplitude',level===1.1 ? 1.20 : level===.45 ? .65 : 0);
   }
   if(!world)applySea();
   $('seaState').onchange=()=>{applySea();remote.changeWeather('sea',$('seaState').value);};
@@ -1722,8 +1714,7 @@ async function run(){
       const viewMode=$('cameraDepth').value;
       const skipperView=viewMode==='ballast'&&boat?.ballastPosition;
       const baseFov=skipperView?60:viewMode==='motorHelm'?62:['motorBow','motorStern','motorPort','motorStarboard','onboard'].includes(viewMode)?64:52;
-      const zoom=fixedView(viewMode)?cameraZoom.get(viewMode)??1:1;
-      const lens=skipperView?Math.min(zoom,skipperZoomLimit()):zoom;
+      const lens=fixedView(viewMode)?cameraZoom.get(viewMode)??1:1;
       const fov=lens===1?baseFov:T.MathUtils.radToDeg(2*Math.atan(lens*Math.tan(T.MathUtils.degToRad(baseFov/2))));
       if(camera.fov!==fov){camera.fov=fov;camera.updateProjectionMatrix();lastReflection=-Infinity;}
       camera.up.set(0,0,1);
@@ -1815,7 +1806,8 @@ async function run(){
       // Only the 34 cm dome port can straddle the interface. The extra margin
       // covers neighbouring wave slopes and the local vessel's pressure wave.
       const eyeX=camera.position.x,eyeY=camera.position.y;
-      const nearHull=Math.hypot(eyeX-ocean.U.boat.value.x,eyeY-ocean.U.boat.value.y)<5;
+      const hullDistance=Math.hypot(eyeX-ocean.U.boat.value.x,eyeY-ocean.U.boat.value.y);
+      const nearHull=hullDistance<5;
       const surfaceBand=nearHull?.92:.60;
       const eyeHeight=camera.position.z-ocean.sampleSurface(eyeX,eyeY,true);
       caustics.update(opticalTime,!omitWake);
@@ -1844,8 +1836,10 @@ async function run(){
         const sailLuff=running&&cat&&s&&targetSelect.value==='boat'?model.get('sailLuff'):null;
         audio.update(model?.get('cupSpeed')??Math.hypot(...wind),storm,camera.position.z-ocean.U.tide.value,
           sailLuff,s,t,playbackRate);
+        const ownHull=!subject&&!animalId&&!sub?.active&&!drone?.active;
+        const waterSpeed=ownHull?(motor?world.get('engine')[1]:s?.[10]):undefined;
         audio.water(running&&!document.hidden?ocean.sampleSurface:null,opticalTime,eyeX,eyeY,
-          ocean.U.tide.value,eyeHeight,!omitWake);
+          ocean.U.tide.value,eyeHeight,!omitWake,waterSpeed,hullDistance);
       }
       if(Math.abs(eyeHeight)<=surfaceBand){split(renderer,scene,camera,ocean,underwaterFog,renderBelow);}
       else{
@@ -1864,7 +1858,7 @@ async function run(){
         const showRig=$('physicsRig').checked,rig=sailing?boat.inspection:null;
         if(rig&&showRig&&cat&&!rig.battens&&battenInspectionFields.every(name=>model.has(name))){
           const data=model.getMany(battenInspectionFields);
-          rig.battens=[data.slice(0,3),data.slice(3,6)];
+          rig.battens=[data.slice(0,4),data.slice(4,8)];
         }
         if(sailing&&showHulls&&(!inspectionHull||inspectionTime!==t)){
           const data=world?hullInspectionFields.map(name=>world.get('boat.'+name)):model.getMany(hullInspectionFields);

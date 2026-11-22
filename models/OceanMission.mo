@@ -1,6 +1,6 @@
 partial model OceanMission "Sea, wind and anchored race course for one local vehicle"
   parameter Real prevailingBearing=atan2(4,10);
-  parameter Real swellK=Wreck.SpectralSea.swellK,swellBearing=1.04159;
+  parameter Real swellK=Wreck.SpectralSea.swellK,swellBearing=Wreck.SpectralSea.swellBearing;
   final parameter Real swellOmega=sqrt(Wreck.g*swellK*tanh(swellK*boatWater.waterDepth));
   input Real seaClockOffset(start=0),omitWake(start=0),peerWake[4,38](each start=0),windAnchor[5](each start=0);
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
@@ -16,7 +16,7 @@ partial model OceanMission "Sea, wind and anchored race course for one local veh
     beamHalf=zeros(7),separation=0,volume=zeros(2,6),
     currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],
     windEast=0,windNorth=0,seaAmplitude=0);
-  Regatta race(racerState=zeros(11),hullStations=zeros(7),hullWidths=zeros(7),hullOffset=0,seaClockOffset=seaClockOffset,swellK=swellK,swellOmega=swellOmega,landingReaction=committeeLoad,wakeTile=waves.height,hullWaveTile=waves.wakeHeight,
+  Regatta race(racerState=zeros(11),hullStations=zeros(7),hullWidths=zeros(7),hullOffset=0,seaClockOffset=seaClockOffset,swellK=swellK,swellBearing=swellBearing,swellOmega=swellOmega,landingReaction=committeeLoad,wakeTile=waves.height,hullWaveTile=waves.wakeHeight,
     backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
     tide=boatWater.tide,swellHeight=swell[1],windBearing=prevailingBearing,utc=epoch+time,
     east=focus[1],north=focus[2]);

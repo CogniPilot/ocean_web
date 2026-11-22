@@ -11,7 +11,7 @@ function segmentLength(points, node) {
 for (const windNorth of [-11, 11]) {
   const boat = await loadInstance('Hobie16', {
     windEast: 5.5, windNorth, launchSpeed: 2.4, launchHeading: 0,
-    launchHeight: .2, deckManual: 1, manualHelm: 1
+    launchHeight: .2, ballastManual: 1, deckManual: 1, manualHelm: 1
   }, async url => new Response(await readFile(url)));
   boat.set('trimInput', -1);
   for (let i=0; i<500; i++) boat.advance(.01);

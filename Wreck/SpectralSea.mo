@@ -2,7 +2,10 @@ within Wreck;
 package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
   constant Integer N=32;
   constant Real length=64 "Periodic tile size [m]";
-  constant Real swellK=.034 "184.8 m swell wavelength in the nearshore domain";
+  constant Real swellWavelength=30.48 "100 ft independent swell wavelength [m]";
+  constant Real swellK=2*pi/swellWavelength "Swell wavenumber [rad/m]";
+  constant Real swellBearing=1.04159 "Swell propagation direction from east [rad]";
+  constant Real nearshoreDepth=13.7 "Default still-water depth [m]";
 
   function seaPreset
     input Real state,wind;
@@ -17,7 +20,7 @@ package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
     steep:=min(1,max(0,(state-.45)/.65));
     windHeight:=smoothHeight*(1-mid)+.62*mid+.53*steep;
     peakPeriod:=2.3+1.35*mid+1.15*steep;
-    swellAmplitude:=.22*mid+.26*steep;
+    swellAmplitude:=.65*mid+.55*steep;
   end seaPreset;
 
   function swellHeight

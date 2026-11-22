@@ -1,30 +1,11 @@
+import {battenPath} from './board/sail-battens.mjs';
+
 // All geometry is projected from the current boat and water state. Keeping the
 // annotations in a separate canvas also keeps them out of water captures.
 export const cruiserInspectionFields=['stripEast','stripNorth','stripZ','stripForce','stripVolume'];
 export const hullInspectionFields=['stationGeometry','beamFraction','halfSpacing','sectionVolume','sectionWater'];
 export const battenInspectionFields=[1,2].flatMap(sail=>
-  ['battenCount','battenLuff','battenLeech'].map(name=>`cloth[${sail}].${name}`));
-
-function battenPath(luff,leech){
-  const rise=5*(leech-luff),start=5*luff;
-  const breaks=new Set([0,1/3,2/3,1]);
-  for(let row=1;row<5;row++){
-    const u=(row-start)/rise;
-    if(u>0&&u<1)breaks.add(u);
-  }
-  // Each point uses the same cloth triangle as the rendered sail. Split the
-  // path at grid edges and at the diagonal through each cell.
-  for(let row=0;row<5;row++)for(let col=0;col<3;col++){
-    const u=(start+col-row)/(3-rise),y=start+rise*u;
-    if(u>col/3&&u<(col+1)/3&&y>row&&y<row+1)breaks.add(u);
-  }
-  return [...breaks].sort((a,b)=>a-b).map(u=>{
-    const x=3*u,y=start+rise*u;
-    const col=Math.min(2,Math.floor(x)),row=Math.min(4,Math.floor(y));
-    const i=4*row+col,s=x-col,t=y-row;
-    return s>=t?[i,i+1,i+5,1-s,s-t,t]:[i,i+4,i+5,1-t,t-s,s];
-  });
-}
+  ['battenCount','battenLuff','battenLeech','mesh'].map(name=>`cloth[${sail}].${name}`));
 
 export function physicsView(T,canvas,status){
   const ink=canvas.getContext('2d');
@@ -106,27 +87,22 @@ export function physicsView(T,canvas,status){
     drawJoints(rig.joints,.27);
   }
   function drawBattens(sail,battens){
-    const [count,luff,leech]=battens;
+    const [count,luff,leech,rest]=battens;
     let paths=battenPaths.get(battens);
     if(!paths){
-      paths=Array.from({length:count},(_,i)=>battenPath(luff[i],leech[i]));
+      paths=Array.from({length:count},(_,i)=>battenPath(rest,sail.geo.index.array,luff[i],leech[i]));
       battenPaths.set(battens,paths);
     }
     const point=(target,[i,j,k,wi,wj,wk])=>target.copy(rigPoints[i]).multiplyScalar(wi)
       .addScaledVector(rigPoints[j],wj).addScaledVector(rigPoints[k],wk);
     ink.save();
     ink.lineCap='round';ink.beginPath();
-    for(const path of paths){
-      point(a,path[0]);
-      for(let i=1;i<path.length;i++){
-        point(b,path[i]);segment(a,b,sail.pivot);a.copy(b);
-      }
-    }
+    for(const path of paths)for(const {from,to} of path)segment(point(a,from),point(b,to),sail.pivot);
     ink.strokeStyle='#071d2b';ink.lineWidth=4.6;ink.stroke();
     ink.strokeStyle=colors.batten;ink.lineWidth=2.2;ink.stroke();
     ink.restore();
     const middle=paths[Math.floor(paths.length/2)];
-    label(point(a,middle[middle.length-1]),sail.pivot,count+' full-length battens',colors.batten,8,8);
+    if(middle.length)label(point(a,middle.at(-1).to),sail.pivot,count+' full-length battens',colors.batten,8,8);
   }
   function drawJoints(joints,length){
     for(const [joint,axis,name] of joints){

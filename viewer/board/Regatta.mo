@@ -11,8 +11,8 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   input Real hullWaveTile[64,64]=zeros(64,64);
   input Real bowSources[14,6]=zeros(14,6),bowFrame[4]=zeros(4),bowSpeed[2]=zeros(2);
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
-  parameter Real swellK=.34,swellBearing=1.04159;
-  parameter Real swellOmega=sqrt(9.80665*swellK);
+  parameter Real swellK=Wreck.SpectralSea.swellK,swellBearing=Wreck.SpectralSea.swellBearing;
+  parameter Real swellOmega=sqrt(Wreck.g*swellK*tanh(swellK*Wreck.SpectralSea.nearshoreDepth));
   parameter Real launchMass=1150,waterplaneArea=7.2,rollInertia=650,pitchInertia=3100;
   final parameter Real stationX[4]={1.65,1.65,-1.65,-1.65},stationY[4]={.65,-.65,.65,-.65};
   final parameter Real draft=launchMass/(1025*waterplaneArea);

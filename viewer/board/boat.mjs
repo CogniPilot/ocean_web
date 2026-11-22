@@ -1,4 +1,5 @@
 import {sailTelltale} from './sail-telltale.mjs';
+import {battenTexturePaths,clothTopology} from './sail-battens.mjs';
 import {vehicleShell} from '../vehicle-assets.mjs';
 import {showInLowWaterCapture} from '../render-layers.mjs';
 import {hobieTrampoline,forwardBeam} from './trampoline.mjs';
@@ -42,7 +43,7 @@ export async function loadBoat(read=fetch){
    state=observeBoat(model);
  }};
 }
-function sailMaterial(T,cat,count,telltaleRows){
+function sailMaterial(T,cat,sail,telltaleRows){
  const c=document.createElement('canvas');c.width=512;c.height=1024;
  let pocketRelief;
  const g=c.getContext('2d');g.fillStyle='#e9edef';g.fillRect(0,0,512,1024);
@@ -51,16 +52,18 @@ function sailMaterial(T,cat,count,telltaleRows){
  g.strokeStyle='rgba(110,125,130,.45)';g.lineWidth=2;for(let y=80;y<1024;y+=104){g.beginPath();g.moveTo(0,y);g.lineTo(512,y+28);g.stroke();}
  if(cat){
    const classic=new URLSearchParams(location.search).get('sails')!=='modern';
-   const luff=count===4?[.18,.38,.55,.73]:[.075,.185,.285,.395,.49,.575,.705,.80];
-   const leech=count===4?luff:[.095,.205,.31,.42,.53,.605,.76,.90];
-   const colors=classic?['#da2729','#da2729','#da2729','#fb5d18','#fb5d18','#ffca32','#ffca32','#ffca32','#ffca32']:
-     ['#949397','#eeeae5','#ecebe8','#c5d833','#cadc36','#c9db37','#98989d','#f1efeb','#f5f1eb'];
-   for(let i=0;i<=count;i++){
-     const lower=i===0?0:luff[i-1],upper=i===count?1:luff[i];
-     const tailLow=i===0?0:leech[i-1],tailHigh=i===count?1:leech[i];
-     g.fillStyle=count===4?(classic?['#da2729','#da2729','#fb5d18','#fb5d18','#ffca32'][i]:'#cadb37'):colors[i];
-     g.beginPath();g.moveTo(0,1024*(1-lower));g.lineTo(512,1024*(1-tailLow));
-     g.lineTo(512,1024*(1-tailHigh));g.lineTo(0,1024*(1-upper));g.fill();
+   const colors=classic?(sail===0?
+     ['#da2729','#da2729','#da2729','#fb5d18','#fb5d18','#ffca32','#ffca32','#ffca32','#ffca32']:
+     ['#da2729','#da2729','#fb5d18','#fb5d18','#ffca32']):
+     Array.from({length:sail===0?9:5},(_,i)=>['#3ca726','#f6f7f7','#04a9c7','#cfdf00'][i%4]);
+   const pockets=battenTexturePaths(sail);
+   const panels=[[[0,1],[1,1]],...pockets];
+   // Upper panels cover the preceding fill so antialiased seam edges do not leave gaps.
+   for(let i=0;i<colors.length;i++){
+     const [start,...lower]=panels[i];
+     g.fillStyle=colors[i];g.beginPath();g.moveTo(512*start[0],1024*start[1]);
+     for(const [u,v] of lower)g.lineTo(512*u,1024*v);
+     g.lineTo(512,0);g.lineTo(0,0);g.closePath();g.fill();
    }
    // Small inspection windows sit just aft of their paired ribbons.
    for(const row of telltaleRows){
@@ -76,20 +79,26 @@ function sailMaterial(T,cat,count,telltaleRows){
    g.strokeStyle='#d8d6cb';g.lineWidth=3;g.strokeRect(110,963,124,34);
    const relief=document.createElement('canvas');relief.width=256;relief.height=512;
    const height=relief.getContext('2d');height.fillStyle='#808080';height.fillRect(0,0,256,512);
-   for(let b=0;b<count;b++){
-     const y0=1024*(1-luff[b]),y1=1024*(1-leech[b]);
+   for(const path of pockets){
+     function trace(context,sx,sy,offset=0){
+       const [first,...rest]=path;
+       context.beginPath();context.moveTo(first[0]*sx,first[1]*sy+offset);
+       for(const [u,v] of rest)context.lineTo(u*sx,v*sy+offset);
+       context.stroke();
+     }
      for(const [width,gray] of [[4,146],[2.8,171],[1.5,193]]){
        height.strokeStyle='rgb('+gray+' '+gray+' '+gray+')';height.lineWidth=width;
-       height.beginPath();height.moveTo(0,y0/2);height.lineTo(256,y1/2);height.stroke();
+       trace(height,256,512);
      }
      function pocket(color,width,offset=0){
-       g.strokeStyle=color;g.lineWidth=width;g.beginPath();
-       g.moveTo(0,y0+offset);g.lineTo(512,y1+offset);g.stroke();
+       g.strokeStyle=color;g.lineWidth=width;trace(g,512,1024,offset);
      }
      // Shallow relief of a sewn cloth pocket over the fiberglass.
+     if(!classic)pocket('rgba(248,250,250,.93)',7);
      pocket('rgba(55,31,19,.12)',5);
      pocket('rgba(255,232,179,.22)',1.4,-2);
      pocket('rgba(55,31,19,.22)',1,2);
+     const y1=1024*path.at(-1)[1];
      g.fillStyle='rgba(53,42,36,.5)';g.fillRect(508,y1-2,4,4);
    }
    pocketRelief=new T.CanvasTexture(relief);
@@ -415,15 +424,14 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    const pivot=new T.Group();pivot.position.z=spec.z;group.add(pivot);
    const geo=new T.BufferGeometry();
    const coords=new T.Float32BufferAttribute(new Float32Array(24*3),3);
-   const uv=[],idx=[];
+   const uv=[];
    for(let row=0;row<6;row++)for(let col=0;col<4;col++){
      uv.push(col/3,row/5);
-     const i=row*4+col;
-     if(row<5&&col<3)idx.push(i,i+1,i+5,i,i+5,i+4);
    }
-   geo.setAttribute('position',coords);geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));geo.setIndex(idx);
+   geo.setAttribute('position',coords);geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+   geo.setIndex(new T.BufferAttribute(clothTopology,1));
    const telltaleRows=index===0?[1,2,4]:[1,3];
-   showInLowWaterCapture(mesh(geo,sailMaterial(T,cat,index===0?8:4,telltaleRows),pivot)).frustumCulled=false;
+   showInLowWaterCapture(mesh(geo,sailMaterial(T,cat,index,telltaleRows),pivot)).frustumCulled=false;
    const boomHinge=new T.Group();pivot.add(boomHinge);
    let outhaul;
    if(cat&&index===0){

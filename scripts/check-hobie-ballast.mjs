@@ -33,3 +33,12 @@ for(const side of [-1,1]){
   assert(Math.abs(boat.get('ballastY')-.84*side)<.001,'Manual trim stays within its deck range');
 }
 console.log({light:light.get('ballastY'),automatic});
+
+for(const sign of [-1,1]){
+  const boat=await loadInstance('Hobie16',{launchEast:-140,launchNorth:-80,launchHeading:0,
+    launchSpeed:4,launchHeight:.24,launchPitch:.20*sign,launchPitchRate:.20*sign,
+    manualHelm:1,windEast:0,windNorth:0},read);
+  assert(sign*boat.get('targetX')<-.10,'Automatic trim opposes the momentary pitch rate');
+  boat.advance(.02);
+  assert(sign*boat.get('ballastX')<0,'Ballast moves to counter the pitch');
+}

@@ -4,12 +4,12 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   parameter Integer battenCount=0;
   parameter Real battenEI(unit="N.m2")=.8 "Effective chordwise fiberglass flexural rigidity";
   parameter Real battenLinearMass(unit="kg/m")=.045;
-  // Endpoint heights from the illustrated rig, expressed as fractions of span.
-  // The four jib pockets lie nearly level. Upper main pockets fan up to the leech.
+  // Pocket ends measured from the Hobie sail plan. The main leech fractions
+  // account for the lower clew in the simulated foot cut.
   final parameter Real battenLuff[8]=if battenCount==4 then
-    {.18,.38,.55,.73,0,0,0,0} else {.075,.185,.285,.395,.49,.575,.705,.80};
+    {.12,.33,.51,.70,0,0,0,0} else {.09,.20,.30,.40,.50,.61,.72,.86};
   final parameter Real battenLeech[8]=if battenCount==4 then
-    {.18,.38,.55,.73,0,0,0,0} else {.095,.205,.31,.42,.53,.605,.76,.90};
+    {.19,.38,.55,.73,0,0,0,0} else {.160,.263,.357,.455,.557,.666,.774,.886};
   final parameter Real battenWeight[rows,cols]={sum(max(0,1-abs((r-1)-(rows-1)*
     (battenLuff[b]+(battenLeech[b]-battenLuff[b])*(c-1)/(cols-1))))
     for b in 1:battenCount) for c in 1:cols,r in 1:rows};

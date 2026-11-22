@@ -227,8 +227,10 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real mainCarTarget,jibCarTarget,windSide;
   Real trueWindAngle,windForCrew,buildingWind,depower,reachFraction,reachTrim,poweredReach,autoPayout;
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
-  parameter Real swellK=.34,swellBearing=1.04159;
-  parameter Real swellOmega=sqrt(9.80665*swellK);
+  parameter Real swellK=Wreck.SpectralSea.swellK,swellBearing=Wreck.SpectralSea.swellBearing;
+  parameter Real swellOmega=sqrt(Wreck.g*swellK*tanh(swellK*Wreck.SpectralSea.nearshoreDepth));
+  output Real swellForce[2] "Incident swell pressure force in level forward/port axes [N]";
+  Real hullSwellForce[2,2];
   Real swellPhase,swellLocal[2],waterDamping,waterVertical;
   final parameter Real waterplaneArea=sum((stationX[2:7]-stationX[1:6]).*(beamHalf[2:7]+beamHalf[1:6]))*(if catamaran then 2 else 1);
   parameter Real heaveDampingRatio=.38 "Estimated fraction of critical damping at design waterline";
@@ -255,7 +257,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     "Parallel-axis coefficient for shifting crew relative to the combined centre of mass [kg]";
   Real ballastRollInertia,ballastPitchInertia;
   Real crewSide(start=0,fixed=true),crewHeel(start=0,fixed=true),crewPitch(start=0,fixed=true),crewCross;
-  Real trapezeDemand,crewPace;
+  Real trapezeDemand,crewPace,trimPitch,trimPitchRate,trimSlope;
   Real ballastX(start=0,fixed=true),ballastY(start=0,fixed=true),targetX,targetY;
   Real hullLift[2],hullPitch[2],hullRoll[2],massRoll,massPitch;
   parameter Real mass=64, noGo=if catamaran then 1.04 else .83;
@@ -332,13 +334,13 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     input Real xs[7],stations[6,6],fractions[4],rot[3,3],surface[3],waterLevel,yOffset,depthScale;
     input Real sections[6],useSections;
     input Real amp,kDir[2],phase,waveNumber,frequency,translation[3],spinRate[3];
-    output Real lift,pitchTorque,rollTorque,dynamicForce[3],dynamicPitch,maxDeckWet,volume[6],skin;
+    output Real lift,pitchTorque,rollTorque,dynamicForce[3],dynamicPitch,maxDeckWet,volume[6],skin,swellForce[2];
   protected
     Real stationDeck,stationLevel,center[3],x,y,w,bottom,top,area,wetDepth,verticalProjection,point[3],lever[3];
     Real sectionZ[4],localLift,wave,crestPhase,draft,deckWet,wetFraction,normalV,waterV[3],velocity[3],panelForce[3],deckPoint[3];
     Real deckPressure,entryPressure,edgeA[3],edgeB[3],depthA,depthB,wetLength;
   algorithm
-    skin:=0;lift:=0; pitchTorque:=0;rollTorque:=0;dynamicForce:=zeros(3);dynamicPitch:=0;maxDeckWet:=0;volume:=zeros(6);
+    skin:=0;lift:=0; pitchTorque:=0;rollTorque:=0;dynamicForce:=zeros(3);dynamicPitch:=0;maxDeckWet:=0;volume:=zeros(6);swellForce:=zeros(2);
     verticalProjection:=surface*rot[:,3];
     for station in 1:6 loop
       x:=stations[station,1];w:=stations[station,2];
@@ -389,6 +391,11 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
           lift:=lift+localLift;rollTorque:=rollTorque+lever[2]*localLift; pitchTorque:=pitchTorque-lever[1]*localLift;
         end for;
       end for;
+      // Froude-Krylov surge from the near-surface horizontal pressure gradient.
+      // Each shallow wetted section integrates -grad(rho*g*wave elevation).
+      if amp<>0 and volume[station]>0 then
+        swellForce:=swellForce-Wreck.rho*Wreck.g*volume[station]*amp*cos(phase+kDir*center[1:2])*kDir;
+      end if;
     end for;
   end hullHydrostatics;
 
@@ -412,18 +419,26 @@ equation
   // Filtering attitude keeps a passing wave from sending them across the deck.
   der(crewSide)=if catamaran then (tanh(3*sin(beta))-crewSide)/.65 else 0;
   der(crewHeel)=if catamaran then (heel-crewHeel)/2.4 else 0;
-  der(crewPitch)=if catamaran then (pitch-crewPitch)/3.5 else 0;
+  // Trim relative to the water face. When following a swell downhill the
+  // matching bow-down angle is already balanced. Only the excess needs crew.
+  trimSlope=tan(wavePitch)-swellAmplitude*swellLocal[1]*cos(swellPhase);
+  trimPitch=atan(trimSlope);
+  trimPitchRate=swellAmplitude*(swellLocal[1]*sin(swellPhase)*
+    (swellK*(ve*cos(swellBearing)+vn*sin(swellBearing))-swellOmega)
+    -swellLocal[2]*cos(swellPhase)*yawRate)/(1+trimSlope^2);
+  der(crewPitch)=if catamaran then (pitch-trimPitch-crewPitch)/.85 else 0;
   crewCross=if trueWindAngle<1.60 then max(0,min(1,4*(abs(crewSide)-.4)))*max(0,min(1,(.20-ballastY*crewSide)/.25)) else 0;
   // Anticipate sustained sailing load from wind and filtered heel. Outboard
   // movement uses a windward trapeze stance, while deck trim stays gradual.
   trapezeDemand=min(1,max(0,max((windForCrew-8)/6,(abs(crewHeel)-.12)/.24)));
   crewPace=max(crewCross,trapezeDemand);
-  targetX=if not catamaran then 0 else max(-.72,min(.72,if ballastManual>.5 then ballastCmdX else -2.4*crewPitch));
+  targetX=if not catamaran then 0 else max(-.72,min(.72,if ballastManual>.5 then ballastCmdX else
+    -3.6*crewPitch-.70*(pitchRate-trimPitchRate)-2*max(0,deckImmersion-.035)));
   targetY=if not catamaran then 0 elseif ballastManual>.5 then max(-.84,min(.84,ballastCmdY)) else
     max(-ballastTrapezeReach,min(ballastTrapezeReach,
       (.56*buildingWind+(ballastTrapezeReach-.56)*trapezeDemand)*crewSide+1.15*crewHeel));
   der(ballastX)=if ballastManual>.5 then max(-.35,min(.35,(targetX-ballastX)/.65))
-    else max(-.10,min(.10,(targetX-ballastX)/2.8));
+    else max(-.28,min(.28,(targetX-ballastX)/1.0));
   der(ballastY)=if ballastManual>.5 then max(-.48,min(.48,(targetY-ballastY)/.55))
     else max(-.14-.54*crewPace,min(.14+.54*crewPace,(targetY-ballastY)/(2.4-1.85*crewPace)));
   // The nominal hull inertias include centered crew. Add the change for moving across the deck.
@@ -754,8 +769,9 @@ equation
   skinDrag=.5*1025*skinArea*(1+formFactor)*frictionCoefficient*waterRelative[1]*abs(waterRelative[1]);
   shoreWrench=Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing);
   peerForce=contactWrench({east,north,heading,ve,vn,yawRate,heave},traffic,catamaran);
-  der(surge)=((wakeEast+droneLoad[1]+peerForce[1])*cos(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*sin(heading)+fx+shoreWrench[1]+sum(foilAxial)+skinDrag)/totalMass+yawRate*sway;
-  der(sway)=(-(wakeEast+droneLoad[1]+peerForce[1])*sin(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*cos(heading)+fy+shoreWrench[2]+sum(foilSide)-80*sway*abs(sway)-40*sway)/totalMass-yawRate*surge;
+  swellForce=hullSwellForce[1,:]+(if catamaran then hullSwellForce[2,:] else zeros(2));
+  der(surge)=((wakeEast+droneLoad[1]+peerForce[1])*cos(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*sin(heading)+fx+shoreWrench[1]+sum(foilAxial)+skinDrag+swellForce[1])/totalMass+yawRate*sway;
+  der(sway)=(-(wakeEast+droneLoad[1]+peerForce[1])*sin(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*cos(heading)+fy+shoreWrench[2]+sum(foilSide)+swellForce[2]-80*sway*abs(sway)-40*sway)/totalMass-yawRate*surge;
   levelYawMoment=droneLoad[6]+shoreWrench[6]+wakeYaw+peerForce[3]+sailMoment[3]+sum(foilTorque[:,3]);
   der(yawRate)=(levelYawMoment-(if catamaran then 190 else 30)*yawRate)/(yawInertia+ballastRollInertia+ballastPitchInertia+rigWaterInertia*(sin(pitch)^2+cos(pitch)^2*sin(heel)^2)+sum(hingeWaterInertia));
   der(heading)=yawRate;
@@ -769,7 +785,7 @@ equation
   der(heave)=vertical;
   for hull in 1:2 loop
     sectionVolume[hull,:]=if hull==1 or catamaran then volumes[hull,:] else zeros(6);
-    (hullLift[hull],hullPitch[hull],hullRoll[hull],impact[hull,:],impactTorque[hull],deckWet[hull],volumes[hull,:],wettedSkin[hull])=hullHydrostatics(stationX,stationGeometry,beamFraction,rotation,surfaceNormal,(if useSectionWater>.5 then 0 else waveHeight)-heave,(if hull==1 then 1 else -1)*halfSpacing,if catamaran then 2.65 else 1,previousWater[hull,:]*(1-waterFraction)+sectionWater[hull,:]*waterFraction,useSectionWater,swellAmplitude,swellLocal,swellPhase,swellK,swellOmega,{surge,sway,vertical},spin);
+    (hullLift[hull],hullPitch[hull],hullRoll[hull],impact[hull,:],impactTorque[hull],deckWet[hull],volumes[hull,:],wettedSkin[hull],hullSwellForce[hull,:])=hullHydrostatics(stationX,stationGeometry,beamFraction,rotation,surfaceNormal,(if useSectionWater>.5 then 0 else waveHeight)-heave,(if hull==1 then 1 else -1)*halfSpacing,if catamaran then 2.65 else 1,previousWater[hull,:]*(1-waterFraction)+sectionWater[hull,:]*waterFraction,useSectionWater,swellAmplitude,swellLocal,swellPhase,swellK,swellOmega,{surge,sway,vertical},spin);
   end for;
   buoyancy=hullLift[1]+(if catamaran then hullLift[2] else 0);
   pitchBuoyancy=hullPitch[1]+(if catamaran then hullPitch[2] else 0);
