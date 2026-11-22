@@ -28,6 +28,9 @@ export function wreckCaustics(T,renderer,water,mobile){
   });
   const sheet=new T.PlaneGeometry(96,96,mobile?224:320,mobile?224:320);
   sheet.translate(16,0,0);
+  // Seen through the air–water interface, the pattern is already blurred by
+  // refraction and attenuation. Trace fewer rays for that view on phones.
+  const surfaceSheet=mobile?new T.PlaneGeometry(96,96,96,96).translate(16,0,0):sheet;
   const rays=new T.Mesh(sheet,material);rays.frustumCulled=false;photons.add(rays);
   const shadow=new T.WebGLRenderTarget(512,512);
   shadow.depthTexture=new T.DepthTexture(512,512,T.UnsignedIntType);
@@ -37,7 +40,7 @@ export function wreckCaustics(T,renderer,water,mobile){
   const center=new T.Vector3(16,0,-10),lastRay=new T.Vector3();
   const u={wreckFlux:{value:flux.texture},wreckDepth:{value:shadow.depthTexture},
     wreckProjection:{value:new T.Matrix4()},waterRay:{value:new T.Vector3()},sunStrength:{value:0}};
-  let last=-Infinity;
+  let last=-Infinity,lastWall=-Infinity;
   function lightSkin(material,tide){
     material.onBeforeCompile=shader=>{
       Object.assign(shader.uniforms,{wreckFlux:u.wreckFlux,waterRay:u.waterRay,sunStrength:u.sunStrength,seaLevel:tide});
@@ -56,12 +59,14 @@ export function wreckCaustics(T,renderer,water,mobile){
     };
     material.customProgramCacheKey=()=>'submerged-skin-flux';
   }
-  return {uniforms:u,lightSkin,occluders:shadowScene,setWreck(group){shadowScene.add(group.clone(true));},update(t,enabled=true){
+  return {uniforms:u,lightSkin,occluders:shadowScene,setWreck(group){shadowScene.add(group.clone(true));},update(t,enabled=true,aboveSurface=false,now=performance.now()){
     if(!enabled){u.sunStrength.value=0;return;}
     const sun=water.U.sunDir.value;
     u.sunStrength.value=Math.max(0,sun.z)*(1-.8*water.U.storm.value);
-    if(sun.z<=0||t-last<(mobile?.15:.09))return;
-    last=t;
+    const nextSheet=aboveSurface?surfaceSheet:sheet;
+    if(sun.z<=0||(rays.geometry===nextSheet&&(t===last||now-lastWall<(mobile?(aboveSurface?200:150):90))))return;
+    rays.geometry=nextSheet;
+    last=t;lastWall=now;
     const ray=u.waterRay.value.set(-sun.x/1.333,-sun.y/1.333,0);
     ray.z=-Math.sqrt(1-ray.lengthSq());
     const old=renderer.getRenderTarget();

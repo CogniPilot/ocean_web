@@ -1,7 +1,8 @@
 // Metres, +X bill-forward, +Y port. The closed wing sections are lofted through
 // the same shoulder and wrist pivots driven by the Modelica strip model.
 export function birdMesh(T){
-  const group=new T.Group(),wings=[];
+  const group=new T.Group(),wings=[],legs=[],folded=new T.Group();
+  group.add(folded);
   const plumage=new T.MeshStandardMaterial({vertexColors:true,roughness:.88,side:T.DoubleSide});
   const white=0xeaece6,pearl=0xbec6c6,grey=0x929fa9,dark=0x272d32;
   function batch(parent){
@@ -31,9 +32,9 @@ export function birdMesh(T){
     }
   }
   const torso=batch(group);
-  loft(torso,[[-.233,.012,.001,.002],[-.190,.010,.034,.028],[-.129,.004,.062,.055],[-.05,0,.076,.078],
-    [.033,-.006,.078,.079],[.098,-.004,.066,.068],[.146,.018,.046,.049],[.173,.043,.047,.043],
-    [.204,.048,.045,.047],[.231,.045,.039,.043],[.254,.039,.027,.028],[.265,.035,.012,.015]],
+  loft(torso,[[-.233,.012,.001,.002],[-.190,.010,.034,.029],[-.129,.002,.066,.058],[-.05,-.005,.081,.081],
+    [.033,-.007,.083,.085],[.098,-.004,.071,.073],[.146,.016,.049,.056],[.169,.045,.043,.046],
+    [.193,.056,.048,.051],[.221,.054,.045,.048],[.242,.047,.037,.040],[.256,.039,.026,.028],[.265,.035,.012,.015]],
     (x,a)=>x<.10&&Math.sin(a)>.43?grey:white);
   // Two tapered mandibles meet along the gape. The culmen narrows into a
   // small overhanging hook, with the red gonys on the shorter lower bill.
@@ -63,9 +64,9 @@ export function birdMesh(T){
     }
   }
   for(const side of [-1,1]){
-    loft(torso,[[.202,.054,.001,.002],[.209,.054,.006,.008],[.215,.054,.007,.008],[.222,.054,.001,.001]],
-      ()=>0x66523a,side*.041);
-    loft(torso,[[.210,.055,.001,.002],[.214,.055,.004,.005],[.218,.055,.001,.001]],()=>0x141618,side*.047);
+    loft(torso,[[.216,.061,.001,.002],[.223,.061,.006,.007],[.229,.061,.007,.007],[.235,.061,.001,.001]],
+      ()=>0xbd9852,side*.043);
+    loft(torso,[[.222,.062,.001,.002],[.227,.062,.004,.004],[.231,.062,.001,.001]],()=>0x17171a,side*.049);
   }
   // A narrow rachis and overlapping rounded vanes give the tail and dark
   // outer primaries a feathered outline on both faces of the bird.
@@ -85,6 +86,20 @@ export function birdMesh(T){
     const t=j/5;feather(torso,[-.16,t*.030,.028],[-.324+.036*t*t,.079*t,.011-.012*t*t],.014,j%2?white:0xdde1dc);
   }
   torso.finish();
+  const foldedWings=batch(folded);
+  for(const side of [-1,1]){
+    // The folded coverts follow the back and flank. The dark primaries
+    // lie along the tail, with the mirrors peeking out at their tips.
+    loft(foldedWings,[[-.299,.031,.006,.004],[-.241,.038,.020,.014],[-.173,.039,.031,.022],
+      [-.090,.037,.036,.034],[-.006,.032,.038,.036],[.061,.028,.030,.027],[.101,.022,.008,.010]],
+      (x,a)=>x<-.235?pearl:Math.sin(a)<-.28?0xc0c7c7:grey,side*.055);
+    for(let i=0;i<5;i++){
+      const u=i/4;
+      feather(foldedWings,[-.112+.041*u,side*(.06+.026*u),.062-.019*u],
+        [-.348+.086*u,side*(.034+.026*u),.045-.017*u],.014,i<3?dark:pearl,i<2);
+    }
+  }
+  foldedWings.finish();
   function wing(b,side,sections,base){
     const n=18;let prev;
     for(const [span,lead,trail,z,thick] of sections){
@@ -92,7 +107,7 @@ export function birdMesh(T){
       for(let j=0;j<n;j++){
         const a=2*Math.PI*j/n,u=(1-Math.cos(a))*.5,upper=Math.sin(a)>0;
         row.push(b.vertex(lead+(trail-lead)*u,span*side,z+thick*Math.sin(a)+.009*Math.sin(Math.PI*u),
-          upper?(u>.81?pearl:base):(u>.82?pearl:white)));
+          upper?(u>.92?white:u>.77?pearl:base):(u>.82?pearl:white)));
       }
       if(prev)for(let j=0;j<n;j++){const k=(j+1)%n;
         if(side>0)b.quad(prev[j],row[j],row[k],prev[k]);else b.quad(prev[k],row[k],row[j],prev[j]);
@@ -103,7 +118,7 @@ export function birdMesh(T){
     const arm=new T.Group(),hand=new T.Group();arm.position.set(.009,side*.038,.029);group.add(arm);arm.add(hand);
     hand.position.set(0,side*.303,.033);
     const inner=batch(arm),outer=batch(hand);
-    wing(inner,side,[[0,.077,-.149,0,.018],[.09,.085,-.153,.012,.017],[.18,.089,-.139,.027,.014],[.25,.075,-.122,.036,.011],[.304,.062,-.100,.033,.009]],grey);
+    wing(inner,side,[[0,.077,-.149,0,.018],[.09,.088,-.160,.010,.017],[.18,.092,-.151,.025,.014],[.25,.079,-.128,.036,.011],[.304,.062,-.100,.033,.009]],grey);
     for(let j=0;j<9;j++){const u=j/9;
       feather(inner,[.003,side*(.025+.27*u),.006+.026*u],[-.159+.044*u,side*(.04+.274*u),.003+.026*u],.027,0x9da9af);
     }
@@ -111,13 +126,32 @@ export function birdMesh(T){
     for(let j=0;j<9;j++){
       const f=j/8;
       feather(outer,[.025-.095*f,side*(.126-.100*f),-.012],[-.123-.052*f,side*(.332-.185*f),-.064+.036*f],.016+.009*f,
-        j<5?dark:0x909ba1,j<3);
+        j<5?dark:0x909ba1,j===0||j===2);
     }
     inner.finish();outer.finish();wings.push({side,arm,hand});
+    const leg=new T.Group();leg.position.set(-.096,side*.042,-.050);group.add(leg);
+    const foot=batch(leg);
+    loft(foot,[[-.082,-.073,.003,.003],[-.058,-.055,.006,.007],[-.030,-.028,.008,.008],
+      [0,0,.009,.009],[.009,.006,.001,.001]],()=>0xbd8d83);
+    const ankle=foot.vertex(-.077,0,-.073,0xbc8b80),outerToe=foot.vertex(-.030,.023,-.087,0xcd9c8d);
+    const middleToe=foot.vertex(-.019,0,-.089,0xd5a390),innerToe=foot.vertex(-.035,-.020,-.087,0xc49083);
+    foot.quad(ankle,outerToe,middleToe,innerToe);
+    foot.finish();legs.push({side,leg});
   }
   group.name='Herring gull';group.visible=false;
   return {group,draw(row){
     group.visible=true;group.position.fromArray(row);group.rotation.set(-row[11],-(row[14]??Math.atan2(row[5],row[4])),row[3],'ZYX');
-    for(const {side,arm,hand} of wings){arm.rotation.set(side*row[8],-side*(row[16]??0),0);hand.rotation.set(side*row[9],0,side*row[10],'ZXY');}
+    const wet=row[19]??0,fold=Math.min(1,1.5*wet)*(1-row[7]);
+    folded.visible=fold>.78;
+    for(const {side,arm,hand} of wings){
+      arm.visible=!folded.visible;
+      arm.rotation.set(side*(row[8]*(1-fold)-.64*fold),-side*(row[16]??0),side*1.30*fold,'ZXY');
+      hand.rotation.set(side*(row[9]*(1-fold)+.65*fold),0,side*(row[10]*(1-fold)+1.73*fold),'ZXY');
+    }
+    const paddle=wet*Math.min(1,Math.abs(row[21]??0)/.55);
+    for(const {side,leg} of legs){
+      leg.rotation.y=.54*(1-wet)+side*.46*paddle*Math.sin(row[6]);
+      leg.rotation.z=side*.11;
+    }
   }};
 }

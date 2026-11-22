@@ -66,4 +66,18 @@ assert.deepEqual(worker.requests.map(r=>r.steps),[5,5]);
 worker.onmessage({data:{id:worker.requests[0].id,error:'FMU step failed'}});
 await nextTurn();
 assert.throws(()=>world.advance(1),/FMU step failed/);
+
+const openingMobile=openWorld('sailing',.45,0,2);
+assert.equal(worker.requests[0].stepTicks,2);
+await worker.reply();
+const mobile=await openingMobile;
+assert.equal(mobile.advance(1),0);
+assert.equal(mobile.advance(5),4);
+assert.equal(mobile.advance(10),8);
+assert.deepEqual(worker.requests.map(request=>request.steps),[4,6]);
+await worker.reply();
+assert.deepEqual(worker.requests.map(request=>request.steps),[6,2]);
+await worker.reply();
+await worker.reply();
+assert(Math.abs(mobile.time-.12)<1e-9);
 console.log('Worker scheduling, control snapshots, pause, visibility and faults passed.');

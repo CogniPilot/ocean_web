@@ -4,6 +4,11 @@ export function gullIndex(id){
   return numbered?Number(numbered[1])-1:-1;
 }
 
+export const vesselNpcNames=Object.freeze({
+  hobie:'Hobie 16',sloop:'Pilothouse sloop',motorboat:'Cabin cruiser',drone:'RDD2 drone',sub:'Piccard submarine'
+});
+const vesselLimit=5;
+
 // The earliest connected participant runs the NPCs and owns room weather.
 // RTTs use local monotonic clocks. Comparing two links needs at least three players.
 export function npcRoom(){
@@ -11,11 +16,13 @@ export function npcRoom(){
   const members=new Map();
   const maxGulls=6;
   const gullSeed=i=>[4+i*2,-12+i*2,8+i*.6,.6*i,13.4,0,2*i,0,.1,0,0,0];
-  const emptyHabitat=()=>({restock:Array(36).fill(0),gulls:[],gullSeats:[],sounds:[],sequence:0,time:0});
+  const emptyHabitat=()=>({restock:Array(36).fill(0),gulls:[],gullSeats:[],vessels:[],sounds:[],sequence:0,time:0});
   let habitat=emptyHabitat(),habitatOwner,session=0,lastCall=-Infinity,callRequested=null;
   const finiteRow=(v,n)=>Array.isArray(v)&&v.length===n&&v.every(Number.isFinite);
   function acceptHabitat(h){
-    return h&&finiteRow(h.restock,36)&&Array.isArray(h.gulls)&&h.gulls.length<=maxGulls&&h.gulls.every(r=>finiteRow(r,12)||finiteRow(r,19))&&
+    return h&&finiteRow(h.restock,36)&&Array.isArray(h.gulls)&&h.gulls.length<=maxGulls&&h.gulls.every(r=>[12,19,22].includes(r?.length)&&finiteRow(r,r.length))&&
+      (h.vessels===undefined||(Array.isArray(h.vessels)&&h.vessels.length<=vesselLimit&&h.vessels.every(
+        v=>v&&Object.hasOwn(vesselNpcNames,v.kind)&&Number.isFinite(v.started))))&&
       (h.gullSeats===undefined||(Array.isArray(h.gullSeats)&&h.gullSeats.length===h.gulls.length&&
         h.gullSeats.every(seat=>seat===null||typeof seat==='string')))&&
       (h.time===undefined||Number.isFinite(h.time)&&h.time>=0)&&Number.isSafeInteger(h.sequence)&&h.sequence>=0&&Array.isArray(h.sounds)&&h.sounds.length<=16&&
@@ -92,10 +99,11 @@ export function npcRoom(){
     for(const [id,m] of members){
       if(target&&id!==target)continue;
       if(m.version===2){
-        const shared=m.extendedGulls?habitat:{...habitat,gulls:habitat.gulls.slice(0,2).map(r=>r.slice(0,12)),gullSeats:habitat.gullSeats.slice(0,2)};
+        const shared=m.gullWater?habitat:m.extendedGulls?{...habitat,gulls:habitat.gulls.map(r=>r.slice(0,19))}:
+          {...habitat,gulls:habitat.gulls.slice(0,2).map(r=>r.slice(0,12)),gullSeats:habitat.gullSeats.slice(0,2)};
         const frame=m.sharkBank?last?.frame:last?.frame?.slice(0,203);
         const roster=m.sharkBank?items:items.map(a=>a.frame?.length>203?{...a,frame:a.frame.slice(0,203)}:a);
-        send({type:'harbor',version:2,extendedGulls:true,sharkBank:true,joined,frame,items:roster,habitat:shared},id);
+        send({type:'harbor',version:2,extendedGulls:true,gullWater:true,sharkBank:true,joined,frame,items:roster,habitat:shared},id);
       }else{
         if(last?.frame)send([joined,...last.frame.slice(0,70)],id);
         send({type:'animals',items:items.map(a=>({...a,frame:a.frame?.slice(0,70)}))},id);
@@ -110,7 +118,7 @@ export function npcRoom(){
     owner=viable[0][0];
   }
   function send(data,target){channel?.send(data,target?{target}:undefined).catch(()=>{});}
-  function hello(target){send([joined],target);send({type:'hello',version:2,extendedGulls:true,sharkBank:true,joined},target);}
+  function hello(target){send([joined],target);send({type:'hello',version:2,extendedGulls:true,gullWater:true,sharkBank:true,joined},target);}
   return {
     connect(action,id){
       channel=action;self=id;habitatOwner=id;session++;animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
@@ -120,7 +128,7 @@ export function npcRoom(){
         let m=members.get(peerId);
         if((data.type==='hello'||data.type==='harbor')&&data.version===2&&Number.isSafeInteger(data.joined)&&data.joined>0){
           if(!m){m={joined:data.joined,samples:[]};members.set(peerId,m);elect();hello(peerId);}
-          m.version=2;m.extendedGulls=data.extendedGulls===true;m.sharkBank=data.sharkBank===true;
+          m.version=2;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.sharkBank=data.sharkBank===true;
           if(data.type==='hello'){sync(peerId);return;}
         }
         if(!Array.isArray(data)){
@@ -139,9 +147,9 @@ export function npcRoom(){
             if([...next.values()].some(a=>!animals.has(a.id)||animals.get(a.id).seat!==a.seat)||next.size!==animals.size)revision++;
             animals=next;
             if(data.type==='harbor'&&acceptHabitat(data.habitat)){
-              const {gulls,gullSeats=gulls.map(()=>null)}=data.habitat;
+              const {gulls,gullSeats=gulls.map(()=>null),vessels=[]}=data.habitat;
               if(gullSeats.length!==habitat.gullSeats.length||gullSeats.some((seat,index)=>seat!==habitat.gullSeats[index]))revision++;
-              habitat={...data.habitat,gullSeats};habitatOwner=peerId;
+              habitat={...data.habitat,gullSeats,vessels};habitatOwner=peerId;
             }
             if(data.type==='harbor')last=data.frame?{frame:data.frame,owner}:undefined;
             return;
@@ -199,9 +207,14 @@ export function npcRoom(){
       habitat.sounds.push([++habitat.sequence,time,kind,...position,gain]);
       if(habitat.sounds.length>16)habitat.sounds.shift();
     },
-    canSpawn(kind){return owner===self&&(kind==='gull'?habitat.gulls.length<maxGulls:validKind(kind)&&animals.size<10);},
-    spawn(kind){
+    canSpawn(kind){return owner===self&&(Object.hasOwn(vesselNpcNames,kind)?habitat.vessels.length<vesselLimit:
+      kind==='gull'?habitat.gulls.length<maxGulls:validKind(kind)&&animals.size<10);},
+    spawn(kind,started=0){
       if(!this.canSpawn(kind))return;
+      if(Object.hasOwn(vesselNpcNames,kind)){
+        if(!Number.isFinite(started))return;
+        habitat.vessels.push({kind,started});revision++;sync();return 'npc-'+habitat.vessels.length;
+      }
       if(kind==='gull'){
         const id=addGull();sync();return id;
       }

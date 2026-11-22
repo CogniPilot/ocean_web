@@ -82,3 +82,44 @@ const [a,b]=[bird,successor].map(m=>m.getMany(['x','memory']).flat());
 const difference=Math.max(...a.map((v,i)=>Math.abs(v-b[i])));
 assert(difference<1e-6,'handoff error '+difference);
 console.log('One second after handoff',{largestStateDifference:difference});
+
+function advance(model,steps){
+  for(let i=0;i<steps;i++)model.advance(dt);
+}
+for(const wind of [[0,0],[-4,0],[4,0],[0,8]]){
+  const swimmer=await open({wind,startState:[0,0,1,0,11,-.75,0,0]});
+  swimmer.set('pilot',[1,-1,0,-1]);
+  advance(swimmer,350);
+  const landed=swimmer.get('x'),contact=swimmer.get('surfaceMotion');
+  assert(Math.abs(landed[2]-.043)<.01&&contact[0]>.9&&Math.abs(contact[2])<.05);
+  swimmer.set('pilot',[1,0,.3,1]);
+  advance(swimmer,200);
+  const paddled=swimmer.get('x'),motion=swimmer.get('surfaceMotion');
+  assert(paddled[0]>landed[0]+.8&&paddled[3]>.3&&motion[2]>.55&&paddled[7]<.04);
+  swimmer.set('pilot',[1,1,0,1]);
+  advance(swimmer,700);
+  const airborne=swimmer.get('x'),afterLaunch=swimmer.get('surfaceMotion');
+  assert(airborne[2]>4&&afterLaunch[0]===0&&afterLaunch[1]>10);
+  console.log('Water landing, turn and takeoff',{wind,draft:.093-landed[2],paddle:motion[2],altitude:airborne[2]});
+}
+
+const rider=await open({startState:[0,0,.043,0,0,0,0,0]});
+let heaveError=0;
+for(let i=0;i<500;i++){
+  const phase=(i+1)*dt*2;
+  const surface=.12*Math.sin(phase);
+  rider.set('seaLevel',surface);
+  rider.set('surfaceVerticalSpeed',.24*Math.cos(phase));
+  rider.advance(dt);
+  if(i>100)heaveError=Math.max(heaveError,Math.abs(rider.get('x')[2]-surface-.043));
+}
+assert(heaveError<.025,'The gull should track the local surface under wave motion');
+console.log('Wave following',{heaveError});
+
+const gustCase={startState:[0,0,30,0,12.7,0,0,0],straightFlight:1,glideOnly:1};
+const steady=await open(gustCase),gusty=await open(gustCase);
+gusty.set('gust',[-3,2]);
+advance(steady,40);advance(gusty,40);
+const calm=steady.get('x'),gusted=gusty.get('x');
+assert(gusted[5]>calm[5]+.4&&gusted[3]>calm[3]+.01,'A headwind and crosswind gust should change the aerodynamic trajectory');
+console.log('Gust response',{verticalSpeedChange:gusted[5]-calm[5],headingChange:gusted[3]-calm[3]});

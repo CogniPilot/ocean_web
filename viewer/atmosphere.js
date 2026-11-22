@@ -55,10 +55,11 @@
    vec2 local=vec2(dot(r,forward),dot(r,vec2(-forward.y,forward.x)));
    return elevationSample(bowMap,local/8.+vec2(.5/32.));
  }
- float backgroundHeightAt(vec2 p){
+ float sampledHeightAt(vec2 p){
   vec4 data=texture2D(tile,p/64.+vec2(.5/32.));
-  return tide+swell.x*sin(swell.y+dot(p-swellCenter,swell.zw))+spectralElevation(p)+mix(dot(data.rg,vec2(255.*256.,255.)),dot(data.ba,vec2(255.*256.,255.)),blend)*16./65535.-8.;
+  return spectralElevation(p)+mix(dot(data.rg,vec2(255.*256.,255.)),dot(data.ba,vec2(255.*256.,255.)),blend)*16./65535.-8.;
  }
+ float backgroundHeightAt(vec2 p){return tide+swell.x*sin(swell.y+dot(p-swellCenter,swell.zw))+sampledHeightAt(p);}
  float heightAt(vec2 p){return backgroundHeightAt(p)+bowElevation(p)+wildlifeWave(p).x;}
  `;
 // A single camera-centred batch. The two vertices of each streak share a seed
@@ -367,8 +368,11 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  Object.assign(U,{tile:{value:tile},blend:{value:1},tide:{value:0},wind:{value:11},bearing:{value:.45},boat:{value:new THREE.Vector4()},reflection:{value:null},transmission:{value:null},mirrorMatrix:{value:new THREE.Matrix4()},viewport:{value:new THREE.Vector2(1,1)}});
  const field=oceanHeightGLSL+`
  vec2 surfaceSlope(vec2 p,out vec2 bowSlope){
-   vec2 slope=vec2(backgroundHeightAt(p+vec2(.48,0))-backgroundHeightAt(p-vec2(.48,0)),
-     backgroundHeightAt(p+vec2(0,.48))-backgroundHeightAt(p-vec2(0,.48)))/.96;
+   vec2 slope=vec2(sampledHeightAt(p+vec2(.48,0))-sampledHeightAt(p-vec2(.48,0)),
+     sampledHeightAt(p+vec2(0,.48))-sampledHeightAt(p-vec2(0,.48)))/.96;
+   // The central difference of the analytic swell factors into a single
+   // cosine evaluation and a wavevector-dependent scale.
+   slope+=swell.x*cos(swell.y+dot(p-swellCenter,swell.zw))*sin(.48*swell.zw)/.48;
    bowSlope=vec2(0.);
    if(nearBowField(p,4.25))
      bowSlope=vec2(bowElevation(p+vec2(.24,0))-bowElevation(p-vec2(.24,0)),
@@ -457,8 +461,10 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  // Interpolating a hull depth with the distant seabed invents water between them.
  vec4 throughSample(vec2 uv,float surface,float rayScale,float edgeWidth,vec3 waterColor){
    float dz=viewDepth(texture2D(transmissionDepth,uv).r)-surface;
+   if(dz<=-edgeWidth)return vec4(0.);
    float behind=smoothstep(-edgeWidth,edgeWidth,dz);
-   float path=clamp(dz*rayScale,0.,60.);
+   float path=max(0.,dz*rayScale);
+   if(path>=32.)return vec4(0.,0.,0.,behind);
    vec3 attenuation=exp(-vec3(.22,.085,.055)*path)*(1.-smoothstep(9.,32.,path));
    return vec4(behind*attenuation*(texture2D(transmission,uv).rgb-waterColor),behind);
  }
@@ -556,6 +562,9 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      float surfaceDepth=captureClip.w;
      float rayScale=length(throughEye-wp)/max(.01,surfaceDepth);
      float edgeWidth=max(.008,.5*fwidth(surfaceDepth));
+     #ifdef MOBILE_WATER
+     vec4 transmitted=filteredThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor);
+     #else
      vec2 samplePixel=refrUV*transmissionSize;
      float footprint=max(length(dFdx(samplePixel)),length(dFdy(samplePixel)));
      float centrePath=max(0.,(viewDepth(texture2D(transmissionDepth,refrUV).r)-surfaceDepth)*rayScale);
@@ -564,6 +573,7 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      vec4 transmitted=blur>.025
        ?distantThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor,blur)
        :filteredThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor);
+     #endif
      // A bent ray can land on the dry hull. Refill uncovered samples using
      // the straight ray, preserving the water path of each underlying texel.
      if(transmitted.a<.995){
@@ -714,8 +724,24 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  U.transmissionSize={value:new THREE.Vector2(512,320)};
  U.reflection.value=reflectRT.texture;U.transmission.value=throughRT.texture;
  const mirrorLook=new THREE.Vector3(),mirrorClip=new THREE.Plane(new THREE.Vector3(0,0,1));
+ const viewPlane=new THREE.Plane(),clip=new THREE.Vector4(),corner=new THREE.Vector4();
  const clearThrough=new THREE.Color(0x144958);
- let simpleCapture=false;
+ let simpleCapture=false,captureScale=1;
+ function clipReflectionAtTide(){
+   // Replace the reflected camera's near plane. Geometry is clipped in the
+   // rasterizer, so the reflection uses the regular material programs.
+   if(mirrorCamera.position.z>=U.tide.value)return false;
+   const matrix=mirrorCamera.projectionMatrix,projection=matrix.elements;
+   viewPlane.copy(mirrorClip).applyMatrix4(mirrorCamera.matrixWorldInverse);
+   clip.set(viewPlane.normal.x,viewPlane.normal.y,viewPlane.normal.z,viewPlane.constant);
+   corner.set(Math.sign(clip.x),Math.sign(clip.y),1,1).applyMatrix4(mirrorCamera.projectionMatrixInverse);
+   const distance=clip.dot(corner);
+   if(distance<=1e-6)return false;
+   clip.multiplyScalar(2/distance);
+   projection[2]=clip.x;projection[6]=clip.y;projection[10]=clip.z+1;projection[14]=clip.w;
+   mirrorCamera.projectionMatrixInverse.copy(matrix).invert();
+   return true;
+ }
  function capture(renderer,camera,submergedScenery,refreshReflection){
    camera.updateMatrixWorld();
    const oldBackground=scene.background,oldFog=scene.fog;
@@ -729,13 +755,16 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      const twiceTide=2*U.tide.value;
      mirrorCamera.position.z=twiceTide-camera.position.z;mirrorLook.z=twiceTide-mirrorLook.z;
      mirrorCamera.up.setFromMatrixColumn(camera.matrixWorld,1);mirrorCamera.up.z*=-1;mirrorCamera.lookAt(mirrorLook);mirrorCamera.updateMatrixWorld();
+     mirrorClip.constant=-U.tide.value;
+     const obliqueClip=clipReflectionAtTide();
      U.mirrorMatrix.value.multiplyMatrices(mirrorCamera.projectionMatrix,mirrorCamera.matrixWorldInverse);
      scene.background=null;
      renderer.setClearColor(0x000000,0);renderer.setRenderTarget(reflectRT);
-     mirrorClip.constant=-U.tide.value;renderer.clippingPlanes=[mirrorClip];
+     if(!obliqueClip)renderer.clippingPlanes=[mirrorClip];
      const hideSubmerged=submergedScenery && U.tide.value>=0 && submergedScenery.visible;
      if(hideSubmerged)submergedScenery.visible=false;
-     renderer.render(scene,mirrorCamera);renderer.clippingPlanes=[];
+     renderer.render(scene,mirrorCamera);
+     if(!obliqueClip)renderer.clippingPlanes=[];
      if(hideSubmerged)submergedScenery.visible=true;
    }
    {
@@ -751,24 +780,29 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
    scene.fog=oldFog;scene.background=oldBackground;water.visible=true;trails.mesh.visible=foamVisible;dome.visible=true;
    if(spray)spray.points.visible=sprayVisible;
  }
- function setQuality(profile,vertexSlope,multisampling){
+ function setQuality(profile,vertexSlope,multisampling,mobileWater=false){
    if(water.geometry.parameters.widthSegments!==profile.mesh){
      water.geometry.dispose();water.geometry=waterMesh(profile.mesh);
    }
    simpleCapture=vertexSlope;
    water.material.defines=vertexSlope?{VERTEX_SLOPE:1,DISABLE_BOW_FIELD:1}:{};
+   if(mobileWater)water.material.defines.MOBILE_WATER=1;
    if(profile.skipCaptures)water.material.defines.SIMPLE_SURFACE=1;
    water.material.needsUpdate=true;
    skyTarget.setSize(Math.round(512*profile.sky),Math.round(192*profile.sky));lastSky=-Infinity;
    if(profile.skipCaptures){reflectRT.dispose();throughRT.dispose();return;}
-   const scale=profile.capture;
-   const width=Math.round(512*scale),height=Math.round(320*scale);
+   captureScale=profile.capture;
    reflectRT.samples=multisampling?(profile.reflectSamples??0):0;
+   resizeCaptures(1);
+ }
+ function resizeCaptures(ratio){
+   const scale=captureScale*ratio;
+   const width=Math.round(512*scale),height=Math.round(320*scale);
    reflectRT.setSize(simpleCapture?256:width,simpleCapture?160:height);
    const throughWidth=Math.max(320,width),throughHeight=Math.max(200,height);
    throughRT.setSize(throughWidth,throughHeight);U.transmissionSize.value.set(throughWidth,throughHeight);
  }
- return {U,dome,water,drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,updateSky};
+ return {U,dome,water,drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
 }
 
 // Low maritime cloud banks in world coordinates. Soft particles scatter light

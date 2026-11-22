@@ -2,9 +2,11 @@
 
 Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone, and explore a listed shipwreck with a survey submarine. The browser steps precompiled Rumoca FMI 3 models and draws their outputs with Three.js. [Open the simulator](https://cognipilot.github.io/ocean_web/)
 
-On a phone, try **Fast (simplified water)** under **Settings → Performance**. It uses the animated sky for water reflections and omits object reflections, refraction and hull wakes. [Launch the Hobie in Fast mode](https://cognipilot.github.io/ocean_web/?boat=Hobie16&quality=fast)
+Medium and High keep waves, wakes, reflection and refraction. On touch devices they adjust rendering resolution under load. Use **Settings → Offline simulation speed** to request 1×, 1.5× or 2× and watch the measured rate in the HUD. The 15-second headroom test measures how fast the simulation can run. [Launch the Hobie on High](https://cognipilot.github.io/ocean_web/?boat=Hobie16&quality=high)
 
-New sessions start with your selected vehicle or animal. To add wildlife, open **Settings → Spawn wildlife**, choose a species, and tap **Spawn NPC**. Spawning a herring gull also switches the camera to it. [Launch the cruiser](https://cognipilot.github.io/ocean_web/?control=motorboat&quality=fast) · [Swim as the humpback](https://cognipilot.github.io/ocean_web/?control=whale&quality=fast) · [Swim as the great white](https://cognipilot.github.io/ocean_web/?control=shark&quality=fast) · [Fly the herring gull](https://cognipilot.github.io/ocean_web/?control=gull&quality=fast)
+New sessions start with the selected vehicle or animal. Open **Settings → Spawn NPC** to add wildlife or a Hobie, sloop, cruiser, RDD2 or Piccard on an automatic patrol. Each vessel has an orbit camera under **View**. The patrols follow scripted routes and surface craft ride the displayed waves. [Launch the cruiser](https://cognipilot.github.io/ocean_web/?control=motorboat&quality=fast) · [Fly the herring gull](https://cognipilot.github.io/ocean_web/?control=gull&quality=high)
+
+To land the gull, pitch down and glide into the water. W paddles, A/D turns, and holding W and ↑ together runs into takeoff. On touch screens, push the left stick forward to paddle and both sticks forward to take off. The gull floats on the local wave surface and responds to local gusts in flight.
 
 Choose **Piccard Sub** to explore the shipwreck. You start in the cockpit with the sonar map visible and autopilot surveying the wreck interior and upper hull. **Take control** lets you pilot the same dive, and **Resume survey** hands it back to autopilot. Enable **Multiplayer** and share **Copy room link** to explore together, each in your own sub. [Launch the sub](https://cognipilot.github.io/ocean_web/?control=sub)
 

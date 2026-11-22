@@ -16,7 +16,7 @@ const submarineOutputs=[...group('sub','surveyTelemetry position orientation pro
  'estimate','sensor','ping'];
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
-export async function openWorld(mode='world',seaState=.45,omitWake=0){
+export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1){
  const hasBoat=mode==='world'||mode==='sailing'||mode==='sloop',hasSub=mode==='world'||mode==='submarine',hasFlight=mode==='world'||mode==='flight';
  const workerUrl=new URL('./'+mode+'/ocean-world-worker.mjs',import.meta.url);
  workerUrl.search=new URL(import.meta.url).search;
@@ -63,7 +63,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0){
  const outputs=[...environmentOutputs,...(hasBoat?sailingOutputs:['focus','swell','waterStamp','waterFraction']),
    ...(mode==='motorboat'?['boatPose','engine']:[]),...(hasSub?submarineOutputs:[]),...(hasFlight?flightOutputs:[])];
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
- const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,surveyMap:hasSub,sampledFields:true,surveyView,
+ const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
    optionalInputs:['animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake'],
    optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed']});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
@@ -87,15 +87,16 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0){
  }
  receive(frame,wakeRevision);
  // Keep the worker supplied while the main thread draws. Both requests run
- // serially on the same FMU. Bound the submitted work to ten solver steps.
+ // serially on the same FMU. Step counts here are centiseconds, even when
+ // the FMU takes two ticks per communication point.
  let batchSize=5;
  let outstanding=0,queued=0,afterAdvance;
  function advance(steps,headroom=false){
    if(error)throw error;
    if(document.hidden)return 0;
-   batchSize=headroom?10:5;
+   batchSize=headroom?10:Math.ceil(5/stepTicks)*stepTicks;
    const capacity=Math.max(0,2*batchSize-outstanding-queued);
-   const accepted=Math.min(steps,capacity);
+   const accepted=Math.floor(Math.min(steps,capacity)/stepTicks)*stepTicks;
    queued+=accepted;
    dispatch();
    return accepted;

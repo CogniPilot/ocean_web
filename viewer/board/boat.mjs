@@ -486,7 +486,8 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    podParts.push(lens);cameraPorts.push(lens.position.toArray());
  }
  if(vane)vane.position.z=podHeight+podRadius+.035;
- return {group,cameraPorts,update(s,ballast,cars,rope,tails,faceTails,stayPath){
+ return {group,cameraPorts,patrolTrim(main,jib){sails[0].pivot.rotation.z=main;sails[1].pivot.rotation.z=jib;},
+   update(s,ballast,cars,rope,tails,faceTails,stayPath){
    if(stayPath){
      for(let i=0;i<3;i++){
        const a=side.fromArray(stayPath,9*i);

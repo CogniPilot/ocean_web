@@ -77,8 +77,8 @@ async function marineAnimal(T,name,length,caustics,tideUniform){
   return {group,articulate,mouth,edgePoints,socket:model.getObjectByName('HumpbackBlowholes')};
 }
 
-export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tideUniform){
-  const room=fleet.npc,feeding=feedingHarbor(T,scene,room,playSound);
+export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tideUniform,gullEnvironment){
+  const room=fleet.npc,feeding=feedingHarbor(T,scene,room,playSound,gullEnvironment);
   const visuals=new Map(),started=new Set();
   let worker,pending,session,lastTime,lastEnvironment,acc=0;
   let current,lastPacket,lastGullTime,arrival=0,interval=100;
@@ -149,7 +149,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     owned.onmessage=({data})=>{
       if(worker!==owned||room.session!==sourceSession||!room.host||!room.animals.size||!pending)return;
       if(data.error){failed(data.error);return;}
-      const {steps,wind,level}=pending;
+      const {steps,flow}=pending;
       pending=undefined;
       let base;
       for(const {id,frame} of data.frames){
@@ -159,7 +159,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       }
       if(base){
         const time=Math.max((room.habitat.time??0)+steps*.01,base[0]);
-        feeding.step(time,base,room.latest?.frame,steps,wind,level);
+        feeding.step(time,base,room.latest?.frame,steps,flow);
         room.publish(base);
       }
     };
@@ -188,7 +188,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     acc=Math.max(0,acc-steps*.01);
 
     if(!needsWorker){
-      feeding.step((room.habitat.time??0)+steps*.01,undefined,undefined,steps,wind,level);
+      feeding.step((room.habitat.time??0)+steps*.01,undefined,undefined,steps,flow);
       room.publish();
       return;
     }
@@ -219,7 +219,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       actors.push(actor);
     }
     started.clear();for(const actor of actors)started.add(actor.id);
-    pending={steps,wind:[...wind],level};
+    pending={steps,flow};
     worker.postMessage({actors,steps,environment:{craftHull:hulls,craft:observations,currentVelocity:flow,wind,waterLevel:level}});
   }
   function update(time,now,wind,level,local,flow,localHull){

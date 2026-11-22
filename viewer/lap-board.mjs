@@ -104,10 +104,10 @@ export function lapLeaderboard(hull,roomName,panel){
     };
     render();
   }
-  function observe(stage,seconds,captain){
+  function observe(stage,seconds,captain,eligible=true){
     const entered=stage===5&&!finished.has(hull);
     if(stage===5)finished.add(hull);else finished.delete(hull);
-    if(!entered)return;
+    if(!entered||!eligible)return;
     const bytes=crypto.getRandomValues(new Uint8Array(16));
     const id=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
     const row={id,captain:captain||'You',tenths:Math.round(seconds*10)};

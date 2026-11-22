@@ -674,3 +674,42 @@ steady 13% throttle, peak-to-peak heave was 0.709 → 0.714 m and the p95
 absolute heave jerk was 9.26 → 8.98 m/s³. The small change in heave amplitude
 indicates that the display synchronization is the main fix for abrupt
 visible jumps in this case.
+
+## Mobile Hobie with waves enabled
+
+On touch devices, Medium and High use dynamic drawing-buffer and planar
+capture resolution. Reflection uses its own projection and normally updates
+at 15 Hz. Each displayed frame still captures refraction from its own camera
+and presented boat pose. The water shader uses four depth-tested refraction
+samples. Above the surface, the caustics pass traces a 96 × 96 ray grid
+instead of 224 × 224 and updates at up to 5 Hz.
+
+The Hobie worker sends 20 ms communication steps on touch devices. It keeps
+the FMU's internal solver and the sea, wind and contact event schedules.
+A 20-second Swell replay with changing rudder, ballast and sheet inputs
+compared 10 and 20 ms. In alternating pairs with wakes enabled the mean
+headroom was 1.47× and 1.60×. The maximum horizontal position difference was
+under 44 nanometres and the maximum buoyancy difference was 0.000017 N.
+With wakes disabled the largest position difference was 0.20 mm and the
+timings were mixed.
+
+In matched browser headroom samples with no NPCs at 393 × 852 touch pixels,
+Chromium on the RTX 3090 held approximately 30 FPS. High advanced at
+1.61× → 1.66× and Medium at 1.60× → 1.60×. Reflection renders fell from
+30 to 15 per second. These runs used desktop hardware with 3× DevTools CPU
+throttling. The physical phone result and the last gap to 2× remain open.
+
+The offline speed selector requests up to 2×. The HUD reports achieved
+simulation speed. Multiplayer uses its normal clock. The 30 FPS display cap
+also applies to accelerated playback.
+
+## Hobie high-wind speed check
+
+The speed report motivated a repeat of the
+flat-water automatic-trim sweep from rest. Each heading ran for 90 simulated
+seconds. The largest peaks were 12.05 kn in 20 kn of true wind, 14.43 kn in
+25 kn and 16.52 kn in 30 kn. Those runs averaged 11.45, 13.40 and 15.90 kn
+over their final 30 seconds. At 150° in 30 kn, the sails provided 344 N of
+mean forward force, with 301 N of modeled skin resistance and 30 N of foil
+resistance. Relative to the 19.14 kn timed run cited above, faster-reaching
+calibration is still needed. The timed run included surf and race crew trim.

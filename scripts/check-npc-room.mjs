@@ -43,6 +43,14 @@ assert.equal(host.host,true);
 assert.equal(guest.host,false);
 assert.equal(guest.hasWildlife,false);
 
+assert.deepEqual(host.habitat.vessels,[]);
+assert.equal(guest.spawn('motorboat',1),undefined);
+assert.equal(host.spawn('hobie',2),'npc-1');
+assert.equal(host.spawn('motorboat',3),'npc-2');
+flush();
+assert.deepEqual(guest.habitat.vessels,[{kind:'hobie',started:2},{kind:'motorboat',started:3}]);
+assert.equal(guest.hasWildlife,false);
+
 guest.select('shark');flush();
 assert.deepEqual([...host.animals.keys()],['shark']);
 assert.equal(guest.animals.get('shark').seat,'b');
@@ -64,6 +72,9 @@ assert.equal(guest.hasWildlife,false);
 assert.equal(host.spawn('gull'),'gull-1');
 host.habitat.time=.25;host.publish();flush();
 assert.equal(guest.habitat.gulls.length,1);
+host.habitat.gulls[0]=Array(22).fill(.5);
+host.publish();flush();
+assert.equal(guest.habitat.gulls[0].length,22);
 assert.equal(guest.animals.size,0);
 assert.equal(guest.latest,undefined);
 assert.equal(guest.clock,.25);

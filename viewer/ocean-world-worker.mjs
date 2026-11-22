@@ -7,7 +7,7 @@ import {loadInstance} from '../fmi3/instance.mjs';
 
 let session,observations,inputs,surveyMap;
 let bowField,bowFields;
-let sampledGroups=[],stepCount=0;
+let sampledGroups=[],stepCount=0,stepTicks=1;
 // These discrete outputs share sample events in OceanWorld. The initial
 // right limit can differ from the initialization snapshot on the first step.
 function sampleEpoch(step,interval){
@@ -27,6 +27,8 @@ async function handle(request){
   let layout;
   if(request.type==='open'){
     if(session)throw Error('World already initialized');
+    stepTicks=request.stepTicks??1;
+    if(stepTicks!==1&&stepTicks!==2)throw Error('Expected a 10 or 20 ms communication step');
     const base=new URL('./',import.meta.url);
     const {index:file}=await (await fetch(new URL('manifest.json',base),{cache:'no-cache'})).json();
     const index=await (await fetch(new URL(file,base))).json();
@@ -72,9 +74,9 @@ async function handle(request){
     inputs=session.bind_inputs(JSON.stringify(writes.elements));
     layout={outputs:reads.layout,inputs:writes.layout,sampled:sampledGroups.map(group=>group.layout)};
   }else if(request.type==='advance'){
-    if(!Number.isSafeInteger(request.steps)||request.steps<0)throw Error('Expected nonnegative step count');
+    if(!Number.isSafeInteger(request.steps)||request.steps<0||request.steps%stepTicks!==0)throw Error('Expected whole communication steps');
     if(request.values)session.write_bound(inputs,request.values);
-    for(let i=0;i<request.steps;i++)session.step(.01);
+    for(let i=0;i<request.steps;i+=stepTicks)session.step(.01*stepTicks);
     stepCount+=request.steps;
   }else if(request.type==='close'){
     session?.free();self.close();return;

@@ -1,7 +1,7 @@
 import {birdMesh} from './gull.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
 
-export function feedingHarbor(T,scene,room,playSound){
+export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
   let school,loadingSchool,positions,stamp,hostModels,hostSession,lastSequence,authority,initialSounds;
   const soundPos=new T.Vector3(),birds=[];
   function loadSchool(){
@@ -13,27 +13,36 @@ export function feedingHarbor(T,scene,room,playSound){
     school.set('pose',[row[i],row[i+1],row[i+2],row[i+3],row[whale?21:67]??0,whale?row[35]:0]);
     school.set('feedAge',a.feedAt==null?-1:time-a.feedAt);
   }
-  function step(t,row,previous,steps,wind,level){
+  function step(t,row,previous,steps,current){
     const h=room.habitat,priorTime=h.time??t;
     const animalTime=row?.[0]??t;
     h.time=t;
     if(hostSession!==room.session){hostModels=undefined;lastAnimalFrames.clear();hostSession=room.session;}
     const models=hostModels??=[];
     h.gulls.forEach((row,i)=>{
+      const {wind,gust,seaLevel,waterSlope}=gullEnvironment(row[0],row[1],row[2]);
       if(!models[i]){
-        const slot=models[i]={};
-        loadInstance('HerringGull',{offset:i%3,startState:row.slice(0,8),...(row.length===19?{startMemory:row.slice(12)}:{})})
+        const slot=models[i]={level:seaLevel};
+        loadInstance('HerringGull',{offset:i%3,startState:row.slice(0,8),wind,gust,seaLevel,waterSlope,waterCurrent:current,
+          ...(row.length>=19?{startMemory:row.slice(12,19)}:{})})
           .then(m=>{slot.model=m;}).catch(e=>{console.error(e);delete models[i];});
       }
-      const m=models[i].model;if(!m)return;
-      m.set('wind',wind);m.set('seaLevel',level);
+      const slot=models[i],m=slot.model;
+      if(!m||steps===0)return;
+      m.set('wind',wind);m.set('gust',gust);m.set('waterSlope',waterSlope);m.set('waterCurrent',current);
+      const delta=seaLevel-slot.level;
+      m.set('surfaceVerticalSpeed',Math.max(-2,Math.min(2,delta/(.01*steps))));
       const id='gull-'+(i+1);
       if(room.seat(id)){
         const {axes:[turn,climb,flap],bank}=room.command(id);
         m.set('pilot',[1,climb,Math.max(-1,Math.min(1,turn-bank)),flap]);
       }else m.set('pilot',[0,0,0,0]);
-      for(let j=0;j<steps;j++)m.advance(.01);
-      h.gulls[i]=m.getMany(['x','wings','memory']).flat();
+      for(let j=1;j<=steps;j++){
+        m.set('seaLevel',slot.level+j*delta/steps);
+        m.advance(.01);
+      }
+      slot.level=seaLevel;
+      h.gulls[i]=m.getMany(['x','wings','memory','surfaceMotion']).flat();
     });
     const called=room.takeCall(),index=called??Math.floor(t/26)%Math.max(1,h.gulls.length);
     if(h.gulls[index]&&(called!=null||Math.floor(priorTime/26)<Math.floor(t/26)))
