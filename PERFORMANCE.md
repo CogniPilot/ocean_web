@@ -2,7 +2,7 @@
 
 ## Desktop simulation headroom
 
-In an offline vehicle, open **Settings** and choose **Test simulation headroom (15 s)**. The test advances the current scene as quickly as both the vehicle worker and the authoritative wildlife worker can run, then restores normal pacing. The result uses the slower clock. The regular frame-rate test keeps normal pacing. Changing quality, pausing or hiding the tab interrupts the measurement.
+In an offline vehicle, open **Settings** and choose **Test simulation headroom (15 s)**. The test advances the vehicle as quickly as possible and includes wildlife throughput when the session has wildlife. With wildlife active, the result uses the slower clock. The regular frame-rate test keeps normal pacing. Changing quality, pausing or hiding the tab interrupts the measurement.
 
 The requested desktop targets are 20× on Low, 10× on Medium and 5× on High. With 10 ms physics steps, these correspond to average wall-time budgets of 0.5, 1 and 2 ms per advance. Field updates, readbacks and other work due at lower frequencies also count. A run at 60 FPS can still miss all three targets.
 
@@ -28,6 +28,8 @@ The packaged worker now skips the zero-filled 64 × 64 wake grid in Low and Fast
 With the cruiser and coastal wildlife active, four six-second Chromium samples in the same phone viewport ran in Low, Fast, Fast, Low order. They recorded 18.2, 28.3, 26.2 and 17.3 FPS and p95 frame intervals of 139.1, 93.5, 88.4 and 141.8 ms. The simulation advanced at 0.95–1.02× real time. Fast removed approximately 19–21 planar renders per second in this scene.
 
 A second change uses single-scale foam detail in Fast and evaluates additional wildlife foam detail only where the wake has foam. Four Fast samples in reference, candidate, candidate, reference order ran at 26.6, 28.7, 25.6 and 19.3 FPS. Their p95 frame intervals were 79.8, 79.7, 61.4 and 134.2 ms. Frame timing varied with the shared workstation load.
+
+Solo launches now start with an empty wildlife roster. The cruiser opens without fetching swimmer or gull models, their wake solver or the harbor worker. Four six-second Fast samples in the same phone viewport compared the former default and solo launch in alternating order. They recorded 27.5, 44.4, 42.3 and 27.3 FPS. The corresponding p95 frame intervals were 51.5, 27.9, 29.9 and 75.2 ms. The adaptive drawing buffer grew from 157 × 340 to 216 × 468 in the solo runs. The simulation advanced at approximately real time in all four runs.
 
 ### Hobie solver work in Swell
 

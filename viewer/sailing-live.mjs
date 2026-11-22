@@ -127,7 +127,7 @@ async function run(){
   const world=mode?simulation:null;
   const worldReadyAt=performance.now();
   const model=world?world.boat:simulation;
-  const contactModel=world?null:await loadInstance('HullWildlife',{hullClass:cat?1:2});
+  let contactModel,contactLoad;
   const worker=world?null:new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
   let waterFrame,waterError;
   if(worker){
@@ -607,17 +607,20 @@ async function run(){
   let gullViewCount=1;
   function syncGullViews(){
     const count=remote.npc.habitat.gulls.length,menu=$('cameraDepth');
+    const first=menu.querySelector('[value="gull"]');
+    first.hidden=first.disabled=count===0;
+    if(first.selected&&count===0)menu.value='deck';
     while(gullViewCount<count){gullViewCount++;menu.add(new Option('Gull '+gullViewCount+' cam','gull-'+gullViewCount));}
     while(gullViewCount>Math.max(1,count)){
       const option=menu.querySelector('[value="gull-'+gullViewCount+'"]');
-      if(option?.selected)menu.value='gull';
+      if(option?.selected)menu.value=count?'gull':'deck';
       option?.remove();gullViewCount--;
     }
     $('gullCall').hidden=!menu.value.startsWith('gull');
   }
   $('spawnAnimal').onclick=()=>{
     const id=remote.npc.spawn($('spawnKind').value);
-    if(id?.startsWith('gull-')){syncGullViews();$('cameraDepth').value=id;}
+    if(id?.startsWith('gull-')){syncGullViews();$('cameraDepth').value=id==='gull-1'?'gull':id;}
   };
   $('animalFeed').onclick=()=>{if(ownsAnimal())remote.npc.feed(animalId);$('view').focus();};
   $('gullCall').onclick=()=>{const view=$('cameraDepth').value;if(view.startsWith('gull'))remote.npc.gullCall(view==='gull'?0:Number(view.slice(5))-1);$('view').focus();};
@@ -739,13 +742,14 @@ async function run(){
       remote.npc.release(animalId);animalId=undefined;visitors.watch(null);
       $('cameraDepth').value=viewBeforeAnimal??'deck';
     }
-    if(remote.npc.animals.has(targetSelect.value)){
+    if(remote.npc.animals.has(targetSelect.value)||['whale','shark'].includes(targetSelect.value)){
       if(!animalId)viewBeforeAnimal=$('cameraDepth').value;
       if(sub){sub.active=false;sub.mapGroup.visible=false;}
       drone?.select(false);
       $('cutMotors').hidden=$('flightKeys').hidden=true;
       animalId=targetSelect.value;remote.npc.select(animalId);visitors.watch(animalId);
-      $('cameraDepth').value=animalKind();document.querySelector('h1').textContent=animalLabel(remote.npc.animals.get(animalId));
+      const animal=remote.npc.animals.get(animalId)??{id:animalId,kind:animalId};
+      $('cameraDepth').value=animal.kind;document.querySelector('h1').textContent=animalLabel(animal);
       keys.clear();keyboard.clear();touchControls();$('view').focus();return;
     }
     if((targetSelect.value==='motorboat'&&mode!=='motorboat')||((packaged&&!fullWorld||motor)&&targetSelect.value!==selectedRole)){
@@ -856,11 +860,10 @@ async function run(){
     if(frameTest?.headroom){
       // Count the offline harbor as well as the vehicle. Limit the lead
       // so contact inputs and animal poses stay close to the world clock.
-      const harbor=remote.npc.latest?.frame[0];
-      if(harbor!==undefined && frameTest.harborStart!==undefined){
-        const lead=(world.time-frameTest.simStart)-(harbor-frameTest.harborStart);
-        world.advance(Math.max(0,Math.floor((.3-lead)*100)-world.scheduledSteps),true);
-      }
+      if(frameTest.simStart===undefined)return;
+      const harbor=remote.npc.clock;
+      const lead=frameTest.withWildlife?(world.time-frameTest.simStart)-(harbor-frameTest.harborStart):0;
+      world.advance(Math.max(0,Math.floor((.3-lead)*100)-world.scheduledSteps),true);
       return;
     }
     // Retain short foreground stalls and repay them through the fixed-step FMU.
@@ -927,8 +930,9 @@ async function run(){
     if(!running||$('multiplayer').getAttribute('aria-pressed')==='true'){
       finishTest('Run the headroom test in an active offline simulation.');return;
     }
-    if(!remote.npc.latest){finishTest('Waiting for the first wildlife update.');return;}
-    frameTest={gaps:[],quality:selector.value,headroom:true};
+    const withWildlife=remote.npc.hasWildlife;
+    if(withWildlife&&remote.npc.clock===undefined){finishTest('Waiting for the first wildlife update.');return;}
+    frameTest={gaps:[],quality:selector.value,headroom:true,withWildlife};
     headroomButton.disabled=true;measureButton.disabled=true;
     // Keep the two fixed-step workers supplied between display refreshes.
     world.setAfterAdvance(t=>{
@@ -949,8 +953,11 @@ async function run(){
     if(test.headroom&&$('multiplayer').getAttribute('aria-pressed')==='true'){
       finishTest('Headroom test ended when multiplayer started.');return;
     }
+    if(test.headroom&&test.withWildlife!==remote.npc.hasWildlife){
+      finishTest('Headroom test ended when the wildlife roster changed.');return;
+    }
     if(test.start===undefined){
-      test.start=test.last=now;test.simStart=t;test.harborStart=remote.npc.latest?.frame[0];return;
+      test.start=test.last=now;test.simStart=t;test.harborStart=remote.npc.clock;return;
     }
     test.gaps.push(now-test.last);test.last=now;
     const elapsed=(now-test.start)/1000;
@@ -959,9 +966,10 @@ async function run(){
     const p95=gaps[Math.ceil(.95*gaps.length)-1];
     if(test.headroom){
       const worldRate=(t-test.simStart)/elapsed;
-      const harborRate=(remote.npc.latest.frame[0]-test.harborStart)/elapsed;
+      const harborRate=test.withWildlife?(remote.npc.clock-test.harborStart)/elapsed:worldRate;
       const rate=Math.min(worldRate,harborRate);
-      finishTest(`${rate.toFixed(2)}× simulation headroom · ${profile.target}× target · vehicle ${worldRate.toFixed(2)}× · wildlife ${harborRate.toFixed(2)}× · ${(gaps.length/elapsed).toFixed(1)} FPS · p95 ${p95.toFixed(1)} ms`);
+      const rates=test.withWildlife?` · vehicle ${worldRate.toFixed(2)}× · wildlife ${harborRate.toFixed(2)}×`:'';
+      finishTest(`${rate.toFixed(2)}× simulation headroom · ${profile.target}× target${rates} · ${(gaps.length/elapsed).toFixed(1)} FPS · p95 ${p95.toFixed(1)} ms`);
       return;
     }
     finishTest(`${(gaps.length/elapsed).toFixed(1)} FPS · 95th percentile ${p95.toFixed(1)} ms · ${((t-test.simStart)/elapsed).toFixed(2)}× real time · ${test.quality} · ${renderer.domElement.width}×${renderer.domElement.height} final pixels`);
@@ -1129,7 +1137,7 @@ async function run(){
         if(drone && (drone.active||!drone.manual)){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);race.set('landingReaction',drone.deckReaction);}
         const impact=race.get('racerLoad');
         const traffic=visitors.contacts();
-        if(traffic.some((v,i)=>i%9===0&&v>0)){
+        if(contactModel&&traffic.some((v,i)=>i%9===0&&v>0)){
           const [x,y,z,roll,pitch,yaw,ve,vn,turn]=model.getMany(['east','north','heave','heel','pitch','heading','ve','vn','yawRate']);
           contactModel.set('traffic',traffic);contactModel.set('pose',[x,y,z,roll,pitch,yaw]);contactModel.set('velocity',[ve,vn,turn]);
           const load=contactModel.get('wrench');for(let i=0;i<6;i++)impact[i]+=load[i];
@@ -1201,6 +1209,15 @@ async function run(){
       const localPos=drone?.active?drone.position:sub?.active?(sub.frame?.position??focus):focus;
       if(rosterRevision!==remote.npc.revision){
         rosterRevision=remote.npc.revision;
+        if(!world&&remote.npc.animals.size){
+          contactLoad??=loadInstance('HullWildlife',{hullClass:cat?1:2}).then(model=>{contactModel=model;}).catch(console.error);
+        }
+        const cameraSelect=$('cameraDepth');
+        for(const kind of ['whale','shark']){
+          const option=cameraSelect.querySelector('[value="'+kind+'"]');
+          option.hidden=option.disabled=!remote.npc.animals.has(kind)&&animalId!==kind&&animalKind()!==kind;
+          if(option.selected&&option.disabled)cameraSelect.value='deck';
+        }
         for(const option of [...targetSelect.options])if(option.dataset.spawn&&!remote.npc.animals.has(option.value))option.remove();
         for(const a of remote.npc.animals.values()){
           let option=[...targetSelect.options].find(o=>o.value===a.id);
@@ -1214,7 +1231,7 @@ async function run(){
       $('wildlifeSpawn').hidden=!remote.npc.host;
       if(animalId){
         const a=remote.npc.animals.get(animalId),own=ownsAnimal();
-        if(a&&!a.seat&&now-lastClaim>=900){remote.npc.select(animalId);lastClaim=now;}
+        if(!a?.seat&&now-lastClaim>=900){remote.npc.select(animalId);lastClaim=now;}
         if(own&&now-lastInput>=100){
           const stick=pilotSticks(axis);
           remote.npc.steer(animalId,[stick.yaw,stick.pitch,stick.throttle],a.kind==='whale'?stick.roll:0);lastInput=now;

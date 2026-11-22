@@ -52,13 +52,13 @@ function seabedMaterials(T,illumination){
 }
 function marineLife(T,scene,webgl2,schoolState){
  const fish=new T.Group();scene.add(fish);
- const visitors=oceanVisitors(T,scene);
  const count=36,pose=new T.Object3D(),swimPhase={value:0};
- let school,swimmers=[],schoolTime=0;
- function updateSchool(t){
+ let school,swimmers=[],fishLoad;
+ function updateSchool(){
    const shared=schoolState?.();
    fish.visible=!!shared;
    if(!shared)return;
+   fishLoad??=fetch('assets/fish.json').then(r=>r.json()).then(buildSchool).catch(console.error);
    swimPhase.value=shared.time*6%8;
    for(let i=0;i<(school?count:swimmers.length);i++){
      const f=school?pose:swimmers[i],k=i*4,visible=shared.restock[i]<=shared.time;
@@ -75,7 +75,7 @@ function marineLife(T,scene,webgl2,schoolState){
    }
    if(school)school.instanceMatrix.needsUpdate=true;
  }
- fetch('assets/fish.json').then(r=>r.json()).then(asset=>{
+ function buildSchool(asset){
    const geo=fishGeometry(T,asset);
    const mat=new T.MeshStandardMaterial({vertexColors:true,roughness:.42,metalness:.08,side:T.DoubleSide});
    if(webgl2){
@@ -101,8 +101,8 @@ function marineLife(T,scene,webgl2,schoolState){
      for(let i=0;i<count;i++)fish.add(new T.Mesh(geo,mat));
      swimmers=fish.children;
    }
-   updateSchool(schoolTime);
- });
+   updateSchool();
+ }
  let seed=992;function random(){seed=(1664525*seed+1013904223)>>>0;return seed/4294967296;}
  // Rooted kelp beds flank the survey corridor. All fronds share one draw call.
  const blades=[],bladeFaces=[],flex=[];
@@ -151,8 +151,7 @@ function marineLife(T,scene,webgl2,schoolState){
  };
  const motes=new T.Points(geo,silt);motes.frustumCulled=false;scene.add(motes);
  return t=>{
-   visitors(t);
-   schoolTime=t;updateSchool(t);
+   updateSchool();
    motes.position.set(.35*Math.sin(t*.23),.15*Math.sin(t*.18),.14*Math.cos(t*.12));
  };
 }

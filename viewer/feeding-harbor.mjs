@@ -2,18 +2,22 @@ import {birdMesh} from './gull.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
 
 export function feedingHarbor(T,scene,room,playSound){
-  let school,positions,stamp,hostModels,hostSession,lastSequence,authority,initialSounds;
+  let school,loadingSchool,positions,stamp,hostModels,hostSession,lastSequence,authority,initialSounds;
   const soundPos=new T.Vector3(),birds=[];
-  loadInstance('FeedingGround',{}).then(m=>{school=m;}).catch(console.error);
+  function loadSchool(){
+    loadingSchool??=loadInstance('FeedingGround',{}).then(m=>{school=m;}).catch(console.error);
+  }
   function observer(a,row,time){
     const whale=a.kind==='whale',i=whale?17:9;
     school.set('clock',time);school.set('whale',Number(whale));
     school.set('pose',[row[i],row[i+1],row[i+2],row[i+3],row[whale?21:67]??0,whale?row[35]:0]);
     school.set('feedAge',a.feedAt==null?-1:time-a.feedAt);
   }
-  function step(row,previous,steps,wind,level){
-    const h=room.habitat,t=row[0];
-    if(hostSession!==room.session){hostModels=undefined;hostSession=room.session;}
+  function step(t,row,previous,steps,wind,level){
+    const h=room.habitat,priorTime=h.time??t;
+    const animalTime=row?.[0]??t;
+    h.time=t;
+    if(hostSession!==room.session){hostModels=undefined;lastAnimalFrames.clear();hostSession=room.session;}
     const models=hostModels??=[];
     h.gulls.forEach((row,i)=>{
       if(!models[i]){
@@ -27,11 +31,11 @@ export function feedingHarbor(T,scene,room,playSound){
       h.gulls[i]=m.getMany(['x','wings','memory']).flat();
     });
     const called=room.takeCall(),index=called??Math.floor(t/26)%Math.max(1,h.gulls.length);
-    if(h.gulls[index]&&(called!=null||Math.floor((previous?.[0]??t)/26)<Math.floor(t/26)))
+    if(h.gulls[index]&&(called!=null||Math.floor(priorTime/26)<Math.floor(t/26)))
       room.sound('gull',t,h.gulls[index].slice(0,3),called!=null?1:.8);
     for(const a of room.animals.values()){
       const frame=a.frame??row;
-      if(a.id!==a.kind&&!a.frame)continue;
+      if(!frame||a.id!==a.kind&&!a.frame)continue;
       const old=lastAnimalFrames.get(a.id)??(a.id===a.kind?previous:null);
       if(a.kind==='whale'&&old){
         if(frame[22]>=0&&old[22]<0)room.sound('spout',t,frame.slice(17,20),1);
@@ -40,20 +44,21 @@ export function feedingHarbor(T,scene,room,playSound){
       // Extra animals have independent simulation clocks. Keep the prior event
       // sample locally, outside the roster that is sent over the network.
       lastAnimalFrames.set(a.id,frame);
-      if(!school||!a.seat||a.feedAt==null){a.gape=0;continue;}
-      observer(a,frame,t);
+      if(!a.seat||a.feedAt==null){a.gape=0;continue;}
+      if(!school){loadSchool();continue;}
+      observer(a,frame,animalTime);
       const [gape,capture,inside]=school.getMany(['gape','capture','inMouth']);
       a.gape=gape;
       if(!capture||(a.kind==='shark'&&a.lastBite===a.feedAt))continue;
       for(let i=0;i<inside.length;i++){
-        if(!inside[i]||h.restock[i]>t)continue;
-        h.restock[i]=t+18+1.3*(i%8);a.caught=(a.caught??0)+1;
+        if(!inside[i]||h.restock[i]>animalTime)continue;
+        h.restock[i]=animalTime+18+1.3*(i%8);a.caught=(a.caught??0)+1;
         if(a.kind==='shark'){a.lastBite=a.feedAt;break;}
       }
     }
   }
   const lastAnimalFrames=new Map();
-  function draw(current,previous,f){
+  function draw(time,f){
     if(!room.host){hostModels=undefined;lastAnimalFrames.clear();}
     const h=room.habitat;
     while(birds.length<h.gulls.length){
@@ -69,11 +74,15 @@ export function feedingHarbor(T,scene,room,playSound){
       lastSequence=h.sequence;authority=room.soundOwner;initialSounds=true;
     }
     for(const [id,t,kind,x,y,z,gain] of h.sounds){
-      if(id>lastSequence&&current[0]-t<1.8)playSound(kind,soundPos.set(x,y,z),gain);
+      if(id>lastSequence&&time-t<1.8)playSound(kind,soundPos.set(x,y,z),gain);
     }
     lastSequence=h.sequence;
   }
   function fish(time){
+    if(!room.animals.size)return;
+    if(!school){
+      for(const animal of room.animals.values())if(!animal.player){loadSchool();break;}
+    }
     if(!school)return;
     if(stamp!==time){school.set('clock',time);positions=school.get('school');stamp=time;}
     return {positions,restock:room.habitat.restock,time};

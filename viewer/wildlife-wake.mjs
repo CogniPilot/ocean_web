@@ -37,7 +37,6 @@ export function wildlifeWater(T,uniforms,load=loadInstance,halfFloat=false){
     const patch={cell,previous:frames[0],current:frames[1],key};
     uniforms[key]={value:patch.current.region};
     uniforms[key+'Previous']={value:patch.previous.region};
-    load('SwimmerWake',{cell}).then(m=>{patch.model=m;}).catch(console.error);
     return patch;
   });
   function clear(){
@@ -50,7 +49,11 @@ export function wildlifeWater(T,uniforms,load=loadInstance,halfFloat=false){
   function sample(i,time,sources,impact,id,blend){
     const p=patches[i],m=p.model;
     mix.setComponent(i,blend);
-    if(!m||time===p.stamp&&id===p.id)return;
+    if(!m){
+      p.loading??=load('SwimmerWake',{cell:p.cell}).then(model=>{p.model=model;}).catch(console.error);
+      return;
+    }
+    if(time===p.stamp&&id===p.id)return;
     const reset=p.stamp===undefined||id!==p.id||time<=p.stamp||time-p.stamp>.6;
     if(i===1){
       // Section six is the dorsal fin. Transport its bound ridge with the
