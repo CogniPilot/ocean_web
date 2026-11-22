@@ -19,6 +19,7 @@ import {fishFinder} from './fish-finder.mjs';
 import {harborTraffic} from './harbor-traffic.mjs';
 import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
+const renderInterval=1000/30;
 const profiles={
   fast:{target:20,ratio:.6,min:.4,mesh:48,sky:.375,omitWake:true,skipCaptures:true},
   low:{target:20,captureInterval:1000/15,ratio:.75,min:.5,capture:.375,reflectSamples:0,mesh:88,sky:.5,omitWake:true},
@@ -972,8 +973,12 @@ async function run(){
     }
     finishTest(`${(gaps.length/elapsed).toFixed(1)} FPS · 95th percentile ${p95.toFixed(1)} ms · ${((t-test.simStart)/elapsed).toFixed(2)}× real time · ${test.quality} · ${renderer.domElement.width}×${renderer.domElement.height} final pixels`);
   }
-  let physicsTimer,courseTarget;
+  let physicsTimer,courseTarget,lastDraw=-Infinity;
   function draw(now){
+    // Skip work before updating the scene. Keep a small allowance for
+    // quantized animation timestamps on displays with a 60 Hz refresh rate.
+    if(now-lastDraw<renderInterval-.2){requestAnimationFrame(draw);return;}
+    lastDraw=now;
     try{
       if(keyboard.active){keyboard.advance(now);helm();}
       if(model&&remote.needsTraffic(now>=raceTick)){
