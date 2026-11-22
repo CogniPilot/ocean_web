@@ -25,7 +25,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0){
  let id=0,error,time=0;
  const pending=new Map();
  const state=new Map();
- const surveyView={camera:false,map:false,wakeSource:false,wakeSurface:false};
+ const surveyView={camera:false,map:false,wakeSource:false,wakeSurface:false,waveGrid:!omitWake};
  function fail(reason){
    error=reason;
    for(const reply of pending.values())reply.reject(reason);
@@ -64,11 +64,12 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0){
    optionalInputs:['seaClockOffset','windAnchor','peerWake','idleCamera','omitWake'],
    optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','waves.wakeHeight','bowSources','bowSpeed']});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
+ const hasOmitWake=offsets.has('omitWake');
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
    if(typeof value==='number')controls[i]=value;else controls.set(value,i);}
  if(offsets.has('idleCamera'))set('idleCamera',1);
- if(offsets.has('omitWake'))set('omitWake',omitWake);
+ if(hasOmitWake)set('omitWake',omitWake);
  Object.entries(initial).forEach(([name,v])=>set(name,v));
  function unpack(fields,values){
    for(const v of fields)state.set(v.name,v.shape.length?values.subarray(v.offset,v.offset+v.count):values[v.offset]);
@@ -77,7 +78,10 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0){
    if(f.mapRows)state.set('keyframes',f.mapRows);
    if(f.bowHeight)state.set('bowHeight',f.bowHeight);
    unpack(layout.outputs,f.values);
-   f.sampled?.forEach((values,i)=>{if(values)unpack(layout.sampled[i],values);});
+   f.sampled?.forEach((values,i)=>{
+     const fields=layout.sampled[i];
+     if(values&&(surveyView.waveGrid||fields[0].name!=='waves.height'))unpack(fields,values);
+   });
  }
  receive(frame);
  // Keep the worker supplied while the main thread draws. Both requests run
@@ -120,8 +124,11 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0){
    surveyView.wakeSource=enabled;
    if(!enabled)state.delete('waves.sourceStrips');
   },setWakeEnabled(enabled){
-   if(offsets.has('omitWake'))set('omitWake',Number(!enabled));
+   if(hasOmitWake)set('omitWake',Number(!enabled));
+   // The packaged worlds carry the incident sea in boatWater.tile.
+   surveyView.waveGrid=enabled||!hasOmitWake;
    surveyView.wakeSurface=enabled;
+   if(!surveyView.waveGrid)state.delete('waves.height');
    if(!enabled){state.delete('waves.wakeHeight');state.delete('bowHeight');}
- },hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map){surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
+ },hasOmitWake,hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map){surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

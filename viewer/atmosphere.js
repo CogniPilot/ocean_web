@@ -368,7 +368,10 @@ function atmosphere(scene,waterCaptureLayer){
  U.bowMap={value:bowTexture};U.bowAvailable={value:0};
  U.forebodyPort={value:new THREE.Vector3()};U.forebodyStarboard={value:new THREE.Vector3()};
  let spray;
- function clearWake(){spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=0;trails.clear();}
+ function clearWake(flatSpectrum=false){
+   spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=0;trails.clear();
+   if(flatSpectrum)U.spectrumPeriod.value=0;
+ }
  function displayedHeight(data,k,blend){
    const old=(data[k]<<8)+data[k+1],latest=(data[k+2]<<8)+data[k+3];
    return Math.round(old+blend*(latest-old));

@@ -6,6 +6,8 @@ Fast shades the Modelica sea surface with the sky map and skips both planar wate
 
 Four six-second samples in Chromium with SwiftShader used a 393 × 852 touch viewport and device scale factor 2. The Hobie ran the same FMU in Swell in all four runs. In alternating Low, Fast, Fast, Low order, the browser recorded 29.8, 54.2, 56.6 and 27.2 FPS. The corresponding p95 frame intervals were 44.2, 26.9, 27.3 and 59.0 ms. Fast eliminated approximately 54–60 planar capture renders per second. Physics advanced at 0.88–0.91 simulated seconds per wall second across these runs. A physical phone measurement is still needed.
 
+The packaged worker now skips the zero-filled 64 × 64 wake grid in Low and Fast. At ten updates per simulated second this removes 320 KiB/s of worker messages and 160 KiB/s of texture uploads during steady rendering. The incoming sea tile still updates. Selecting Balanced or High resumes the wake grid on the next worker reply.
+
 ## Published integrated Hobie scene
 
 On November 20, 2026, the deployed world manifest selected `OceanWorld.fmu.f2e68b8f094c95b1.json`. Measurements used an AMD Ryzen 9 5950X development workstation under shared load. The browser run used Chromium with a 393 × 852 CSS pixel touch viewport, device scale factor 2 and SwiftShader software rendering. These figures establish where time goes on this build. Physical Android and iPhone measurements are still needed.

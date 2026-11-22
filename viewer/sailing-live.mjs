@@ -248,7 +248,7 @@ async function run(){
     profile=profiles[selector.value];
     omitWake=Number(Boolean(profile.omitWake));
     world?.setWakeEnabled(!omitWake);
-    if(omitWake)ocean.clearWake();
+    if(omitWake)ocean.clearWake(world?.hasOmitWake);
     remote.setWakeReception(Boolean(world?.hasPeerWake && !omitWake));
     if(omitWake && world?.hasPeerWake)world.set('peerWake',new Float64Array(4*38));
     pixelScale=Math.min(devicePixelRatio,profile.ratio);
@@ -683,11 +683,12 @@ async function run(){
         }
         advanceWorld(performance.now());
         const tick=Math.round(world.time*100),waveTick=waterStamp(),fieldTick=Math.floor(tick/25);
-        if(lastWorldTick!==waveTick){
+        const heights=world.get('waves.height');
+        if(heights&&(lastWorldTick!==waveTick||!ocean.U.spectrumPeriod.value)){
           lastDrift.copy(ocean.U.spectrumDrift.value);
           nextDrift.set(world.get('waves.driftE'),world.get('waves.driftN'));
           if(lastWorldTick<0 || lastDrift.distanceToSquared(nextDrift)>16)lastDrift.copy(nextDrift);
-          ocean.updateSpectrum(world.get('waves.height'),world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'),
+          ocean.updateSpectrum(heights,world.get('waves.driftE'),world.get('waves.driftN'),world.get('waves.period'),
             omitWake?undefined:world.get('waves.wakeHeight'),omitWake||!cat?undefined:world.get('bowHeight'));
           if(!omitWake&&model)ocean.updateHullFoam(world.get('waves.sourceStrips'),waveTick,world.get('bowSpeed')?.[0]??model.get('surge'),cat);
           wavePresentation.sample(waveTick,now);lastWorldTick=waveTick;
