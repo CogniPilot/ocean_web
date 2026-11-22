@@ -613,3 +613,43 @@ cost are outside these captures.
 Run `scripts/profile-physics-perf.sh` against each revision's packaged Pages
 directory to reproduce the captures. Use `OCEAN_WASM_LAZY=1` for the marine
 runs, `--no-wakes` for Fast, and `--banked` for the shark replay.
+
+## Piccard event and sonar copies
+
+On the Piccard with the survey camera and sonar active, Linux perf placed
+about half of the sampled CPU cycles in memory copying. Call stacks showed
+that many copies originated inside the nested folds of the imaging sonar.
+Each generated branch used to materialize a full tensor whether it returned
+the previous array or changed a single element.
+
+Rumoca now publishes a single tensor result after all checks succeed. A
+final conditional forwards the destination into the selected branch. An
+indexed update copies the source at most once, and writes only the selected
+element when a fold already owns the source buffer. The generated FMI solver
+also reuses settled direct assignments and copies stable parameter-backed
+history once between events within a communication step. Continuous history
+sources, dependent history lanes, and plans that require another solve retain
+their original evaluation path.
+
+| Component | Fast mean step and read, before → after |
+| --- | ---: |
+| Piccard survey submarine | 8.97 → 8.01 ms |
+| RDD2 | 1.85 → 1.60 ms |
+| Cabin cruiser | 1.74 → 1.59 ms |
+| Swimmer environment | 1.45 → 1.34 ms |
+
+These 10 ms replays compare to `c523e29` in reference, candidate, candidate,
+reference order after 200 warm-up steps. The Piccard's mean p95 step time fell
+from 95.3 to 85.6 ms in Fast and from 95.5 to 85.1 ms with wakes enabled. Mean
+wakes-on throughput varied across runs. Separate pinned Linux perf captures
+measured 13.4% fewer user-space cycles in Fast (800 timed steps) and 19.8%
+fewer with wakes enabled (1,000 timed steps). Run
+`scripts/profile-physics-perf.sh build/pages submarine build/sub-perf 1000`
+on each packaged revision, adding `--no-wakes` for Fast.
+
+An eight-second replay that toggled the imager, autopilot, and wakes matched
+476,920 checked values exactly, including raw sonar, camera, pose, and map
+data. The full 17-station survey passed at the browser timestep. The
+Hobie and sloop candidates had mixed speed results, so the release keeps
+their previous builds. The compiler changes are also available on
+[the Rumoca branch](https://github.com/CogniPilot/rumoca/tree/perf/reuse-fmi-event-work).

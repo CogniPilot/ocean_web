@@ -1,0 +1,290 @@
+--- a/crates/rumoca-phase-codegen/src/codegen/me_projection/tests.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/me_projection/tests.rs
+@@ -79,3 +79,26 @@
+     // Within `seed_len * lanes` positions but past the last seed.
+     assert!(check_seed_loads(0, &tensor(seed_len - 1), seed_len, lanes).is_err());
+ }
++
++#[test]
++fn repeated_history_needs_disjoint_parameter_sources() {
++    use rumoca_ir_solve as solve;
++
++    let bind = |dest_p_index, source| solve::PreParamBinding {
++        dest_p_index,
++        source,
++        clock_schedule: None,
++    };
++    let mut layout = solve::SolveLayout::default();
++    assert!(!super::repeatable_parameter_history(&layout));
++    layout
++        .pre_param_bindings
++        .push(bind(4, solve::PreParamSource::P { index: 0 }));
++    assert!(super::repeatable_parameter_history(&layout));
++    layout
++        .pre_param_bindings
++        .push(bind(5, solve::PreParamSource::P { index: 4 }));
++    assert!(!super::repeatable_parameter_history(&layout));
++    layout.pre_param_bindings[1] = bind(5, solve::PreParamSource::Y { index: 0 });
++    assert!(!super::repeatable_parameter_history(&layout));
++}
+--- a/crates/rumoca-phase-codegen/src/codegen/me_projection.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/me_projection.rs
+@@ -20,7 +20,7 @@
+ #[cfg(test)]
+ mod tests;
+
+-use std::collections::BTreeMap;
++use std::collections::{BTreeMap, BTreeSet};
+
+ use minijinja::Value;
+ use rumoca_eval_solve::{
+@@ -291,8 +291,9 @@
+     };
+     // Direct assignments can fail after changing a subset of solver coordinates.
+     // No projection or retry path may address outside the compact backup.
++    let direct = complete.is_none() && rows.iter().all(|row| row[0] == STEP_ASSIGN);
+     let mut targets = Vec::new();
+-    if complete.is_none() && rows.iter().all(|row| row[0] == STEP_ASSIGN) {
++    if direct {
+         for step in steps {
+             if let solve::StagedRefreshStep::Assignments(schedule) = step {
+                 for id in schedule.program_ids() {
+@@ -325,6 +326,7 @@
+     let backup_size: usize = runs.iter().map(|run| run[1]).sum();
+     Ok(minijinja::context! {
+         steps => rows,
++        direct => direct,
+         backup_runs => runs,
+         backup_size => backup_size,
+         complete => complete,
+@@ -586,6 +588,9 @@
+             .max(chart_doubles);
+     let sizes = block_sizes + init_sizes;
+     Ok(minijinja::context! {
++        scan_projection_reusable => !switching
++            && charts[0].get_attr("algebraic")?.get_attr("direct")?.is_true()
++            && assignments.ignores_pre_values(&problem.solve_layout),
+         derivative => charts[0].get_attr("derivative")?,
+         algebraic => charts[0].get_attr("algebraic")?,
+         charts => charts,
+@@ -594,8 +599,7 @@
+         block_folds => block_folds(problem, &records),
+         table => table,
+         kernel => kernel,
+-        scan_projection_reusable => records.is_empty() && !switching
+-            && assignments.ignores_pre_values(&problem.solve_layout),
++        repeatable_parameter_history => repeatable_parameter_history(&problem.solve_layout),
+         assign => assignments.into_value()?,
+         init => init,
+         work => minijinja::context! { doubles => doubles, sizes => sizes },
+@@ -605,6 +609,21 @@
+         policy => policy_value(),
+         seed_rule => importer_seed_rule(problem),
+     })
++}
++
++/// Copying only P sources that cannot themselves be changed by the copy is
++/// idempotent between consecutive continuous intervals of a communication
++/// step. A Y source can move during integration and must be captured again.
++fn repeatable_parameter_history(layout: &solve::SolveLayout) -> bool {
++    let bindings = &layout.pre_param_bindings;
++    let targets: BTreeSet<_> = bindings
++        .iter()
++        .map(|binding| binding.dest_p_index)
++        .collect();
++    !bindings.is_empty()
++        && bindings.iter().all(|binding| {
++            matches!(binding.source, solve::PreParamSource::P { index } if !targets.contains(&index))
++        })
+ }
+
+ /// The one numerical policy both executors read.
+--- a/crates/rumoca-phase-codegen/src/templates/fmi2/model.c.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi2/model.c.jinja
+@@ -98,7 +98,7 @@
+
+ {{ cs_integrator_function(fmi, solve, "fmi2") }}
+ {%- if fmi.scalar_events %}
+-{{ cs_events(fmi, cs_integrate, "fmi2", me_refresh.scan_projection_reusable) }}
++{{ cs_events(fmi, cs_integrate, "fmi2", me_refresh.scan_projection_reusable, me_refresh.repeatable_parameter_history) }}
+ {%- endif %}
+
+ {#- One row per FMI 2 value reference, indexed by the reference itself: time
+@@ -244,7 +244,7 @@
+ FMI_EXPORT fmi2Status fmi2GetNominalsOfContinuousStates(fmi2Component c, fmi2Real values[], size_t nx) { ModelInstance* m = c; if (!m || m->type != fmi2ModelExchange || nx != {{ solve.solve_layout.state_scalar_count }} || (!values && nx)) return fmi2Error; for (size_t i = 0; i < nx; ++i) values[i] = {% if me_refresh.switching %}rmc_chart_nominals[m->rmc_chart][i]{% else %}1.0{% endif %}; return fmi2OK; }
+ FMI_EXPORT fmi2Status fmi2GetEventIndicators(fmi2Component c, fmi2Real values[], size_t ni) { ModelInstance* m = c; if (!m || m->type != fmi2ModelExchange || m->state == MODEL_INSTANTIATED || m->state == MODEL_STEP || ni != {% if fmi.scalar_events %}RMC_EVENT_INDICATORS{% else %}0{% endif %} || (!values && ni)) return fmi2Error; {% if fmi.scalar_events %}return rmc_event_indicators(m, values);{% else %}(void)values; return fmi2OK;{% endif %} }
+ FMI_EXPORT fmi2Status fmi2EnterEventMode(fmi2Component c) { ModelInstance* m = c; if (!m || m->type != fmi2ModelExchange || (m->state != MODEL_EVENT && m->state != MODEL_CONTINUOUS)) return fmi2Error; rmc_seed_suspend(m); m->state = MODEL_EVENT; return fmi2OK; }
+-FMI_EXPORT fmi2Status fmi2NewDiscreteStates(fmi2Component c, fmi2EventInfo* info) { ModelInstance* m = c; if (!m || !info || m->state != MODEL_EVENT) return fmi2Error; {% if fmi.scalar_events %}bool reinit = false; if (rmc_events_update(m, &reinit) != fmi2OK) return fmi2Error; {% endif %}{% if me_refresh.switching %}bool changed = false, nominals = false; if (m->rmc_chart_pending ? rmc_chart_transfer(m, &changed, &nominals) != fmi2OK : settle_assertion_event(m) != fmi2OK) return fmi2Error; memset(info, 0, sizeof(*info)); info->valuesOfContinuousStatesChanged = changed; info->nominalsOfContinuousStatesChanged = nominals; {% else %}{% if not fmi.scalar_events %}if (settle_assertion_event(m) != fmi2OK) return fmi2Error; {% endif %}memset(info, 0, sizeof(*info)); {% endif %}{% if fmi.scalar_events %}if (reinit) info->valuesOfContinuousStatesChanged = fmi2True; { double next = 0.0; RmcNext found = rmc_next_event(m, &next); if (found == RMC_EVENT_UNRESOLVED) return fmi2Error; if (found == RMC_EVENT) { info->nextEventTimeDefined = fmi2True; info->nextEventTime = next; } } {% endif %}return fmi2OK; }
++FMI_EXPORT fmi2Status fmi2NewDiscreteStates(fmi2Component c, fmi2EventInfo* info) { ModelInstance* m = c; if (!m || !info || m->state != MODEL_EVENT) return fmi2Error; {% if fmi.scalar_events %}bool reinit = false; if (rmc_events_update(m, &reinit) != fmi2OK) return fmi2Error; {% endif %}{% if me_refresh.switching %}bool changed = false, nominals = false; if (m->rmc_chart_pending ? rmc_chart_transfer(m, &changed, &nominals) != fmi2OK : settle_assertion_event(m, true) != fmi2OK) return fmi2Error; memset(info, 0, sizeof(*info)); info->valuesOfContinuousStatesChanged = changed; info->nominalsOfContinuousStatesChanged = nominals; {% else %}{% if not fmi.scalar_events %}if (settle_assertion_event(m, true) != fmi2OK) return fmi2Error; {% endif %}memset(info, 0, sizeof(*info)); {% endif %}{% if fmi.scalar_events %}if (reinit) info->valuesOfContinuousStatesChanged = fmi2True; { double next = 0.0; RmcNext found = rmc_next_event(m, &next); if (found == RMC_EVENT_UNRESOLVED) return fmi2Error; if (found == RMC_EVENT) { info->nextEventTimeDefined = fmi2True; info->nextEventTime = next; } } {% endif %}return fmi2OK; }
+ FMI_EXPORT fmi2Status fmi2EnterContinuousTimeMode(fmi2Component c) { ModelInstance* m = c; if (!m || m->state != MODEL_EVENT{% if fmi.scalar_events %} || rmc_events_continuous(m) != fmi2OK{% endif %}) return fmi2Error; rmc_seed_commit(m); m->state = MODEL_CONTINUOUS; return fmi2OK; }
+ FMI_EXPORT fmi2Status fmi2CompletedIntegratorStep(fmi2Component c, fmi2Boolean noSetState, fmi2Boolean* enterEventMode, fmi2Boolean* terminate) { ModelInstance* m = c; (void)noSetState; if (!m || m->type != fmi2ModelExchange || m->state != MODEL_CONTINUOUS || !enterEventMode || !terminate) return fmi2Error; *enterEventMode = 0; *terminate = 0; rmc_seed_mark(m); {% if fmi.assertions and (solve.events.actions | selectattr("kind", "equalto", "Warning") | list | length > 0) %}if (m->assertions_initialized && (refresh_algebraics(m) != fmi2OK || report_warnings(m) != fmi2OK)) return fmi2Error; {% endif %}{% if me_refresh.switching %}bool request = false; if (rmc_chart_completed(m, &request) != fmi2OK) return fmi2Error; *enterEventMode = request; {% endif %}{% if fmi.scalar_events %}bool event = false; if (rmc_events_completed(m, &event) != fmi2OK) return fmi2Error; if (event) *enterEventMode = 1; {% endif %}return fmi2OK; }
+ FMI_EXPORT fmi2Status fmi2GetFMUstate(fmi2Component c, fmi2FMUstate* s) { (void)c; (void)s; return fmi2Error; }
+@@ -278,7 +278,7 @@
+     if (fabs(current - m->time) > 1e-12 * fmax(1.0, fmax(fabs(current), fabs(m->time)))) return fmi2Error;
+     double old_y[Y_LEN];
+     for (size_t i = 0; i < Y_LEN; ++i) old_y[i] = m->y[i];
+-    fmi2Status advanced = {% if fmi.scalar_events %}rmc_cs_advance{% else %}{{ cs_integrate }}{% endif %}(m, current, step);
++    fmi2Status advanced = {% if fmi.scalar_events %}rmc_cs_advance(m, current, step){% else %}{{ cs_integrate }}(m, current, step, true){% endif %};
+     if (advanced != fmi2OK) {
+         for (size_t i = 0; i < Y_LEN; ++i) m->y[i] = old_y[i];
+         m->time = current;
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/model.c.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/model.c.jinja
+@@ -95,7 +95,7 @@
+ {%- endif %}
+ {{ cs_integrator_function(fmi, solve, "fmi3") }}
+ {%- if fmi.scalar_events %}
+-{{ cs_events(fmi, cs_integrate, "fmi3", me_refresh.scan_projection_reusable) }}
++{{ cs_events(fmi, cs_integrate, "fmi3", me_refresh.scan_projection_reusable, me_refresh.repeatable_parameter_history) }}
+ {%- endif %}
+ {#- One row per FMI 3 value reference, indexed by the reference itself: time
+     is 0, the variables are 1..N in inventory order and the state derivatives
+@@ -265,7 +265,7 @@
+ FMI_EXPORT fmi3Status fmi3EnterInitializationMode(fmi3Instance i, fmi3Boolean td, fmi3Float64 tol, fmi3Float64 start, fmi3Boolean sd, fmi3Float64 stop) { ModelInstance* m=i; if (!m || m->state != MODEL_INSTANTIATED || !isfinite(start) || (td && (!isfinite(tol) || tol < 0.0)) || (sd && (!isfinite(stop) || stop < start))) return fmi3Error; m->time=start; m->tolerance=td ? tol : 0.0; {% if fmi.scalar_events %}m->rmc_scan = sd ? rmc_scan_resolution(stop - start) : 0.0; {% endif %}{{ initial_mode(solve, true) }}m->state=MODEL_INITIALIZATION; return fmi3OK; }
+ FMI_EXPORT fmi3Status fmi3ExitInitializationMode(fmi3Instance i) { ModelInstance* m=i; if (!m || m->state != MODEL_INITIALIZATION || {% if me_refresh.init.rows > 0 %}rmc_initialize(m, m->tolerance) != fmi3OK || {% else %}rmc_apply_updates(m, true) < 0 || {% endif %}{% if fmi.scalar_events %}rmc_events_initialize(m){% else %}initialize_assertions(m){% endif %} != fmi3OK || evaluate_derivatives(m) != fmi3OK{% if fmi.scalar_events %} || (m->type != INTERFACE_ME && rmc_cs_start(m) != fmi3OK){% endif %}) return fmi3Error;{% if not fmi.scalar_events %} {{ initial_mode(solve, false) }}{% endif %} m->state=m->type==INTERFACE_ME?MODEL_EVENT:MODEL_STEP; return fmi3OK; }
+ FMI_EXPORT fmi3Status fmi3EnterEventMode(fmi3Instance i) { ModelInstance* m=i; if (!m || m->type != INTERFACE_ME || (m->state != MODEL_EVENT && m->state != MODEL_CONTINUOUS)) return fmi3Error; rmc_seed_suspend(m); m->state=MODEL_EVENT; return fmi3OK; }
+-FMI_EXPORT fmi3Status fmi3UpdateDiscreteStates(fmi3Instance i, fmi3Boolean* need, fmi3Boolean* terminate, fmi3Boolean* nominalsChanged, fmi3Boolean* valuesChanged, fmi3Boolean* nextDefined, fmi3Float64* nextTime) { ModelInstance* m=i; if (!m || m->state != MODEL_EVENT || !need || !terminate || !nominalsChanged || !valuesChanged || !nextDefined || !nextTime) return fmi3Error; {% if fmi.scalar_events %}bool reinit = false; if (rmc_events_update(m, &reinit) != fmi3OK) return fmi3Error; {% endif %}{% if me_refresh.switching %}bool changed = false, nominals = false; if (m->rmc_chart_pending ? rmc_chart_transfer(m, &changed, &nominals) != fmi3OK : settle_assertion_event(m) != fmi3OK) return fmi3Error; *need=0; *terminate=0; *nominalsChanged=nominals; *valuesChanged=changed; {% else %}{% if not fmi.scalar_events %}if (settle_assertion_event(m) != fmi3OK) return fmi3Error; {% endif %}*need=0; *terminate=0; *nominalsChanged=0; *valuesChanged=0; {% endif %}{% if fmi.scalar_events %}if (reinit) *valuesChanged=fmi3True; {% endif %}*nextDefined=0; *nextTime=0.0; {% if fmi.scalar_events %}{ double next = 0.0; RmcNext found = rmc_next_event(m, &next); if (found == RMC_EVENT_UNRESOLVED) return fmi3Error; if (found == RMC_EVENT) { *nextDefined=fmi3True; *nextTime=next; } } {% endif %}return fmi3OK; }
++FMI_EXPORT fmi3Status fmi3UpdateDiscreteStates(fmi3Instance i, fmi3Boolean* need, fmi3Boolean* terminate, fmi3Boolean* nominalsChanged, fmi3Boolean* valuesChanged, fmi3Boolean* nextDefined, fmi3Float64* nextTime) { ModelInstance* m=i; if (!m || m->state != MODEL_EVENT || !need || !terminate || !nominalsChanged || !valuesChanged || !nextDefined || !nextTime) return fmi3Error; {% if fmi.scalar_events %}bool reinit = false; if (rmc_events_update(m, &reinit) != fmi3OK) return fmi3Error; {% endif %}{% if me_refresh.switching %}bool changed = false, nominals = false; if (m->rmc_chart_pending ? rmc_chart_transfer(m, &changed, &nominals) != fmi3OK : settle_assertion_event(m, true) != fmi3OK) return fmi3Error; *need=0; *terminate=0; *nominalsChanged=nominals; *valuesChanged=changed; {% else %}{% if not fmi.scalar_events %}if (settle_assertion_event(m, true) != fmi3OK) return fmi3Error; {% endif %}*need=0; *terminate=0; *nominalsChanged=0; *valuesChanged=0; {% endif %}{% if fmi.scalar_events %}if (reinit) *valuesChanged=fmi3True; {% endif %}*nextDefined=0; *nextTime=0.0; {% if fmi.scalar_events %}{ double next = 0.0; RmcNext found = rmc_next_event(m, &next); if (found == RMC_EVENT_UNRESOLVED) return fmi3Error; if (found == RMC_EVENT) { *nextDefined=fmi3True; *nextTime=next; } } {% endif %}return fmi3OK; }
+ FMI_EXPORT fmi3Status fmi3EnterContinuousTimeMode(fmi3Instance i) { ModelInstance* m=i; if (!m || m->type != INTERFACE_ME || m->state != MODEL_EVENT{% if fmi.scalar_events %} || rmc_events_continuous(m) != fmi3OK{% endif %}) return fmi3Error; rmc_seed_commit(m); m->state=MODEL_CONTINUOUS; return fmi3OK; }
+ FMI_EXPORT fmi3Status fmi3Terminate(fmi3Instance i) { ModelInstance* m=i; if (!m || (m->state != MODEL_EVENT && m->state != MODEL_CONTINUOUS && m->state != MODEL_STEP)) return fmi3Error; m->state=MODEL_TERMINATED; return fmi3OK; }
+ FMI_EXPORT fmi3Status fmi3Reset(fmi3Instance i) { ModelInstance* m=i; if (!m) return fmi3Error; initialize_values(m); m->state=MODEL_INSTANTIATED; return fmi3OK; }
+@@ -363,7 +363,7 @@
+     if(!m||m->type!=INTERFACE_CS||m->state!=MODEL_STEP||!eventNeeded||!terminate||!earlyReturn||!lastTime||!isfinite(current)||!isfinite(step)||step<=0.0)return fmi3Error;
+     if(fabs(current-m->time)>1e-12*fmax(1.0,fmax(fabs(current),fabs(m->time))))return fmi3Error;
+     double old_y[Y_LEN];for(size_t k=0;k<Y_LEN;++k)old_y[k]=m->y[k];
+-    fmi3Status advanced={% if fmi.scalar_events %}rmc_cs_advance{% else %}{{ cs_integrate }}{% endif %}(m,current,step);
++    fmi3Status advanced={% if fmi.scalar_events %}rmc_cs_advance(m,current,step){% else %}{{ cs_integrate }}(m,current,step,true){% endif %};
+     if(advanced!=fmi3OK){for(size_t k=0;k<Y_LEN;++k)m->y[k]=old_y[k];m->time=current;if(advanced!=fmi3Discard)return fmi3Error;*eventNeeded=fmi3False;*terminate=fmi3False;*earlyReturn=fmi3False;*lastTime=current;return fmi3Discard;}
+ {%- if me_refresh.switching %}
+     bool request = false, changed = false, nominals = false;
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
+@@ -1070,8 +1070,9 @@
+     cadence, the location tolerance, the refinement method, and its budget are
+     the component's RootLocationPlan; `integrate` is the plan's error-controlled
+     substep integrator over one interval. -#}
+-{%- macro cs_events(fmi, integrate, prefix, reuse_projection=false) %}
++{%- macro cs_events(fmi, integrate, prefix, reuse_projection=false, reuse_history=false) %}
+ {%- set plan = fmi.root_location %}
++{%- set skip_history = reuse_history and fmi.discrete_memories|length == 0 %}
+ {{- root_refinement(plan) }}
+ /* RootLocationPlan::scan_resolution. */
+ static double rmc_scan_resolution(double width) {
+@@ -1130,7 +1131,7 @@
+         /* No representable coordinate strictly inside the bracket. */
+         if (!rmc_root_trial(&bracket, least, &trial)) { exhausted = false; break; }
+         memcpy(m->y, y0, sizeof(m->y));
+-        if ({{ integrate }}(m, t, trial) != {{ prefix }}OK || rmc_domains_changed(m, z, &changed) != {{ prefix }}OK) return {{ prefix }}Error;
++        if ({{ integrate }}(m, t, trial, {{ "false" if skip_history else "true" }}) != {{ prefix }}OK || rmc_domains_changed(m, z, &changed) != {{ prefix }}OK) return {{ prefix }}Error;
+         rmc_root_narrow(&bracket, trial, changed);
+         memcpy(changed ? z_high : z_low, z, sizeof(z));
+     }
+@@ -1143,12 +1144,12 @@
+     bool integrated_to_application = false;
+     if (window > bracket.high) {
+         memcpy(m->y, y0, sizeof(m->y));
+-        if ({{ integrate }}(m, t, window) != {{ prefix }}OK || rmc_domains_changed(m, z, &changed) != {{ prefix }}OK) return {{ prefix }}Error;
++        if ({{ integrate }}(m, t, window, {{ "false" if skip_history else "true" }}) != {{ prefix }}OK || rmc_domains_changed(m, z, &changed) != {{ prefix }}OK) return {{ prefix }}Error;
+         if (changed) { *application = window; integrated_to_application = true; }
+     }
+     if (!integrated_to_application) {
+         memcpy(m->y, y0, sizeof(m->y));
+-        if ({{ integrate }}(m, t, *application) != {{ prefix }}OK) return {{ prefix }}Error;
++        if ({{ integrate }}(m, t, *application, {{ "false" if skip_history else "true" }}) != {{ prefix }}OK) return {{ prefix }}Error;
+     }
+     return {{ prefix }}OK;
+ }
+@@ -1160,7 +1161,7 @@
+    a state root the substep integrator reaches a rounding short of the instant
+    joins the time event's iteration, as it does in the simulation, whose
+    integration reaches the instant. */
+-static {{ prefix }}Status rmc_cs_interval(ModelInstance* m, double t, double h, bool ends_at_time_event, double* advanced) {
++static {{ prefix }}Status rmc_cs_interval(ModelInstance* m, double t, double h, bool ends_at_time_event, double* advanced{% if skip_history %}, bool* history_ready{% endif %}) {
+     double y0[Y_LEN];
+     /* Every indicator buffer is defined on every path: rmc_domains_changed
+        leaves its output untouched while no domain is armed, and the
+@@ -1172,16 +1173,19 @@
+     memcpy(y0, m->y, sizeof(m->y));
+     bool slide_changed[{{ [fmi.event_indicator_roots|length, 1]|max }}] = {0};
+     rmc_slide_begin(&m->rmc_slide, RMC_EVENT_INDICATORS);
+-    {{ prefix }}Status integrated = {{ integrate }}(m, t, h);
++    {{ prefix }}Status integrated = {{ integrate }}(m, t, h, {{ "!*history_ready" if skip_history else "true" }});
+     if (integrated != {{ prefix }}OK) return integrated == {{ prefix }}Discard ? {{ prefix }}Discard : {{ prefix }}Error;
+     if (rmc_domains_changed(m, z_high, &changed) != {{ prefix }}OK) return {{ prefix }}Error;
+     *advanced = h;
++{%- if skip_history %}
++    *history_ready = !changed && !ends_at_time_event;
++{%- endif %}
+     if (!changed && ends_at_time_event && RMC_EVENT_INDICATORS != 0 && m->rmc_domain_valid) {
+         double settled[Y_LEN], substep = m->rmc_cs_substep;
+         memcpy(settled, m->y, sizeof(settled));
+         memcpy(m->y, y0, sizeof(m->y));
+         bool past_end = false;
+-        if ({{ integrate }}(m, t, h + rmc_location_tolerance(t, h)) != {{ prefix }}OK || rmc_domains_changed(m, z, &past_end) != {{ prefix }}OK) return {{ prefix }}Error;
++        if ({{ integrate }}(m, t, h + rmc_location_tolerance(t, h), {{ "false" if skip_history else "true" }}) != {{ prefix }}OK || rmc_domains_changed(m, z, &past_end) != {{ prefix }}OK) return {{ prefix }}Error;
+         if (!past_end) { memcpy(m->y, settled, sizeof(settled)); m->rmc_cs_substep = substep; }
+         m->time = t + h;
+         /* The caller's time event iteration observes the changed domain. */
+@@ -1206,7 +1210,7 @@
+            handles it. */
+         if (ends_at_time_event && fabs(h - *advanced) <= rmc_interval_roundoff(t, h)) {
+             memcpy(m->y, y0, sizeof(m->y));
+-            if ({{ integrate }}(m, t, h) != {{ prefix }}OK) return {{ prefix }}Error;
++            if ({{ integrate }}(m, t, h, {{ "false" if skip_history else "true" }}) != {{ prefix }}OK) return {{ prefix }}Error;
+             *advanced = h;
+             return {{ prefix }}OK;
+         }
+@@ -1235,6 +1239,11 @@
+     if (rmc_events_completed(m, &entered) != {{ prefix }}OK) return {{ prefix }}Error;
+     entered |= rmc_discrete_inputs_changed(m);
+     if (entered && (rmc_events_update(m, &reinit) != {{ prefix }}OK || rmc_events_continuous(m) != {{ prefix }}OK)) return {{ prefix }}Error;
++{%- if skip_history %}
++    /* Hosts set inputs between communication steps. Inside the step the
++       parameter histories are stable until the next event iteration. */
++    bool history_ready = false;
++{%- endif %}
+     while (t < end) {
+         /* Indicators bound the scan; a component without any integrates a
+            whole interval. */
+@@ -1246,7 +1255,7 @@
+         if (next == RMC_EVENT_UNRESOLVED) { RMC_LOG(m, "a clock tick is finer than the time resolution"); return {{ prefix }}Error; }
+         bool at_event = next == RMC_EVENT;
+         if (at_event) h = fmin(event, t + h) - t;
+-        {{ prefix }}Status interval = rmc_cs_interval(m, t, h, at_event, &advanced);
++        {{ prefix }}Status interval = rmc_cs_interval(m, t, h, at_event, &advanced{% if skip_history %}, &history_ready{% endif %});
+         if (interval != {{ prefix }}OK) return interval == {{ prefix }}Discard ? {{ prefix }}Discard : {{ prefix }}Error;
+         t = advanced == end - t ? end : t + advanced;
+         m->time = t;
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
+@@ -771,10 +771,10 @@
+     return report_warnings(m);
+ }
+ {%- endif %}
+-static {{ prefix }}Status settle_assertion_event(ModelInstance* m) {
++static {{ prefix }}Status settle_assertion_event(ModelInstance* m, bool update_history) {
+     if (settle_values(m) != {{ prefix }}OK) return {{ prefix }}Error;
+     if (m->assertions_initialized && report_warnings(m) != {{ prefix }}OK) return {{ prefix }}Error;
+-    return update_assertion_memory(m);
++    return update_history ? update_assertion_memory(m) : {{ prefix }}OK;
+ }
+ {%- endmacro %}
+
+@@ -918,7 +918,7 @@
+      the caller rolls the state back either way.
+    Accuracy therefore follows the tolerance, not the importer's communication
+    step size: a stiff mode takes as many substeps as its stability needs. */
+-static {{ prefix }}Status {{ cs_integrator(fmi) }}(ModelInstance* m, double start, double step) {
++static {{ prefix }}Status {{ cs_integrator(fmi) }}(ModelInstance* m, double start, double step, bool update_history) {
+     static const double a[6][6] = {
+         {1.0 / 5.0},
+         {3.0 / 40.0, 9.0 / 40.0},
+@@ -1003,7 +1003,7 @@
+         h *= factor;
+     }
+     m->time = end;
+-    const {{ prefix }}Status settled = settle_assertion_event(m);
++    const {{ prefix }}Status settled = settle_assertion_event(m, update_history);
+     if (settled == {{ prefix }}Error) RMC_LOG(m, "Co-Simulation step failed to settle its end point");
+     return settled;
+ }
