@@ -1,7 +1,7 @@
 import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
 // Views share one committed worker snapshot, so every mesh uses the same clock.
 import {boatFields} from './board/boat.mjs';
-import {hullInspectionFields,cruiserInspectionFields} from './physics-view.mjs';
+import {hullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
 const sailingOutputs=[
  ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail sailLuff mainClewOffset stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
@@ -69,8 +69,9 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
    optionalInputs:['animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
-   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed',
-     ...(hasBoat?hullInspectionOutputs:[]),...(mode==='motorboat'?cruiserInspectionFields:[]),...(hasFlight?flightNavigationOutputs:[])]});
+   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame',
+     ...(hasBoat&&mode!=='sloop'?battenInspectionFields.map(name=>'boat.'+name):[]),
+     ...(hasBoat?hullInspectionOutputs:[]),...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea']:[]),...(hasFlight?flightNavigationOutputs:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
@@ -140,6 +141,6 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    if(offsets.has('omitWake'))set('omitWake',Number(!enabled));
    if(surveyView.wakeSurface!==enabled)wakeRevision++;
    surveyView.wakeSurface=enabled;
-   if(!enabled){state.delete('waves.height');state.delete('bowHeight');}
+   if(!enabled){state.delete('waves.height');state.delete('bowHeight');state.delete('bowFrame');}
  },hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map,dvl=false){surveyView.dvl=camera||dvl;surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

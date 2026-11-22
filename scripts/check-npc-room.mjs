@@ -49,6 +49,9 @@ assert.equal(host.spawn('hobie',2),'npc-1');
 assert.equal(host.spawn('motorboat',3),'npc-2');
 flush();
 assert.deepEqual(guest.habitat.vessels,[{kind:'hobie',started:2},{kind:'motorboat',started:3}]);
+assert.equal(host.spawn('hobie',4,600,13),'npc-3');
+flush();
+assert.deepEqual(guest.habitat.vessels[2],{kind:'hobie',started:4,raceAt:600,raceWind:13});
 assert.equal(guest.hasWildlife,false);
 
 guest.select('shark');flush();

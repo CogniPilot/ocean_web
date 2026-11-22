@@ -221,17 +221,70 @@ function leechDeflection(state,offset){
   return .65*(state[offset+34]-state[offset+25])+.35*(state[offset+46]-state[offset+37]);
 }
 
+export function waveAmbience(){
+  const spacing=2.3,offsets=[[0,0],[spacing,0],[-spacing,0],[0,spacing],[0,-spacing]];
+  const incident=new Float64Array(offsets.length),wake=new Float64Array(offsets.length);
+  const mix={swell:0,crest:0,wake:0};
+  let anchorEast,anchorNorth,lastTime,lastWake;
+  function silence(){mix.swell=mix.crest=mix.wake=0;return mix;}
+  function reset(){lastTime=undefined;silence();}
+  function slope(values){
+    let sum=0;
+    for(let i=1;i<values.length;i++)sum+=Math.abs(values[i]-values[0]);
+    return sum/(spacing*(values.length-1));
+  }
+  function sample(surface,time,east,north,tide,includeWake){
+    const moved=lastTime===undefined||(east-anchorEast)**2+(north-anchorNorth)**2>36;
+    if(moved){anchorEast=east;anchorNorth=north;}
+    const dt=time-lastTime;
+    if(!moved&&dt===0&&includeWake===lastWake)return mix;
+    // Initialize the new probe coordinates before taking differences.
+    const continuous=!moved&&dt>0&&dt<.32;
+    const continuousWake=continuous&&includeWake&&lastWake;
+    let motion=0,fallingMotion=0,wakeMotion=0;
+    for(let i=0;i<offsets.length;i++){
+      const x=anchorEast+offsets[i][0],y=anchorNorth+offsets[i][1];
+      const h=surface(x,y,false),sea=h-tide;
+      const localWake=includeWake?surface(x,y,true)-h:0;
+      if(continuous){
+        const delta=sea-incident[i];
+        motion+=delta*delta;
+        if(delta<0)fallingMotion+=delta*delta;
+      }
+      if(continuousWake)wakeMotion+=(localWake-wake[i])**2;
+      incident[i]=sea;wake[i]=localWake;
+    }
+    lastTime=time;lastWake=includeWake;
+    if(!continuous)return silence();
+    const rmsSpeed=energy=>Math.max(0,Math.sqrt(energy/offsets.length)/dt-.004);
+    const moving=rmsSpeed(motion),falling=rmsSpeed(fallingMotion),radiating=rmsSpeed(wakeMotion);
+    const seaSlope=slope(incident),wakeSlope=slope(wake);
+    mix.swell=.62*moving/(.16+moving);
+    mix.crest=.48*falling/(.22+falling)*seaSlope/(.045+seaSlope);
+    mix.wake=.42*radiating/(.13+radiating)*wakeSlope/(.02+wakeSlope);
+    return mix;
+  }
+  return {sample,reset};
+}
+
 export function raceAudio(){
   let engines,audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
-  let submerged,surface,effects,luffGain,flapOscillator,flapRate,level=.15;
+  let submerged,effects,luffGain,flapOscillator,flapRate,level=.15;
+  let waves,waveGains,lastWaveMix=-Infinity,lastWaveTime,waveTimeWall,wavesActive=false;
   function silenceLuff(){
     flapRate?.reset();
     if(luffGain)luffGain.gain.setTargetAtTime(0,audio.currentTime,.06);
   }
+  function silenceWaves(){
+    if(!wavesActive)return;
+    wavesActive=false;
+    waves?.reset();
+    for(const gain of waveGains??[])gain.gain.setTargetAtTime(0,audio.currentTime,.15);
+  }
   function setVolume(value){
     level=value;
     if(effects)effects.gain.setTargetAtTime(level,audio.currentTime,.025);
-    if(!level)silenceLuff();
+    if(!level){silenceLuff();silenceWaves();}
   }
   const loading=new Set();
   function startAmbience(file,destination){
@@ -269,7 +322,6 @@ export function raceAudio(){
       const data=noise.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=2*Math.random()-1;
       effects=audio.createGain();effects.gain.value=level;effects.connect(audio.destination);
       submerged=audio.createGain();submerged.gain.value=0;submerged.connect(effects);
-      surface=audio.createGain();surface.gain.value=0;surface.connect(effects);
       const blower=audio.createBufferSource();blower.buffer=noise;blower.loop=true;
       filter=audio.createBiquadFilter();filter.type='lowpass';wind=audio.createGain();wind.gain.value=0;
       const rainfall=audio.createBufferSource(),rainFilter=audio.createBiquadFilter();
@@ -282,6 +334,7 @@ export function raceAudio(){
     if(on)await audio.resume();
     else{
       silenceLuff();
+      silenceWaves();
       await audio.suspend();
     }
     enabled=audio.state==='running';return enabled;
@@ -302,7 +355,7 @@ export function raceAudio(){
     flapOscillator.connect(envelope).connect(flutter.gain);
     source.start();flapOscillator.start();
   }
-  function update(speed,storm,height,seaState,sailLuff,state,time,playbackRate){
+  function update(speed,storm,height,sailLuff,state,time,playbackRate){
     if(!enabled||!level)return;
     const wall=audio.currentTime;
     const exposure=Math.max(0,Math.min(1,(height+.35)/.7));
@@ -327,14 +380,40 @@ export function raceAudio(){
       luffGain.gain.setTargetAtTime(1.1*exposure*luff,wall,.09);
     }
     if(exposure<1)startAmbience('deep_rumble.mp3',submerged);
-    const calm=1-Math.min(1,seaState/1.1);
-    const surfaceLevel=storm?0:.44*exposure*calm/(1+Math.max(0,height)/16);
-    if(surfaceLevel>0)startAmbience('calm-waves.mp3',surface);
-    surface.gain.setTargetAtTime(surfaceLevel,lastMix,.45);
     submerged.gain.setTargetAtTime(.36*(1-exposure),lastMix,.35);
     weather.gain.setTargetAtTime(storm?exposure:0,lastMix,.20);
     filter.frequency.setTargetAtTime(180+Math.min(30,speed)*53,audio.currentTime,.4);
     wind.gain.setTargetAtTime(exposure*Math.min(.28,.009*speed),audio.currentTime,.35);
+  }
+  function startWaves(){
+    const source=audio.createBufferSource();
+    source.buffer=noise;source.loop=true;
+    const gains=[['lowpass',520,.60],['bandpass',1420,.70],['bandpass',860,.65]].map(([type,frequency,q])=>{
+      const band=audio.createBiquadFilter(),gain=audio.createGain();
+      band.type=type;band.frequency.value=frequency;band.Q.value=q;
+      gain.gain.value=0;
+      source.connect(band).connect(gain).connect(effects);
+      return gain;
+    });
+    source.start();
+    return gains;
+  }
+  function water(surface,time,east,north,tide,height,includeWake){
+    if(!enabled||!level)return;
+    if(!surface||height<=-.35){silenceWaves();return;}
+    const wall=audio.currentTime;
+    if(time!==lastWaveTime){lastWaveTime=time;waveTimeWall=wall;}
+    else if(wall-waveTimeWall>.3){silenceWaves();return;}
+    if(wall-lastWaveMix<.07)return;
+    lastWaveMix=wall;wavesActive=true;
+    waves??=waveAmbience();
+    const {swell,crest,wake}=waves.sample(surface,time,east,north,tide,includeWake);
+    if(!waveGains&&swell+crest+wake<.002)return;
+    waveGains??=startWaves();
+    const exposure=Math.min(1,(height+.35)/.7)/(1+Math.max(0,height)/16);
+    waveGains[0].gain.setTargetAtTime(swell*exposure,wall,.22);
+    waveGains[1].gain.setTargetAtTime(crest*exposure,wall,.09);
+    waveGains[2].gain.setTargetAtTime(wake*exposure,wall,.12);
   }
   function signal(){
     if(!enabled)return;const src=audio.createBufferSource(),gain=audio.createGain(),t=audio.currentTime;
@@ -387,5 +466,5 @@ export function raceAudio(){
     engines(local,peers,camera,underwater,running);
   }
   return {get enabled(){return enabled;},get audible(){return enabled&&level>0;},
-    setEnabled,update,signal,thunder,setVolume,wildlife,imagingHit,motorSound};
+    setEnabled,update,water,signal,thunder,setVolume,wildlife,imagingHit,motorSound};
 }

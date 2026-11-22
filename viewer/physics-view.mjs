@@ -2,23 +2,46 @@
 // annotations in a separate canvas also keeps them out of water captures.
 export const cruiserInspectionFields=['stripEast','stripNorth','stripZ','stripForce','stripVolume'];
 export const hullInspectionFields=['stationGeometry','beamFraction','halfSpacing','sectionVolume','sectionWater'];
+export const battenInspectionFields=[1,2].flatMap(sail=>
+  ['battenCount','battenLuff','battenLeech'].map(name=>`cloth[${sail}].${name}`));
+
+function battenPath(luff,leech){
+  const rise=5*(leech-luff),start=5*luff;
+  const breaks=new Set([0,1/3,2/3,1]);
+  for(let row=1;row<5;row++){
+    const u=(row-start)/rise;
+    if(u>0&&u<1)breaks.add(u);
+  }
+  // Each point uses the same cloth triangle as the rendered sail. Split the
+  // path at grid edges and at the diagonal through each cell.
+  for(let row=0;row<5;row++)for(let col=0;col<3;col++){
+    const u=(start+col-row)/(3-rise),y=start+rise*u;
+    if(u>col/3&&u<(col+1)/3&&y>row&&y<row+1)breaks.add(u);
+  }
+  return [...breaks].sort((a,b)=>a-b).map(u=>{
+    const x=3*u,y=start+rise*u;
+    const col=Math.min(2,Math.floor(x)),row=Math.min(4,Math.floor(y));
+    const i=4*row+col,s=x-col,t=y-row;
+    return s>=t?[i,i+1,i+5,1-s,s-t,t]:[i,i+4,i+5,1-t,t-s,s];
+  });
+}
 
 export function physicsView(T,canvas,status){
   const ink=canvas.getContext('2d');
   const clip=new T.Vector3(),projected=new T.Vector2();
-  const colors={main:'#79edff',jib:'#b2ffa8',mast:'#ffd080',joint:'#ff9cce',
-    wet:'#5af2e9',dry:'#a1aab7',wave:'#7ebaff'};
+  const colors={main:'#79edff',jib:'#b2ffa8',mast:'#ffd080',joint:'#ff9cce',batten:'#fff07b',
+    wet:'#5af2e9',dry:'#a1aab7',wind:'#7ebaff',wake:'#bd96ff',near:'#ffce74'};
   const clothEdges=new Set();
   for(let row=0;row<5;row++)for(let col=0;col<3;col++){
     const i=row*4+col;
     for(const [a,b] of [[i,i+1],[i,i+4],[i,i+5],[i+1,i+5],[i+4,i+5]])
       clothEdges.add(Math.min(a,b)*24+Math.max(a,b));
   }
-  const waterPoints=Array.from({length:17*17},()=>new T.Vector3());
+  const gridPixels=new Float64Array(32*32*2);
   const rigPoints=Array.from({length:24},()=>new T.Vector3());
   const a=new T.Vector3(),b=new T.Vector3(),center=new T.Vector3();
   let width,height,camera;
-  const labelRects=[],markCache=new WeakMap();
+  const labelRects=[],markCache=new WeakMap(),battenPaths=new WeakMap();
 
   function project(point,object){
     clip.copy(point);
@@ -68,6 +91,7 @@ export function physicsView(T,canvas,status){
       ink.stroke();
       for(const node of rigPoints)dot(node,sail.pivot,color,2.5);
       label(rigPoints[14],sail.pivot,index===0?'Main · 24 nodes':'Jib · 24 nodes',color);
+      if(rig.battens?.[index]?.[0]>0)drawBattens(sail,rig.battens[index]);
       if(index===0){
         ink.strokeStyle=colors.mast;ink.lineWidth=2;ink.beginPath();
         for(let row=1;row<6;row++)segment(rigPoints[(row-1)*4],rigPoints[row*4],sail.pivot);
@@ -80,6 +104,29 @@ export function physicsView(T,canvas,status){
       }
     }
     drawJoints(rig.joints,.27);
+  }
+  function drawBattens(sail,battens){
+    const [count,luff,leech]=battens;
+    let paths=battenPaths.get(battens);
+    if(!paths){
+      paths=Array.from({length:count},(_,i)=>battenPath(luff[i],leech[i]));
+      battenPaths.set(battens,paths);
+    }
+    const point=(target,[i,j,k,wi,wj,wk])=>target.copy(rigPoints[i]).multiplyScalar(wi)
+      .addScaledVector(rigPoints[j],wj).addScaledVector(rigPoints[k],wk);
+    ink.save();
+    ink.lineCap='round';ink.beginPath();
+    for(const path of paths){
+      point(a,path[0]);
+      for(let i=1;i<path.length;i++){
+        point(b,path[i]);segment(a,b,sail.pivot);a.copy(b);
+      }
+    }
+    ink.strokeStyle='#071d2b';ink.lineWidth=4.6;ink.stroke();
+    ink.strokeStyle=colors.batten;ink.lineWidth=2.2;ink.stroke();
+    ink.restore();
+    const middle=paths[Math.floor(paths.length/2)];
+    label(point(a,middle[middle.length-1]),sail.pivot,count+' full-length battens',colors.batten,8,8);
   }
   function drawJoints(joints,length){
     for(const [joint,axis,name] of joints){
@@ -134,8 +181,8 @@ export function physicsView(T,canvas,status){
     }
   }
 
-  function drawHull(hull,boat,ocean){
-    const {stations,fractions,separation,volume,probes}=hull;
+  function drawHull(hull,boat){
+    const {stations,fractions,separation,volume}=hull;
     for(let side=0;side<(separation>0?2:1);side++)for(let i=0;i<6;i++){
       const offset=6*i,x=stations[offset],beam=stations[offset+1],y=(1-2*side)*separation;
       const wet=volume[6*side+i];
@@ -148,39 +195,80 @@ export function physicsView(T,canvas,status){
       }
       a.set(x,y-beam,stations[offset+5]);b.set(x,y+beam,stations[offset+5]);
       segment(a,b,boat);ink.stroke();
-      center.set(x,y,0).applyMatrix4(boat.matrixWorld);
-      center.z=probes?.[6*side+i]??ocean.sampleSurface(center.x,center.y,true);
-      if(probes){
-        const {swell,swellCenter}=ocean.U;
-        const wave=swell.value,k=swellCenter.value;
-        center.z+=wave.x*Math.sin(wave.y+wave.z*(center.x-k.x)+wave.w*(center.y-k.y));
-      }
-      dot(center,null,color,3);
       a.set(x,y+beam,stations[offset+5]);
       if(wet>=.0005)label(a,boat,Math.round(wet*1000)+' L',color);
     }
   }
 
-  function drawWater(ocean,x,y){
-    const {spectrumPeriod,wakeAvailable,bowAvailable}=ocean.U;
-    const wake=wakeAvailable.value>.5;
-    const spacing=wake?spectrumPeriod.value/64:2;
-    // Follow the inspected body while interpolating the world-space field.
-    const startX=x-8*spacing,startY=y-8*spacing;
-    const size=17;
-    ink.strokeStyle=colors.wave;ink.lineWidth=1;ink.globalAlpha=.52;ink.beginPath();
-    for(let j=0;j<size;j++)for(let i=0;i<size;i++){
-      const east=startX+i*spacing,north=startY+j*spacing;
-      const k=j*size+i,point=waterPoints[k].set(east,north,ocean.sampleSurface(east,north,true));
-      if(i)segment(waterPoints[k-1],point);
-      if(j)segment(waterPoints[k-size],point);
+  function drawGrid(field,x,y,tide,color){
+    const {values,subtract,length,east=0,north=0,cos=1,sin=0,local=false}=field;
+    const size=Math.sqrt(values.length),spacing=length/size;
+    // Crop the periodic fields around the subject without changing their
+    // origin or sample spacing. The near field uses the solver's signed indices.
+    const radius=Math.min(12,12*spacing),first=-size/2,last=first+size-1;
+    const i0=local?first:Math.ceil((x-east-radius)/spacing),i1=local?last:Math.floor((x-east+radius)/spacing);
+    const j0=local?first:Math.ceil((y-north-radius)/spacing),j1=local?last:Math.floor((y-north+radius)/spacing);
+    const columns=i1-i0+1;
+    const index=(i)=>(i%size+size)%size;
+    ink.strokeStyle=color;ink.lineWidth=local?1.15:1;ink.globalAlpha=local?.77:.48;ink.beginPath();
+    let k=0;
+    for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++){
+      const offset=index(j)*size+index(i);
+      a.set(east+spacing*(i*cos-j*sin),north+spacing*(i*sin+j*cos),tide+values[offset]-(subtract?.[offset]??0));
+      const p=project(a);
+      gridPixels[k]=p?.x??NaN;gridPixels[k+1]=p?.y??NaN;
+      if(p){
+        if(i>i0&&Number.isFinite(gridPixels[k-2])){
+          ink.moveTo(gridPixels[k-2],gridPixels[k-1]);ink.lineTo(p.x,p.y);
+        }
+        const above=k-2*columns;
+        if(j>j0&&Number.isFinite(gridPixels[above])){
+          ink.moveTo(gridPixels[above],gridPixels[above+1]);ink.lineTo(p.x,p.y);
+        }
+      }
+      k+=2;
     }
     ink.stroke();ink.globalAlpha=1;
-    status.textContent='Boat-centered samples · '+(wake?'64×64 hull FFT · '+spacing.toFixed(2)+' m cells · ':'')+
-      '32×32 wind-sea grid · analytic swell'+(bowAvailable.value>.5?' · 32×32 bow field':'');
+    return size+'×'+size+' / '+spacing+' m';
+  }
+  function drawSources(field,tide){
+    const {sources,east,north,cos,sin}=field;
+    if(!sources)return;
+    for(let i=0;i<sources.length;i+=6){
+      const start=sources[i],across=sources[i+1],flux=sources[i+2];
+      if(Math.abs(flux)<.001)continue;
+      const end=sources[i+4];
+      a.set(east+start*cos-across*sin,north+start*sin+across*cos,tide);
+      b.set(east+end*cos-across*sin,north+end*sin+across*cos,tide);
+      ink.strokeStyle=flux>0?'#fff3cf':'#ff9cce';ink.lineWidth=2;
+      ink.beginPath();segment(a,b);ink.stroke();
+      center.copy(a).lerp(b,.5);dot(center,null,ink.strokeStyle,2.3);
+    }
+  }
+  function drawWater(fields,x,y,layer){
+    const captions=[];
+    for(const [key,name] of [['wind','Blue wind sea'],['wake','Violet wake FFT'],['near','Gold near-hull field']]){
+      if(layer!==key&&layer!=='all')continue;
+      const field=fields?.[key];
+      if(!field?.values)continue;
+      const dimensions=drawGrid(field,x,y,fields.tide,colors[key]);
+      const frame=field.local?'hull heading':key==='wake'||field.advected?'current drift':'world axes';
+      captions.push(name+' '+dimensions+' · '+frame);
+      if(key==='near')drawSources(field,fields.tide);
+    }
+    return captions.length?captions.join(' | ')+' · Layer elevations relative to tide · Long swell is analytic':
+      'Selected wave field unavailable in this view or quality';
+  }
+  function drawProbes(probes){
+    if(!probes?.heights)return;
+    const {heights,strips,east,north,count=heights.length}=probes;
+    for(let i=0;i<count;i++){
+      a.set(strips?.[3*i]??east[i],strips?.[3*i+1]??north[i],heights[i]);
+      dot(a,null,'#f4f8ff',2.3);
+    }
   }
 
-  function draw(viewCamera,body,ocean,options,hull){
+  function draw(viewCamera,body,options,hull){
     width=canvas.clientWidth;height=canvas.clientHeight;
     if(!width||!height)return;
     const scale=Math.min(2,devicePixelRatio||1);
@@ -190,16 +278,25 @@ export function physicsView(T,canvas,status){
     labelRects.length=0;
     const {group}=body;
     camera=viewCamera;camera.updateMatrixWorld();group.updateMatrixWorld(true);
-    if(options.water)drawWater(ocean,group.position.x,group.position.y);
-    status.hidden=!options.water;
+    const captions=[];
+    if(options.water)captions.push(drawWater(body.water,group.position.x,group.position.y,options.waveLayer));
     if(options.rig){
       drawBody(body);
       if(body.rig)drawRig(body.rig);
     }
     if(options.hulls){
-      if(hull?.stations)drawHull(hull,group,ocean);
+      if(hull?.stations)drawHull(hull,group);
       if(body.strips)drawCruiserStrips(body.strips);
+      if(body.probes){
+        drawProbes(body.probes);
+        captions.push('White dots · Buoyancy surface samples');
+      }
     }
+    if(options.rig&&body.rig?.battens?.some(([count])=>count>0))
+      captions.push('Yellow battens · stiffness distributed across cloth rows');
+    const caption=captions.join(' | ');
+    if(status.textContent!==caption)status.textContent=caption;
+    status.hidden=!caption;
   }
   return {draw};
 }

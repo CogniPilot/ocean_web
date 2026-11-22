@@ -249,11 +249,13 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real footZ[2]=if catamaran then {.97,.87} else {.19,.19};
   parameter Real yawInertia=19,rollInertia=28,pitchInertia=12, halfSpacing=0;
   parameter Real ballastMass=0;
+  parameter Real ballastTrapezeReach(unit="m")=2.10 "Maximum automatic crew offset from the Hobie centreline";
   input Real ballastManual,ballastCmdX,ballastCmdY;
   final parameter Real ballastReducedMass=ballastMass*(1-ballastMass/(mass+podMass))
     "Parallel-axis coefficient for shifting crew relative to the combined centre of mass [kg]";
   Real ballastRollInertia,ballastPitchInertia;
   Real crewSide(start=0,fixed=true),crewHeel(start=0,fixed=true),crewPitch(start=0,fixed=true),crewCross;
+  Real trapezeDemand,crewPace;
   Real ballastX(start=0,fixed=true),ballastY(start=0,fixed=true),targetX,targetY;
   Real hullLift[2],hullPitch[2],hullRoll[2],massRoll,massPitch;
   parameter Real mass=64, noGo=if catamaran then 1.04 else .83;
@@ -412,13 +414,18 @@ equation
   der(crewHeel)=if catamaran then (heel-crewHeel)/2.4 else 0;
   der(crewPitch)=if catamaran then (pitch-crewPitch)/3.5 else 0;
   crewCross=if trueWindAngle<1.60 then max(0,min(1,4*(abs(crewSide)-.4)))*max(0,min(1,(.20-ballastY*crewSide)/.25)) else 0;
+  // Anticipate sustained sailing load from wind and filtered heel. Outboard
+  // movement uses a windward trapeze stance, while deck trim stays gradual.
+  trapezeDemand=min(1,max(0,max((windForCrew-8)/6,(abs(crewHeel)-.12)/.24)));
+  crewPace=max(crewCross,trapezeDemand);
   targetX=if not catamaran then 0 else max(-.72,min(.72,if ballastManual>.5 then ballastCmdX else -2.4*crewPitch));
-  targetY=if not catamaran then 0 else max(-.84,min(.84,if ballastManual>.5 then ballastCmdY else
-    .56*buildingWind*crewSide+1.15*crewHeel));
+  targetY=if not catamaran then 0 elseif ballastManual>.5 then max(-.84,min(.84,ballastCmdY)) else
+    max(-ballastTrapezeReach,min(ballastTrapezeReach,
+      (.56*buildingWind+(ballastTrapezeReach-.56)*trapezeDemand)*crewSide+1.15*crewHeel));
   der(ballastX)=if ballastManual>.5 then max(-.35,min(.35,(targetX-ballastX)/.65))
     else max(-.10,min(.10,(targetX-ballastX)/2.8));
   der(ballastY)=if ballastManual>.5 then max(-.48,min(.48,(targetY-ballastY)/.55))
-    else max(-.14-.54*crewCross,min(.14+.54*crewCross,(targetY-ballastY)/(2.4-1.85*crewCross)));
+    else max(-.14-.54*crewPace,min(.14+.54*crewPace,(targetY-ballastY)/(2.4-1.85*crewPace)));
   // The nominal hull inertias include centered crew. Add the change for moving across the deck.
   ballastRollInertia=ballastReducedMass*ballastY^2;
   ballastPitchInertia=ballastReducedMass*ballastX^2;

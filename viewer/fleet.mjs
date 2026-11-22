@@ -442,6 +442,13 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
     return anchor;
   }
   const hullEuler=new T.Euler(0,0,0,'ZYX'),hullQuarter=new T.Quaternion();
+  function players(){
+    return [...participants].map(id=>{
+      const peer=peers.get(id);
+      const model=peer?.kind==='boat'?(peer.cat?'hobie':'sloop'):peer?.kind;
+      return {id,name:roster.get(id)??'Player',model};
+    });
+  }
   function vessels(now){
     const result=[];
     for(const [id,peer] of peers){
@@ -464,5 +471,5 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
     }
     return result;
   }
-  return {join,leave,frame,lamps,cruisers,imagingHit,contacts,nearbyDeck,npc,vessels,get captain(){return roster.get(selfId);},captainName:id=>roster.get(id),get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
+  return {join,leave,frame,lamps,cruisers,imagingHit,contacts,nearbyDeck,npc,vessels,players,get captain(){return roster.get(selfId);},captainName:id=>roster.get(id),get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
 }

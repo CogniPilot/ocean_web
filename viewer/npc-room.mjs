@@ -22,7 +22,9 @@ export function npcRoom(){
   function acceptHabitat(h){
     return h&&finiteRow(h.restock,36)&&Array.isArray(h.gulls)&&h.gulls.length<=maxGulls&&h.gulls.every(r=>[12,19,22,25].includes(r?.length)&&finiteRow(r,r.length))&&
       (h.vessels===undefined||(Array.isArray(h.vessels)&&h.vessels.length<=vesselLimit&&h.vessels.every(
-        v=>v&&Object.hasOwn(vesselNpcNames,v.kind)&&Number.isFinite(v.started))))&&
+        v=>v&&Object.hasOwn(vesselNpcNames,v.kind)&&Number.isFinite(v.started)&&
+          (v.raceAt===undefined||Number.isSafeInteger(v.raceAt)&&v.raceAt%300===0)&&
+          (v.raceWind===undefined||Number.isFinite(v.raceWind)&&v.raceWind>=0&&v.raceWind<=22))))&&
       (h.gullSeats===undefined||(Array.isArray(h.gullSeats)&&h.gullSeats.length===h.gulls.length&&
         h.gullSeats.every(seat=>seat===null||typeof seat==='string')))&&
       (h.time===undefined||Number.isFinite(h.time)&&h.time>=0)&&Number.isSafeInteger(h.sequence)&&h.sequence>=0&&Array.isArray(h.sounds)&&h.sounds.length<=16&&
@@ -211,11 +213,14 @@ export function npcRoom(){
     },
     canSpawn(kind){return owner===self&&(Object.hasOwn(vesselNpcNames,kind)?habitat.vessels.length<vesselLimit:
       kind==='gull'?habitat.gulls.length<maxGulls:validKind(kind)&&animals.size<10);},
-    spawn(kind,started=0){
+    spawn(kind,started=0,raceAt,raceWind){
       if(!this.canSpawn(kind))return;
       if(Object.hasOwn(vesselNpcNames,kind)){
         if(!Number.isFinite(started))return;
-        habitat.vessels.push({kind,started});revision++;sync();return 'npc-'+habitat.vessels.length;
+        const vessel={kind,started};
+        if(kind==='hobie'&&Number.isSafeInteger(raceAt)&&raceAt%300===0)vessel.raceAt=raceAt;
+        if(kind==='hobie'&&Number.isFinite(raceWind))vessel.raceWind=Math.max(0,Math.min(22,raceWind));
+        habitat.vessels.push(vessel);revision++;sync();return 'npc-'+habitat.vessels.length;
       }
       if(kind==='gull'){
         const id=addGull();sync();return id;

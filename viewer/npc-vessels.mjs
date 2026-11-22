@@ -4,11 +4,10 @@ import {loadVehicleShell,vehicleShell} from './vehicle-assets.mjs';
 import {cabinCruiser} from './motorboat.mjs';
 import {remoteDroneMesh} from './drone.mjs';
 import {vesselNpcNames} from './npc-room.mjs';
+import {hobieRace,nextFleetStart} from './npc-hobie-race.mjs';
 
-// Patrols stay south of the island and away from the starting gate. A common
-// sea clock lets every client draw the same patrol from its spawn descriptor.
+// Non-racing patrols remain on the common sea clock.
 const routes={
-  hobie:{center:[-29,-23],radius:[21,9],speed:3.4,orbit:12},
   sloop:{center:[-3,-28],radius:[22,10],speed:2.1,orbit:10},
   motorboat:{center:[25,-30],radius:[29,14],speed:4.4,orbit:13},
   drone:{center:[12,-8],radius:[25,11],speed:5.5,height:8,orbit:5},
@@ -30,7 +29,7 @@ function dispose(group){
   for(const resource of [...geometries,...materials,...textures])resource.dispose();
 }
 
-export function vesselTraffic(T,scene,surface,windAt,onError){
+export function vesselTraffic(T,scene,surface,windAt,race,onError){
   const craft=new Map(),sailRigs=new Map(),wind=new T.Vector2();
   function rig(kind){
     if(!sailRigs.has(kind)){
@@ -69,8 +68,9 @@ export function vesselTraffic(T,scene,surface,windAt,onError){
       boat.patrolTrim(Math.max(-1.1,Math.min(1.1,trim*.55)),Math.max(-.75,Math.min(.75,trim*.42)));
     }};
   }
-  function begin(row,id){
+  function begin(row,id,index,utc){
     const entry={kind:row.kind,started:row.started};
+    if(row.kind==='hobie')entry.racer=hobieRace(race,index,row.raceAt??nextFleetStart(utc,race.get('countdown')),row.raceWind);
     craft.set(id,entry);
     load(row.kind).then(visual=>{
       if(craft.get(id)!==entry){(visual.dispose??(()=>dispose(visual.group)))();return;}
@@ -85,19 +85,27 @@ export function vesselTraffic(T,scene,surface,windAt,onError){
     if(visual)(visual.dispose??(()=>dispose(visual.group)))();
     craft.delete(id);
   };
-  return {draw(rows,time){
+  return {draw(rows,time,utc){
     for(const [id,entry] of craft){
       const row=rows[Number(id.slice(4))-1];
       if(!row||row.started!==entry.started||row.kind!==entry.kind)remove(id,entry);
     }
     for(const [i,row] of rows.entries()){
-      const id='npc-'+(i+1),entry=craft.get(id)??begin(row,id),visual=entry.visual;
+      const id='npc-'+(i+1),entry=craft.get(id)??begin(row,id,i,utc),visual=entry.visual;
       if(!visual)continue;
-      const {center,radius,speed,orbit,height}=routes[row.kind];
-      const [a,b]=radius,clock=Math.max(0,time-row.started);
-      const angle=i*2.399963+clock*speed/(.5*(a+b));
-      const east=center[0]+a*Math.cos(angle),north=center[1]+b*Math.sin(angle);
-      const heading=Math.atan2(b*Math.cos(angle),-a*Math.sin(angle));
+      let east,north,speed,heading,orbit,height,angle;
+      if(entry.racer){
+        const sample=entry.racer.sample(utc);
+        ({east,north,speed,heading}=sample);
+        entry.raceStatus=sample.status;orbit=12;
+      }else{
+        const {center,radius,speed:patrolSpeed,orbit:patrolOrbit,height:patrolHeight}=routes[row.kind];
+        const [a,b]=radius,clock=Math.max(0,time-row.started);
+        angle=i*2.399963+clock*patrolSpeed/(.5*(a+b));
+        east=center[0]+a*Math.cos(angle);north=center[1]+b*Math.sin(angle);
+        heading=Math.atan2(b*Math.cos(angle),-a*Math.sin(angle));
+        speed=patrolSpeed;orbit=patrolOrbit;height=patrolHeight;
+      }
       let z=height,roll=0,pitch=0;
       if(height===undefined){
         const dx=Math.cos(heading),dy=Math.sin(heading);
@@ -112,5 +120,5 @@ export function vesselTraffic(T,scene,surface,windAt,onError){
       visual.animate?.(time,speed,heading);
       visual.group.userData.orbitDistance=orbit;
     }
-  },subject:id=>craft.get(id)?.visual?.group};
+  },subject:id=>craft.get(id)?.visual?.group,raceStatus:id=>craft.get(id)?.raceStatus};
 }
