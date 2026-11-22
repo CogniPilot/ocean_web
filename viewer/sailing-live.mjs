@@ -1,4 +1,5 @@
 import {cruiserSonar,imagingBeepInterval} from './cruiser-sonar.mjs';
+import {cruiserChart} from './cruiser-chart.mjs';
 import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
 import {waterCaptureLayer,showInLowWaterCapture} from './render-layers.mjs';
 import {wreckCaustics} from './caustics.mjs';
@@ -168,7 +169,7 @@ async function run(){
     motorStarboard:[[-.38,-1.20,-.45],[-.38,-7.4,-3.20]]
   };
 
-  const motor=mode==='motorboat'?cabinCruiser(T,$('cruiserSonarCanvas')):null;
+  const motor=mode==='motorboat'?cabinCruiser(T,$('cruiserSonarCanvas'),$('cruiserChartCanvas')):null;
   if(motor){
     scene.add(motor.group);
     for(const [title,id] of [['Helm','motorHelm'],['Aft cockpit','motorCockpit'],['Underwater bow camera','motorBow'],['Underwater stern camera','motorStern'],['Underwater port camera','motorPort'],['Underwater starboard camera','motorStarboard']])$('cameraDepth').add(new Option(title,id));
@@ -312,10 +313,10 @@ async function run(){
   const makeWater=(T,u)=>wildlifeWater(T,u,undefined,renderer.capabilities.isWebGL2);
   const ocean=atmosphere(scene,waterCaptureLayer,makeWater,surfaceSpray,cruiserBeamGLSL,searchlightHeight,hullGlowLobes),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   ocean.U.windPeriod.value=windField.get('period');
-  let lastCapture=-Infinity;
-  const captureEye=new T.Vector3(),captureOrientation=new T.Quaternion();
+  let lastReflection=-Infinity;
+  const reflectionEye=new T.Vector3(),reflectionOrientation=new T.Quaternion();
   function applyQuality(){
-    lastCapture=-Infinity;
+    lastReflection=-Infinity;
     profile=profiles[selector.value];
     omitWake=Number(Boolean(profile.omitWake));
     world?.setWakeEnabled(!omitWake);
@@ -354,7 +355,8 @@ async function run(){
     return !animalId&&running&&(imagingDisplay()||nightWatch);
   }
   let lastImagingBeep=-Infinity;
-  const imagingPing=motor?cruiserSonar($('cruiserSonarCanvas'),$('cruiserSonarReturn'),imagingDisplay,range=>{
+  const chart=motor?cruiserChart($('cruiserChartCanvas'),$('cruiserChartFit'),island.userData.chartTerrain):null;
+  const imagingPing=motor?cruiserSonar($('cruiserSonarCanvas'),$('cruiserSonarReturn'),$('cruiserSonarRange'),chart,imagingDisplay,range=>{
     const now=performance.now();
     if(range===null||!imagingActive()||now-lastImagingBeep<imagingBeepInterval(range))return;
     lastImagingBeep=now;playImagingHit(motor.group.position);remote.imagingHit(range,motor.group.position);
@@ -849,7 +851,7 @@ async function run(){
   function applyWind(){const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;ocean.U.referenceWind.value=w;$('windOut').textContent=w+' m/s';}
   $('wind').oninput=()=>{applyWind();remote.changeWeather('wind',Number($('wind').value));};
   if(url.searchParams.has('room'))multiplayer(true);
-  function resize(){lastCapture=-Infinity;renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
+  function resize(){lastReflection=-Infinity;renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
   resize();addEventListener('resize',resize);
   $('luff').onclick=()=>{
     // Swing the wind onto the current bow. The wind stays at that bearing as the boat turns.
@@ -861,7 +863,7 @@ async function run(){
     // Haul the boom amidships to feather the rig in the headwind.
     model.set('trimInput',-1);
   };
-  const hullDisplay=displayPose(),flightDisplay=displayPose();
+  const hullDisplay=displayPose(),flightDisplay=displayPose(),motorDisplay=motor?displayPose():null;
   let prev=performance.now(),physicsWall=worldReadyAt,acc=0;
   function advanceWorld(now){
     const elapsed=Math.max(0,(now-physicsWall)/1000);
@@ -1211,6 +1213,7 @@ async function run(){
         if(!animalId)$('readout').textContent=Math.round(engine[0])+' rpm · '+(1.94384*engine[1]).toFixed(1)+' kn';
       }
       remote.frame(now,s,cat,extra,sub?.mesh,drone?.group,animalId?selectedRole:targetSelect.value,lamp?.visible,drone,motor?.group,motorState,roomTime);
+      if(motor)motorDisplay.apply(motor.group,t,now,running);
       const litBoats=remote.cruisers,lighting=ocean.U;
       let litCount=0;
       for(let i=motor?-1:0;i<litBoats.length&&litCount<5;i++){
@@ -1331,8 +1334,9 @@ async function run(){
         ocean.U.boat.value.set(boat.group.position.x,boat.group.position.y,boat.group.rotation.z,s[10]);
         boat.group.localToWorld(orbitCenter.copy(helmSeat));
       }else{
-        orbitCenter.fromArray(focus);if(motor)orbitCenter.z+=.85;
-        ocean.U.boat.value.set(focus[0],focus[1],motor?motor.group.rotation.z:0,0);
+        if(motor){orbitCenter.copy(motor.group.position);orbitCenter.z+=.85;}
+        else orbitCenter.fromArray(focus);
+        ocean.U.boat.value.set(orbitCenter.x,orbitCenter.y,motor?motor.group.rotation.z:0,0);
       }
       const horizontal=distance*Math.cos(tilt);
       const viewMode=$('cameraDepth').value;
@@ -1405,7 +1409,8 @@ async function run(){
         camera.lookAt(subject.position);
       }
       drawForces(!drone?.active&&$('showForces').getAttribute('aria-pressed')==='true',s,subFrame,!!sub?.active,t,hullBlend,hullDisplay.previous);
-      ocean.dome.position.copy(camera.position);ocean.water.position.set(subject?.position.x??boat?.group.position.x??focus[0],subject?.position.y??boat?.group.position.y??focus[1],0);updateLight(t,roomTime);caustics.update(t,!omitWake||camera.position.z<ocean.U.tide.value+.5);
+      const waterCenter=subject?.position??boat?.group.position??motor?.group.position;
+      ocean.dome.position.copy(camera.position);ocean.water.position.set(waterCenter?.x??focus[0],waterCenter?.y??focus[1],0);updateLight(t,roomTime);caustics.update(t,!omitWake||camera.position.z<ocean.U.tide.value+.5);
       // Only the 34 cm dome port can straddle the interface. The extra margin
       // covers neighbouring wave slopes and the local vessel's pressure wave.
       const eyeX=camera.position.x,eyeY=camera.position.y;
@@ -1417,16 +1422,18 @@ async function run(){
       rain.visible=false; // Optical reflection and refraction targets exclude foreground streaks.
       // The underwater shader computes the view through the surface from the sky.
       // Its opaque submerged pass never samples the planar capture targets.
-      // Both captures have their own projection matrices. Reuse the pair on
-      // slower tiers between updates, refreshing immediately on camera cuts.
+      // The transmitted hull must match the pose and camera of this frame.
+      // The separate reflection can reuse its own projection between updates.
       if(!profile.skipCaptures&&eyeHeight>=-surfaceBand){
-        if(now-lastCapture>=profile.captureInterval-.5 ||
-           camera.position.distanceToSquared(captureEye)>.04 ||
-           Math.abs(camera.quaternion.dot(captureOrientation))<.9998){
-          ocean.capture(renderer,camera,submergedScenery);lastCapture=now;
-          captureEye.copy(camera.position);captureOrientation.copy(camera.quaternion);
+        const refreshReflection=now-lastReflection>=profile.captureInterval-.5 ||
+          camera.position.distanceToSquared(reflectionEye)>.04 ||
+          Math.abs(camera.quaternion.dot(reflectionOrientation))<.9998;
+        ocean.capture(renderer,camera,submergedScenery,refreshReflection);
+        if(refreshReflection){
+          lastReflection=now;
+          reflectionEye.copy(camera.position);reflectionOrientation.copy(camera.quaternion);
         }
-      }else lastCapture=-Infinity;
+      }else lastReflection=-Infinity;
       rain.visible=storm && eyeHeight>=-surfaceBand;
       if(rain.visible)rain.material.uniforms.rainWind.value.set(...wind);
       audio.motorSound(motor,remote.cruisers,camera,eyeHeight<0,running);
@@ -1447,6 +1454,7 @@ async function run(){
       if(world){
         if(boat)hullDisplay.restore(boat.group);
         if(drone)flightDisplay.restore(drone.group);
+        if(motor)motorDisplay.restore(motor.group);
       }
       if(deferLife && (t>0 || !running)){
         deferLife=false;

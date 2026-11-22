@@ -716,13 +716,13 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  const mirrorLook=new THREE.Vector3(),mirrorClip=new THREE.Plane(new THREE.Vector3(0,0,1));
  const clearThrough=new THREE.Color(0x144958);
  let simpleCapture=false;
- function capture(renderer,camera,submergedScenery){
+ function capture(renderer,camera,submergedScenery,refreshReflection){
    camera.updateMatrixWorld();
    const oldBackground=scene.background,oldFog=scene.fog;
    const foamVisible=trails.mesh.visible,sprayVisible=spray?.points.visible;
    if(spray)spray.points.visible=false;
    water.visible=false;trails.mesh.visible=false;dome.visible=false;scene.fog=null;
-   {
+   if(refreshReflection){
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
      if(simpleCapture)mirrorCamera.layers.set(waterCaptureLayer);

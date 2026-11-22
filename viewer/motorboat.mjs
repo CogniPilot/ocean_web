@@ -1,8 +1,10 @@
+import {sonarMount} from './cruiser-sonar-view.mjs';
+
 // Seven-and-a-half metre inboard sportfisher. Bow +X, port +Y, up +Z.
 // Underside lens centres in the boat frame, 23 mm below the bottom plating.
 export const hullLamps=[-1,1].flatMap(side=>[
-  [-3.599,side*.759,-.249],[-2.750,side*.864,-.333],[-.200,side*.905,-.391],
-  [1.590,side*.761,-.314],[2.765,side*.395,-.052]
+  [-3.599,side*.759,-.288],[-2.750,side*.864,-.380],[-.200,side*.905,-.437],
+  [1.590,side*.761,-.358],[2.765,side*.395,-.083]
 ]);
 // Broad, overlapping lobes from the paired stern, midship and bow emitters.
 // Coordinates/radii are metres in the body frame. The stern pair is brightest.
@@ -60,7 +62,7 @@ function installSearchlightDepth(T){
       }else directLight.color*=spotColor.rgb;
     }`);
 }
-export function cabinCruiser(T,sonarCanvas){
+export function cabinCruiser(T,sonarCanvas,chartCanvas){
   const group=new T.Group();group.name='Cabin cruiser';group.rotation.order='ZYX';
   const ivory=0xe7e9df,white=0xf4f4eb,wood=0x966943,plank=0xae865d,trim=0x253b40,
     steel=0xb8c9c8,brass=0xb29255,upholstery=0xdfddca;
@@ -114,8 +116,8 @@ export function cabinCruiser(T,sonarCanvas){
     g.setAttribute('position',new T.Float32BufferAttribute(rows.flat(2),3));
     g.setIndex(indices);g.computeVertexNormals();part(g,color,null,null,null,material);
   }
-  // Separate topside and bottom plating at the hard chine. Curved stations
-  // carry the flare forward and the stem rakes outward above the waterline.
+  // Keep the deck and chine fixed while deepening the keel below the chine.
+  // The forefoot rises into the raked stem. Port and starboard share the keel.
   const controls=[[-3.74,1.07,.77,-.39],[-3.53,1.19,.78,-.44],[-2.75,1.29,.80,-.52],
     [-1.55,1.36,.84,-.57],[-.20,1.35,.91,-.61],[1.05,1.24,1.00,-.58],[2.1,1.00,1.11,-.49],
     [2.93,.67,1.20,-.32],[3.49,.33,1.27,-.06],[3.80,.018,1.32,.25]];
@@ -125,13 +127,26 @@ export function cabinCruiser(T,sonarCanvas){
   for(let i=0;i<=36;i++){
     const {x,y:w,z:top}=widths.getPoint(i/36),k=keels.getPoint(i/36).y;
     const rake=Math.max(0,(x-1.5)/2.3)**2*.8,round=Math.max(0,(-3.39-x)/.35)*.14;
-    function point(side,f,t){return [x-rake*(1-t)+round*f*f,side*w*f,k+(top-k)*t];}
+    const keelDrop=.18*Math.min(1,Math.max(0,(3.5-x)/2.1));
+    function point(side,f,t){
+      return [x-rake*(1-t)+round*f*f,side*w*f,k+(top-k)*t-keelDrop*Math.max(0,1-t/.23)];
+    }
     sections.push({x,w,top,k,point});
   }
   for(const side of [-1,1]){
     const row=(k,f,t)=>k.point(side,f,t);
     surface(sections.map(k=>[row(k,1,1),row(k,.993,.87),row(k,.972,.65),row(k,.931,.43),row(k,.85,.23)]),ivory);
-    surface(sections.map(k=>[row(k,.85,.23),row(k,.57,.12),row(k,.27,.045),row(k,0,0)]),0x635950);
+    surface(sections.map(k=>[row(k,.85,.23),row(k,.57,.12),row(k,.27,.045),row(k,0,0)]),0x9f9e96);
+    // Molded lifting strakes fade into the forward V rather than extending
+    // all the way to the bow. The bottom remains one continuous plating mesh.
+    for(const [fraction,t,slope] of [[.27,.045,.25],[.57,.12,.393]]){
+      surface(sections.filter(k=>k.x<2.8).map(k=>{
+        const fade=Math.min(1,Math.max(0,(2.8-k.x)/1.4));
+        const width=.06*fade,outer=row(k,fraction+width,t+slope*width);
+        const upper=row(k,fraction,t);
+        return [upper,[outer[0],outer[1],outer[2]-.033*fade],outer];
+      }),0xb9bab0);
+    }
     // The bootstripe follows the design waterline, including the raked forefoot.
     function stripe(k,z){
       const t=Math.max(0,Math.min(1,(z-k.k)/(k.top-k.k)));
@@ -150,6 +165,8 @@ export function cabinCruiser(T,sonarCanvas){
   }
   const stern=sections[0],stem=sections.at(-1);
   for(const end of [stern,stem])surface([[-1,1].map(s=>end.point(s,1,1)),[-1,1].map(s=>end.point(s,.93,.43)),[-1,1].map(s=>end.point(s,.85,.23)),[-1,1].map(s=>end.point(s,0,0))],ivory);
+  const [sonarX,sonarY,sonarZ]=sonarMount;
+  pad(sonarX-.06,sonarY,sonarZ+.029,.17,.095,.047,trim);
   surface(sections.filter(k=>k.x>1.15).map(k=>[k.point(1,.86,1),[k.x,0,k.top+.035],k.point(-1,.86,1)]),white);
   // Recessed cockpit sole, coamings, varnished cap rail and engine box.
   box(-1.28,0,.49,4.80,2.29,.09,plank);
@@ -350,7 +367,7 @@ export function cabinCruiser(T,sonarCanvas){
     for(const [attribute,data] of [['position',b.p],['normal',b.n],['color',b.c]])g.setAttribute(attribute,new T.Float32BufferAttribute(data,3));
     g.setIndex(b.ix);const m=new T.Mesh(g,material);group.add(m);
   }
-  // Fit a live echogram and chart to the local helm. The display faces aft and
+  // Fit the sonar view and chart to the local helm. The display faces aft and
   // slightly upward, allowing the helmsman to see through the windshield.
   let panel,lastPanel=-Infinity;
   if(sonarCanvas){
@@ -362,25 +379,15 @@ export function cabinCruiser(T,sonarCanvas){
     face.rotation.set(Math.PI/2,0,-Math.PI/2,'ZXY');
     face.rotateX(-.28);group.add(face);
     panel=(rpm)=>{
-      const heading=group.rotation.z,pos=group.position;
+      const heading=group.rotation.z;
       ctx.fillStyle='#152028';ctx.fillRect(0,0,512,176);
-      ctx.drawImage(sonarCanvas,8,27,235,117);
-      ctx.fillStyle='#285366';ctx.fillRect(267,27,237,117);
-      function chart(x,y){return [387+(x-pos.x)*2.4,86-(y-pos.y)*2.4];}
-      ctx.save();ctx.beginPath();ctx.rect(267,27,237,117);ctx.clip();
-      ctx.strokeStyle='#4b7381';ctx.lineWidth=1;
-      for(let i=-3;i<=3;i++){
-        const gx=387+24*i-(pos.x*2.4)%24,gy=86+24*i+(pos.y*2.4)%24;
-        ctx.beginPath();ctx.moveTo(gx,27);ctx.lineTo(gx,144);ctx.moveTo(267,gy);ctx.lineTo(504,gy);ctx.stroke();
-      }
-      const [ix,iy]=chart(36,40);ctx.fillStyle='#99a77d';ctx.beginPath();ctx.ellipse(ix,iy,41,26,0,0,Math.PI*2);ctx.fill();
-      ctx.translate(387,86);ctx.rotate(Math.PI/2-heading);ctx.fillStyle='#fff2bd';ctx.beginPath();
-      ctx.moveTo(0,-9);ctx.lineTo(6,7);ctx.lineTo(0,4);ctx.lineTo(-6,7);ctx.closePath();ctx.fill();ctx.restore();
+      ctx.drawImage(sonarCanvas,22,27,208,117);
+      ctx.drawImage(chartCanvas,307,27,156,117);
       ctx.fillStyle='#d6e8ec';ctx.font='bold 14px sans-serif';
       ctx.fillText('3D IMAGING SONAR',10,19);ctx.fillText('HARBOR CHART',271,19);
-      ctx.font='13px monospace';ctx.fillText('0–36 m',10,163);ctx.fillText(Math.round(Math.abs(rpm))+' RPM',133,163);
+      ctx.font='13px monospace';ctx.fillText('0–'+sonarCanvas.dataset.range+' m',10,163);ctx.fillText(Math.round(Math.abs(rpm))+' RPM',133,163);
       const bearing=(450-heading*180/Math.PI)%360;
-      ctx.fillText('HDG '+Math.round(bearing)+'°',270,163);ctx.fillText('10 m/div',428,163);
+      ctx.fillText('HDG '+Math.round(bearing)+'°',270,163);
       texture.needsUpdate=true;
     };
   }

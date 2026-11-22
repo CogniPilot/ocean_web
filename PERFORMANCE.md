@@ -653,3 +653,24 @@ data. The full 17-station survey passed at the browser timestep. The
 Hobie and sloop candidates had mixed speed results, so the release keeps
 their previous builds. The compiler changes are also available on
 [the Rumoca branch](https://github.com/CogniPilot/rumoca/tree/perf/reuse-fmi-event-work).
+
+## Low refraction and cruiser motion
+
+The transmitted scene is captured from the presented hull pose and camera
+before each above-water frame. Reflection keeps an independent projection
+and refresh cadence. In five-second Low samples at 393 × 852 in Chromium
+with SwiftShader, fresh transmission frames changed from 74 of 149 to 144 of
+144 for the Hobie, and from 72 of 142 to 141 of 141 for the cruiser. In the
+cruiser sample, 70 frames previously used a different hull height from the
+capture. Every candidate frame used the same hull height. The paired
+display rates were 29.8 → 28.8 and 28.4 → 28.2 frames per second, respectively.
+
+The cruiser blends the rendered hull and camera pose between worker packets.
+The deeper keel and lifting strakes are modeled visually. Buoyancy uses
+progressive displacement as the V-sections become wet, with the design
+displacement and small-signal waterplane slope preserved. The calm test
+settled to 1.6 mm peak-to-peak heave. In a 10 ms head-sea replay at a
+steady 13% throttle, peak-to-peak heave was 0.709 → 0.714 m and the p95
+absolute heave jerk was 9.26 → 8.98 m/s³. The small change in heave amplitude
+indicates that the display synchronization is the main fix for abrupt
+visible jumps in this case.

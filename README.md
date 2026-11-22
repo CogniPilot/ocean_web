@@ -66,7 +66,23 @@ Open **http://127.0.0.1:8074**. The launcher uses Python 3, with a Nix fallback,
 
 Select **Sub** for the underwater survey. In manual mode use W/S to rise or dive and A/D for yaw. ←/→ commands forward/reverse surge, and ↑/↓ commands starboard/port sway. On touchscreens, the left stick controls yaw and heave. On the right stick, move left/right for surge and up/down for sway. Use **Resume survey** to re-engage the autopilot. In **Orbit**, four rays leave the DVL transducer and amber dots mark measured bottom returns. The sensor panel shows forward color video, an amber range–bearing image and four DVL slant ranges with bottom-lock status. Press **Z** or tap **Lamp (Z)** to toggle the external lamp. In FPV the preview copies the current frame. Orbit uses a separate forward camera at 5 Hz while the panel is open.
 
-On the cabin cruiser, open **3D imaging sonar** for a forward-looking scan. Plan and elevation show the same returns in the moving hull frame. Tap a point to read its slant range, bearing and elevation. The bow transducer scans 231 beams out to 36 m across 110° of bearing and 60° down from horizontal. The Modelica sensor intersects the wreck plates, shoreline boulders and seafloor, and checks the line of sight to live fish, sharks and whales. The worker scans up to 2.5 times per second at the helm, while the panel is open, or at night when sound is enabled or a peer is present. With sound enabled, a large animal, a group of baitfish or a structure spanning several adjacent beams triggers the same short alert on board and for listeners within 32 m. Its interval ranges from about 0.9 seconds nearby to 4 seconds at full range. Run `node scripts/check-cruiser-imaging-sonar.mjs` to check the geometry and occlusion.
+On the cabin cruiser, open **Argos 350 · 3D imaging sonar**. The simulated
+unit has 100, 200, and 350 m slant-range settings, a 90° horizontal fan, and
+an 18 kn operating rating. The perspective view links adjacent sonar returns
+into seabed and structure surfaces. Tap a return to read its range, bearing,
+and depth below the transducer. The north-up harbor chart shows the simulated
+shoreline, depths in metres at mean sea level, the wreck, and the boat's
+current sonar coverage. **Fit sonar range** changes the chart scale to show
+the full fan. Choose **Sonar** or **Chart** on a narrow screen. Both views
+also appear at the helm.
+
+The bow transducer samples 231 beams down to 60° below horizontal, with
+shallower beams at longer ranges. It intersects the wreck, shoreline and
+seafloor, and tests line of sight to fish, sharks and whales. It updates up
+to 2.5 times per second while the sonar or helm is visible, or at night when
+sound is enabled or another player is present. A qualifying cluster or large
+animal can trigger an audible alert. Run
+`node scripts/check-cruiser-imaging-sonar.mjs` to check the coverage and returns.
 
 ## Piccard survey sensors and SLAM
 

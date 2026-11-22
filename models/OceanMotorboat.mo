@@ -16,6 +16,19 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
       end for;
     end for;
   end panelElevations;
+  function immersedVolume "V-section displacement below the chine and linear topsides above it"
+    input Real designVolume,waterplane,immersion;
+    output Real volume;
+  protected
+    Real draft,wet;
+  algorithm
+    // A triangular half-section has V=A*d/2 at the design waterline.
+    // The value and slope match the topsides at the transition.
+    draft:=2*designVolume/waterplane;
+    wet:=max(0,draft+immersion);
+    volume:=min(2.5*designVolume,if noEvent(immersion<0) then designVolume*(wet/draft)^2
+      else designVolume+waterplane*immersion);
+  end immersedVolume;
   final parameter Real stripArea[6]={(cruiserStations[j+1]-cruiserStations[j])*(halfStripBeam[j]+halfStripBeam[j+1]) for j in 1:6};
   final parameter Real stripX[6]={.5*(cruiserStations[j]+cruiserStations[j+1]) for j in 1:6};
   final parameter Real floatX=sum(stripArea.*stripX)/sum(stripArea);
@@ -48,8 +61,7 @@ equation
       immersion[h,j]=(1-waterFraction)*previousSea[h,j]+waterFraction*panelSea[h,j]
         +swell[1]*sin(swell[2]+stripEast[h,j]*swell[3]+stripNorth[h,j]*swell[4])-stripZ[h,j]
         +(if noEvent(panelSignal>1e-9) then swimmerWater[(h-1)*6+j] else swimmerWater[13]+stripX[j]*swimmerWater[14]+(3-2*h)*.55*swimmerWater[15]);
-      stripVolume[h,j]=max(0,min(1.25*(3250/1025)*displacementFraction[j],
-        .5*(3250/1025)*displacementFraction[j]+stripArea[j]*immersion[h,j]));
+      stripVolume[h,j]=immersedVolume(.5*(3250/1025)*displacementFraction[j],stripArea[j],immersion[h,j]);
       stripForce[h,j]=1025*9.80665*(stripVolume[h,j]-.5*(3250/1025)*displacementFraction[j]);
     end for;
   end for;

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {nearestSonarContact,imagingBeepInterval} from '../viewer/cruiser-sonar.mjs';
+import {sonarFaces,sonarHalfBearing,sonarMount,sonarRanges} from '../viewer/cruiser-sonar-view.mjs';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
 const require=createRequire(import.meta.url),T=require('../viewer/vendor/three.min.js');
 const model=await loadInstance('CruiserImagingSonar',{},async url=>new Response(await readFile(url)));
@@ -18,12 +19,13 @@ function scan(pose,targets=fish){
   model.set('pose',pose);model.set('waterLevel',0);model.set('fish',targets);model.set('animals',animals);return model.get('returns');
 }
 const pose=[-55,-38,0,0,0,0];
+model.set('rangeLimit',36);model.set('halfBearing',55*Math.PI/180);
 let rows=scan(pose);
-assert(Math.abs(rows[40]-13.07/Math.sin(Math.PI/3))<tolerance);
+assert(Math.abs(rows[40]-(13.7+sonarMount[2])/Math.sin(Math.PI/3))<tolerance);
 assert.equal(rows[43],1);
 assert.equal(largeContact(rows),null,'Flat seafloor qualified as a large return');
 function target(slot,pose,position){
-  const mount=new T.Vector3(1,0,-.63).add(new T.Vector3(...position));
+  const mount=new T.Vector3(...sonarMount).add(new T.Vector3(...position));
   mount.applyEuler(new T.Euler(...pose.slice(3),'ZYX')).add(new T.Vector3(...pose.slice(0,3)));
   fish.set([1,...mount.toArray()],slot*4);
 }
@@ -59,4 +61,26 @@ const wreckPingMs=(performance.now()-start)/17;
 rows=scan([10,40,0,0,0,0]);
 const nearShore=rows.filter((v,i)=>i%4===0&&v>.1&&v<12).length;
 assert(nearShore>10,'Island approach did not return sloping ground');
+
+model.set('halfBearing',sonarHalfBearing);
+for(const range of sonarRanges){
+  model.set('rangeLimit',range);
+  const echoes=scan(pose),points=[];
+  for(let i=0;i<echoes.length;i+=4){
+    const [r,b,e,kind]=echoes.slice(i,i+4);
+    if(!kind)continue;
+    assert(r<range&&Math.abs(b)<=sonarHalfBearing+tolerance);
+    points.push({r,kind,beam:i/4,xyz:[r*Math.cos(e)*Math.cos(b),r*Math.cos(e)*Math.sin(b),r*Math.sin(e)]});
+  }
+  assert(points.some(p=>p.r>.9*range&&p.kind===1),'Grazing beams did not reach the selected range');
+  assert(sonarFaces(points).some(face=>face.every(p=>p.kind===1)),'The measured seabed should produce a surface');
+}
+target(0,pose,[10,9.9,-3]);
+target(1,pose,[10,10.1,-3]);
+rows=scan(pose);
+assert.equal(rows[offset+3],3,'A target just inside 45 degrees should return');
+assert.equal(rows[offset+7],0,'A target just outside 45 degrees should be excluded');
+const corner=(beam,xyz)=>({beam,kind:1,xyz,r:10});
+assert.equal(sonarFaces([corner(0,[3,1,-1]),corner(2,[3,3,-1]),corner(21,[4,1,-1])]).length,0,
+  'The seabed must leave gaps for missing beams');
 console.log({structures,nearShore,wreckPingMs,schoolRange,nearRange,farRange,nearIntervalMs:imagingBeepInterval(nearRange),farIntervalMs:imagingBeepInterval(farRange)});

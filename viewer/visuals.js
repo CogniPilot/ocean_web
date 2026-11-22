@@ -159,6 +159,7 @@ function coast(T,scene,instanceRocks=true){
  const land=new T.Group();scene.add(land); const center=[36,40],sand=new T.Color(0xc7ad7c),grass=new T.Color(0x566745),rock=new T.Color(0x827665);
  const geo=new T.PlaneGeometry(58,46,74,62),pos=geo.attributes.position,colors=[];
  function terrain(x,y){const r=Math.hypot(x/17,y/11);return 3.6-4.2*r*r+.34*Math.sin(x*.64)*Math.cos(y*.55)+.37*Math.cos(.34*x-.51*y);}
+ land.userData.chartTerrain={center,height:terrain};
  for(let i=0;i<pos.count;i++){const x=pos.getX(i),y=pos.getY(i),z=terrain(x,y);pos.setZ(i,z);const c=sand.clone().lerp(grass,Math.min(1,Math.max(0,(z-1.1)*.8))).multiplyScalar(.92+.07*Math.cos(x*2+y));colors.push(c.r,c.g,c.b);}
  geo.setAttribute('color',new T.Float32BufferAttribute(colors,3));geo.computeVertexNormals();
  const island=new T.Mesh(geo,new T.MeshStandardMaterial({vertexColors:true,roughness:.96}));land.add(island);land.position.set(...center,0);
