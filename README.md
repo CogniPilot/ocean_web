@@ -12,7 +12,7 @@ Choose **Piccard Sub** to explore the shipwreck. You start in the cockpit with t
 
 [Request tracker](TODO.md)
 
-On the Hobie 16, the red port and green starboard sidestay ribbons stream in the direction the apparent wind is going. A ribbon pointing aft means wind is coming over the bow. They hang down when the air is still relative to the boat. The main has three inspection windows and the jib has two. Each window has a telltale on both faces. The ribbons have five hinged segments that flutter under local apparent airflow and hang under gravity in light air. A lifting or reversing ribbon indicates possible separation. With sound enabled, the luffing sails audibly flutter.
+On the Hobie 16, the red port and green starboard sidestay ribbons stream in the direction the apparent wind is going. A ribbon pointing aft means wind is coming over the bow. They hang down when the air is still relative to the boat. The main has three inspection windows and the jib has two. Each window has a telltale on both faces. The ribbons have five hinged segments that flutter under local apparent airflow and hang under gravity in light air. A lifting or reversing ribbon indicates possible separation. With sound enabled, the luffing sails audibly flutter. The woven sails transmit some backlight, and water is visible through the open-weave trampoline. The white fiberglass gelcoat and black anodized spars have separate lighting finishes.
 
 Use **Settings → Outhaul** to move the Hobie’s main clew along the boom and change the loaded sail shape. The Hobie compass defaults to apparent wind from the simulated vane and cups. Choose **True** under **Compass wind** to see the environmental wind. **Physics view** under Settings works across vehicles. The sailboats show body and joint axes, mast stations, cloth nodes, full-length batten paths and wetted hull sections. The cruiser adds buoyancy strips, the Piccard shows thruster axes and measured loads, the RDD2 shows rotor axes, and the animals show the joints driven by the simulation.
 
@@ -22,7 +22,7 @@ Choose **View → Skipper** to ride with the Hobie’s movable ballast. The eye 
 
 While steering by hand, use **↑/↓** to move the main traveler leeward/windward across the track and **←/→** to move the jib travelers inboard/outboard. Hold **↑** to ease faster, or press **Shift+↑** or tap **Ease traveler** to release it all the way leeward. The first shortcut switches the travelers from Auto to manual.
 
-With **Auto ballast** enabled, the Hobie shifts crew weight windward as the rig loads up. Under sustained load, it can move the weight to the trapeze stance, 2.10 m from the centerline on either side. It also moves fore and aft to trim against the local wave face and shifts aft as the foredeck runs low on clearance.
+**Auto ballast** starts enabled on the Hobie. It shifts crew weight windward as the rig loads up. Under sustained load, it can move the weight to the trapeze stance, 2.10 m from the centerline on either side. It also moves fore and aft to trim against the local wave face and shifts aft as the foredeck runs low on clearance.
 
 Choose **Swell** for waves 1.3 m high or **Steep swell** for waves 2.4 m high. Both have a 100 ft (30.48 m) wavelength. The Hobie can catch a following wave as the pressure on its immersed hull accelerates it down the face.
 

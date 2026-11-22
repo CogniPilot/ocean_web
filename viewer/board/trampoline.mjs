@@ -2,22 +2,37 @@ let materials;
 
 function trampolineMaterials(T){
   if(materials)return materials;
-  const canvas=document.createElement('canvas');
-  canvas.width=canvas.height=64;
-  const cx=canvas.getContext('2d');
-  cx.fillStyle='#262d32';cx.fillRect(0,0,64,64);
-  for(let j=0;j<64;j+=4){
-    cx.fillStyle=j%8?'#313a40':'#424b50';
-    cx.fillRect(0,j,64,2);
-    cx.fillStyle=j%8?'#384047':'#2c3439';
-    cx.fillRect(j,0,2,64);
+  const canvas=document.createElement('canvas'),relief=document.createElement('canvas');
+  const size=64,period=8;
+  canvas.width=canvas.height=relief.width=relief.height=size;
+  const ctx=canvas.getContext('2d'),height=relief.getContext('2d');
+  const fabric=ctx.createImageData(size,size),bump=height.createImageData(size,size);
+  const thread=(coordinate,width)=>{
+    const distance=Math.abs((coordinate+.5)%period-period/2);
+    return Math.max(0,Math.min(1,width+.68-distance));
+  };
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++){
+    const k=4*(y*size+x),warp=thread(x,2.35),weft=thread(y,2.10);
+    const warpTop=(Math.floor(x/period)+Math.floor(y/period))%2;
+    const raised=warpTop?Math.max(.73*weft,warp):Math.max(.73*warp,weft);
+    const tone=39+10*raised+(warpTop?warp:-weft)*2;
+    fabric.data[k]=tone;fabric.data[k+1]=tone+1;fabric.data[k+2]=tone+4;
+    fabric.data[k+3]=247*(warp+weft-warp*weft);
+    bump.data[k]=bump.data[k+1]=bump.data[k+2]=128+37*raised;
+    bump.data[k+3]=255;
   }
-  const weave=new T.CanvasTexture(canvas);
-  weave.wrapS=weave.wrapT=T.RepeatWrapping;weave.colorSpace=T.SRGBColorSpace;
-  weave.anisotropy=4;
+  ctx.putImageData(fabric,0,0);height.putImageData(bump,0,0);
+  const weave=new T.CanvasTexture(canvas),fibers=new T.CanvasTexture(relief);
+  for(const texture of [weave,fibers]){
+    texture.wrapS=texture.wrapT=T.RepeatWrapping;
+    texture.anisotropy=4;
+  }
+  weave.colorSpace=T.SRGBColorSpace;
   materials={
-    cloth:new T.MeshStandardMaterial({map:weave,side:T.DoubleSide,roughness:.95}),
-    webbing:new T.MeshStandardMaterial({color:0x282d30,roughness:.93,side:T.DoubleSide}),
+    cloth:new T.MeshPhysicalMaterial({name:'Open-weave trampoline',map:weave,bumpMap:fibers,bumpScale:.00075,
+      side:T.DoubleSide,roughness:.84,sheen:.27,sheenColor:0x596174,sheenRoughness:.82,
+      transparent:true,alphaTest:.07,depthWrite:false,forceSinglePass:true}),
+    webbing:new T.MeshStandardMaterial({name:'Reinforced trampoline hems and webbing',color:0x25282e,roughness:.88,side:T.DoubleSide}),
     lace:new T.MeshStandardMaterial({color:0x5b5d5c,roughness:.94}),
     eyes:new T.MeshStandardMaterial({color:0xa8a295,metalness:.55,roughness:.43})
   };
@@ -71,6 +86,17 @@ export function hobieTrampoline(T){
     sheet(straps,strapTriangles,20,1,(u,v)=>{
       const point=clothPoint(.035+.93*u,side*.40+(v-.5)*.058);
       point[2]+=.007+.039*Math.sin(Math.PI*u);
+      return point;
+    });
+    for(const y of [inner,outer])sheet(straps,strapTriangles,18,1,(u,v)=>{
+      const inward=y===inner?side:-side;
+      const point=clothPoint(u,y+.035*v*inward);
+      point[2]+=.0015;
+      return point;
+    });
+    for(const end of [0,1])sheet(straps,strapTriangles,1,18,(u,v)=>{
+      const point=clothPoint(end===0?.024*u:1-.024*u,inner+(outer-inner)*v);
+      point[2]+=.0016;
       return point;
     });
   }

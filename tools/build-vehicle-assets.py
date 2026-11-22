@@ -9,30 +9,72 @@ import numpy as np
 DEST = Path(__file__).resolve().parents[1] / "viewer/assets"
 
 
-def paint_hobie_number(data, rgb, u, v, depth, flank):
-    # Cut a light panel into the graphite flash and paint original block numerals.
-    center = .134
-    panel_width = .044 - .005*((depth-.43)/.27)**2
-    panel = flank*np.clip(.5+512*(panel_width-np.abs(u-center)), 0, 1)
-    data[:, :, :3] = data[:, :, :3]*(1-panel[:, :, None]) + np.asarray(rgb)*panel[:, :, None]
+# Pack more texels into the aft quarter and the upper outboard hull flanks.
+HOBIE_U = ((0,.35,1), (0,.65,1))
+HOBIE_V = ((0,3/14,7/14,10/14,1), (0,.37,.45,.82,1))
 
-    # A viewer on the port side sees positive hull X toward the left.
-    x = .5 + np.where(v>5/14, -1, 1)*(u-center)/.058
-    y = (depth-.205)/.44
-    one = ((.080,.258),(.277,.090),(.277,.921))
-    six_hook = ((.882,.163),(.802,.085),(.679,.085),(.592,.155),
-                (.542,.284),(.526,.460),(.526,.680))
-    six_loop = [(.696+.170*math.cos(i*math.tau/20), .683+.230*math.sin(i*math.tau/20))
-                for i in range(21)]
-    distance = np.full(u.shape, np.inf)
-    for points in (one, six_hook, six_loop):
-        for (ax,ay),(bx,by) in zip(points,points[1:]):
-            east,down = 1.7*(x-ax),y-ay
-            dx,dy = 1.7*(bx-ax),by-ay
-            along = np.clip((east*dx + down*dy)/(dx*dx + dy*dy), 0, 1)
-            distance = np.minimum(distance, np.hypot(east-along*dx,down-along*dy))
-    ink = panel*np.clip(.5+15*(.072-distance), 0, 1)
-    data[:, :, :3] = data[:, :, :3]*(1-ink[:, :, None]) + np.asarray((.025,.029,.034))*ink[:, :, None]
+
+def polygon_contains(x, y, vertices):
+    inside = np.zeros(x.shape, dtype=bool)
+    for (ax,ay),(bx,by) in zip(vertices, (*vertices[1:], vertices[0])):
+        if ay != by:
+            inside ^= ((ay>y) != (by>y)) & (x < ax + (y-ay)*(bx-ax)/(by-ay))
+    return inside
+
+
+def hobie_paint(width, height, rgb):
+    """Rasterize the aft graphic and mask for the separate vinyl roughness."""
+    y, x = np.ogrid[:height, :width]
+    color = np.zeros((height,width,3), dtype=np.float32)
+    vinyl = np.zeros((height,width), dtype=np.float32)
+    stripes = ((0,.240,(.086,.091,.102)), (.250,.280,(.50,.52,.55)),
+               (.291,.326,(.67,.70,.73)))
+    one = ((.07,.30),(.225,.092),(.336,.092),(.336,.910),(.215,.910),
+           (.215,.274),(.137,.381))
+    six = ((.938,.212),(.909,.133),(.842,.084),(.677,.084),(.587,.120),(.522,.194),
+           (.489,.31),(.486,.728),(.516,.842),(.589,.910),(.682,.927),(.808,.927),
+           (.89,.893),(.948,.828),(.968,.727),(.965,.615),(.939,.518),(.87,.466),
+           (.771,.455),(.638,.475),(.608,.510),(.610,.348),(.637,.247),(.689,.212),
+           (.802,.212),(.833,.239),(.845,.290),(.949,.263))
+    counter = ((.616,.610),(.65,.581),(.789,.572),(.830,.592),(.848,.638),
+               (.848,.755),(.818,.795),(.781,.807),(.672,.807),(.632,.782),(.616,.734))
+    for dy in (.25,.75):
+        v = np.interp((y+dy)/height, *HOBIE_V[::-1])
+        depth = np.interp(np.minimum(v,10/14-v), np.arange(6)/14, [0,.16,.47,.77,.94,1])
+        for dx in (.25,.75):
+            u = np.interp((x+dx)/width, *HOBIE_U[::-1])
+            pigment = np.empty_like(color)
+            pigment[:] = rgb
+            taper = np.sqrt(np.clip((u-.022)/.278, 0, 1))
+            stern_edge = .022 + .13*np.maximum(0, depth-.24)
+            flank = (depth > .18-.025*taper) & (depth < .51+.25*taper) & (u > stern_edge)
+            # The stripe's upper edge reaches farther forward on both hulls.
+            stripe = u + .064*(depth-.16)
+            mask = np.zeros_like(flank)
+            for lo,hi,ink in stripes:
+                fill = flank & (stripe>=lo) & (stripe<=hi)
+                pigment[fill] = ink
+                mask |= fill
+
+            # Expose the gelcoat between the two graphite ends.
+            center = .137 - .011*(depth-.42)
+            window = flank & (np.abs(u-center)<.038-.023*np.abs(depth-.42))
+            pigment[window] = rgb
+            mask &= ~window
+            text_y = (depth-.205)/.45
+            # Positive hull X is to the left when viewed from port.
+            text_x = .5 + np.where(v>5/14,-1,1)*(u-.137)/.061 - .072*(1-text_y)
+            rows, cols = np.nonzero(window & (text_y>.075) & (text_y<.94))
+            lettering_x = text_x[rows,cols]
+            lettering_y = text_y[rows,0]
+            ink = polygon_contains(lettering_x,lettering_y,one) | (
+                polygon_contains(lettering_x,lettering_y,six) &
+                ~polygon_contains(lettering_x,lettering_y,counter))
+            pigment[rows[ink],cols[ink]] = (.016,.019,.023)
+            mask[rows[ink],cols[ink]] = True
+            color += .25*pigment
+            vinyl += .25*mask
+    return color, vinyl
 
 
 def coating(name, rgb, metal=0, rough=.38, stripes=False):
@@ -41,33 +83,27 @@ def coating(name, rgb, metal=0, rough=.38, stripes=False):
     mat.use_nodes = True
     shader = mat.node_tree.nodes.get("Principled BSDF")
     shader.inputs["Metallic"].default_value = metal
-    y, x = np.mgrid[:128, :512]
     rng = np.random.default_rng(320)
-    grain = rng.normal(0, .008, x.shape)
-    scuff = ((x + 4*y) % 197 < 2) * ((y % 37) < 6)
+    if not stripes:
+        grain = rng.normal(0,.008,(128,512))
     for channel in ("Base Color", "Roughness"):
-        image = bpy.data.images.new(name + " " + channel, 512, 128)
-        data = np.ones((128, 512, 4), dtype=np.float32)
-        if channel == "Base Color":
+        height = 128
+        width = 1024 if stripes and channel == "Base Color" else 512
+        y, x = np.ogrid[:height, :width]
+        scuff = ((x+4*y)%197<2) & (y%37<6)
+        image = bpy.data.images.new(name + " " + channel, width, height)
+        data = np.ones((height,width,4), dtype=np.float32)
+        if stripes:
+            paint, vinyl = hobie_paint(width, height, rgb)
+            if channel == "Base Color":
+                data[:, :, :3] = paint
+            else:
+                image.colorspace_settings.name = 'Non-Color'
+                # The dielectric gelcoat is smoother than the vinyl and scuffs.
+                variation = rng.normal(0,.002,(height,width)) + .025*scuff
+                data[:, :, :3] = (rough + .11*vinyl + variation)[:, :, None]
+        elif channel == "Base Color":
             data[:, :, :3] = np.asarray(rgb) * (1 + grain[:, :, None]) + .05*scuff[:, :, None]
-            if stripes:
-                # U increases toward the bow. V runs down one flank to the
-                # keel and up the other, so mirror it before slanting the paint.
-                u, v = (x+.5)/512, (y+.5)/128
-                flank_depth = np.interp(np.minimum(v,10/14-v), np.arange(6)/14,
-                                        [0,.16,.47,.77,.94,1])
-                taper = np.sqrt(np.clip((u-.022)/.278, 0, 1))
-                stern_edge = .022 + .13*np.maximum(0, flank_depth-.24)
-                flank_edge = np.minimum(flank_depth-(.18-.025*taper), .51+.25*taper-flank_depth)
-                flank = np.clip(.5+30*flank_edge, 0, 1)*np.clip(.5+512*(u-stern_edge), 0, 1)
-                # The stripe's upper edge reaches farther forward on both sides.
-                stripe = u + .064*(flank_depth-.16)
-                for lo,hi,color in [(0,.240,(.085,.090,.099)),
-                                    (.250,.280,(.54,.56,.58)),
-                                    (.291,.326,(.70,.73,.75))]:
-                    coverage = flank*np.clip(.5+512*np.minimum(stripe-lo,hi-stripe), 0, 1)
-                    data[:, :, :3] = data[:, :, :3]*(1-coverage[:, :, None]) + np.asarray(color)*coverage[:, :, None]
-                paint_hobie_number(data, rgb, u, v, flank_depth, flank)
         else:
             image.colorspace_settings.name = 'Non-Color'
             data[:, :, :3] = (rough + 2*grain + .15*scuff)[:, :, None]
@@ -129,6 +165,7 @@ def hull(name, stations, section, material, side=1, center=0, deck_joint=False):
                 [(width*y,draft*z,u) for y,z,u in contour])
         verts.extend((x, center+side*y, sheer+z) for y,z,u in ring)
     n = len(ring)
+    keel_index = next(i for i,(_,_,v) in enumerate(ring) if v == 5/14) if deck_joint else 0
     for i in range(len(stations)-1):
         for j in range(n):
             k=(j+1)%n
@@ -148,10 +185,16 @@ def hull(name, stations, section, material, side=1, center=0, deck_joint=False):
             v=mesh.loops[loop].vertex_index
             along = (verts[v][0]-stations[0][0])/(stations[-1][0]-stations[0][0]) if deck_joint else v//n/(len(stations)-1)
             around = 1 if j==n-1 and v%n==0 else ring[v%n][2]
-            # Both hulls use one atlas. The starboard loft mirrors Y, so swap
-            # its flank rows and keep the wrap seam continuous.
-            if deck_joint and side<0:
-                around = 10/14-around
+            if deck_joint:
+                along = np.interp(along, *HOBIE_U)
+                if j < keel_index:
+                    # Keep the inboard face in the plain gelcoat part of the atlas.
+                    around = .88 + .07*around/(5/14)
+                else:
+                    if side<0:
+                        around = 10/14-around
+                    tile = math.floor(around)
+                    around = tile + np.interp(around-tile, *HOBIE_V)
             uv.data[loop].uv=(along, around)
     # Section traces port-deck edge through the keel and around the deck crown.
     import bmesh
@@ -272,7 +315,7 @@ def export(name):
 bpy.ops.wm.read_factory_settings(use_empty=True)
 section=[(-1,0),(-.99,-.16),(-.90,-.47),(-.69,-.77),(-.37,-.94),(0,-1),
          (.37,-.94),(.69,-.77),(.9,-.47),(.99,-.16),(1,0),(.82,.018),(0,.036),(-.82,.018)]
-white=coating('Ivory gelcoat',(.89,.91,.88),stripes=True)
+white=coating('Ivory fiberglass gelcoat',(.89,.91,.88),rough=.27,stripes=True)
 # Loft the visual hull from the same offsets used for shore contact.
 shore = (DEST.parents[1]/'viewer/board/Shore.mo').read_text()
 table = re.search(r'constant Real pontoon\[12,4\]=\[(.*?)\];', shore, re.S)[1]

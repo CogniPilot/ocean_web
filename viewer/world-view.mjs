@@ -52,7 +52,6 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const inputs=['seaState'];
  if(hasBoat){
    Object.assign(initial,{sailingManual:1,vang:.5,downhaul:.5,outhaul:.65,manualJibAssist:1});
-   if(mode!=='sloop')initial.ballastManual=1;
    inputs.push(...Object.values(boatInputs));
  }
  if(mode==='motorboat')inputs.push('throttleLever','helmLever');

@@ -106,7 +106,7 @@ header:has(#dial:not([hidden])):has(+ #flightHud[hidden]){padding:6px 10px}heade
 <label>Offline simulation speed <select id="simulationSpeed"><option value="1">1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label> <button type="button" id="measureFrames" disabled>Test frame rate (15 s)</button> <button id="headroom" type="button" hidden>Test simulation headroom (15 s)</button> <output id="frameResult" aria-live="polite"></output> <button data-boat id="luff">Head into wind</button> <label>Wind <input type="range" id="wind" min="0" max="22" value="11"> <output id="windOut">11 m/s</output></label>
 <label data-boat id="vangControl"><span id="luffControlName">Vang</span> <input id="vang" type="range" min="0" max="100" value="50" title="Ease left, tighten right"> <output id="vangLoad">0 N</output></label>
 <div id="trampoline" hidden><label>Outhaul <input id="outhaul" type="range" min="0" max="100" value="65" title="Ease left, tighten right"> <output id="clewTravel" for="outhaul">0 cm</output></label>
-<label><input id="autoTrim" type="checkbox"> Auto ballast</label>
+<label><input id="autoTrim" type="checkbox" checked> Auto ballast</label>
 <label><input id="showBallastMarker" type="checkbox" checked> Ballast marker</label>
 <label><input id="jibTackAssist" type="checkbox" checked> Jib tack assist</label>
 <label>Fore–aft <input id="ballX" type="range" min="-72" max="72" value="0"></label>

@@ -43,6 +43,26 @@ export async function loadBoat(read=fetch){
    state=observeBoat(model);
  }};
 }
+function sailclothLighting(shader){
+ shader.fragmentShader=shader.fragmentShader
+   .replace('#include <roughnessmap_fragment>',`#include <roughnessmap_fragment>
+     // The translucent inspection windows are smooth vinyl.
+     float fabricCoverage = smoothstep( 0.43, 0.92, diffuseColor.a );
+     roughnessFactor = mix( 0.26, roughnessFactor, fabricCoverage );`)
+   .replace('#include <lights_fragment_end>',`#include <lights_fragment_end>
+     float backlight = 0.0;
+     #if NUM_DIR_LIGHTS > 0
+       float backFace = max( dot( -nonPerturbedNormal, directionalLights[ 0 ].direction ), 0.0 );
+       backlight = backFace * saturate( dot( directionalLights[ 0 ].color, vec3( 0.2126, 0.7152, 0.0722 ) ) );
+       reflectedLight.indirectDiffuse += fabricCoverage * diffuseColor.rgb *
+         directionalLights[ 0 ].color * ( 0.32 * RECIPROCAL_PI * backFace );
+     #endif
+     // Oblique paths cross more yarn, so transparency falls toward grazing angles.
+     float throughFabric = ( 0.045 + 0.13 * backlight ) * smoothstep( 0.08, 0.90,
+       dot( nonPerturbedNormal, geometryViewDir ) );
+     diffuseColor.a *= 1.0 - fabricCoverage * throughFabric;`);
+}
+
 function sailMaterial(T,cat,sail,telltaleRows){
  const c=document.createElement('canvas');c.width=512;c.height=1024;
  let pocketRelief;
@@ -65,6 +85,15 @@ function sailMaterial(T,cat,sail,telltaleRows){
      for(const [u,v] of lower)g.lineTo(512*u,1024*v);
      g.lineTo(512,0);g.lineTo(0,0);g.closePath();g.fill();
    }
+   // Uneven yarn tension and finishing leave subtle variation across a panel.
+   const finish=g.createLinearGradient(0,0,512,290);
+   finish.addColorStop(0,'rgba(37,29,21,.075)');
+   finish.addColorStop(.26,'rgba(37,29,21,0)');
+   finish.addColorStop(.72,'rgba(37,29,21,.016)');
+   finish.addColorStop(1,'rgba(37,29,21,.060)');
+   g.fillStyle=finish;g.fillRect(0,0,512,1024);
+   g.fillStyle='rgba(52,39,31,.21)';
+   g.fillRect(0,0,7,1024);g.fillRect(508,0,4,1024);g.fillRect(0,1018,512,6);
    // Small inspection windows sit just aft of their paired ribbons.
    for(const row of telltaleRows){
      const x=.20*512,y=(1-(row+.48)/5)*1024;
@@ -78,7 +107,17 @@ function sailMaterial(T,cat,sail,telltaleRows){
    g.clearRect(110,963,124,34);g.fillStyle='rgba(155,184,185,.28)';g.fillRect(110,963,124,34);
    g.strokeStyle='#d8d6cb';g.lineWidth=3;g.strokeRect(110,963,124,34);
    const relief=document.createElement('canvas');relief.width=256;relief.height=512;
-   const height=relief.getContext('2d');height.fillStyle='#808080';height.fillRect(0,0,256,512);
+   const height=relief.getContext('2d'),weave=height.createImageData(256,512);
+   const yarn=[-.80,.15,.75,.15],over=[1,.80,-1,-.80];
+   for(let y=0;y<weave.height;y++)for(let x=0;x<weave.width;x++){
+     const k=4*(y*weave.width+x);
+     const warp=yarn[x%4]*(1+.32*over[Math.floor(y/2)%4]);
+     const weft=yarn[y%4]*(1+.32*over[Math.floor(x/2+2)%4]);
+     const raised=128+6.5*(warp+weft);
+     weave.data[k]=weave.data[k+1]=weave.data[k+2]=raised;
+     weave.data[k+3]=255;
+   }
+   height.putImageData(weave,0,0);
    for(const path of pockets){
      function trace(context,sx,sy,offset=0){
        const [first,...rest]=path;
@@ -98,13 +137,21 @@ function sailMaterial(T,cat,sail,telltaleRows){
      pocket('rgba(55,31,19,.12)',5);
      pocket('rgba(255,232,179,.22)',1.4,-2);
      pocket('rgba(55,31,19,.22)',1,2);
+     g.setLineDash([1.7,2.8]);
+     pocket('rgba(255,235,206,.28)',.85,-2.2);
+     g.setLineDash([]);
      const y1=1024*path.at(-1)[1];
      g.fillStyle='rgba(53,42,36,.5)';g.fillRect(508,y1-2,4,4);
    }
-   pocketRelief=new T.CanvasTexture(relief);
+   pocketRelief=new T.CanvasTexture(relief);pocketRelief.anisotropy=4;
  }
  const tex=new T.CanvasTexture(c);tex.colorSpace=T.SRGBColorSpace;
- return new T.MeshStandardMaterial({map:tex,bumpMap:pocketRelief??null,bumpScale:.001,roughness:.74,side:T.DoubleSide,transparent:cat,forceSinglePass:true});
+ if(!cat)return new T.MeshStandardMaterial({map:tex,roughness:.74,side:T.DoubleSide,forceSinglePass:true});
+ tex.anisotropy=4;
+ const material=new T.MeshPhysicalMaterial({name:'Woven sailcloth and vinyl windows',map:tex,bumpMap:pocketRelief,bumpScale:.001,
+   roughness:.68,sheen:.35,sheenColor:0xcfc3b7,sheenRoughness:.65,side:T.DoubleSide,transparent:true,forceSinglePass:true});
+ material.onBeforeCompile=sailclothLighting;
+ return material;
 }
 // Bake the small fixed fittings by material so each swivel moves as one unit.
 function deckHardware(T,traveler=false){
@@ -227,7 +274,11 @@ function ballastMarker(T){
 export function sailboatMesh(T,cat=false,keelX=.06){
  const group=new T.Group();
  const paint=(c)=>new T.MeshStandardMaterial({color:c,roughness:.42,metalness:.12});
- const red=paint(0xca2526),white=paint(0xe3e5dd),black=paint(0x252c30);
+ const red=paint(0xca2526);
+ const white=cat?new T.MeshPhysicalMaterial({name:'White gelcoat',color:0xe9ebe5,roughness:.34,
+   clearcoat:.36,clearcoatRoughness:.28}):paint(0xe3e5dd);
+ const black=cat?new T.MeshPhysicalMaterial({name:'Black anodized aluminum',color:0x252931,metalness:.52,
+   roughness:.34,clearcoat:.25,clearcoatRoughness:.28}):paint(0x252c30);
  function mesh(geo,mat,parent=group){const m=new T.Mesh(geo,mat);parent.add(m);return m;}
  function rod(a,b,r,mat,parent=group){a=new T.Vector3(...a);b=new T.Vector3(...b);const d=b.clone().sub(a);const m=mesh(new T.CylinderGeometry(r,r,d.length(),10),mat,parent);m.position.copy(a).lerp(b,.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return m;}
  let vane,drum,rudder,otherRudder,carriage,crossTiller;
