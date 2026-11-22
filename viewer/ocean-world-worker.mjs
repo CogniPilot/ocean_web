@@ -38,6 +38,7 @@ async function handle(request){
     if(variables.has('sailingManual'))initial.sailingManual=1;
     if(variables.has('subManual'))initial.subManual=1;
     if(variables.has('flightManual'))initial.flightManual=1;
+    if(variables.has('omitWake')&&request.omitWake!==undefined)initial.omitWake=request.omitWake;
     const initialInputs=Object.entries({...initial,...request.initial}).flatMap(([name,value])=>
       Array.isArray(value)?scalarNames(name,variables.get(name).dimensions).map((key,i)=>[key,value[i]]):[[name,value]]);
     session.set_inputs(JSON.stringify(initialInputs));

@@ -1,0 +1,206 @@
+diff --git a/crates/rumoca-phase-codegen/src/codegen/me_projection.rs b/crates/rumoca-phase-codegen/src/codegen/me_projection.rs
+--- a/crates/rumoca-phase-codegen/src/codegen/me_projection.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/me_projection.rs
+@@ -289,8 +289,44 @@
+     } else {
+         None
+     };
++    // Direct assignments can fail after changing a subset of solver coordinates.
++    // No projection or retry path may address outside the compact backup.
++    let mut targets = Vec::new();
++    if complete.is_none() && rows.iter().all(|row| row[0] == STEP_ASSIGN) {
++        for step in steps {
++            if let solve::StagedRefreshStep::Assignments(schedule) = step {
++                for id in schedule.program_ids() {
++                    let program = catalog
++                        .sources
++                        .problem
++                        .continuous
++                        .refresh_owners
++                        .exact_assignment_program(*id)
++                        .ok_or_else(|| CodegenError::template("missing refresh assignment"))?;
++                    targets.extend_from_slice(program.target_indices());
++                }
++            }
++        }
++    }
++    targets.sort_unstable();
++    targets.dedup();
++    let mut runs: Vec<[usize; 2]> = Vec::new();
++    for coordinate in targets {
++        if let Some([first, count]) = runs.last_mut()
++            && coordinate - *first <= *count + 8
++        {
++            // A few unchanged coordinates in a contiguous copy cost less than
++            // an additional run and are safe to restore on failure.
++            *count = coordinate - *first + 1;
++        } else {
++            runs.push([coordinate, 1]);
++        }
++    }
++    let backup_size: usize = runs.iter().map(|run| run[1]).sum();
+     Ok(minijinja::context! {
+         steps => rows,
++        backup_runs => runs,
++        backup_size => backup_size,
+         complete => complete,
+         fallback => fallback && complete.is_some(),
+     })
+diff --git a/crates/rumoca-phase-codegen/src/codegen/me_projection/table.rs b/crates/rumoca-phase-codegen/src/codegen/me_projection/table.rs
+--- a/crates/rumoca-phase-codegen/src/codegen/me_projection/table.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/me_projection/table.rs
+@@ -39,6 +39,34 @@
+         }
+     }
+     Some(outputs)
++}
++
++/// Cache a compact, assertion-free tuple invocation when projecting its scalar
++/// coordinates. Only the invocation is reused. Surrounding scalar operations
++/// still run, including the choice of which coordinate to write.
++fn tuple_cache(ops: &[solve::LinearOp]) -> Option<Value> {
++    let mut calls = ops.iter().filter_map(|op| match op {
++        solve::LinearOp::PureCall { site, input_starts, .. } => Some((site, input_starts)),
++        _ => None,
++    });
++    let (site, starts) = calls.next()?;
++    if calls.next().is_some()
++        || site.outputs().iter().any(|out| out.kind() == solve::SolvePureCallOutputKind::AssertionPredicate)
++    {
++        return None;
++    }
++    let outputs = site.output_scalar_count()?;
++    let mut inputs = 0usize;
++    let mut spans = Vec::new();
++    for (&start, ty) in starts.iter().zip(site.inputs()) {
++        let count = ty.scalar_count() as usize;
++        spans.push(minijinja::context! { start => start, count => count, offset => inputs });
++        inputs = inputs.checked_add(count)?;
++    }
++    // Bound the per-instance workspace and the cost of exact comparisons.
++    (inputs > 0 && inputs <= 128 && (2..=64).contains(&outputs)).then(|| {
++        minijinja::context! { inputs => inputs, outputs => outputs, spans => spans }
++    })
+ }
+
+ /// One interned family of single-program C functions.
+@@ -234,6 +262,8 @@
+             .map(|id| isolators.output_count(id))
+             .max()
+             .unwrap_or(1);
++        let tuple_caches: Vec<_> = isolators.programs.iter()
++            .map(|(ops, _)| tuple_cache(ops)).collect();
+         let direct_outputs: Vec<_> = isolators.programs.iter()
+             .map(|(ops, _)| direct_load_slots(ops)).collect();
+         let direct_slots: Vec<_> = isolator_group.iter().zip(&isolator_slot)
+@@ -256,6 +286,7 @@
+             isolator_group => isolator_group,
+             isolator_slot => isolator_slot,
+             direct_slots => direct_slots,
++            tuple_caches => tuple_caches,
+             iso_max_outputs => iso_max_outputs,
+             row_max_outputs => row_max_outputs,
+             pool => pool,
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/me_projection.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/me_projection.jinja
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/me_projection.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/me_projection.jinja
+@@ -36,11 +36,24 @@
+
+ {%- macro c_ref(name, values) -%}{% if values|length > 0 %}{{ name }}{% else %}NULL{% endif %}{%- endmacro %}
+
+-{%- macro program_function(name, program, signature, seed) %}
++{%- macro program_function(name, program, signature, seed, cache=none) %}
+ static int {{ name }}({{ signature }}) {
+     double r[{{ program.temporary_count if program.temporary_count > 0 else 1 }}]; (void)r; (void)m; (void)o;{% if seed %} (void)seed;{% endif %}
+ {%- for op in program.ops %}
++{%- if cache and op.kind == "PureCall" %}
++    if (m->{{ name }}_ready{% for span in cache.spans %} &&
++        memcmp(m->{{ name }}_args+{{ span.offset }}, r+{{ span.start }}, {{ span.count }} * sizeof(double)) == 0{% endfor %}) {
++        memcpy(r+{{ op.dst }}, m->{{ name }}_result, sizeof(m->{{ name }}_result));
++    } else {
++        m->{{ name }}_ready = false;
++{% for span in cache.spans %}        memcpy(m->{{ name }}_args+{{ span.offset }}, r+{{ span.start }}, {{ span.count }} * sizeof(double));
++{% endfor %}{{ scalar_op(op, "o", "-1") }}
++        memcpy(m->{{ name }}_result, r+{{ op.dst }}, sizeof(m->{{ name }}_result));
++        m->{{ name }}_ready = true;
++    }
++{%- else %}
+ {{ scalar_op(op, "o", "-1") }}
++{%- endif %}
+ {%- endfor %}
+     return 0;
+ }
+@@ -52,6 +65,7 @@
+     current caller: the certified refresh tolerance between events, the FMI
+     tolerance and uncertified refresh during initialization. -#}
+ {%- macro workspace_fields(me) -%}
++{%- if me.blocks|length > 0 %}{% for cache in me.table.tuple_caches %}{% if cache %} bool rmc_iso_p{{ loop.index0 }}_ready; double rmc_iso_p{{ loop.index0 }}_args[{{ cache.inputs }}], rmc_iso_p{{ loop.index0 }}_result[{{ cache.outputs }}];{% endif %}{% endfor %}{% endif -%}
+ {%- if me.kernel %} double rmc_d[{{ me.work.doubles }}]; size_t rmc_s[{{ me.work.sizes }}]; size_t rmc_dtop; size_t rmc_stop; double rmc_tol; bool rmc_certify;{% endif -%}
+ {%- if me.blocks|length > 0 and me.seed_rule == "CommittedAcceptedPoint" %} double rmc_commit_y[Y_LEN]; double rmc_mark_x[STATE_LEN]; double rmc_mark_t; bool rmc_seeding; bool rmc_mark_pending; bool rmc_mark_resolved;{% endif -%}
+ {%- if me.blocks|length > 0 %} double rmc_seed[{{ me.seed_len if me.seed_len > 0 else 1 }}]; size_t rmc_fb_calls[{{ me.blocks|length + 1 }}]; size_t rmc_fb_count[{{ me.blocks|length + 1 }}]; size_t rmc_fb_mark[{{ me.blocks|length + 1 }}]; bool rmc_fb_active[{{ me.blocks|length + 1 }}]; bool rmc_fb_reported[{{ me.blocks|length + 1 }}];{% endif -%}
+@@ -59,6 +73,7 @@
+ {%- if me.switching %} size_t rmc_chart; size_t rmc_chart_target; bool rmc_chart_pending; double rmc_chart_reference; double rmc_chart_target_reference; bool rmc_chart_log; double rmc_chart_y[Y_LEN];{% endif -%}
+ {%- endmacro %}
+ {%- macro workspace_reset(me) -%}
++{%- if me.blocks|length > 0 %}{% for cache in me.table.tuple_caches %}{% if cache %} m->rmc_iso_p{{ loop.index0 }}_ready = false;{% endif %}{% endfor %}{% endif -%}
+ {%- if me.kernel %} m->rmc_dtop = 0; m->rmc_stop = 0; m->rmc_tol = {{ me.policy.tolerance }}; m->rmc_certify = true;{% endif -%}
+ {%- if me.blocks|length > 0 and me.seed_rule == "CommittedAcceptedPoint" %} m->rmc_seeding = false; m->rmc_mark_pending = false; m->rmc_mark_resolved = false;{% endif -%}
+ {%- if me.blocks|length > 0 %} memset(m->rmc_seed, 0, sizeof(m->rmc_seed)); memset(m->rmc_fb_calls, 0, sizeof(m->rmc_fb_calls)); memset(m->rmc_fb_count, 0, sizeof(m->rmc_fb_count)); memset(m->rmc_fb_mark, 0, sizeof(m->rmc_fb_mark)); memset(m->rmc_fb_active, 0, sizeof(m->rmc_fb_active)); memset(m->rmc_fb_reported, 0, sizeof(m->rmc_fb_reported));{% endif -%}
+@@ -1237,10 +1252,10 @@
+ {%- if me.derivative.steps|length > 0 or me.algebraic.steps|length > 0 %}
+ enum { RMC_STEP_ASSIGN, RMC_STEP_COMPLETE, RMC_STEP_PROJECT };
+ typedef struct { unsigned char kind; size_t first; size_t count; size_t block; size_t seed_first; size_t seed_count; size_t rescue; size_t nrescue; } RmcStep;
+-static {{ prefix }}Status rmc_refresh(ModelInstance* m, const RmcStep* steps, size_t nsteps, const size_t* complete, size_t ncomplete) {
+-    double incoming[Y_LEN];
++static {{ prefix }}Status rmc_refresh(ModelInstance* m, const RmcStep* steps, size_t nsteps, const size_t* complete, size_t ncomplete, double* incoming, const size_t (*runs)[2], size_t nruns) {
+     if (refresh_parameters(m) != {{ prefix }}OK) return {{ prefix }}Error;
+-    memcpy(incoming, m->y, sizeof(incoming));
++    for (size_t j=0, offset=0; j<nruns; offset+=runs[j++][1])
++        memcpy(incoming+offset, m->y+runs[j][0], runs[j][1]*sizeof(double));
+     (void)complete; (void)ncomplete;
+ {%- if blocks and assigns %}
+     size_t failed_site = RMC_FB_PLAN; (void)failed_site;
+@@ -1289,7 +1304,7 @@
+ {%- if blocks %}
+     if (complete) {
+         rmc_fb_note(m, failed_site); m->rmc_fb_active[RMC_FB_PLAN] = false;
+-        memcpy(m->y, incoming, sizeof(incoming));
++        memcpy(m->y, incoming, sizeof(m->y));
+         const int rescued = rmc_project_complete(m, complete, ncomplete);
+         if (rescued == 0) return {{ prefix }}OK;
+         RMC_LOG(m, "complete algebraic projection did not establish coordinate convergence");
+@@ -1303,7 +1318,8 @@
+     m->rmc_nonfinite = true;
+ {%- endif %}
+ fail:
+-    memcpy(m->y, incoming, sizeof(incoming));
++    for (size_t j=0, offset=0; j<nruns; offset+=runs[j++][1])
++        memcpy(m->y+runs[j][0], incoming+offset, runs[j][1]*sizeof(double));
+ {%- if blocks and assigns %}
+     m->rmc_fb_active[RMC_FB_PLAN] = false;
+ {%- endif %}
+@@ -1322,7 +1338,14 @@
+ {%- endif %}
+ static {{ prefix }}Status {{ name }}(ModelInstance* m) {
+ {%- if plan.steps|length > 0 %}
+-    return rmc_refresh(m, rmc_steps_{{ name }}, {{ plan.steps|length }}, {% if plan.complete %}RMC_P({{ plan.complete[0] }}), {{ plan.complete[1] }}{% else %}NULL, 0{% endif %});
++{%- if plan.backup_size > 0 %}
++    static const size_t runs[][2] = { {% for run in plan.backup_runs %}{ {{ run[0] }}, {{ run[1] }} }, {% endfor %} };
++    double incoming[{{ plan.backup_size }}];
++{%- else %}
++    static const size_t runs[][2] = { { 0, Y_LEN } };
++    double incoming[Y_LEN];
++{%- endif %}
++    return rmc_refresh(m, rmc_steps_{{ name }}, {{ plan.steps|length }}, {% if plan.complete %}RMC_P({{ plan.complete[0] }}), {{ plan.complete[1] }}{% else %}NULL, 0{% endif %}, incoming, runs, sizeof(runs)/sizeof(runs[0]));
+ {%- else %}
+     return refresh_parameters(m);
+ {%- endif %}
+@@ -2142,7 +2165,7 @@
+ {%- macro isolators_unit(me) %}
+ {%- if me.blocks|length > 0 %}
+ {%- for program in me.table.isolators.programs %}
+-{{ program_function("rmc_iso_p" ~ loop.index0, program, "ModelInstance* m, double* o", false) }}
++{{ program_function("rmc_iso_p" ~ loop.index0, program, "ModelInstance* m, double* o", false, me.table.tuple_caches[loop.index0]) }}
+ {%- endfor %}
+ {#- One causal run (tearing.rs: per_row_torn_block_sweep over consecutive
+     steps of one residual program): each recovered value is written to its

@@ -16,7 +16,7 @@ const submarineOutputs=[...group('sub','surveyTelemetry position orientation pro
  'estimate','sensor','ping'];
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
-export async function openWorld(mode='world',seaState=.45){
+export async function openWorld(mode='world',seaState=.45,omitWake=0){
  const hasBoat=mode==='world'||mode==='sailing'||mode==='sloop',hasSub=mode==='world'||mode==='submarine',hasFlight=mode==='world'||mode==='flight';
  const workerUrl=new URL('./'+mode+'/ocean-world-worker.mjs',import.meta.url);
  workerUrl.search=new URL(import.meta.url).search;
@@ -25,7 +25,7 @@ export async function openWorld(mode='world',seaState=.45){
  let id=0,error,time=0;
  const pending=new Map();
  const state=new Map();
- const surveyView={camera:false,dvl:false,map:false,wakeSource:false,wakeSurface:false};
+ const surveyView={camera:false,dvl:false,map:false,wakeSource:false,wakeSurface:!omitWake};
  function fail(reason){
    error=reason;
    for(const reply of pending.values())reply.reject(reason);
@@ -62,7 +62,7 @@ export async function openWorld(mode='world',seaState=.45){
  const outputs=[...environmentOutputs,...(hasBoat?sailingOutputs:['focus','swell','waterStamp','waterFraction']),
    ...(mode==='motorboat'?['boatPose','engine']:[]),...(hasSub?submarineOutputs:[]),...(hasFlight?flightOutputs:[])];
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
- const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,surveyMap:hasSub,sampledFields:true,surveyView,
+ const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,surveyMap:hasSub,sampledFields:true,surveyView,
    optionalInputs:['animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake'],
    optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed']});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
@@ -70,6 +70,7 @@ export async function openWorld(mode='world',seaState=.45){
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
    if(typeof value==='number')controls[i]=value;else controls.set(value,i);}
  if(offsets.has('idleCamera'))set('idleCamera',1);
+ if(offsets.has('omitWake'))set('omitWake',omitWake);
  Object.entries(initial).forEach(([name,v])=>set(name,v));
  function unpack(fields,values){
    for(const v of fields)state.set(v.name,v.shape.length?values.subarray(v.offset,v.offset+v.count):values[v.offset]);

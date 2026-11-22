@@ -17,6 +17,21 @@ Both scenes rendered at approximately 59–60 FPS in these runs. These are works
 
 An isolated paired wildlife test compared 16,500 outputs in open water, at the island, and near the seabed. Conservative flat-bottom bounds preserved those values exactly and increased open-water throughput from 19.88× to 21.67×. Four hundred 12,288-element swimmer wake field readbacks took 225–263 ms when converted to new JavaScript arrays and 8–10 ms when copied into reusable typed storage. The checked wet field was bit-identical. Neither isolated measurement includes the complete vehicle, harbor and rendering workload.
 
+## Fast rendering preset
+
+Fast shades the Modelica sea surface with the sky map and skips both planar water captures. It uses a 48 × 48 water grid, a drawing-buffer ratio between 0.40 and 0.60, and four volume samples per pixel for the submarine lamp. Low remains the default on touch devices. The existing Low and Fast presets both disable hull wakes.
+
+Four six-second samples in Chromium with SwiftShader used a 393 × 852 touch viewport and device scale factor 2. The Hobie ran the same FMU in Swell in all four runs. In alternating Low, Fast, Fast, Low order, the browser recorded 29.8, 54.2, 56.6 and 27.2 FPS. The corresponding p95 frame intervals were 44.2, 26.9, 27.3 and 59.0 ms. Fast eliminated approximately 54–60 planar capture renders per second. Physics advanced at 0.88–0.91 simulated seconds per wall second across these runs. A physical phone measurement is still needed.
+
+The packaged worker now skips the zero-filled 64 × 64 wake grid in Low and Fast. At ten updates per simulated second this removes 320 KiB/s of worker messages and 160 KiB/s of texture uploads during steady rendering. The incoming sea tile still updates. Selecting Balanced or High resumes the wake grid on the next worker reply.
+
+### Hobie solver work in Swell
+
+The incident sea skips modes whose directional energy is zero. Rumoca saves only the coordinates written by direct assignment plans that lack a projection fallback. In the Hobie derivative plan, that reduced each backup from 10,681 doubles to 644. The compiler also reuses small pure tuple results when their input bytes match. The packaged components were rebuilt with `CARGO_PROFILE_RELEASE_OPT_LEVEL=2`.
+
+The existing paired benchmark compared the new Hobie component against `152a0cf` on the Ryzen 9 5950X with Node 22. Three alternating pairs per wake setting each measured 400 fixed 10 ms steps after 200 warmup steps, including a pose read after every step. Median paired step cost fell 9.1% with wakes off and 6.1% with wakes on. Median throughput went from 1.24× to 1.35× real time with wakes off and from 1.03× to 1.10× with wakes on. A separate eight-second replay matched all 410,960 sampled values across changes in wind, sea state, trim, steering and wake settings.
+
+
 ## Published integrated Hobie scene
 
 On November 20, 2026, the deployed world manifest selected `OceanWorld.fmu.f2e68b8f094c95b1.json`. Measurements used an AMD Ryzen 9 5950X development workstation under shared load. The browser run used Chromium with a 393 × 852 CSS pixel touch viewport, device scale factor 2 and SwiftShader software rendering. These figures establish where time goes on this build. Physical Android and iPhone measurements are still needed.

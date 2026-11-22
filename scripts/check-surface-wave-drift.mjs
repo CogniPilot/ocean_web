@@ -11,7 +11,7 @@ const root=process.argv[2]??'build/pages';
 const bearing=.45;
 const roomTime=4.62;
 const roles=['sailing','sloop','flight','submarine','world'];
-const gridNames=scalarNames('waves.height',[64,64]);
+const gridNames=scalarNames('boatWater.tile',[32,32]);
 
 async function sample(role,ticks,offset){
   const base=pathToFileURL(resolve(root,role)+'/');
@@ -24,11 +24,12 @@ async function sample(role,ticks,offset){
     return fmu.read_values(JSON.stringify(['waves.driftE','waves.driftN',...gridNames]));
   }finally{fmu.free();}
 }
-const wrap=n=>(n%64+64)%64;
-function heightAt([driftE,driftN,...grid],east,north){
-  const x=east-driftE,y=north-driftN;
+const wrap=n=>(n%32+32)%32;
+function heightAt([,,...grid],east,north){
+  // The incoming sea is ENU-anchored. The separate hull spectrum drifts.
+  const x=east/2,y=north/2;
   const i=Math.floor(x),j=Math.floor(y),u=x-i,v=y-j;
-  const at=(e,n)=>grid[64*wrap(n)+wrap(e)];
+  const at=(e,n)=>grid[32*wrap(n)+wrap(e)];
   return (1-v)*((1-u)*at(i,j)+u*at(i+1,j))+v*((1-u)*at(i,j+1)+u*at(i+1,j+1));
 }
 const baseline=await sample('sailing',Math.round(100*roomTime),0);
@@ -38,6 +39,7 @@ for(let role=0;role<roles.length;role++){
   const ticks=62+role*40;
   const candidate=await sample(roles[role],ticks,roomTime-ticks*.01);
   const difference=Math.max(...points.map(([east,north])=>Math.abs(heightAt(baseline,east,north)-heightAt(candidate,east,north))));
+  assert(Math.hypot(candidate[0]-baseline[0],candidate[1]-baseline[1])<1e-8,'Hull-spectrum drift mismatch');
   results.push({role:roles[role],difference,drift:[candidate[0],candidate[1]]});
 }
 console.log({baselineDrift:[baseline[0],baseline[1]],results});
