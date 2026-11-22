@@ -433,14 +433,41 @@ async function run(){
       option.disabled=!show;
     }
   }
-  let angle=-.8,distance=motor?11.5:cat?14:5.7,tilt=.16,drag=null,running=true,manual=true;
+  let angle=-.8,distance=motor?11.5:cat?14:5.7,tilt=.16,running=true,manual=true;
   // Keep wildlife framing independent of the vehicle's orbit and zoom.
   const wildlifeOrbits={gull:{angle:-1,tilt:.36,distance:3.3},whale:{angle:-1.15,tilt:.20,distance:14},shark:{angle:-1.15,tilt:.12,distance:6}};
-  const wildlifeOrbit=()=>wildlifeOrbits[$('cameraDepth').value.split('-')[0]];
-  $('view').onpointerdown=e=>{drag=[e.clientX,e.clientY];e.target.setPointerCapture(e.pointerId);};
-  $('view').onpointermove=e=>{
-    if(!drag)return;
-    const dx=(e.clientX-drag[0])*.008,dy=(e.clientY-drag[1])*.006;
+  const wildlifeOrbit=()=>wildlifeOrbits[cameraMenu.value.split('-')[0]];
+  const cameraZoom=new Map();
+  const fixedView=view=>trapezeViews.has(view)||view==='fpv'||view==='onboard'||Object.hasOwn(cruiserViews,view);
+  function zoomView(scale){
+    const view=cameraMenu.value,orbit=wildlifeOrbit();
+    if(fixedView(view)||view.startsWith('npc-')){
+      cameraZoom.set(view,T.MathUtils.clamp((cameraZoom.get(view)??1)*scale,.32,2.5));
+    }else if(orbit){
+      orbit.distance=T.MathUtils.clamp(orbit.distance*scale,2,45);
+    }else{
+      distance=T.MathUtils.clamp(distance*scale,2,22);
+    }
+  }
+  const viewport=$('view'),pointers=new Map();
+  viewport.onpointerdown=e=>{
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    pointers.set(e.pointerId,[e.clientX,e.clientY]);
+    viewport.setPointerCapture(e.pointerId);
+  };
+  viewport.onpointermove=e=>{
+    const previous=pointers.get(e.pointerId);
+    if(!previous)return;
+    const [x,y]=previous;
+    previous[0]=e.clientX;previous[1]=e.clientY;
+    if(pointers.size===2){
+      const [otherX,otherY]=[...pointers.values()].find(point=>point!==previous);
+      const before=Math.hypot(x-otherX,y-otherY),after=Math.hypot(e.clientX-otherX,e.clientY-otherY);
+      if(before>0&&after>0)zoomView(before/after);
+      return;
+    }
+    if(pointers.size!==1)return;
+    const dx=(e.clientX-x)*.008,dy=(e.clientY-y)*.006;
     const trapeze=trapezeViews.get(cameraMenu.value);
     if(trapeze){
       trapeze.yaw=T.MathUtils.clamp(trapeze.yaw-dx,-1.8,1.8);
@@ -450,14 +477,13 @@ async function run(){
       if(orbit){orbit.angle-=dx;orbit.tilt=elevation;}
       else{angle-=dx;tilt=elevation;}
     }
-    drag=[e.clientX,e.clientY];
   };
-  $('view').onlostpointercapture=()=>drag=null;
-  $('view').onwheel=e=>{
-    if(trapezeViews.has(cameraMenu.value))return;
-    const orbit=wildlifeOrbit(),scale=Math.exp(e.deltaY*.001);
-    if(orbit)orbit.distance=Math.max(2,Math.min(45,orbit.distance*scale));
-    else distance=Math.max(2,Math.min(22,distance*scale));
+  viewport.onlostpointercapture=e=>pointers.delete(e.pointerId);
+  viewport.onpointerup=viewport.onpointercancel=viewport.onlostpointercapture;
+  viewport.onwheel=e=>{
+    e.preventDefault();
+    const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?viewport.clientHeight:1);
+    zoomView(Math.exp(delta*.0015));
   };
   $('cameraDepth').onchange=()=>{
     const view=$('cameraDepth').value;
@@ -465,6 +491,13 @@ async function run(){
     if(view==='keel')tilt=-.9;
   };
   if(cat){
+    const marker=$('showBallastMarker');
+    try{marker.checked=localStorage.getItem('ocean-ballast-marker')!=='off';}catch{}
+    boat.setBallastVisible(marker.checked);
+    marker.onchange=()=>{
+      boat.setBallastVisible(marker.checked);
+      try{localStorage.setItem('ocean-ballast-marker',marker.checked?'on':'off');}catch{}
+    };
     const trim=()=>{
       const auto=$('autoTrim').checked;
       $('ballX').disabled=$('ballY').disabled=auto;
@@ -1382,8 +1415,17 @@ async function run(){
             const heading=sub?.active&&subFrame?subFrame.estimate[3]:s?.[2]??0;
             const speed=apparent?model.get('cupSpeed'):Math.hypot(...wind);
             const bearing=apparent?heading+s[30]+Math.PI:Math.atan2(wind[1],wind[0]);
+            let noGoBearing=speed>.01?bearing:null;
+            if(apparent){
+              // Same wind estimate as the sailing pilot. Convert the measured
+              // relative flow to true wind using the navigation velocity.
+              const [course,east,north]=model.getMany(['courseEstimate','speedE','speedN']);
+              const vaneFrom=course+s[30];
+              const windEast=east-speed*Math.cos(vaneFrom),windNorth=north-speed*Math.sin(vaneFrom);
+              noGoBearing=Math.hypot(windEast,windNorth)>.25?Math.atan2(windNorth,windEast):null;
+            }
             drawCompass($('dial'),speed,bearing,flow,heading,sub?.active?'sub':'surface',noGo,courseTarget,
-              extra?Math.hypot(extra[4],extra[5]):0,apparent);
+              extra?Math.hypot(extra[4],extra[5]):0,apparent,noGoBearing);
           }
         }
         if(!covarianceOutput.hidden){
@@ -1584,8 +1626,10 @@ async function run(){
       }
       const viewMode=$('cameraDepth').value;
       const trapeze=trapezeViews.get(viewMode);
-      const fov=trapeze?60:viewMode==='motorHelm'?62:['motorBow','motorStern','motorPort','motorStarboard','onboard'].includes(viewMode)?64:52;
-      if(camera.fov!==fov){camera.fov=fov;camera.updateProjectionMatrix();}
+      const baseFov=trapeze?60:viewMode==='motorHelm'?62:['motorBow','motorStern','motorPort','motorStarboard','onboard'].includes(viewMode)?64:52;
+      const lens=fixedView(viewMode)?cameraZoom.get(viewMode)??1:1;
+      const fov=lens===1?baseFov:T.MathUtils.radToDeg(2*Math.atan(lens*Math.tan(T.MathUtils.degToRad(baseFov/2))));
+      if(camera.fov!==fov){camera.fov=fov;camera.updateProjectionMatrix();lastReflection=-Infinity;}
       camera.up.set(0,0,1);
       if(trapeze){
         const orientation=boat.group.quaternion;
@@ -1658,7 +1702,7 @@ async function run(){
       const npcSubject=npcTraffic?.subject(view);
       const subject=npcSubject??visitors.cameraSubject(!flyingGull()&&animalId&&view===animalKind()?animalId:view);
       if(subject){
-        const orbit=npcSubject?{angle,tilt:Math.max(.16,tilt),distance:npcSubject.userData.orbitDistance}:wildlifeOrbit();
+        const orbit=npcSubject?{angle,tilt:Math.max(.16,tilt),distance:npcSubject.userData.orbitDistance*(cameraZoom.get(view)??1)}:wildlifeOrbit();
         const range=orbit.distance*Math.cos(orbit.tilt);
         camera.position.copy(subject.position);
         camera.position.x+=range*Math.cos(orbit.angle);

@@ -196,54 +196,23 @@ function deckHardware(T,traveler=false){
  return lod;
 }
 
-// A single vertex-coloured mesh keeps the moving deck ballast to one draw call.
-function ballastCooler(T){
- const position=[],normal=[],color=[];
- function add(geometry,tint){
-   const g=geometry.index?geometry.toNonIndexed():geometry;
-   const rgb=new T.Color(tint);
-   position.push(...g.attributes.position.array);
-   normal.push(...g.attributes.normal.array);
-   for(let i=0;i<g.attributes.position.count;i++)color.push(rgb.r,rgb.g,rgb.b);
-   if(g!==geometry)g.dispose();
-   geometry.dispose();
+function ballastMarker(T){
+ const sphere=new T.SphereGeometry(.11,24,12);
+ const geometry=sphere.toNonIndexed();
+ sphere.dispose();
+ const points=geometry.attributes.position,colors=new Float32Array(points.count*3);
+ const dark=new T.Color(0x171a1c),light=new T.Color(0xf1f2ee);
+ for(let i=0;i<points.count;i+=3){
+   const x=points.getX(i)+points.getX(i+1)+points.getX(i+2);
+   const y=points.getY(i)+points.getY(i+1)+points.getY(i+2);
+   const z=points.getZ(i)+points.getZ(i+1)+points.getZ(i+2);
+   const color=x*y*z<0?dark:light;
+   for(let j=0;j<3;j++)color.toArray(colors,3*(i+j));
  }
- function rounded(width,depth,r){
-   const contour=new T.Shape(),x=width/2,y=depth/2;
-   contour.moveTo(-x+r,-y);contour.lineTo(x-r,-y);contour.quadraticCurveTo(x,-y,x,-y+r);
-   contour.lineTo(x,y-r);contour.quadraticCurveTo(x,y,x-r,y);
-   contour.lineTo(-x+r,y);contour.quadraticCurveTo(-x,y,-x,y-r);
-   contour.lineTo(-x,-y+r);contour.quadraticCurveTo(-x,-y,-x+r,-y);
-   return contour;
- }
- function molding(contour,base,height,bevel,tint){
-   const g=new T.ExtrudeGeometry(contour,{depth:height,curveSegments:4,bevelEnabled:true,
-     bevelSegments:2,bevelThickness:bevel,bevelSize:bevel});
-   add(g.translate(0,0,base),tint);
- }
- molding(rounded(.41,.25,.03),-.098,.176,.009,0x096587);
- molding(rounded(.415,.255,.03),.077,.023,.005,0xeaf0e9);
- const lid=rounded(.411,.253,.031);
- for(const x of [-.148,.148]){
-   const hole=new T.Path();hole.absarc(x,.065,.028,0,2*Math.PI,true);
-   lid.holes.push(hole);
-   add(new T.CircleGeometry(.029,24).translate(x,.065,.103),0x737b7c);
- }
- molding(lid,.102,.022,.004,0xa8ada9);
- for(const sign of [-1,1]){
-   const outline=rounded(.112,.080,.012);
-   const hole=new T.Path();hole.moveTo(-.039,-.023);hole.lineTo(-.039,.03);
-   hole.lineTo(.039,.03);hole.lineTo(.039,-.023);hole.closePath();outline.holes.push(hole);
-   const grip=new T.ExtrudeGeometry(outline,{depth:.005,bevelThickness:.002,bevelSize:.002,bevelSegments:1,curveSegments:3});
-   grip.rotateX(Math.PI/2);grip.rotateZ(sign*Math.PI/2);
-   add(grip.translate(sign*.216,0,.038),0xdde2dd);
- }
- const g=new T.BufferGeometry();
- for(const [key,data] of [['position',position],['normal',normal],['color',color]])
-   g.setAttribute(key,new T.Float32BufferAttribute(data,3));
- const cooler=new T.Mesh(g,new T.MeshStandardMaterial({vertexColors:true,roughness:.68}));
- cooler.name='Deck ballast cooler';
- return cooler;
+ geometry.setAttribute('color',new T.BufferAttribute(colors,3));
+ const marker=new T.Mesh(geometry,new T.MeshStandardMaterial({vertexColors:true,roughness:.66}));
+ marker.name='Ballast center of mass';
+ return marker;
 }
 
 export function sailboatMesh(T,cat=false,keelX=.06){
@@ -382,7 +351,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      yarn.visible=false;streamers[side===1?0:1]=yarn;
    }
    group.add(hobieTrampoline(T));
-   carriage=ballastCooler(T);group.add(carriage);carriage.position.set(-.425,0,.52);
+   carriage=ballastMarker(T);group.add(carriage);carriage.position.set(-.425,0,.52);
    const mastLength=8.07,mastStepZ=.41;
    mastGeometry=new T.CylinderGeometry(.043,.043,mastLength,10,32);
    mastGeometry.rotateX(Math.PI/2);mastGeometry.translate(.44,0,mastStepZ+mastLength/2);
@@ -508,7 +477,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    [sails[1].pivot,[cat?-1.82/5.1:-1.04/2.69,0,1],'Jib rotation'],[rudder,[0,0,1],'Rudder hinge'],
    ...(otherRudder?[[otherRudder,[0,0,1],'']]:[])
  ]};
- return {group,cameraPorts,inspection,patrolTrim(main,jib){sails[0].pivot.rotation.z=main;sails[1].pivot.rotation.z=jib;},
+ return {group,cameraPorts,inspection,setBallastVisible(visible){if(carriage)carriage.visible=visible;},patrolTrim(main,jib){sails[0].pivot.rotation.z=main;sails[1].pivot.rotation.z=jib;},
    update(s,ballast,cars,rope,tails,faceTails,stayPath,time){
    if(stayPath){
      for(let i=0;i<3;i++){

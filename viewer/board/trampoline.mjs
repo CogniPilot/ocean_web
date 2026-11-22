@@ -74,6 +74,15 @@ export function hobieTrampoline(T){
       return point;
     });
   }
+  // The third piece feeds into the rear crossbar and carries the aft row of
+  // grommets. Its forward edge slopes down toward the two trampoline halves.
+  function aftStripPoint(u,y){
+    return [-1.414+.106*u,y,.458-.017*u];
+  }
+  sheet(vertices,triangles,3,24,(u,v)=>{
+    uv.push(u*1.25,v*19);
+    return aftStripPoint(u,edge*(2*v-1));
+  });
   mesh(vertices,triangles,cloth.cloth,uv);
   mesh(straps,strapTriangles,cloth.webbing);
 
@@ -89,10 +98,16 @@ export function hobieTrampoline(T){
     centres.push(pair);
   }
   for(const side of [-1,1]){
+    const aftEyelets=Array.from({length:10},(_,j)=>{
+      const p=aftStripPoint(.85,side*(.069+j*.092));
+      p[2]+=.004;
+      return p;
+    });
+    eyelets.push(...aftEyelets);
     for(let j=0;j<9;j++){
       const y=side*(.115+j*.092),p=clothPoint(.011,y);p[2]+=.004;
       eyelets.push(p);
-      laces.push([p,[-1.414,y-side*.030,.458]],[p,[-1.414,y+side*.030,.458]]);
+      laces.push([p,aftEyelets[j]],[p,aftEyelets[j+1]]);
     }
   }
   const ring=new T.TorusGeometry(.010,.002,4,9);

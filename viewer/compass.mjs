@@ -1,6 +1,6 @@
 // Bearings on the dial are clockwise from true north. Model vectors are east/north.
-export function drawCompass(canvas,wind,bearing,current,heading,location,noGo,target,boatSpeed=0,apparent=false){
-  if(location==='surface')return drawSailingDial(canvas,wind,bearing,heading,noGo,target,boatSpeed,apparent);
+export function drawCompass(canvas,wind,bearing,current,heading,location,noGo,target,boatSpeed=0,apparent=false,noGoBearing=wind>.01?bearing:null){
+  if(location==='surface')return drawSailingDial(canvas,wind,bearing,heading,noGo,target,boatSpeed,apparent,noGoBearing);
   const ctx=canvas.getContext('2d'),windColor='#ffc46e',currentColor='#71dce4';
   const currentSpeed=Math.hypot(current[0],current[1]);
   const flow=Math.atan2(current[1],current[0]);
@@ -63,12 +63,13 @@ export function drawDroneCompass(canvas,{yaw,wind},target){
 
 // Angles from the model are east-zero and counterclockwise. The sailing dial
 // is bow-up and clockwise, with zero at twelve o'clock.
-function drawSailingDial(canvas,wind,bearing,heading,noGo,target,boatSpeed,apparent){
+function drawSailingDial(canvas,wind,bearing,heading,noGo,target,boatSpeed,apparent,noGoBearing){
   const ctx=canvas.getContext('2d');
   const centerX=51,centerY=48,r=39;
   const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
   const from=wrap(heading-bearing-Math.PI);
-  const hasWind=wind>.01,inside=hasWind&&!apparent&&Math.abs(from)<=noGo;
+  const hasWind=wind>.01,sector=noGoBearing===null?null:wrap(heading-noGoBearing-Math.PI);
+  const inside=sector!==null&&Math.abs(sector)<=noGo;
   const compass=a=>String(((Math.round(90-a*180/Math.PI)%360)+360)%360).padStart(3,'0')+'°';
   const side=from<0?'port':'starboard';
   const angle=Math.round(Math.abs(from)*180/Math.PI);
@@ -76,17 +77,19 @@ function drawSailingDial(canvas,wind,bearing,heading,noGo,target,boatSpeed,appar
   ctx.setTransform(2,0,0,2,0,0);ctx.clearRect(0,0,274,132);
   ctx.save();ctx.translate(centerX,centerY);
   ctx.beginPath();ctx.arc(0,0,r,0,2*Math.PI);ctx.fillStyle='#112a34';ctx.fill();
-  if(hasWind){
-    ctx.save();ctx.rotate(from-Math.PI/2);
-    if(!apparent){
+  if(sector!==null){
+    ctx.save();ctx.rotate(sector-Math.PI/2);
     ctx.fillStyle='rgba(242,104,81,.28)';ctx.beginPath();ctx.moveTo(0,0);
     ctx.arc(0,0,r,-noGo,noGo);ctx.closePath();ctx.fill();
     ctx.strokeStyle='#f28c74';ctx.lineWidth=1.5;
     for(const limit of [-noGo,noGo]){
       ctx.beginPath();ctx.moveTo(11*Math.cos(limit),11*Math.sin(limit));ctx.lineTo(r*Math.cos(limit),r*Math.sin(limit));ctx.stroke();
     }
-    ctx.strokeStyle='#ffbf70';ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,r,-noGo,noGo);ctx.stroke();
-    }
+    ctx.strokeStyle='#f28c74';ctx.lineWidth=3;ctx.beginPath();ctx.arc(0,0,r,-noGo,noGo);ctx.stroke();
+    ctx.restore();
+  }
+  if(hasWind){
+    ctx.save();ctx.rotate(from-Math.PI/2);
     ctx.fillStyle='#ffd091';ctx.beginPath();ctx.moveTo(r-14,0);ctx.lineTo(r+3,-4);ctx.lineTo(r+3,4);ctx.closePath();ctx.fill();
     ctx.restore();
   }
@@ -126,7 +129,8 @@ function drawSailingDial(canvas,wind,bearing,heading,noGo,target,boatSpeed,appar
   text(boatKnots,103,37,'#fff','bold 19px system-ui');
   text(windKnots,183,37,'#ffd091','bold 19px system-ui');
   text(compass(heading)+'T',103,58,'#e2eff0','bold 13px monospace');
-  text(hasWind?angle+'° '+side:'Calm',183,58,inside?'#ffae96':'#ffc46e','12px system-ui');
+  text(hasWind?angle+'° '+side:'Calm',183,58,'#ffc46e','12px system-ui');
   if(target)text(target.label+'  '+target.bearing+'  '+Math.round(target.range)+' m',103,80,targetColor,'bold 11px system-ui');
-  canvas.setAttribute('aria-label','Heading '+compass(heading)+' true. Boat '+boatKnots+', '+(apparent?'apparent':'true')+' wind '+windKnots+' from '+angle+' degrees '+side+'.'+(target?' '+target.label+' bearing '+target.bearing+', '+Math.round(target.range)+' metres.':''));
+  const noGoText=sector===null?'':inside?' Heading inside the no-go sector.':' Heading clear of the no-go sector.';
+  canvas.setAttribute('aria-label','Heading '+compass(heading)+' true. Boat '+boatKnots+', '+(apparent?'apparent':'true')+' wind '+windKnots+' from '+angle+' degrees '+side+'.'+noGoText+(target?' '+target.label+' bearing '+target.bearing+', '+Math.round(target.range)+' metres.':''));
 }

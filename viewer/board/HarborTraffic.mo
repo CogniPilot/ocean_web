@@ -14,8 +14,10 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   input Real whaleBank=0,whaleDirect=0,whaleActuators[5]=zeros(5);
   input Real sharkBank=0;
   parameter Real initialSwimReserve[2]={1,1};
-  output Real swimReserve[2](start=initialSwimReserve,each fixed=true) "Available muscle burst reserves for whale and shark";
-  Real burstRequest[2],swimBurst[2],whaleRoom,sharkRoom,sharkSprint;
+  output Real swimReserve[2] "Available muscle burst reserves for whale and shark";
+  Real whaleReserve(start=initialSwimReserve[1],fixed=true);
+  Real sharkReserve(start=initialSwimReserve[2],fixed=true);
+  Real whaleRequest,sharkRequest,whaleRoom,sharkRoom,sharkSprint;
   output Real whaleContact[2],whaleFinLift[2] "Normal load (N), minimum gap (m); port and starboard lift (N)";
   parameter Real initialFish[10]={1.65,0,0,0,0,0,0,0,0,0};
   output Real sharkTrunkFlex "Anterior trunk flexion in radians";
@@ -119,14 +121,14 @@ equation
   sharkRoom=min(1,max(0,(sharkSurface-state[12]-1.25-abs(2.32*sin(fish[3])))/1.5))*
     min(1,max(0,(sharkContact[2]-.6)/1.2));
   sharkSprint=if sharkPilot[1]>.5 and sharkPilot[4]<0 then sharkRoom*min(1,max(0,(sharkPilot[3]-.78)/.22)) else 0;
-  burstRequest={if whalePilot[1]>.5 and whalePilot[4]<0 and whaleDirect<.5 then whaleRoom*min(1,max(0,strokeGain))*min(1,max(0,(whalePilot[3]-.95)/.05)) else 0,
-                if sharkPilot[1]>.5 and sharkPilot[4]<0 then sharkRoom*min(1,max(0,strokeGain))*min(1,max(0,(sharkPilot[3]-.95)/.05)) else 0};
-  for i in 1:2 loop
-    swimBurst[i]=burstRequest[i]*min(1,max(0,swimReserve[i])/.32);
-    der(swimReserve[i])=-burstRequest[i]*min(.08,2*max(0,swimReserve[i]))+
-      (1-burstRequest[i])*max(0,1-swimReserve[i])/24;
-  end for;
-  swimmer.burst=swimBurst[1];
+  whaleRequest=if whalePilot[1]>.5 and whalePilot[4]<0 and whaleDirect<.5
+    then whaleRoom*min(1,max(0,strokeGain))*min(1,max(0,(whalePilot[3]-.95)/.05)) else 0;
+  sharkRequest=if sharkPilot[1]>.5 and sharkPilot[4]<0
+    then sharkRoom*min(1,max(0,strokeGain))*min(1,max(0,(sharkPilot[3]-.95)/.05)) else 0;
+  der(whaleReserve)=-whaleRequest*min(.08,2*max(0,whaleReserve))+(1-whaleRequest)*max(0,1-whaleReserve)/24;
+  der(sharkReserve)=-sharkRequest*min(.08,2*max(0,sharkReserve))+(1-sharkRequest)*max(0,1-sharkReserve)/24;
+  swimReserve={whaleReserve,sharkReserve};
+  swimmer.burst=whaleRequest*min(1,max(0,whaleReserve)/.32);
   swimmer.bankCommand=whaleBank;swimmer.directDrive=whaleDirect;swimmer.actuators=whaleActuators;
   whaleContact={swimmer.ground[10],swimmer.ground[11]};whaleFinLift={swimmer.portLift,swimmer.starboardLift};
   swimmer.bottomAhead=whaleBottomAhead;swimmer.pilot=whalePilot;swimmer.encounter=encounter;swimmer.clock=state[1];swimmer.surface=localSurface;swimmer.current=currentVelocity;swimmer.strokeGain=strokeGain;
@@ -158,7 +160,7 @@ equation
     else max(-.52,min(.52,.55*(sharkZ-state[12])-.45*fish[2]));
   whiteShark.z=state[12];whiteShark.heading=state[13];whiteShark.surface=sharkSurface;
   whiteShark.east=state[10];whiteShark.north=state[11];sharkContact=whiteShark.ground[6:7];
-  whiteShark.sprint=sharkSprint;whiteShark.burst=swimBurst[2];
+  whiteShark.sprint=sharkSprint;whiteShark.burst=sharkRequest*min(1,max(0,sharkReserve)/.32);
   whiteShark.current=currentVelocity;whiteShark.drive=strokeGain;
   whiteShark.desiredSpeed=fishSpeed;whiteShark.desiredPitch=fishRequested;whiteShark.desiredHeading=sharkHeading;
   whiteShark.bankCommand=if sharkPilot[1]>.5 then sharkBank else 0;
