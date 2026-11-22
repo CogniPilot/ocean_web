@@ -246,17 +246,19 @@ export function physicsView(T,canvas,status){
     }
   }
   function drawWater(fields,x,y,layer){
+    if(layer==='auto')layer=fields?.near?'near':'wind';
     const captions=[];
     for(const [key,name] of [['wind','Blue wind sea'],['wake','Violet wake FFT'],['near','Gold near-hull field']]){
       if(layer!==key&&layer!=='all')continue;
       const field=fields?.[key];
       if(!field?.values)continue;
-      const dimensions=drawGrid(field,x,y,fields.tide,colors[key]);
-      const frame=field.local?'hull heading':key==='wake'||field.advected?'current drift':'world axes';
+      const height=field.height??fields.tide;
+      const dimensions=drawGrid(field,x,y,height,colors[key]);
+      const frame=field.local?'follows hull heading, offset from incident sea':key==='wake'||field.advected?'current drift':'world axes';
       captions.push(name+' '+dimensions+' · '+frame);
-      if(key==='near')drawSources(field,fields.tide);
+      if(key==='near')drawSources(field,height);
     }
-    return captions.length?captions.join(' | ')+' · Layer elevations relative to tide · Long swell is analytic':
+    return captions.length?captions.join(' | ')+' · Long swell is analytic':
       'Selected wave field unavailable in this view or quality';
   }
   function drawProbes(probes){

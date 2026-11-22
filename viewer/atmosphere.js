@@ -335,6 +335,10 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange},makeSwimmerWater,m
    const old=(data[k]<<8)+data[k+1],latest=(data[k+2]<<8)+data[k+3];
    return Math.round(old+blend*(latest-old));
  }
+ function readBowGrid(target){
+   const blend=U.spectrumBlend.value;
+   for(let i=0;i<target.length;i++)target[i]=(displayedHeight(bowBytes,i*4,blend)-32768)/8192;
+ }
  function encodeSpectrum(data,frame,initialized,subtract){
    for(let i=0;i<frame.length;i++){
      const level=frame[i]-(subtract?subtract[i]:0);
@@ -790,7 +794,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange},makeSwimmerWater,m
    const throughWidth=Math.max(320,width),throughHeight=Math.max(200,height);
    throughRT.setSize(throughWidth,throughHeight);U.transmissionSize.value.set(throughWidth,throughHeight);
  }
- return {U,dome,water,drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
+ return {U,dome,water,drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
 }
 
 // Low maritime cloud banks in world coordinates. Soft particles scatter light

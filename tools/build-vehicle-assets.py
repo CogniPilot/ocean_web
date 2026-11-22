@@ -25,11 +25,22 @@ def coating(name, rgb, metal=0, rough=.38, stripes=False):
         if channel == "Base Color":
             data[:, :, :3] = np.asarray(rgb) * (1 + grain[:, :, None]) + .05*scuff[:, :, None]
             if stripes:
-                # Unlettered graphite stern flash with three silver leading stripes.
-                flank = ((y > 8) & (y < 27)) | ((y > 65) & (y < 85))
-                stripe = x + .35*(y % 57)
-                for lo,hi,color in [(12,70,(.16,.17,.18)),(74,88,(.35,.36,.37)),(92,105,(.47,.48,.49)),(109,122,(.60,.61,.62))]:
-                    data[flank & (stripe>lo) & (stripe<hi), :3] = color
+                # U increases toward the bow. V runs down one flank to the
+                # keel and up the other, so mirror it before slanting the paint.
+                u, v = (x+.5)/512, (y+.5)/128
+                flank_depth = np.interp(np.minimum(v,10/14-v), np.arange(6)/14,
+                                        [0,.16,.47,.77,.94,1])
+                taper = np.sqrt(np.clip((u-.022)/.278, 0, 1))
+                stern_edge = .022 + .13*np.maximum(0, flank_depth-.24)
+                flank_edge = np.minimum(flank_depth-(.18-.025*taper), .51+.25*taper-flank_depth)
+                flank = np.clip(.5+30*flank_edge, 0, 1)*np.clip(.5+512*(u-stern_edge), 0, 1)
+                # The stripe's upper edge reaches farther forward on both sides.
+                stripe = u + .064*(flank_depth-.16)
+                for lo,hi,color in [(0,.240,(.085,.090,.099)),
+                                    (.250,.280,(.54,.56,.58)),
+                                    (.291,.326,(.70,.73,.75))]:
+                    coverage = flank*np.clip(.5+512*np.minimum(stripe-lo,hi-stripe), 0, 1)
+                    data[:, :, :3] = data[:, :, :3]*(1-coverage[:, :, None]) + np.asarray(color)*coverage[:, :, None]
         else:
             image.colorspace_settings.name = 'Non-Color'
             data[:, :, :3] = (rough + 2*grain + .15*scuff)[:, :, None]

@@ -482,7 +482,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    [sails[1].pivot,[cat?-1.82/5.1:-1.04/2.69,0,1],'Jib rotation'],[rudder,[0,0,1],'Rudder hinge'],
    ...(otherRudder?[[otherRudder,[0,0,1],'']]:[])
  ]};
- return {group,cameraPorts,inspection,setBallastVisible(visible){if(carriage)carriage.visible=visible;},patrolTrim(main,jib){sails[0].pivot.rotation.z=main;sails[1].pivot.rotation.z=jib;},
+ return {group,cameraPorts,inspection,ballastPosition:carriage?.position,setBallastVisible(visible){if(carriage)carriage.visible=visible;},patrolTrim(main,jib){sails[0].pivot.rotation.z=main;sails[1].pivot.rotation.z=jib;},
    update(s,ballast,cars,rope,tails,faceTails,stayPath,time){
    if(stayPath){
      for(let i=0;i<3;i++){

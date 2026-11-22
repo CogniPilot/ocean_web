@@ -185,7 +185,7 @@ async function run(){
   const physicsLayers=$('physicsLayers');
   const waveGrids=$('physicsWater'),waveLayer=$('waveLayer');
   waveGrids.onchange=()=>$('waveLayerControl').hidden=!waveGrids.checked;
-  let inspector,physicsEnabled=false,inspectionHull,inspectionTime;
+  let inspector,physicsEnabled=false,inspectionHull,inspectionTime,hullGridSamples;
   function physicsVisibility(){
     physicsEnabled=physicsToggle.checked;
     physicsCanvas.hidden=physicsLayers.hidden=!physicsEnabled;
@@ -240,7 +240,7 @@ async function run(){
   if(!world){
     for(const [input,field] of [['hullStations','stationX'],['hullWidths','beamHalf'],['hullOffset','halfSpacing']])race.set(input,model.get(field));
   }
-  const course=courseScene(T,scene,race),audio=raceAudio();
+  const boardClock=courseScene(T,scene,race),audio=raceAudio();
   let lastCountdown=null,raceTick=0;
   const lastLaps=new Map();
   const normalizeRoom=value=>value.trim().slice(0,64)||'regatta';
@@ -423,34 +423,25 @@ async function run(){
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
   const fpvForward=new T.Vector3(),drawInstruments=firstPersonInstruments($('flightHud'));
   const helmSeat=new T.Vector3(cat ? -1.2 : -.73,0,cat ? .65 : .18),orbitCenter=new T.Vector3();
-  const cameraMenu=$('cameraDepth'),trapezeViews=new Map();
-  if(cat){
-    for(const [side,sign] of [['port',1],['starboard',-1]]){
-      const option=new Option('Trapeze · '+side,'trapeze-'+side);
-      // Eye position outside the side rail, with the skipper aft of the mast.
-      trapezeViews.set(option.value,{option,eye:new T.Vector3(-.92,sign*2.10,.94),yaw:sign*-.32,pitch:-.12});
-      cameraMenu.add(option);
-    }
-  }
-  function showTrapezeViews(show){
-    for(const {option} of trapezeViews.values()){
-      option.hidden=!show;
-      option.disabled=!show;
-    }
+  const cameraMenu=$('cameraDepth'),skipper={yaw:0,pitch:-.12};
+  const skipperOption=cat?new Option('Skipper','ballast'):null;
+  if(skipperOption)cameraMenu.add(skipperOption);
+  function showSkipperView(show){
+    if(skipperOption)skipperOption.hidden=skipperOption.disabled=!show;
   }
   let angle=-.8,distance=motor?11.5:cat?14:5.7,tilt=.16,running=true,manual=true;
   // Keep wildlife framing independent of the vehicle's orbit and zoom.
   const wildlifeOrbits={gull:{angle:-1,tilt:.36,distance:3.3},whale:{angle:-1.15,tilt:.20,distance:14},shark:{angle:-1.15,tilt:.12,distance:6}};
   const wildlifeOrbit=()=>wildlifeOrbits[cameraMenu.value.split('-')[0]];
   const cameraZoom=new Map();
-  const fixedView=view=>trapezeViews.has(view)||view==='fpv'||view==='onboard'||Object.hasOwn(cruiserViews,view);
-  const trapezeLens=Math.tan(Math.PI/6);
+  const fixedView=view=>view==='ballast'||view==='fpv'||view==='onboard'||Object.hasOwn(cruiserViews,view);
+  const skipperLens=Math.tan(Math.PI/6);
   // Bound both vertical and horizontal field of view on wide displays.
-  const trapezeZoomLimit=()=>Math.min(Math.tan(32*Math.PI/180),Math.tan(47.5*Math.PI/180)/camera.aspect)/trapezeLens;
+  const skipperZoomLimit=()=>Math.min(Math.tan(32*Math.PI/180),Math.tan(47.5*Math.PI/180)/camera.aspect)/skipperLens;
   function zoomView(scale){
     const view=cameraMenu.value,orbit=wildlifeOrbit();
     if(fixedView(view)||view.startsWith('npc-')){
-      const limit=trapezeViews.has(view)?trapezeZoomLimit():2.5;
+      const limit=view==='ballast'?skipperZoomLimit():2.5;
       const zoom=Math.min(cameraZoom.get(view)??1,limit);
       cameraZoom.set(view,T.MathUtils.clamp(zoom*scale,Math.min(.32,limit),limit));
     }else if(orbit){
@@ -478,10 +469,9 @@ async function run(){
     }
     if(pointers.size!==1)return;
     const dx=(e.clientX-x)*.008,dy=(e.clientY-y)*.006;
-    const trapeze=trapezeViews.get(cameraMenu.value);
-    if(trapeze){
-      trapeze.yaw=T.MathUtils.clamp(trapeze.yaw-dx,-1.8,1.8);
-      trapeze.pitch=T.MathUtils.clamp(trapeze.pitch-dy,-1.1,1.1);
+    if(cameraMenu.value==='ballast'){
+      skipper.yaw=T.MathUtils.clamp(skipper.yaw-dx,-1.8,1.8);
+      skipper.pitch=T.MathUtils.clamp(skipper.pitch-dy,-1.1,1.1);
     }else{
       const orbit=wildlifeOrbit(),elevation=T.MathUtils.clamp((orbit?.tilt??tilt)+dy,-1.45,1.4);
       if(orbit){orbit.angle-=dx;orbit.tilt=elevation;}
@@ -500,6 +490,7 @@ async function run(){
     if(view==='deck')tilt=.23;
     if(view==='keel')tilt=-.9;
   };
+  let moveTraveler;
   if(cat){
     const marker=$('showBallastMarker');
     try{marker.checked=localStorage.getItem('ocean-ballast-marker')!=='off';}catch{}
@@ -532,6 +523,25 @@ async function run(){
     }
     for(const id of ['autoDeck','mainCar','jibCar','jibSheet'])$(id).oninput=deck;
     deck();
+    moveTraveler=code=>{
+      const auto=$('autoDeck'),main=$('mainCar'),jib=$('jibCar');
+      if(auto.checked){
+        main.value=Math.round(model.get('mainCar')*100);
+        jib.value=Math.round(model.get('jibCar')*100);
+        auto.checked=false;
+      }
+      const step=5;
+      if(code==='ArrowUp'){
+        const leeward=Math.sin(model.get('vane'))>=0?-1:1;
+        main.value=main.valueAsNumber+leeward*step;
+      }else if(code==='ArrowDown'){
+        const position=main.valueAsNumber;
+        main.value=Math.sign(position)*Math.max(0,Math.abs(position)-step);
+      }else{
+        jib.value=jib.valueAsNumber+(code==='ArrowRight'?step:-step);
+      }
+      deck();
+    };
   }
   function applySea(){
     const level=Number($('seaState').value);
@@ -974,7 +984,7 @@ async function run(){
     const gull=gullIndex(targetSelect.value);
     if(gull>=0||remote.npc.animals.has(targetSelect.value)||['whale','shark'].includes(targetSelect.value)){
       if(!animalId)viewBeforeAnimal=$('cameraDepth').value;
-      showTrapezeViews(false);
+      showSkipperView(false);
       if(sub){sub.active=false;sub.mapGroup.visible=false;}
       drone?.select(false);
       $('cutMotors').hidden=$('flightKeys').hidden=true;
@@ -1023,7 +1033,7 @@ async function run(){
     $('view').focus({preventScroll:true});
     $('onboardOption').hidden=!sub?.active;
     $('droneFpvOption').hidden=!flying;
-    showTrapezeViews(targetSelect.value==='boat');
+    showSkipperView(targetSelect.value==='boat');
     const viewSelect=$('cameraDepth');
     for(const option of viewSelect.options){
       if(option.value==='keel'||option.value==='line')option.hidden=flying;
@@ -1047,7 +1057,7 @@ async function run(){
   let lastDial=-Infinity;
   const requestedView=url.searchParams.get('view');
   if(Object.hasOwn(wildlifeOrbits,requestedView))$('cameraDepth').value=requestedView;
-  if(targetSelect.value==='boat'&&trapezeViews.has(requestedView))cameraMenu.value=requestedView;
+  if(targetSelect.value==='boat'&&skipperOption&&['ballast','trapeze-port','trapeze-starboard'].includes(requestedView))cameraMenu.value=skipperOption.value;
 
   function helm(){
     for(const draw of stickIndicators)draw();
@@ -1071,7 +1081,14 @@ async function run(){
       ['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
     e.preventDefault();toggleMap();
   });
-  addEventListener('keydown',e=>{if(!mapDialog.open&&e.code!=='KeyM'&&manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){if(animalId){if(e.code==='KeyF'&&!flyingGull()){if(!e.repeat)$('animalFeed').click();return;}if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat){if(flyingGull())remote.npc.gullCall(gullIndex(animalId));else $('animalBreach').click();}return;}if(e.code.startsWith('Arrow'))e.preventDefault();}else if(drone?.active){
+  addEventListener('keydown',e=>{
+    if(!moveTraveler||mapDialog.open||targetSelect.value!=='boat'||!manual||
+      e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||e.target.isContentEditable||
+      ['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)||!e.code.startsWith('Arrow'))return;
+    e.preventDefault();
+    moveTraveler(e.code);
+  });
+  addEventListener('keydown',e=>{if(!e.defaultPrevented&&!mapDialog.open&&e.code!=='KeyM'&&manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){if(animalId){if(e.code==='KeyF'&&!flyingGull()){if(!e.repeat)$('animalFeed').click();return;}if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat){if(flyingGull())remote.npc.gullCall(gullIndex(animalId));else $('animalBreach').click();}return;}if(e.code.startsWith('Arrow'))e.preventDefault();}else if(drone?.active){
       if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat)$('cutMotors').click();return;}
       if(e.code.startsWith('Arrow'))e.preventDefault();
     }else if(sub?.active&&e.code.startsWith('Arrow'))e.preventDefault();
@@ -1703,19 +1720,21 @@ async function run(){
         ocean.U.boat.value.set(orbitCenter.x,orbitCenter.y,motor?motor.group.rotation.z:0,0);
       }
       const viewMode=$('cameraDepth').value;
-      const trapeze=trapezeViews.get(viewMode);
-      const baseFov=trapeze?60:viewMode==='motorHelm'?62:['motorBow','motorStern','motorPort','motorStarboard','onboard'].includes(viewMode)?64:52;
+      const skipperView=viewMode==='ballast'&&boat?.ballastPosition;
+      const baseFov=skipperView?60:viewMode==='motorHelm'?62:['motorBow','motorStern','motorPort','motorStarboard','onboard'].includes(viewMode)?64:52;
       const zoom=fixedView(viewMode)?cameraZoom.get(viewMode)??1:1;
-      const lens=trapeze?Math.min(zoom,trapezeZoomLimit()):zoom;
+      const lens=skipperView?Math.min(zoom,skipperZoomLimit()):zoom;
       const fov=lens===1?baseFov:T.MathUtils.radToDeg(2*Math.atan(lens*Math.tan(T.MathUtils.degToRad(baseFov/2))));
       if(camera.fov!==fov){camera.fov=fov;camera.updateProjectionMatrix();lastReflection=-Infinity;}
       camera.up.set(0,0,1);
-      if(trapeze){
+      if(skipperView){
         const orientation=boat.group.quaternion;
-        const horizontalLook=Math.cos(trapeze.pitch);
-        camera.position.copy(trapeze.eye).applyQuaternion(orientation).add(boat.group.position);
+        const horizontalLook=Math.cos(skipper.pitch);
+        camera.position.copy(boat.ballastPosition);
+        camera.position.z+=.72;
+        boat.group.localToWorld(camera.position);
         camera.up.applyQuaternion(orientation);
-        fpvForward.set(horizontalLook*Math.cos(trapeze.yaw),horizontalLook*Math.sin(trapeze.yaw),Math.sin(trapeze.pitch));
+        fpvForward.set(horizontalLook*Math.cos(skipper.yaw),horizontalLook*Math.sin(skipper.yaw),Math.sin(skipper.pitch));
         camera.lookAt(fpvForward.applyQuaternion(orientation).add(camera.position));
       }else{
         const inspectionOrbit=physicsEnabled&&boat&&!animalId&&!sub?.active&&!drone?.active&&viewMode==='deck';
@@ -1859,11 +1878,15 @@ async function run(){
             const water=body.water={tide:previousSurface?.tide??ocean.U.tide.value};
             if(previousSurface?.tile)water.wind={values:previousSurface.tile,length:64};
             if(world&&lastHullHeight){
-              water.wake={values:lastHullHeight,length:world.get('waves.period'),east:nextDrift.x,north:nextDrift.y};
-              const frame=world.get('bowFrame'),values=world.get('bowHeight');
-              if(values&&frame&&(frame[2]||frame[3])){
-                const [east,north,cos,sin]=frame;
-                water.near={values,east,north,cos,sin,length:8,local:true,sources:world.get('bowSources')};
+              const drift=ocean.U.spectrumDrift.value;
+              water.wake={values:lastHullHeight,length:world.get('waves.period'),east:drift.x,north:drift.y};
+              const localHull=sailing||inspected===motor?.group;
+              if(localHull&&ocean.U.bowAvailable.value&&['auto','near','all'].includes(waveLayer.value)){
+                hullGridSamples??=new Float32Array(32*32);
+                ocean.readBowGrid(hullGridSamples);
+                const {x:east,y:north,z:heading}=ocean.U.boat.value;
+                water.near={values:hullGridSamples,east,north,cos:Math.cos(heading),sin:Math.sin(heading),length:8,local:true,
+                  height:ocean.sampleSurface(east,north),sources:world.get('bowSources')};
               }
             }else if(!world&&lastWaveFrame){
               const {height,wake,origin:[east,north],period:length}=lastWaveFrame;
