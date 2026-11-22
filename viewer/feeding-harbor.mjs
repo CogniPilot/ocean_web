@@ -27,6 +27,11 @@ export function feedingHarbor(T,scene,room,playSound){
       }
       const m=models[i].model;if(!m)return;
       m.set('wind',wind);m.set('seaLevel',level);
+      const id='gull-'+(i+1);
+      if(room.seat(id)){
+        const {axes:[turn,climb,flap],bank}=room.command(id);
+        m.set('pilot',[1,climb,Math.max(-1,Math.min(1,turn-bank)),flap]);
+      }else m.set('pilot',[0,0,0,0]);
       for(let j=0;j<steps;j++)m.advance(.01);
       h.gulls[i]=m.getMany(['x','wings','memory']).flat();
     });
@@ -68,7 +73,7 @@ export function feedingHarbor(T,scene,room,playSound){
       const next=h.gulls[i];if(!next){birds[i].group.visible=false;continue;}
       const b=birds[i];
       if(next!==b.next){b.old=b.next??next;b.next=next;}
-      b.draw(next.slice(0,12).map((x,j)=>b.old[j]+(x-b.old[j])*f));
+      b.draw(next.map((x,j)=>(b.old[j]??x)+(x-(b.old[j]??x))*f));
     }
     if(initialSounds!==true||authority!==room.soundOwner){
       lastSequence=h.sequence;authority=room.soundOwner;initialSounds=true;

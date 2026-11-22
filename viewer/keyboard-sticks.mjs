@@ -30,3 +30,10 @@ export function pilotSticks(axis){
     roll:axis('ArrowUp','ArrowDown'), pitch:axis('ArrowLeft','ArrowRight')
   };
 }
+
+export function animalSticks(axis){
+  return {
+    throttle:axis('KeyW','KeyS'),yaw:axis('KeyA','KeyD'),
+    pitch:axis('ArrowUp','ArrowDown'),roll:axis('ArrowRight','ArrowLeft')
+  };
+}

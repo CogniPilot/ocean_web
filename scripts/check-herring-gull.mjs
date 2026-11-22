@@ -35,6 +35,22 @@ switched.set('glideOnly',0);
 switched.advance(dt);
 assert(switched.get('x')[7]>0,'Releasing glide must resume the held flap command on the next step');
 
+async function fly(pitch,bank,flap){
+  const pilot=await open({startState:[0,0,80,0,13.4,0,0,0]});
+  pilot.set('pilot',[1,pitch,bank,flap]);
+  for(let i=0;i<100;i++)pilot.advance(dt);
+  return pilot.getMany(['x','memory']);
+}
+for(const sign of [-1,1]){
+  const [[,,altitude], [,,pitch]]=await fly(sign,0,1);
+  assert(sign*(altitude-80)>1&&sign*pitch>.1,'Pitch should climb or descend as commanded');
+  const [[,,,heading],[bank]]=await fly(0,sign,1);
+  assert(sign*bank>.6&&sign*heading>.2,'Bank should turn the bird in the commanded direction');
+}
+const [[,,,,,,,flapping]]=await fly(0,0,1);
+const [[,,,,,,,gliding]]=await fly(0,0,-1);
+assert(flapping>.9&&gliding===0,'Flap and glide commands must control wing strokes');
+
 const bird=await open({wind:[0,11]});
 const cycles=[];
 let previousStroke=0,lastCrossing=0,peakPower=0,power=0,airspeed=0,samples=0,gaps=0,lastMode=1;

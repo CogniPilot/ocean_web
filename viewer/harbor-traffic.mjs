@@ -1,4 +1,4 @@
-import {writeAnimalContacts} from './npc-room.mjs';
+import {gullIndex,writeAnimalContacts} from './npc-room.mjs';
 import {whaleEffects} from './whale-effects.mjs';
 import {feedingHarbor} from './feeding-harbor.mjs';
 import {greatWhiteLength} from './wildlife-wake.mjs';
@@ -317,12 +317,16 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
   const animals=new Float64Array(90);
   function contacts(){return writeAnimalContacts(room.animals,current,animals);}
   function cameraSubject(view){
-    if(view==='gull'||view.startsWith('gull-')){
-      const gull=feeding.gull(view==='gull'?0:Number(view.slice(5))-1);
+    const index=gullIndex(view);
+    if(index>=0){
+      const gull=feeding.gull(index);
       return gull?.visible?gull:null;
     }
     const animal=visuals.get(view)?.visual;
     return animal?.group.visible ? animal.group : null;
   }
-  return {update,advanceHost,wakes,fish(){return current?feeding.fish(current[0]):null;},ping(a){return current?feeding.ping(a,a.frame??current,current[0]):null;},surfaceWakes,contacts,cameraSubject,watch(id){localActor=id;},frame(id){return room.animals.get(id)?.frame??current;}};
+  return {update,advanceHost,wakes,fish(){return current?feeding.fish(current[0]):null;},ping(a){return current?feeding.ping(a,a.frame??current,current[0]):null;},surfaceWakes,contacts,cameraSubject,watch(id){localActor=id;},frame(id){
+    const index=gullIndex(id);
+    return index>=0?room.habitat.gulls[index]:room.animals.get(id)?.frame??current;
+  }};
 }

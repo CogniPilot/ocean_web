@@ -1,3 +1,9 @@
+export function gullIndex(id){
+  if(id==='gull')return 0;
+  const numbered=typeof id==='string'&&/^gull-([1-6])$/.exec(id);
+  return numbered?Number(numbered[1])-1:-1;
+}
+
 // The earliest connected participant runs the NPCs and owns room weather.
 // RTTs use local monotonic clocks. Comparing two links needs at least three players.
 export function npcRoom(){
@@ -5,11 +11,13 @@ export function npcRoom(){
   const members=new Map();
   const maxGulls=6;
   const gullSeed=i=>[4+i*2,-12+i*2,8+i*.6,.6*i,13.4,0,2*i,0,.1,0,0,0];
-  const emptyHabitat=()=>({restock:Array(36).fill(0),gulls:[],sounds:[],sequence:0,time:0});
+  const emptyHabitat=()=>({restock:Array(36).fill(0),gulls:[],gullSeats:[],sounds:[],sequence:0,time:0});
   let habitat=emptyHabitat(),habitatOwner,session=0,lastCall=-Infinity,callRequested=null;
   const finiteRow=(v,n)=>Array.isArray(v)&&v.length===n&&v.every(Number.isFinite);
   function acceptHabitat(h){
     return h&&finiteRow(h.restock,36)&&Array.isArray(h.gulls)&&h.gulls.length<=maxGulls&&h.gulls.every(r=>finiteRow(r,12)||finiteRow(r,19))&&
+      (h.gullSeats===undefined||(Array.isArray(h.gullSeats)&&h.gullSeats.length===h.gulls.length&&
+        h.gullSeats.every(seat=>seat===null||typeof seat==='string')))&&
       (h.time===undefined||Number.isFinite(h.time)&&h.time>=0)&&Number.isSafeInteger(h.sequence)&&h.sequence>=0&&Array.isArray(h.sounds)&&h.sounds.length<=16&&
       h.sounds.every(s=>Array.isArray(s)&&s.length===7&&['gull','spout','impact'].includes(s[2])&&s.every((v,i)=>i===2||Number.isFinite(v)));
   }
@@ -23,11 +31,42 @@ export function npcRoom(){
     }else{animal.seat=null;animal.feedAt=undefined;}
     controls.delete(animal.id);revision++;
   }
+  const gullId=index=>'gull-'+(index+1);
+  function releaseGull(index){
+    habitat.gullSeats[index]=null;
+    controls.delete(gullId(index));revision++;
+  }
+  function releaseSeats(who){
+    for(const a of animals.values())if(a.seat===who)release(a);
+    habitat.gullSeats.forEach((seat,index)=>{if(seat===who)releaseGull(index);});
+  }
+  function steer(id,msg){
+    if(!Array.isArray(msg.axes)||msg.axes.length!==3||!msg.axes.every(v=>Number.isFinite(v)&&Math.abs(v)<=1))return;
+    const bank=Number.isFinite(msg.bank)&&Math.abs(msg.bank)<=1?msg.bank:0;
+    controls.set(id,{axes:msg.axes,bank,breach:controls.get(id)?.breach??false,at:performance.now()});
+  }
+  function addGull(){
+    const index=habitat.gulls.length;
+    habitat.gulls.push(gullSeed(index));habitat.gullSeats.push(null);revision++;
+    return gullId(index);
+  }
   function act(who,msg){
     if(msg.type==='gullCall'){
       const index=msg.index??0;
       if(Number.isInteger(index)&&index>=0&&index<habitat.gulls.length&&performance.now()-lastCall>1200){
         callRequested=index;lastCall=performance.now();
+      }
+      return;
+    }
+    const index=gullIndex(msg.id);
+    if(index>=0){
+      if(index===0&&msg.type==='occupy'&&habitat.gulls.length===0)addGull();
+      if(index>=habitat.gulls.length)return;
+      const seat=habitat.gullSeats[index];
+      if(msg.type==='occupy'&&!seat){releaseSeats(who);habitat.gullSeats[index]=who;revision++;}
+      if(seat===who){
+        if(msg.type==='release')releaseGull(index);
+        if(msg.type==='steer')steer(gullId(index),msg);
       }
       return;
     }
@@ -37,16 +76,13 @@ export function npcRoom(){
     }
     if(!a)return;
     if(msg.type==='occupy'&&!a.seat){
-      for(const other of animals.values())if(other.seat===who)release(other);
+      releaseSeats(who);
       a.seat=who;revision++;
     }
     if(a.seat!==who)return;
     if(msg.type==='feed'&&last?.frame&&(a.feedAt==null||last.frame[0]-a.feedAt>(a.kind==='whale'?3.2:1.2)))a.feedAt=last.frame[0];
     if(msg.type==='release')release(a);
-    if(msg.type==='steer'&&Array.isArray(msg.axes)&&msg.axes.length===3&&msg.axes.every(v=>Number.isFinite(v)&&Math.abs(v)<=1)){
-      const bank=Number.isFinite(msg.bank)&&Math.abs(msg.bank)<=1?msg.bank:0;
-      controls.set(a.id,{axes:msg.axes,bank,breach:controls.get(a.id)?.breach??false,at:performance.now()});
-    }
+    if(msg.type==='steer')steer(a.id,msg);
     if(msg.type==='breach'){const command=controls.get(a.id)??{axes:[0,0,0],at:performance.now()};command.breach=true;controls.set(a.id,command);}
   }
   function request(msg){if(owner===self){act(self??'local',msg);if(msg.type==='release'||msg.type==='occupy')sync();}else send(msg,owner);}
@@ -56,7 +92,7 @@ export function npcRoom(){
     for(const [id,m] of members){
       if(target&&id!==target)continue;
       if(m.version===2){
-        const shared=m.extendedGulls?habitat:{...habitat,gulls:habitat.gulls.slice(0,2).map(r=>r.slice(0,12))};
+        const shared=m.extendedGulls?habitat:{...habitat,gulls:habitat.gulls.slice(0,2).map(r=>r.slice(0,12)),gullSeats:habitat.gullSeats.slice(0,2)};
         const frame=m.sharkBank?last?.frame:last?.frame?.slice(0,203);
         const roster=m.sharkBank?items:items.map(a=>a.frame?.length>203?{...a,frame:a.frame.slice(0,203)}:a);
         send({type:'harbor',version:2,extendedGulls:true,sharkBank:true,joined,frame,items:roster,habitat:shared},id);
@@ -102,7 +138,11 @@ export function npcRoom(){
             }
             if([...next.values()].some(a=>!animals.has(a.id)||animals.get(a.id).seat!==a.seat)||next.size!==animals.size)revision++;
             animals=next;
-            if(data.type==='harbor'&&acceptHabitat(data.habitat)){habitat=data.habitat;habitatOwner=peerId;}
+            if(data.type==='harbor'&&acceptHabitat(data.habitat)){
+              const {gulls,gullSeats=gulls.map(()=>null)}=data.habitat;
+              if(gullSeats.length!==habitat.gullSeats.length||gullSeats.some((seat,index)=>seat!==habitat.gullSeats[index]))revision++;
+              habitat={...data.habitat,gullSeats};habitatOwner=peerId;
+            }
             if(data.type==='harbor')last=data.frame?{frame:data.frame,owner}:undefined;
             return;
           }
@@ -135,13 +175,15 @@ export function npcRoom(){
       issued=performance.now();lastPing=now;pingRound++;
       send({type:'ping',round:pingRound,rtt:localRtt??null});elect();
     },
-    join:hello,leave(id){members.delete(id);elect();for(const a of animals.values())if(a.seat===id)release(a);if(owner===self)sync();},
+    join:hello,leave(id){members.delete(id);elect();releaseSeats(id);if(owner===self)sync();},
     get owner(){return owner;},get host(){return owner===self;},get latest(){return last;},
     get animals(){return animals;},get revision(){return revision;},get self(){return self??'local';},
+    seat(id){const index=gullIndex(id);return index<0?animals.get(id)?.seat:habitat.gullSeats[index];},
     select(id){request({type:'occupy',id});},release(id){request({type:'release',id});},
     steer(id,axes,bank=0){request({type:'steer',id,axes,bank});},breach(id){request({type:'breach',id});},
     command(id){
-      const c=controls.get(id);if(!c)return {axes:[0,0,0],bank:0,breach:false};
+      const index=gullIndex(id),c=controls.get(index<0?id:gullId(index));
+      if(!c)return {axes:[0,0,0],bank:0,breach:false};
       const fresh=performance.now()-c.at<800;
       const result={axes:fresh?c.axes:[0,0,0],bank:fresh?(c.bank??0):0,breach:c.breach};
       c.breach=false;return result;
@@ -161,8 +203,7 @@ export function npcRoom(){
     spawn(kind){
       if(!this.canSpawn(kind))return;
       if(kind==='gull'){
-        habitat.gulls.push(gullSeed(habitat.gulls.length));sync();
-        return 'gull-'+habitat.gulls.length;
+        const id=addGull();sync();return id;
       }
       let number=2;while(animals.has(kind+'-'+number))number++;
       const id=animals.has(kind)?kind+'-'+number:kind;

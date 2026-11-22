@@ -5,6 +5,7 @@ model HerringGull "Flap-gliding herring gull with paired wing strips and a trimm
   parameter Real beatFrequency=3.13,rollInertia=.027,pitchInertia=.0057;
   parameter Real maxMusclePower=35 "Combined positive aerodynamic work limit [W]";
   input Real wind[2],seaLevel,offset,glideOnly;
+  input Real pilot[4]=zeros(4) "Manual enable, climb, left bank, flap or glide";
   input Real straightFlight=0 "Hold initial heading for straight-flight comparisons",trimSpeed=12.7;
   discrete Real flapping(start=startMemory[7],fixed=true);
   output Real x[8](start=startState,each fixed=true) "ENU, heading, horizontal airspeed, vertical speed, phase and stroke amplitude";
@@ -30,7 +31,8 @@ equation
   end when;
   // These input modes are held between communication points. Their changes
   // already arrive at a step boundary, so they need no continuous root search.
-  drive=if noEvent(glideOnly>.5) then 0 else flapping;
+  drive=if noEvent(glideOnly>.5 or (pilot[1]>.5 and pilot[4]<-.15)) then 0
+    elseif noEvent(pilot[1]>.5 and pilot[4]>.15) then 1 else flapping;
   rate=2*3.14159265*beatFrequency;
   der(x[8])=(drive-x[8])/.32;
   der(x[7])=rate;
@@ -43,14 +45,15 @@ equation
   airCourse=if noEvent(straightFlight>.5) then orbit else orbit+asin(max(-.94,min(.94,
     (wind[1]*sin(orbit)-wind[2]*cos(orbit))/max(2,x[5]))));
   headingError=atan2(sin(airCourse-x[4]),cos(airCourse-x[4]));
-  bankTarget=max(-.70,min(.70,1.25*headingError));
+  bankTarget=if noEvent(pilot[1]>.5) then .70*pilot[3] else max(-.70,min(.70,1.25*headingError));
   rollCommand=max(-.095,min(.095,.16*(bankTarget-bank)-.040*rollRate));
   der(differential)=max(-.95,min(.95,(rollCommand-differential)/.10));
 
   gamma=atan2(x[6],max(1,x[5]));
   pressure=.5*rho*(x[5]^2+x[6]^2);
   refCl=mass*9.81/max(1,pressure*area*cos(bank));
-  desiredVz=(if noEvent(glideOnly>.5) then -.65 else max(-1,min(1.35,.55*(zTarget+2.3-x[3]))))+
+  desiredVz=(if noEvent(pilot[1]>.5) then 3*pilot[2]+max(0,min(2,.9*(seaLevel+2-x[3])))
+            elseif noEvent(glideOnly>.5) then -.65 else max(-1,min(1.35,.55*(zTarget+2.3-x[3]))))+
             max(-2,min(1.5,.75*(x[5]-trimSpeed)));
   pitchTarget=max(-.45,min(.52,gamma+refCl/4.7-.065+.075*(desiredVz-x[6])));
   tailCommand=max(-.30,min(.30,-.73*(pitchTarget-pitch)+.076*pitchRate));

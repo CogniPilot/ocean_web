@@ -4,7 +4,7 @@ Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone
 
 On a phone, try **Fast (simplified water)** under **Settings → Performance**. It uses the animated sky for water reflections and omits object reflections, refraction and hull wakes. [Launch the Hobie in Fast mode](https://cognipilot.github.io/ocean_web/?boat=Hobie16&quality=fast)
 
-New sessions start with your selected vehicle or animal. To add wildlife, open **Settings → Spawn wildlife**, choose a species, and tap **Spawn NPC**. Spawning a herring gull also switches the camera to it. [Launch the cruiser](https://cognipilot.github.io/ocean_web/?control=motorboat&quality=fast) · [Swim as the humpback](https://cognipilot.github.io/ocean_web/?control=whale&quality=fast) · [Swim as the great white](https://cognipilot.github.io/ocean_web/?control=shark&quality=fast)
+New sessions start with your selected vehicle or animal. To add wildlife, open **Settings → Spawn wildlife**, choose a species, and tap **Spawn NPC**. Spawning a herring gull also switches the camera to it. [Launch the cruiser](https://cognipilot.github.io/ocean_web/?control=motorboat&quality=fast) · [Swim as the humpback](https://cognipilot.github.io/ocean_web/?control=whale&quality=fast) · [Swim as the great white](https://cognipilot.github.io/ocean_web/?control=shark&quality=fast) · [Fly the herring gull](https://cognipilot.github.io/ocean_web/?control=gull&quality=fast)
 
 Choose **Piccard Sub** to explore the shipwreck. You start in the cockpit with the sonar map visible and autopilot surveying the wreck interior and upper hull. **Take control** lets you pilot the same dive, and **Resume survey** hands it back to autopilot. Enable **Multiplayer** and share **Copy room link** to explore together, each in your own sub. [Launch the sub](https://cognipilot.github.io/ocean_web/?control=sub)
 
@@ -126,6 +126,11 @@ The keel and rudder use local water-relative flow, yaw-induced velocity, effecti
 
 ## Herring gull flight
 
+Choose **Herring gull** at launch or under **Control**. On the right stick,
+push up or down to pitch and left or right to bank. The arrow keys do the same.
+A/D also turns, W flaps, S glides, and Space calls. Release the flap or glide
+control to let the bird choose its stroke.
+
 The harbour host advances each gull at 100 Hz. An inner and outer strip on each wing resolve airspeed, stroke velocity, roll rate, incidence and drag. Differential incidence produces a roll moment. Wing loading and the aft tail produce pitch moments. A bounded actuator trims each surface, and the accumulated lift banks the flight path. Guests receive the integrated attitude, wing pose and state needed to take over the flight.
 
 The representative bird uses a mass of 0.705 kg, a span of 1.35 m and a wing area of 0.200 m². A field study reported these dimensions and an average equivalent airspeed of 13.4 ± 1.37 m/s over 47 herring gull runs. Separate migration observations reported active wingbeats at 3.13 Hz and airspeed of 11.8 ± 2.07 m/s. The model uses that wingbeat frequency as a calibration input. [Field airspeed and morphology](https://doi.org/10.1098/rsif.2013.0419) · [Measured wingbeats, Table 2](https://tethys.pnnl.gov/sites/default/files/publications/Pennycuick_2001.pdf)
@@ -193,7 +198,7 @@ Spawn a whale or shark from **Settings → Spawn wildlife** to enable its camera
 
 ### Piloting and stepping the humpback
 
-Choose **Humpback whale** under **Control**. W/S adjusts swim effort, A/D turns, ←/→ pitches up/down, and ↑/↓ banks starboard/port by changing the incidence of the port and starboard pectorals. Release the roll key to command level bank. Space triggers the breach cycle.
+Choose **Humpback whale** or **Great white shark** under **Control**. W/S adjusts swim effort, A/D turns, ↑/↓ pitches up/down, and ←/→ banks port/starboard. The right touch stick uses the same directions. Release the roll input to command level bank. Space triggers the breach cycle.
 
 Node can step the same `HarborTraffic` Wasm plant without a renderer or room. Each action spans 0.01 s of simulated time. The five inputs range from −1 to +1. In order, they command port and starboard fin incidence (±1.20 rad each), peduncle angle relative to the body (±0.85 rad), fluke feather (±1.15 rad) and lateral sculling effort. The joint servo retains its torque and power limits. The ordinary depth, roll, course and speed pilots relinquish those actuators in direct mode.
 
