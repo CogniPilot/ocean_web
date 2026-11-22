@@ -12,11 +12,14 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   input Real waterLevel=0,whaleTurn=0,sharkTurn=0;
   input Real whalePilot[4]={0,0,0,-1},sharkPilot[4]={0,0,0,-1};
   input Real whaleBank=0,whaleDirect=0,whaleActuators[5]=zeros(5);
+  input Real sharkBank=0;
   output Real whaleContact[2],whaleFinLift[2] "Normal load (N), minimum gap (m); port and starboard lift (N)";
   parameter Real initialFish[10]={1.65,0,0,0,0,0,0,0,0,0};
   output Real sharkTrunkFlex "Anterior trunk flexion in radians";
-  GreatWhite whiteShark(startState=initialFish);
+  parameter Real initialSharkBank[2]={0,0};
+  GreatWhite whiteShark(startState=initialFish,startBank=initialSharkBank);
   output Real fish[10],sharkTailForce,sharkTailPower,sharkFin;
+  output Real sharkBankState[2] "Roll and roll rate";
   output Real sharkContact[2] "Terrain normal load (N) and minimum signed gap (m)";
   input Real craftHull[32,5]=zeros(32,5) "Hull class (Hobie, sloop, cruiser), yaw, heel, pitch and yaw rate";
   input Real npcTraffic[10,9]=zeros(10,9) "Shared animals surrounding the background Hobie";
@@ -72,7 +75,7 @@ equation
     hullReaction=vesselReactions({1,swimmer.x[1],swimmer.x[2],swimmer.x[3],swimmer.x[10],swimmer.x[6],
       swimmer.x[4]*cos(swimmer.x[10])-swimmer.x[15]*sin(swimmer.x[10]),
       swimmer.x[4]*sin(swimmer.x[10])+swimmer.x[15]*cos(swimmer.x[10]),swimmer.x[12]},
-      {2,state[10],state[11],state[12],state[13],fish[3],whiteShark.velocity[1],whiteShark.velocity[2],0},craft,craftHull);
+      {2,state[10],state[11],state[12],state[13],fish[3],whiteShark.velocity[1],whiteShark.velocity[2],sharkBankState[1]},craft,craftHull);
   end when;
   swimmer.boatLoad=hullReaction[1,:];whiteShark.boatLoad=hullReaction[2,:];
   der(state[1])=1;
@@ -104,7 +107,7 @@ equation
   sharkVisit=if sharkPilot[1]>.5 then {1,state[13]+sharkTurn,1.7,1,0,0} else sharkGuide[1:6];
   whaleSources=SwimmerSections(true,{swimmer.x[1],swimmer.x[2],swimmer.x[3],swimmer.x[10],swimmer.x[6],swimmer.x[12]},
     {localSurface,whaleSlope[1],whaleSlope[2]},swimmer.x[8]-swimmer.x[6],swimmer.x[17],swimmer.x[18],swimmer.stations[:,3]);
-  sharkSources=SwimmerSections(false,{state[10],state[11],state[12],state[13],fish[3],0},
+  sharkSources=SwimmerSections(false,{state[10],state[11],state[12],state[13],fish[3],sharkBankState[1]},
     {sharkSurface,sharkSlope[1],sharkSlope[2]},fish[6],0,0,zeros(6));
   swimmer.bankCommand=whaleBank;swimmer.directDrive=whaleDirect;swimmer.actuators=whaleActuators;
   whaleContact={swimmer.ground[10],swimmer.ground[11]};whaleFinLift={swimmer.portLift,swimmer.starboardLift};
@@ -139,6 +142,8 @@ equation
   whiteShark.east=state[10];whiteShark.north=state[11];sharkContact=whiteShark.ground[6:7];
   whiteShark.current=currentVelocity;whiteShark.drive=strokeGain;
   whiteShark.desiredSpeed=fishSpeed;whiteShark.desiredPitch=fishRequested;whiteShark.desiredHeading=sharkHeading;
+  whiteShark.bankCommand=if sharkPilot[1]>.5 then sharkBank else 0;
+  sharkBankState=whiteShark.bank;
   sharkTrunkFlex=whiteShark.trunkFlex;
   fish=whiteShark.x;sharkTailForce=whiteShark.tailThrust;sharkTailPower=whiteShark.shaftPower;sharkFin=whiteShark.finAngle;
   der(state[10])=whiteShark.velocity[1];der(state[11])=whiteShark.velocity[2];der(state[12])=fish[2];

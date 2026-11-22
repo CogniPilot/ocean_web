@@ -108,7 +108,8 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
   function resumed(frame){
     return frame?{initialState:frame.slice(0,17),initialSwimmer:frame.slice(24,42),initialImpact:frame.slice(60,65),
       ...(frame.length>=70?{initialFish:[...frame.slice(65,70),...(frame.length>=75?frame.slice(70,75):[0,0,0,0,0])]}:{}),
-      ...(frame.length>=81?{initialGuidance:frame.slice(75,81)}:{})}:{};
+      ...(frame.length>=81?{initialGuidance:frame.slice(75,81)}:{}),
+      ...(frame.length>=205?{initialSharkBank:frame.slice(203,205)}:{})}:{};
   }
   function pilotInputs(a,frame){
     if(!a)return {};
@@ -127,7 +128,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     return {
       [isWhale?'whalePilot':'sharkPilot']:[Number(Boolean(a.seat)),pitch,effort,age],
       [isWhale?'whaleTurn':'sharkTurn']:turn,
-      ...(isWhale?{whaleBank:roll}:{}),
+      [isWhale?'whaleBank':'sharkBank']:roll,
       [isWhale?'whaleSlope':'sharkSlope']:[(sampleSurface(e+1,n)-sampleSurface(e-1,n))/2,(sampleSurface(e,n+1)-sampleSurface(e,n-1))/2],
       [isWhale?'localSurface':'sharkSurface']:sampleSurface(e,n)
     };
@@ -241,7 +242,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       if(!frame){v.group.visible=false;continue;}
       if(entry.frame!==frame){
         entry.previous=entry.frame??frame;entry.frame=frame;
-        entry.shown??=new Float64Array(203);
+        entry.shown??=new Float64Array(205);
       }
       const row=entry.shown,previous=entry.previous;
       for(let k=0;k<row.length;k++)row[k]=(previous[k]??0)+f*((frame[k]??0)-(previous[k]??0));
@@ -254,7 +255,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
         v.group.position.fromArray(row,17);v.group.rotation.set(row[35],-row[21],row[20],'ZYX');v.articulate(row,24);
         entry.effects.update(row,row[0],v,wind);
       }else{
-        v.group.position.fromArray(row,9);v.group.rotation.set(0,-row[67],row[12],'ZYX');v.articulate(row);
+        v.group.position.fromArray(row,9);v.group.rotation.set(row[203],-row[67],row[12],'ZYX');v.articulate(row);
       }
     }
   }

@@ -14,7 +14,7 @@ export function npcRoom(){
       h.sounds.every(s=>Array.isArray(s)&&s.length===7&&['gull','spout','impact'].includes(s[2])&&s.every((v,i)=>i===2||Number.isFinite(v)));
   }
   let animals=new Map(),controls=new Map(),revision=0;
-  const validFrame=f=>Array.isArray(f)&&[65,70,202,203].includes(f.length)&&f.every(Number.isFinite);
+  const validFrame=f=>Array.isArray(f)&&[65,70,202,203,205].includes(f.length)&&f.every(Number.isFinite);
   const validKind=kind=>kind==='whale'||kind==='shark';
   function release(animal){
     if(animal.player){
@@ -186,7 +186,7 @@ export function writeAnimalContacts(roster,current,animals){
     const k=whale?17:9,yaw=row[k+3],c=Math.cos(yaw),s=Math.sin(yaw);
     const surge=row[whale?27:65]??0,sway=row[whale?38:74]??0;
     animals.set([whale?1:2,row[k],row[k+1],row[k+2],yaw,row[whale?21:67]??0,
-      surge*c-sway*s,surge*s+sway*c,whale?(row[35]??0):0],9*slot);
+      surge*c-sway*s,surge*s+sway*c,row[whale?35:203]??0],9*slot);
   }
   return animals;
 }

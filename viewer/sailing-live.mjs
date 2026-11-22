@@ -661,12 +661,10 @@ async function run(){
     helm();
     if(pad.hidden)return;
     const attitudeControl=drone?.active && flightControl.value!=='0';
-    const whaleControls=remote.npc.animals.get(animalId)?.kind==='whale';
-    let leftLabel,rightLabel,rightVertical='ArrowUp';
+    let leftLabel,rightLabel;
     if(animalId){
       leftLabel='Turn / swim';
-      rightLabel=whaleControls?'Pitch / roll':'Pitch';
-      if(!whaleControls)rightVertical=null;
+      rightLabel='Pitch / roll';
     }else if(drone?.active){
       leftLabel=attitudeControl?'Yaw / throttle':'Yaw / climb';rightLabel='Pitch / roll';
     }else if(sub?.active){
@@ -675,7 +673,7 @@ async function run(){
       leftLabel=motor?'Helm / throttle':'Rudder / sheet';
     }
     const layout=[[leftLabel,'KeyD','KeyW']];
-    if(rightLabel)layout.push([rightLabel,'ArrowRight',rightVertical]);
+    if(rightLabel)layout.push([rightLabel,'ArrowRight','ArrowUp']);
     for(const [label,horizontal,vertical] of layout){
       const stick=document.createElement('div'),knob=document.createElement('span'),caption=document.createElement('small');
       stick.className='stick';knob.className='knob';caption.textContent=label;stick.setAttribute('aria-label',label);
@@ -1234,7 +1232,7 @@ async function run(){
         if(!a?.seat&&now-lastClaim>=900){remote.npc.select(animalId);lastClaim=now;}
         if(own&&now-lastInput>=100){
           const stick=pilotSticks(axis);
-          remote.npc.steer(animalId,[stick.yaw,stick.pitch,stick.throttle],a.kind==='whale'?stick.roll:0);lastInput=now;
+          remote.npc.steer(animalId,[stick.yaw,stick.pitch,stick.throttle],stick.roll);lastInput=now;
         }
         const state=visitors.frame(animalId);
         const breaching=own&&a.breachAt!=null;
