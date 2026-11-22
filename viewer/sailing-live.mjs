@@ -1111,6 +1111,11 @@ async function run(){
         lastQualityCheck=now;
       }
       const frameSeconds=Math.max(0,Math.min(.22,(now-prev)/1000));prev=now;
+      // Encode incoming fields against the surface at this draw time. At
+      // lower frame rates, the preceding draw can be half a wake tick behind.
+      ocean.U.spectrumBlend.value=wavePresentation.blend(now,running);
+      ocean.U.windBlend.value=windPresentation.blend(now,running);
+      if(world)ocean.U.spectrumDrift.value.lerpVectors(lastDrift,nextDrift,ocean.U.spectrumBlend.value);
       if(!world&&running&&!document.hidden)acc+=frameSeconds;
       if(waterError)throw waterError;
       if(world){

@@ -33,7 +33,7 @@ A checked item records the specific result described. Open items include partial
 
 ### Water interaction and performance
 
-- [ ] Restore visible wind roughness on the water. Compare the same view at calm, moderate and strong wind. Higher wind should break up the glassy reflection with denser, steeper ripples, including on mobile.
+- [ ] Validate wind roughness, puff size and drift against footage at comparable wind speeds. Compare the same view at calm, moderate and strong wind. Higher wind should break up the glassy reflection with denser, steeper ripples, including on mobile.
 - [ ] Calculate whitecaps from near-breaking crests. Use crest steepness and local wind to start foam, then advect it with the surface. Emit wind-driven spray directly from exposed crests, with a separate splash source when a plunging lip hits the water. Reuse batched spray rendering and measure mobile cost.
 - [ ] Low priority. Add optional surf-zone wave shoaling, refraction, breaking and run-up over the island bathymetry. Drive a local depth-aware wave model with the offshore spectrum. Validate against a sloping-beach benchmark, including turquoise breaking faces, whitewater and a thin foamy swash over the sand. [Delft SWASH manual](https://swash.sourceforge.io/online_doc/swashuse/swashuse.html)
   - For plunging breakers, treat the lip as a narrow moving surface that can curl over an air pocket. Feed lip impact into a surface roller and foam. Use a cap on active crests and particles. [Real-time Breaking Waves for Shallow Water Simulations](https://cgl.ethz.ch/Downloads/Publications/Papers/2007/Thue07b/Thue07b.pdf)
@@ -76,6 +76,7 @@ A checked item records the specific result described. Open items include partial
 
 ### Helm, instruments and racing
 
+- [ ] Plan sailing routes from the mast cameras. Use synchronized, calibrated mast images and boat attitude to locate and track rough-water puff patches on the surface. Estimate their motion and uncertainty, then use a short-horizon planner to choose headings and tacks based on expected velocity made good, maneuver costs and course constraints. Use the simulator wind field as ground truth for evaluation and compare against the current pilot in the same repeatable weather.
 - [x] Show rendered mast sensor images in the sailing UI. Verified four lenses and populated 512 × 512 camera and 1024 × 512 panorama captures.
 - [x] Show boat force arrows in the hull frame and the submarine DVL beams and returns in orbit.
 - [ ] Match RDD2 keyboard sticks to the Rumoca interactive demo. Check tap versus sustained hold, return to neutral, throttle and arming. Check comparable progressive response on the Hobie tiller and submarine.

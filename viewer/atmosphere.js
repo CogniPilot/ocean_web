@@ -25,10 +25,14 @@
  uniform vec2 spectrumDrift;
  uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable,hullSpectrumOnly;
  vec2 spectralUV(vec2 p){return (p-spectrumDrift)/spectrumPeriod+vec2(.5/64.);}
- float elevationSample(highp sampler2D map,vec2 uv){
+ vec2 elevationEndpoints(highp sampler2D map,vec2 uv){
    vec4 pair=texture2D(map,uv);
    vec2 weights=vec2(65280.,255.);
-   return (mix(dot(pair.rg,weights),dot(pair.ba,weights),spectrumBlend)-32768.)/8192.;
+   return (vec2(dot(pair.rg,weights),dot(pair.ba,weights))-32768.)/8192.;
+ }
+ float elevationSample(highp sampler2D map,vec2 uv){
+   vec2 samples=elevationEndpoints(map,uv);
+   return mix(samples.x,samples.y,spectrumBlend);
  }
  float incidentElevation(vec2 uv){return hullSpectrumOnly>.5?0.:elevationSample(incidentMap,uv);}
  // Match the hull-wave window used for the Modelica water probes.
@@ -503,8 +507,10 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
    float localSpeed=64.*mix(air.r,air.g,windBlend);
    float rippleWind=mix(wind,64.*mix(air.b,air.a,windBlend),windFieldActive);
    // Use the actual local wind and the Modelica short-wave response at this ENU position.
-   float windDelta=(mix(localSpeed,rippleWind,.25)-referenceWind)/max(3.,referenceWind);
-   float puff=smoothstep(.005,.22,windDelta)*windFieldActive;
+   float windDelta=(mix(localSpeed,rippleWind,.35)-referenceWind)/max(3.,referenceWind);
+   // Short-wave roughness is visible out into the weaker shoulders of a
+   // gust. Give those shoulders more contrast without changing wind loads.
+   float puff=smoothstep(.001,.15,windDelta)*windFieldActive;
    float lull=smoothstep(.01,.23,-windDelta)*windFieldActive;
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
@@ -603,11 +609,16 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      float edge=wakeAvailable>.5?1.-wakeFalloff(wp.xy):0.;
      if(edge>0.){
        vec2 uvWake=spectralUV(wp.xy);
-       float hullCrest=elevationSample(spectrumMap,uvWake)-incidentElevation(uvWake)+bowElevation(wp.xy);
-       if(hullCrest>.012){
+       vec2 crests=elevationEndpoints(spectrumMap,uvWake);
+       if(hullSpectrumOnly<.5)crests-=elevationEndpoints(incidentMap,uvWake);
+       crests+=vec2(bowElevation(wp.xy));
+       // Crossfade the coverage of the two solved crests. Thresholding the
+       // blended height erases thin foam lines when a crest moves between cells.
+       vec2 cover=smoothstep(vec2(.012),vec2(.062),crests);
+       float coverage=mix(cover.x,cover.y,spectrumBlend)*edge;
+       if(coverage>0.){
          // Use small drifting patches to break up the visible foam on the crest.
          float bubbles=noise2((wp.xy-spectrumDrift)*6.);
-         float coverage=smoothstep(.012,.062,hullCrest)*edge;
          vec2 forward=vec2(cos(boat.z),sin(boat.z));
          float bow=max(nearWetBow(forebodyPort,wp.xy,forward),nearWetBow(forebodyStarboard,wp.xy,forward));
          // Clear water climbs the stem. Only the steeper leading shoulder

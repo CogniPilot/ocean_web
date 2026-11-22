@@ -728,3 +728,17 @@ pitch changed by about 0.04°. Samples averaged the final six seconds of a
 21-second tow using the existing longitudinal force input. The test
 characterizes the current approximation. Calibration needs running trim,
 sinkage and resistance data at matched speeds and crew loading.
+
+## Wind puffs and the rendered Hobie wake
+
+The water combines local wind speed with the wind model's delayed roughness
+response. A 60-second field replay at 20.8 kn covered 17% more grid samples
+above 25% of the shader's puff strength after widening the visible shoulders.
+This comparison uses a fixed visual threshold and the same wind gust field.
+
+At a 20 FPS presentation cadence and about 14 kn boat speed, the released
+wake upload used the preceding frame's interpolation factor. Across 33
+tested transitions the maximum wake-height error at the start of a new
+blend was 6.5 cm. All 34 candidate wake uploads started from the expected
+current height, to the texture's quantization precision. The shader also
+crossfades the crest foam coverage between the two height samples.
