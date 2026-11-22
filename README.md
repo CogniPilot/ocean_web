@@ -2,6 +2,8 @@
 
 Sail a Pilothouse-inspired keelboat or a full-size Hobie 16, pilot an RDD2 drone, and explore a listed shipwreck with a survey submarine. The browser steps precompiled Rumoca FMI 3 models and draws their outputs with Three.js. [Open the simulator](https://cognipilot.github.io/ocean_web/)
 
+On a phone, try **Fast (simplified water)** under **Settings → Performance**. It uses the animated sky for water reflections and omits object reflections, refraction and hull wakes. [Launch the Hobie in Fast mode](https://cognipilot.github.io/ocean_web/?boat=Hobie16&quality=fast)
+
 Choose **Piccard Sub** to explore the shipwreck. You start in the cockpit with the sonar map visible and autopilot surveying the wreck interior and upper hull. **Take control** lets you pilot the same dive, and **Resume survey** hands it back to autopilot. Enable **Multiplayer** and share **Copy room link** to explore together, each in your own sub. [Launch the sub](https://cognipilot.github.io/ocean_web/?control=sub)
 
 [Request tracker](TODO.md)

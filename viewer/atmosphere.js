@@ -509,6 +509,10 @@ function atmosphere(scene,waterCaptureLayer){
      float fres=.021+.979*pow(1.-clamp(abs(dot(n,eye)),0.,1.),5.);
      float back=pow(max(0.,dot(-eye,sunDir)),3.)*smoothstep(-.45,.9,wp.z-tide);
      vec3 waterColor=mix(vec3(.001,.008,.019),vec3(.004,.061,.093)+back*vec3(.012,.13,.10),day);
+     #ifdef SIMPLE_SURFACE
+     vec3 reflected=skyColor(ref);
+     color=mix(waterColor,reflected,fres);
+     #else
      vec3 levelNormal=vec3(0.,0.,1.);
      float eyeDistance=length(cameraPosition-wp);
      vec4 clip=mirrorMatrix*vec4(wp,1.);
@@ -543,6 +547,7 @@ function atmosphere(scene,waterCaptureLayer){
      vec2 frameMargin=min(screen,1.-screen);
      float visible=smoothstep(0.,.025,min(frameMargin.x,frameMargin.y))*step(.001,surfaceDepth);
      color=mix(waterColor+visible*transmitted.rgb,reflected,fres);
+     #endif
      color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
      float windCrest=wp.z-tide-swell.x*sin(swell.y+dot(wp.xy-swellCenter,swell.zw));
      waterColor=mix(waterColor,vec3(.012,.037,.043),storm*.85);
@@ -671,8 +676,10 @@ function atmosphere(scene,waterCaptureLayer){
    }
    simpleCapture=vertexSlope;
    water.material.defines=vertexSlope?{VERTEX_SLOPE:1,DISABLE_BOW_FIELD:1}:{};
+   if(profile.skipCaptures)water.material.defines.SIMPLE_SURFACE=1;
    water.material.needsUpdate=true;
    skyTarget.setSize(Math.round(512*profile.sky),Math.round(192*profile.sky));lastSky=-Infinity;
+   if(profile.skipCaptures){reflectRT.dispose();throughRT.dispose();return;}
    const scale=profile.capture;
    const width=Math.round(512*scale),height=Math.round(320*scale);
    reflectRT.samples=multisampling?(profile.reflectSamples??0):0;

@@ -103,7 +103,7 @@ export function underwaterLamp(T,renderer,lamp,occluders,remoteLamps=[]){
     const source=thumbnail?preview:color;
     source.setSize(destination?.width??size.x,destination?.height??size.y);
     u.image.value=source.texture;u.depth.value=source.depthTexture;
-    u.steps.value=quality==='low'?6:quality==='balanced'?10:16;
+    u.steps.value=quality==='fast'?4:quality==='low'?6:quality==='balanced'?10:16;
     u.inverseProjection.value.copy(eye.projectionMatrixInverse);
     renderer.setRenderTarget(source);renderer.render(scene,eye);
     renderer.setRenderTarget(destination);renderer.render(pass,screen);

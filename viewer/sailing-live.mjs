@@ -12,6 +12,12 @@ import {courseScene,raceAudio,firstLeg,raceTarget} from "./regatta.mjs";
 import {lapLeaderboard,lapClock} from "./lap-board.mjs";
 import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
+const profiles={
+  fast:{ratio:.6,min:.4,mesh:48,sky:.375,omitWake:true,skipCaptures:true},
+  low:{ratio:.75,min:.5,capture:.375,reflectSamples:2,reflectionInterval:0,transmissionInterval:0,mesh:88,sky:.5,omitWake:true},
+  balanced:{ratio:1,min:.75,capture:.75,reflectSamples:2,reflectionInterval:0,transmissionInterval:65,mesh:120,sky:.75},
+  high:{ratio:1,min:1,capture:1.25,reflectionInterval:0,transmissionInterval:0,mesh:144,sky:1,reflectSamples:2}
+};
 // Present two committed world poses between worker packets. Restore the
 // measured pose after drawing so mast captures and peer packets stay synchronized.
 function displayPose(){
@@ -71,6 +77,13 @@ async function run(){
   }
   const requestedHull=url.searchParams.get('boat');
   const mobile=matchMedia('(pointer: coarse)').matches;
+  const selector=$('quality');
+  let preferred;
+  try{preferred=localStorage.getItem('ocean-render-quality');}catch{}
+  const requestedQuality=url.searchParams.get('quality');
+  selector.value=Object.hasOwn(profiles,requestedQuality)?requestedQuality:
+    Object.hasOwn(profiles,preferred)?preferred:mobile?'low':'high';
+  let profile=profiles[selector.value],omitWake=Number(Boolean(profile.omitWake)),pixelScale;
   const wreckSurvey=url.searchParams.get('demo')==='wreck';
   const initialTarget=wreckSurvey?'sub':url.searchParams.get('control');
   const selectedRole=initialTarget==='sub'||initialTarget==='drone'?initialTarget:'boat';
@@ -90,7 +103,7 @@ async function run(){
   // Start at the default loaded waterline for each hull.
   const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const simulationReady=Promise.all([
-    mode?import('./world-view.mjs').then(module=>module.openWorld(mode,Number($('seaState').value))):loadInstance(vessel,inputs),
+    mode?import('./world-view.mjs').then(module=>module.openWorld(mode,Number($('seaState').value),omitWake)):loadInstance(vessel,inputs),
     hasBoat?loadVehicleShell(cat?'hobie-hulls':'sloop-hull'):null,
     hasSub?Promise.all([import('./submarine.mjs?hud=2'),loadVehicleShell('survey-pressure-housing')]):null
   ]);
@@ -110,7 +123,6 @@ async function run(){
     worker.onerror=event=>{waterError=Error(event.message);};
     addEventListener('pagehide',()=>worker.terminate(),{once:true});
   }
-  let omitWake=0;
   function waveInputs(){
     const [east,north,heading,heel,pitch,volume]=model.getMany(['east','north','heading','heel','pitch','sectionVolume']);
     return {omitWake,seaAmplitude:Number($('seaState').value),east,north,heading,heel,pitch,volume};
@@ -232,28 +244,20 @@ async function run(){
   showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
   const ocean=atmosphere(scene,waterCaptureLayer),sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   ocean.U.windPeriod.value=windField.get('period');
-  const profiles={
-    low:{ratio:.75,min:.5,capture:.375,reflectSamples:2,reflectionInterval:0,transmissionInterval:0,mesh:88,sky:.5},
-    balanced:{ratio:1,min:.75,capture:.75,reflectSamples:2,reflectionInterval:0,transmissionInterval:65,mesh:120,sky:.75},
-    high:{ratio:1,min:1,capture:1.25,reflectionInterval:0,transmissionInterval:0,mesh:144,sky:1,reflectSamples:2}
-  };
-  let preferred;
-  try{preferred=localStorage.getItem('ocean-render-quality');}catch{}
-  const selector=$('quality');
-  selector.value=Object.hasOwn(profiles,preferred)?preferred:(mobile?'low':'high');
-  let profile,pixelScale;
   function applyQuality(){
-    omitWake=Number(selector.value==='low');
+    profile=profiles[selector.value];
+    omitWake=Number(Boolean(profile.omitWake));
     world?.setWakeEnabled(!omitWake);
     if(omitWake)ocean.clearWake();
     remote.setWakeReception(Boolean(world?.hasPeerWake && !omitWake));
     if(omitWake && world?.hasPeerWake)world.set('peerWake',new Float64Array(4*38));
-    profile=profiles[selector.value];pixelScale=Math.min(devicePixelRatio,profile.ratio);
-    renderer.setPixelRatio(pixelScale);ocean.setQuality(profile,selector.value==='low',renderer.capabilities.isWebGL2);
+    pixelScale=Math.min(devicePixelRatio,profile.ratio);
+    renderer.setPixelRatio(pixelScale);ocean.setQuality(profile,Boolean(omitWake),renderer.capabilities.isWebGL2);
   }
   applyQuality();
   selector.onchange=()=>{
     applyQuality();reflection.last=transmission.last=-Infinity;resize();
+    if(url.searchParams.has('quality')){url.searchParams.set('quality',selector.value);history.replaceState(history.state,'',url);}
     try{localStorage.setItem('ocean-render-quality',selector.value);}catch{}
   };
   ocean.update(sea,sea);ocean.U.under.value=0;ocean.U.sunDir.value.copy(sun.position).normalize();
@@ -266,7 +270,7 @@ async function run(){
   showInLowWaterCapture(bottom);
   const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);let life;
   wreckVisual.traverse(showInLowWaterCapture);
-  let deferLife=mode==='sailing' && selector.value==='low';
+  let deferLife=mode==='sailing' && Boolean(omitWake);
   function populateSea(){life=marineLife(T,submergedScenery,renderer.capabilities.isWebGL2);}
   if(!deferLife)populateSea();
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
@@ -869,13 +873,13 @@ async function run(){
         }
 
       }
-      ocean.dome.position.copy(camera.position);ocean.water.position.set(boat?.group.position.x??focus[0],boat?.group.position.y??focus[1],0);updateLight(t);caustics.update(t,selector.value!=='low'||camera.position.z<ocean.U.tide.value+.5);
+      ocean.dome.position.copy(camera.position);ocean.water.position.set(boat?.group.position.x??focus[0],boat?.group.position.y??focus[1],0);updateLight(t);caustics.update(t,!omitWake||camera.position.z<ocean.U.tide.value+.5);
       const surfaceBand=.55+1.8*Number($('seaState').value)+Math.abs(ocean.U.swell.value.x);
       const storm=$('sky').value==='Storm';
       rain.visible=false; // Optical reflection and refraction targets exclude foreground streaks.
       // The underwater shader computes the view through the surface from the sky.
       // Its opaque submerged pass never samples the planar capture targets.
-      if(camera.position.z<=-surfaceBand)reflection.last=transmission.last=-Infinity;
+      if(profile.skipCaptures||camera.position.z<=-surfaceBand)reflection.last=transmission.last=-Infinity;
       else{
         const reflect=wantsCapture(reflection,now,t,profile.reflectionInterval);
         const transmit=wantsCapture(transmission,now,t,profile.transmissionInterval);
