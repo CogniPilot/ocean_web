@@ -28,6 +28,13 @@ for(const sign of [-1,1]){
   console.log('Opposite controls',{sign,initialRollMoment:initial,bankAfter10ms:bank,tailLift:tail.get('tailLift'),pitchMoment:tail.get('moments')[1]});
 }
 
+const switched=await open({glideOnly:1,straightFlight:1,startState:[4,-12,7,0,10,0,0,0]});
+for(let i=0;i<20;i++)switched.advance(dt);
+assert.equal(switched.get('x')[7],0);
+switched.set('glideOnly',0);
+switched.advance(dt);
+assert(switched.get('x')[7]>0,'Releasing glide must resume the held flap command on the next step');
+
 const bird=await open({wind:[0,11]});
 const cycles=[];
 let previousStroke=0,lastCrossing=0,peakPower=0,power=0,airspeed=0,samples=0,gaps=0,lastMode=1;

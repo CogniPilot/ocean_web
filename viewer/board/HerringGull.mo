@@ -28,17 +28,19 @@ equation
     flapping=if x[5]<trimSpeed-1.1 or x[3]<zTarget-.8 then 1
       elseif x[5]>trimSpeed+.2 and x[3]>zTarget+.6 then 0 else pre(flapping);
   end when;
-  drive=if glideOnly>.5 then 0 else flapping;
+  // These input modes are held between communication points. Their changes
+  // already arrive at a step boundary, so they need no continuous root search.
+  drive=if noEvent(glideOnly>.5) then 0 else flapping;
   rate=2*3.14159265*beatFrequency;
   der(x[8])=(drive-x[8])/.32;
   der(x[7])=rate;
   stroke=.095+.64*x[8]*sin(x[7]);
   strokeRate=.64*(der(x[8])*sin(x[7])+x[8]*rate*cos(x[7]));
   sweep=x[8]*(1+cos(x[7]))/2;
-  orbit=if straightFlight>.5 then startState[4] else
+  orbit=if noEvent(straightFlight>.5) then startState[4] else
     atan2(x[2]+15,x[1]-3)+1.571+atan((sqrt((x[2]+15)^2+(x[1]-3)^2)-23-6*offset)/13);
   // Crab into the crosswind to hold the requested course over the harbour.
-  airCourse=if straightFlight>.5 then orbit else orbit+asin(max(-.94,min(.94,
+  airCourse=if noEvent(straightFlight>.5) then orbit else orbit+asin(max(-.94,min(.94,
     (wind[1]*sin(orbit)-wind[2]*cos(orbit))/max(2,x[5]))));
   headingError=atan2(sin(airCourse-x[4]),cos(airCourse-x[4]));
   bankTarget=max(-.70,min(.70,1.25*headingError));
@@ -48,7 +50,7 @@ equation
   gamma=atan2(x[6],max(1,x[5]));
   pressure=.5*rho*(x[5]^2+x[6]^2);
   refCl=mass*9.81/max(1,pressure*area*cos(bank));
-  desiredVz=(if glideOnly>.5 then -.65 else max(-1,min(1.35,.55*(zTarget+2.3-x[3]))))+
+  desiredVz=(if noEvent(glideOnly>.5) then -.65 else max(-1,min(1.35,.55*(zTarget+2.3-x[3]))))+
             max(-2,min(1.5,.75*(x[5]-trimSpeed)));
   pitchTarget=max(-.45,min(.52,gamma+refCl/4.7-.065+.075*(desiredVz-x[6])));
   tailCommand=max(-.30,min(.30,-.73*(pitchTarget-pitch)+.076*pitchRate));
