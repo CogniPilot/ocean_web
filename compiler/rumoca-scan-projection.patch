@@ -1,0 +1,191 @@
+--- a/crates/rumoca-phase-codegen/src/codegen/me_projection/assign.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/me_projection/assign.rs
+@@ -7,7 +7,7 @@
+ //! component keeps a single C function per program and drives both refreshes
+ //! from step tables in the issued order.
+
+-use std::collections::BTreeMap;
++use std::collections::{BTreeMap, BTreeSet};
+ use std::sync::Arc;
+
+ use minijinja::Value;
+@@ -79,6 +79,20 @@
+         Ok(functions)
+     }
+
++    /// Whether the emitted assignments are independent of event history.
++    pub(super) fn ignores_pre_values(&self, layout: &solve::SolveLayout) -> bool {
++        let history: BTreeSet<_> = layout
++            .pre_param_bindings
++            .iter()
++            .map(|binding| binding.dest_p_index)
++            .collect();
++        self.programs.iter().all(|ops| {
++            solve::program_parameter_indices(ops)
++                .into_iter()
++                .all(|index| !history.contains(&index))
++        })
++    }
++
+     /// The emitted programs (each storing into its solver-Y targets) and the
+     /// shared call sequence.
+     pub(in crate::codegen) fn into_value(self) -> Result<Value, CodegenError> {
+@@ -96,3 +110,25 @@
+         })
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn pre_history_dependency_disables_projection_reuse() {
++        let layout = solve::SolveLayout {
++            pre_param_bindings: vec![solve::PreParamBinding {
++                dest_p_index: 4,
++                source: solve::PreParamSource::Y { index: 0 },
++                clock_schedule: None,
++            }],
++            ..Default::default()
++        };
++        let mut catalog = AssignmentCatalog::default();
++        catalog.programs.push(vec![solve::LinearOp::LoadP { dst: 0, index: 3 }]);
++        assert!(catalog.ignores_pre_values(&layout));
++        catalog.programs[0].push(solve::LinearOp::LoadP { dst: 1, index: 4 });
++        assert!(!catalog.ignores_pre_values(&layout));
++    }
++}
+--- a/crates/rumoca-phase-codegen/src/codegen/me_projection.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/me_projection.rs
+@@ -594,6 +594,8 @@
+         block_folds => block_folds(problem, &records),
+         table => table,
+         kernel => kernel,
++        scan_projection_reusable => records.is_empty() && !switching
++            && assignments.ignores_pre_values(&problem.solve_layout),
+         assign => assignments.into_value()?,
+         init => init,
+         work => minijinja::context! { doubles => doubles, sizes => sizes },
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
+@@ -304,9 +304,9 @@
+
+ /* component.rs event_indicators_into: the searched roots at the refreshed
+    coordinate, an exact zero reported on its domain's side. */
+-static {{ prefix }}Status rmc_event_indicators(ModelInstance* m, double* z) {
++static {{ prefix }}Status rmc_projected_indicators(ModelInstance* m, double* z) {
+     double roots[{{ [nroots, 1]|max }}] = {0};
+-    if (settle_values(m) != {{ prefix }}OK || rmc_eval_roots(m, roots) != {{ prefix }}OK) return {{ prefix }}Error;
++    if (rmc_eval_roots(m, roots) != {{ prefix }}OK) return {{ prefix }}Error;
+     for (size_t k = 0; k != RMC_EVENT_INDICATORS; ++k) {
+         size_t root = rmc_indicator_root[k];
+         double value = roots[root];
+@@ -319,6 +319,11 @@
+         z[k] = value;
+     }
+     return {{ prefix }}OK;
++}
++
++static {{ prefix }}Status rmc_event_indicators(ModelInstance* m, double* z) {
++    if (settle_values(m) != {{ prefix }}OK) return {{ prefix }}Error;
++    return rmc_projected_indicators(m, z);
+ }
+
+ /* component.rs complete_indicator_domains: a changed domain captures the
+@@ -406,6 +411,28 @@
+     return {{ prefix }}OK;
+ }
+
++/* Keep large guarded computations in their own frames. They read the
++   original snapshot and write only the staged array, as inline owners do. */
++{%- set guarded_programs = solve.discrete.guarded_assignment_plan.programs %}
++#if defined(__clang__) || defined(__GNUC__)
++#define RMC_GUARDED_FRAME __attribute__((noinline))
++#else
++#define RMC_GUARDED_FRAME
++#endif
++{%- for program in guarded_programs %}
++{%- if program.temporary_count >= 256 %}
++static RMC_GUARDED_FRAME {{ prefix }}Status rmc_guarded_rhs_{{ loop.index0 }}(ModelInstance* m, double* gvalues) {
++    (void)m;
++    double r[{{ program.temporary_count }}]; (void)r;
++{%- for op in program.ops %}
++{{ scalar_op(op, "gvalues", prefix ~ "Error") }}
++{%- endfor %}
++    return {{ prefix }}OK;
++}
++{%- endif %}
++{%- endfor %}
++#undef RMC_GUARDED_FRAME
++
+ /* discrete_rows.rs apply_discrete_rows_for_pre_snapshot: every row reads the
+    pass's snapshot, a row writing an overridden relation memory keeps the
+    located side, and a change is a change of bits. A settle pass writes the
+@@ -438,13 +465,17 @@
+     static const bool gin_y[{{ nguard }}] = { {% for slot in ev.guarded_targets %}{{ "true" if slot.column == "y" else "false" }},{% endfor %} };
+     double gvalues[{{ nguard }}];
+     if (!memories_only) {
+-{%- for program in solve.discrete.guarded_assignment_plan.programs %}
++{%- for program in guarded_programs %}
+ {%- set clock = ev.guarded_clocks[program.output_indices[0]] %}
+     {% if clock is not none %}if (enable_clocked && m->rmc_pass == 0 && rmc_clock_active({{ clock }}, m->time)) {% endif %}{
+-    double r[{{ program.temporary_count if program.temporary_count > 0 else 1 }}]; (void)r;
++{%- if program.temporary_count >= 256 %}
++        if (rmc_guarded_rhs_{{ loop.index0 }}(m, gvalues) != {{ prefix }}OK) return {{ prefix }}Error;
++{%- else %}
++        double r[{{ program.temporary_count if program.temporary_count > 0 else 1 }}]; (void)r;
+ {%- for op in program.ops %}
+ {{ scalar_op(op, "gvalues", prefix ~ "Error") }}
+ {%- endfor %}
++{%- endif %}
+     }
+ {%- endfor %}
+     }
+@@ -1039,7 +1070,7 @@
+     cadence, the location tolerance, the refinement method, and its budget are
+     the component's RootLocationPlan; `integrate` is the plan's error-controlled
+     substep integrator over one interval. -#}
+-{%- macro cs_events(fmi, integrate, prefix) %}
++{%- macro cs_events(fmi, integrate, prefix, reuse_projection=false) %}
+ {%- set plan = fmi.root_location %}
+ {{- root_refinement(plan) }}
+ /* RootLocationPlan::scan_resolution. */
+@@ -1060,7 +1091,15 @@
+ static {{ prefix }}Status rmc_domains_changed(ModelInstance* m, double* z, bool* changed) {
+     *changed = false;
+     if (RMC_EVENT_INDICATORS == 0 || !m->rmc_domain_valid) return {{ prefix }}OK;
++{%- if reuse_projection and fmi.discrete_memories|length == 0 %}
++    /* The integrator just completed the direct assignment plan. The only
++       subsequent writes were to pre() lanes that the plan cannot read. Roots
++       and assertions still observe the updated history. */
++    if (m->assertion_failed || (m->assertions_initialized && check_assertions(m) != {{ prefix }}OK)
++        || rmc_projected_indicators(m, z) != {{ prefix }}OK) return {{ prefix }}Error;
++{%- else %}
+     if (rmc_event_indicators(m, z) != {{ prefix }}OK) return {{ prefix }}Error;
++{%- endif %}
+     for (size_t k = 0; k != RMC_EVENT_INDICATORS; ++k) *changed |= m->rmc_domain[k] != (z[k] > 0.0);
+     return {{ prefix }}OK;
+ }
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/model.c.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/model.c.jinja
+@@ -95,7 +95,7 @@
+ {%- endif %}
+ {{ cs_integrator_function(fmi, solve, "fmi3") }}
+ {%- if fmi.scalar_events %}
+-{{ cs_events(fmi, cs_integrate, "fmi3") }}
++{{ cs_events(fmi, cs_integrate, "fmi3", me_refresh.scan_projection_reusable) }}
+ {%- endif %}
+ {#- One row per FMI 3 value reference, indexed by the reference itself: time
+     is 0, the variables are 1..N in inventory order and the state derivatives
+--- a/crates/rumoca-phase-codegen/src/templates/fmi2/model.c.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi2/model.c.jinja
+@@ -98,7 +98,7 @@
+
+ {{ cs_integrator_function(fmi, solve, "fmi2") }}
+ {%- if fmi.scalar_events %}
+-{{ cs_events(fmi, cs_integrate, "fmi2") }}
++{{ cs_events(fmi, cs_integrate, "fmi2", me_refresh.scan_projection_reusable) }}
+ {%- endif %}
+
+ {#- One row per FMI 2 value reference, indexed by the reference itself: time

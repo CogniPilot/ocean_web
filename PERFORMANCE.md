@@ -566,3 +566,50 @@ Use `--no-wakes` for the Fast physics setting and `--banked` for the shark
 maneuver. Set `OCEAN_WASM_LAZY=1` for the sloop Fast capture. Compare
 `flight-idle` on the baseline with `habitat` on the new
 build for the swimmer environment measurement.
+
+## Removing repeated projection and root searches
+
+The gull's glide and straight-flight inputs are held between FMI communication
+points. Evaluating those comparisons directly removes four roots from the
+continuous search. The flap latch still runs at its 100 ms clock, and the
+browser still advances in 10 ms increments.
+
+Two alternating pairs of 25,000-step runs against `6832809` measured a mean
+step of 84.8 µs before and 12.2 µs after. Median step cost fell from 80.3 to
+7.4 µs, or 10.8×. Including a readback after every step, mean cost fell from
+91.2 to 18.8 µs, or 4.8×. Over the 200-second replay, flapping switched on the
+same ticks. The largest position difference was 1.7 mm during the first 15
+seconds and 0.44 m over the full replay. Glide, bank, live mode switching, and
+host handoff checks passed.
+
+The event scan reuses the accepted projection when the algebraic assignments
+are direct and independent of the history updated during integration, and the
+model has no separate discrete memories. The scan still evaluates assertions
+and event indicators. The compiler also emits large guarded right-hand sides
+as separate functions, which lets Clang finish optimizing the marine builds.
+
+| Vehicle or component | Fast before → after (ms) | Wakes before → after (ms) |
+| --- | ---: | ---: |
+| Hobie 16 | 6.20 → 5.00 | 6.32 → 6.08 |
+| Pilothouse sloop | 5.16 → 4.44 | 6.73 → 5.49 |
+| Cabin cruiser | 2.15 → 1.65 | 2.77 → 2.74 |
+| RDD2 | 1.82 → 1.70 | 1.99 → 1.79 |
+| Swimmer environment | 1.48 → 1.38 | 1.58 → 1.52 |
+
+Each cell is the mean cost of a 10 ms physics step and a readback, measured
+against `6832809` in reference, candidate, candidate, reference order in a
+single pinned Node.js 22 process. Each replay used 200 warm-up steps with the
+same controls. All sampled marine outputs matched exactly. The Piccard and
+coupled development world keep their previous archives because the candidate
+builds showed no consistent improvement.
+
+In separate 7,000-step Linux perf captures, the humpback used 10.8% fewer
+user-space cycles and the pitching and banking great white used 8.2% fewer.
+Mean step and read time fell from 0.706 to 0.631 ms and from 0.587 to 0.539 ms,
+respectively. The sampled outputs matched exactly in both animal replays.
+These are desktop WebAssembly physics measurements. Phone timings and rendering
+cost are outside these captures.
+
+Run `scripts/profile-physics-perf.sh` against each revision's packaged Pages
+directory to reproduce the captures. Use `OCEAN_WASM_LAZY=1` for the marine
+runs, `--no-wakes` for Fast, and `--banked` for the shark replay.
