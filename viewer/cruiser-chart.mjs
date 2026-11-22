@@ -79,8 +79,8 @@ export function cruiserChart(canvas,fitButton,terrain){
     c.fillStyle='#193a4b';c.font='700 16px system-ui';c.fillText('N',w-32,28);
     c.beginPath();c.moveTo(w-26,35);c.lineTo(w-31,50);c.lineTo(w-21,50);c.closePath();c.fill();
     const bar=grid*scale;
-    c.fillRect(16,h-19,bar,2);c.fillRect(16,h-23,2,8);c.fillRect(16+bar,h-23,2,8);
-    c.font='600 14px system-ui';c.fillText(grid+' m',16,h-27);
+    c.fillRect(16,38,bar,2);c.fillRect(16,34,2,8);c.fillRect(16+bar,34,2,8);
+    c.font='600 14px system-ui';c.fillText(grid+' m',16,30);
     c.textAlign='right';c.fillText('Depths in m',w-16,h-17);c.textAlign='left';
   }
   fitButton.addEventListener('click',()=>{
