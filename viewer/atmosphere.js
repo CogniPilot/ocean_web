@@ -248,7 +248,7 @@ function hullFoam(scene,uniforms,cruiserHullGLSL){
  }
  return {mesh,clear,sample};
 }
-function atmosphere(scene,{waterCaptureLayer,courseMarkerLayer,objectDrawRange},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
+function atmosphere(scene,{waterCaptureLayer,objectDrawRange},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
  const U={cruiserTilt:{value:new Float32Array(10)},cruiserCount:{value:0},cruiserPose:{value:new Float32Array(20)},cruiserAim:{value:new Float32Array(20)},cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  const swimmerWater=makeSwimmerWater(THREE,U);
  const skyTarget=new THREE.WebGLRenderTarget(512,192,{type:THREE.HalfFloatType});
@@ -739,7 +739,6 @@ function atmosphere(scene,{waterCaptureLayer,courseMarkerLayer,objectDrawRange},
    if(refreshReflection){
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
-     mirrorCamera.layers.disable(courseMarkerLayer);
      if(simpleCapture)mirrorCamera.layers.set(waterCaptureLayer);
      const twiceTide=2*U.tide.value;
      mirrorCamera.position.z=twiceTide-camera.position.z;mirrorLook.z=twiceTide-mirrorLook.z;
@@ -763,7 +762,6 @@ function atmosphere(scene,{waterCaptureLayer,courseMarkerLayer,objectDrawRange},
      renderer.setRenderTarget(throughRT);scene.background=clearThrough;
      const viewLayers=camera.layers.mask;
      if(simpleCapture)camera.layers.set(waterCaptureLayer);
-     else camera.layers.disable(courseMarkerLayer);
      try {renderer.render(scene,camera);} finally {camera.layers.mask=viewLayers;}
    }
    renderer.setRenderTarget(null);

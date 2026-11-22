@@ -3,7 +3,7 @@ import {physicsView,hullInspectionFields,cruiserInspectionFields,battenInspectio
 import {cruiserSonar,imagingBeepInterval} from './cruiser-sonar.mjs';
 import {cruiserChart} from './cruiser-chart.mjs';
 import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
-import {courseMarkerLayer,waterCaptureLayer,showInLowWaterCapture} from './render-layers.mjs';
+import {waterCaptureLayer,showInLowWaterCapture} from './render-layers.mjs';
 import {wreckCaustics} from './caustics.mjs';
 import {loadVehicleShell} from './vehicle-assets.mjs';
 import {loadInstance} from './fmi3/instance.mjs?api=2';
@@ -257,7 +257,7 @@ async function run(){
       if(settings.sky!==undefined)$('sky').value=settings.sky;
       if(settings.storm!==undefined)$('storm').checked=settings.storm;
     }
-  },$('crew'),laps,playImagingHit);camera.layers.enable(1);camera.layers.enable(3);camera.layers.enable(courseMarkerLayer);
+  },$('crew'),laps,playImagingHit);camera.layers.enable(1);camera.layers.enable(3);
   let npcTraffic,npcTrafficLoad,npcRows,npcRaceUtc,npcCamCount=0;
   let joinAttempt=0;
   async function multiplayer(on){
@@ -353,7 +353,7 @@ async function run(){
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
   const makeWater=(T,u)=>wildlifeWater(T,u,undefined,renderer.capabilities.isWebGL2);
-  const ocean=atmosphere(scene,{waterCaptureLayer,courseMarkerLayer,objectDrawRange},makeWater,surfaceSpray,
+  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange},makeWater,surfaceSpray,
     cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes);
   const sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   ocean.U.windPeriod.value=windField.get('period');
@@ -1279,7 +1279,7 @@ async function run(){
         if(lastCountdown!==null&&lastCountdown<5&&left>295)audio.signal();
         lastCountdown=left;const label=left>298?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
         const sceneryTime=world?.time??model.time;
-        course.update(label,sceneryTime,ocean.sampleWind);island.userData.updatePalms(sceneryTime,ocean.sampleWind);$('countdown').textContent=label;
+        boardClock(label,sceneryTime,ocean.sampleWind);island.userData.updatePalms(sceneryTime,ocean.sampleWind);$('countdown').textContent=label;
         const lap=scorer.get('lapTime');
         const tenths=Math.round(lap*10);
         const timer=lapClock(tenths);
@@ -1799,7 +1799,6 @@ async function run(){
       const nearHull=Math.hypot(eyeX-ocean.U.boat.value.x,eyeY-ocean.U.boat.value.y)<5;
       const surfaceBand=nearHull?.92:.60;
       const eyeHeight=camera.position.z-ocean.sampleSurface(eyeX,eyeY,true);
-      course.positionMarkers(camera,renderer.domElement.clientHeight,eyeHeight>0);
       caustics.update(opticalTime,!omitWake);
       const storm=$('storm').checked;
       const cloudFog=clouds(ocean.U.cloudTravel.value,camera.position,storm,ocean.U);
