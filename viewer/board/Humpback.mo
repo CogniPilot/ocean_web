@@ -7,6 +7,7 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
   input Real directDrive,actuators[5] "Independent normalized port fin, starboard fin, peduncle, fluke feather and lateral scull";
   input Real clock, surface, current[2],encounter[6];
   input Real bottomAhead "Seabed elevation under the projected approach";
+  input Real burst "Available fraction of maximum-effort muscle boost";
   input Real strokeGain "Set to zero for an unpowered glide";
   output Real x[18](start=startState, each fixed=true)
     "E,N,Z, horizontal and vertical velocity, body pitch/rate, absolute tail pitch/rate, yaw/rate, bank/rate, stroke phase, lateral velocity, fluke feather, port and starboard fin incidence";
@@ -16,7 +17,7 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
   parameter Real mb(unit="kg")=7550,mt(unit="kg")=950,ib(unit="kg.m2")=56500,it(unit="kg.m2")=920;
   parameter Real flukeArea(unit="m2")=3.85,pectoralArea(unit="m2")=1.48;
   parameter Real maxJointTorque(unit="N.m")=270000,burstPower(unit="W")=420000;
-  Real rawTorque,shoreTurn;
+  Real rawTorque,shoreTurn,burstTorque,burstPowerLimit;
   constant Real bx=-2.35, tx=1.30, flukeArm=-1.90;
   constant Real station[6]={-2,-.9,.2,1.3,2.4,3.45};
   constant Real radius[6]={.60,.93,1.06,1.00,.76,.45};
@@ -134,7 +135,7 @@ equation
   cycle=if pilot[1]>.5 then (if pilot[4]>=0 then min(120,91+pilot[4]) else 0) elseif encounter[4]>.5 then mod(clock,168) else 0;divePhase=mod(clock+8,42);
   zTarget=surface+(if cycle>=91 and cycle<108 then -9.0 elseif cycle>=108 and cycle<112 then 3
     elseif divePhase<12 then -.70 elseif divePhase<18 then -.34 else -4.8);
-  speedCmd=if cycle>=90 and cycle<115 then 7.3 elseif pilot[1]>.5 then 1.4+3.6*pilot[3] elseif encounter[1]>.5 then min(4,encounter[3]) else 2.0;
+  speedCmd=if cycle>=90 and cycle<115 then 7.3 elseif pilot[1]>.5 then 1.4+3.6*pilot[3]+4.3*burst elseif encounter[1]>.5 then min(4,encounter[3]) else 2.0;
   pCmd=if cycle>=106.8 and cycle<113.0 then min(1.2,(cycle-106.8)*.65)
     elseif pilot[1]<.5 and bottomAhead>surface-8 then
       max(-.15,min(.55,.48*(min(surface-.7,max(zTarget,bottomAhead+3.2))-x[3])-.30*w))
@@ -143,17 +144,19 @@ equation
   course=if encounter[1]>.5 then encounter[2] else atan2(-18-x[2],-10-x[1])+1.57-atan(.080*(sqrt((x[1]+10)^2+(x[2]+18)^2+.01)-22));
   turn=if cycle>90 and cycle<113 and encounter[1]<.5 then 0 else atan2(sin(course-x[10]),cos(course-x[10]));
   roll=if pilot[1]>.5 and (cycle<90 or abs(bankCommand)>.001) then bankCommand elseif cycle>=110.3 and cycle<114 then 1.10 else max(-.34,min(.34,turn));
-  amplitude=strokeGain*(if speedCmd>4 then max(.38,min(.83,.67+.085*(speedCmd-axial))) else max(.14,min(.62,.36+.22*(speedCmd-axial))));
-  omega=if speedCmd>4 then 4.45 else min(3.4,2.25+.6*max(0,speedCmd-1.8));
+  amplitude=strokeGain*(if speedCmd>4 then max(.38,min(.83+.15*burst,.67+.085*(speedCmd-axial))) else max(.14,min(.62,.36+.22*(speedCmd-axial))));
+  omega=if speedCmd>4 then 4.45+2.40*burst else min(3.4,2.25+.6*max(0,speedCmd-1.8));
   der(x[14])=if directDrive>.5 then 0 else omega;
   stroke=if directDrive>.5 then .85*max(-1,min(1,actuators[3])) else amplitude*sin(x[14]);
-  rawTorque=max(-maxJointTorque,min(maxJointTorque,375000*(stroke-(a-b))+72000*((if directDrive>.5 then 0 else amplitude*omega*cos(x[14]))-r+q)));
-  torque=rawTorque*min(1,burstPower/max(1,rawTorque*(r-q)));
+  burstTorque=maxJointTorque*(1+1.35*burst);
+  burstPowerLimit=burstPower*(1+1.9*burst);
+  rawTorque=max(-burstTorque,min(burstTorque,375000*(1+.8*burst)*(stroke-(a-b))+72000*(1+.4*burst)*((if directDrive>.5 then 0 else amplitude*omega*cos(x[14]))-r+q)));
+  torque=rawTorque*min(1,burstPowerLimit/max(1,rawTorque*(r-q)));
   musclePower=torque*(r-q);
   tailFlow=atan2(-s*fu+c*fw,max(.20,c*fu+s*fw));
   featherTarget=if directDrive>.5 then 1.15*max(-1,min(1,actuators[4])) else
-    max(-1.15,min(1.15,b+tailFlow-.85*max(-.42,min(.42,tailFlow))-.75*max(-.45,min(.45,pCmd-b-.18*q))-a));
-  der(x[16])=min(13,max(-13,(featherTarget-x[16])*35));
+    max(-1.15,min(1.15,b+tailFlow-(.85-.30*burst)*max(-.42,min(.42,tailFlow))-.75*max(-.45,min(.45,pCmd-b-.18*q))-a));
+  der(x[16])=min(13+26*burst,max(-13-26*burst,(featherTarget-x[16])*(35+90*burst)));
   (fx,fz)=foil(fu,fw,a+x[16],flukeArea,flukeWater);
   tailThrust=fx*c+fz*s;
   finArea=if directDrive<.5 and speedCmd>4 and cycle<106.8 and (pilot[1]<.5 or (abs(bankCommand)<.001 and abs(x[12])<.1)) then .162*pectoralArea else pectoralArea;

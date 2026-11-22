@@ -1,4 +1,4 @@
-// Compare the rigid torso to the moving tail over complete straight-swimming cycles.
+// Compare the rigid torso to the moving tail in steady cruise and sustained sprint.
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
@@ -9,7 +9,8 @@ async function swim(effort, turn) {
   const shark = await loadInstance('HarborTraffic', {
     initialState: [0,-28,6,0,2,-25,2,6,0,-30,-30,-3,0,-.06,0,0,0],
     initialFish: [effort ? 5 : 1.3,0,0,0,0,0,0,0,0,0],
-    sharkPilot: [1,0,effort,-1]
+    sharkPilot: [1,0,effort,-1],
+    initialSwimReserve: [1,0]
   }, read);
   let low = Infinity, high = -Infinity, previousRate = 0;
   let maxAnterior = 0, maxPeduncle = 0, thrust = 0;

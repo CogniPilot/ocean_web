@@ -42,6 +42,126 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
       end for;
     end if;
   end landingContact;
+
+  function predictNavigation
+    input Real state[9] "Position, velocity, accelerometer bias, and six covariance terms";
+    input Real acceleration, step;
+    output Real predicted[9];
+  protected
+    Real halfStepSquared, accelerationVariance, biasVariance;
+  algorithm
+    halfStepSquared := .5*step^2;
+    accelerationVariance := .25;
+    biasVariance := state[9];
+    predicted[1] := state[1]+step*state[2]+halfStepSquared*(acceleration-state[3]);
+    predicted[2] := state[2]+step*(acceleration-state[3]);
+    predicted[3] := state[3];
+    predicted[4] := state[4]+2*step*state[5]-2*halfStepSquared*state[6]+step^2*state[7]
+      -2*step*halfStepSquared*state[8]+halfStepSquared^2*(biasVariance+accelerationVariance);
+    predicted[5] := state[5]+step*state[7]-halfStepSquared*state[8]
+      -step*(state[6]+step*state[8]-halfStepSquared*biasVariance)+halfStepSquared*step*accelerationVariance;
+    predicted[6] := state[6]+step*state[8]-halfStepSquared*biasVariance;
+    predicted[7] := state[7]-2*step*state[8]+step^2*(biasVariance+accelerationVariance);
+    predicted[8] := state[8]-step*biasVariance;
+    predicted[9] := biasVariance+.0004*step;
+  end predictNavigation;
+
+  function updateNavigation
+    input Real state[9] "Position, velocity, accelerometer bias, and six covariance terms";
+    input Real observation, variance;
+    input Boolean positionFix;
+    output Real corrected[9];
+  protected
+    Real covariance[3], innovation, precision;
+  algorithm
+    covariance := if positionFix then state[4:6] else {state[5],state[7],state[8]};
+    innovation := observation-(if positionFix then state[1] else state[2]);
+    precision := 1/((if positionFix then covariance[1] else covariance[2])+variance);
+    corrected[1:3] := state[1:3]+precision*innovation*covariance;
+    corrected[4:9] := state[4:9]-precision*{covariance[1]^2,covariance[1]*covariance[2],
+      covariance[1]*covariance[3],covariance[2]^2,covariance[2]*covariance[3],covariance[3]^2};
+  end updateNavigation;
+
+  function navigateAxis
+    input Real state[9], acceleration, step, gpsPosition, gpsVelocity, positionVariance, velocityVariance;
+    input Boolean fixAvailable;
+    output Real estimate[9];
+  algorithm
+    estimate := predictNavigation(state,acceleration,step);
+    if fixAvailable then
+      estimate := updateNavigation(estimate,gpsPosition,positionVariance,true);
+      estimate := updateNavigation(estimate,gpsVelocity,velocityVariance,false);
+    end if;
+  end navigateAxis;
+
+  function airVelocityFromDrag
+    input Real force[3], linearDrag[3], quadraticDrag[3];
+    output Real velocity[3];
+  protected
+    Real lo,hi,speed;
+  algorithm
+    // F = -v * (linearDrag + quadraticDrag * ||v||) on each body axis.
+    lo := 0;
+    velocity := -force./linearDrag;
+    hi := sqrt(velocity*velocity);
+    for i in 1:14 loop
+      speed := .5*(lo+hi);
+      velocity := -force./(linearDrag+quadraticDrag*speed);
+      if velocity*velocity > speed^2 then
+        lo := speed;
+      else
+        hi := speed;
+      end if;
+    end for;
+  end airVelocityFromDrag;
+
+  function updateWind
+    input Real state[3] "East and north wind velocity, common marginal variance";
+    input Real observation[2];
+    input Boolean valid;
+    output Real estimate[3];
+  protected
+    Real variance, gain;
+  algorithm
+    variance := min(64,state[3]+(if valid then .045 else .2));
+    gain := if valid then variance/(variance+.64) else 0;
+    estimate := cat(1,state[1:2]+gain*(observation-state[1:2]),{(1-gain)*variance});
+  end updateWind;
+
+  function updateEstimator
+    input Real previous[37];
+    input Real instant, step, position[3], velocity[3], specificForce[3], rotation[3,3];
+    input Real rotorForce, mass, linearDrag[3], quadraticDrag[3];
+    input Boolean gpsAvailable, windAvailable;
+    output Real next[37];
+  protected
+    Real acceleration[3], measuredPosition[3], measuredVelocity[3], aircraftAirspeed[3];
+    Boolean gpsTick;
+  algorithm
+    // GNSS fixes every fifth 50 Hz prediction. Add bounded deterministic
+    // measurement error so that identical inputs reproduce the same flight.
+    gpsTick := previous[37]<.5;
+    measuredPosition := if gpsTick and gpsAvailable then position+
+      {.06*sin(48.7*instant),.06*sin(31.4*instant),.09*sin(41.7*instant)} else previous[28:30];
+    measuredVelocity := if gpsTick and gpsAvailable then velocity+
+      {.02*sin(37.5*instant),.02*sin(43.1*instant),.03*sin(24.1*instant)} else previous[31:33];
+    acceleration := rotation*specificForce-{0,0,9.80665};
+    next[1:9] := navigateAxis(previous[1:9],acceleration[1],step,measuredPosition[1],measuredVelocity[1],
+      .002,.0002,gpsTick and gpsAvailable);
+    next[10:18] := navigateAxis(previous[10:18],acceleration[2],step,measuredPosition[2],measuredVelocity[2],
+      .002,.0002,gpsTick and gpsAvailable);
+    next[19:27] := navigateAxis(previous[19:27],acceleration[3],step,measuredPosition[3],measuredVelocity[3],
+      .005,.0005,gpsTick and gpsAvailable);
+    next[28:30] := measuredPosition;
+    next[31:33] := measuredVelocity;
+    next[34:36] := previous[34:36];
+    if gpsTick then
+      aircraftAirspeed := rotation*airVelocityFromDrag(mass*specificForce-{0,0,rotorForce},linearDrag,quadraticDrag);
+      next[34:36] := updateWind(previous[34:36],{next[2],next[11]}-aircraftAirspeed[1:2],windAvailable);
+    end if;
+    next[37] := if previous[37]>=4 then 0 else previous[37]+1;
+  end updateEstimator;
+
   output Real dragBody[3]=aircraft.aerodynamicDrag;
   parameter Real origin[2]={-5,0} "Survey launch coordinates ENU";
   input Real pilot,forward,left,climb,turn,stationEast,stationNorth;
@@ -54,9 +174,23 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
   Real gyroQ[4](start={1,0,0,0},each fixed=true),rotation[3,3],bodyRate[3];
   output Real position[3],quaternion[4],rotorSpeed[4];
   output Real rotorAngle[4](each start=0,each fixed=true);
-  Real target[3](start={-5,0,5},each fixed=true),yawTarget(start=0,fixed=true);
+  final parameter Real launchPosition[3]={origin[1],origin[2],5};
+  Real target[3](start=launchPosition,each fixed=true),yawTarget(start=0,fixed=true);
   Real attitude[3];
-  discrete Real gps[3](start={-5,0,5},each fixed=true),gpsVelocity[3](each start=0,each fixed=true);
+  input Real gpsDropout(start=0) "Suppress simulated GNSS fixes when greater than .5";
+  Real gps[3],gpsVelocity[3];
+  final parameter Real navigationStep=.02 "Inertial prediction interval [s]";
+  final parameter Real navigationPrior[8]={0,0,.04,0,0,.01,0,.01};
+  final parameter Real estimatorStart[37]=cat(1,{launchPosition[1]},navigationPrior,{launchPosition[2]},
+    navigationPrior,{launchPosition[3]},navigationPrior,launchPosition,{0,0,0,0,0,64,0});
+  discrete Real estimator[37](start=estimatorStart,each fixed=true);
+  output Real estimatedPosition[3],estimatedVelocity[3];
+  output Real positionCovariance[3],velocityCovariance[3] "Marginal variances in East, North, Up order";
+  Real rotorForce;
+  // Calibrated nominal RDD2 drag parameters for dry flight.
+  parameter Real navigationLinearDrag[3]={.12,.12,.18};
+  parameter Real navigationQuadraticDrag[3]=.5*1.225*{.06,.08,.12};
+  output Real estimatedWindENU[2],windCovariance,windEstimateValid;
   parameter Real holdIntegralGain=.36 "Position-loop integral gain [1/s3]";
   parameter Real maxIntegralAcceleration=6 "Bound on sustained disturbance rejection [m/s2]";
   parameter Real tiltLimit=.72 "Maximum roll or pitch for station keeping [rad]";
@@ -75,14 +209,27 @@ equation
   waterLoad=immersed*1025*({0,0,9.80665*displacedVolume}+.5*waterDragArea*sqrt(waterSlip*waterSlip+1e-12)*waterSlip);
   rotorSpeed=aircraft.motorOmega_rad_s;
   der(rotorAngle)={1,-1,1,-1}.*rotorSpeed;
-  when sample(0,.1) then
-    gps=position;
-    gpsVelocity=aircraft.truth.velocityWorldEnu_m_s;
+  when sample(0,.02) then
+    estimator=updateEstimator(pre(estimator),time,if time<navigationStep/2 then 0 else navigationStep,
+      position,aircraft.truth.velocityWorldEnu_m_s,aircraft.imu.specificForceBodyFlu_m_s2,rotation,rotorForce,
+      aircraft.vehicleMass_kg,navigationLinearDrag,navigationQuadraticDrag,gpsDropout<=.5,
+      motorCut<=.5 and immersed<.01 and position[3]>bedHeight+.25 and bodyRate*bodyRate<4
+      and deckWrench*deckWrench+sailWrench*sailWrench<.01 and rotorForce>.25*aircraft.vehicleMass_kg*9.80665);
   end when;
-  // Ideal 10 Hz GNSS plus body-rate gyro integration, initialized on a level pad.
+  gps=estimator[28:30];
+  gpsVelocity=estimator[31:33];
+  estimatedPosition={estimator[1],estimator[10],estimator[19]};
+  estimatedVelocity={estimator[2],estimator[11],estimator[20]};
+  positionCovariance={estimator[4],estimator[13],estimator[22]};
+  velocityCovariance={estimator[7],estimator[16],estimator[25]};
+  // Body-rate gyro integration starts from the calibrated level launch pose.
   bodyRate=aircraft.imu.angularVelocityBodyFlu_rad_s;
   der(gyroQ)=LieGroups.SO3.Quat.kinematics(gyroQ,bodyRate);
   rotation=LieGroups.SO3.Quat.to_DCM(gyroQ);
+  rotorForce=aircraft.thrustCoefficient_N_s2*(rotorSpeed*rotorSpeed);
+  estimatedWindENU=estimator[34:35];
+  windCovariance=estimator[36];
+  windEstimateValid=if windCovariance<1 then 1 else 0;
   attitude={atan2(rotation[3,2],rotation[3,3]),atan2(-rotation[3,1],sqrt(rotation[1,1]^2+rotation[2,1]^2)),atan2(rotation[2,1],rotation[1,1])};
   positionHold=pilot<=.5 or flightMode<.5;
   acro=pilot>.5 and flightMode>1.5;
@@ -91,16 +238,16 @@ equation
     elseif (throttle>=1 and climb>0) or (throttle<=0 and climb<0) then 0 else .45*climb;
   desired=if pilot>.5 then {2*(forward*cos(yawTarget)-left*sin(yawTarget)),2*(forward*sin(yawTarget)+left*cos(yawTarget)),climb}
     else {max(-2,min(2,stationEast-target[1])),max(-2,min(2,stationNorth-target[2])),max(-1,min(1,5-target[3]))};
-  der(target[1:2])=if positionHold then desired[1:2] else gpsVelocity[1:2]+10*(gps[1:2]-target[1:2]);
+  der(target[1:2])=if positionHold then desired[1:2] else estimatedVelocity[1:2]+10*(estimatedPosition[1:2]-target[1:2]);
   minimumTargetHeight=if deckEnabled>.5 and (position[1]-deckState[1])^2+(position[2]-deckState[2])^2<16 then deckState[3]+.35 elseif sailDeckEnabled>.5 and (position[1]-sailDeckState[1])^2+(position[2]-sailDeckState[2])^2<9 then sailDeckState[3]-.15 else 1;
-  der(target[3])=if not positionHold then gpsVelocity[3]+10*(gps[3]-target[3]) else max(desired[3],-4*max(0,target[3]-minimumTargetHeight));
+  der(target[3])=if not positionHold then estimatedVelocity[3]+10*(estimatedPosition[3]-target[3]) else max(desired[3],-4*max(0,target[3]-minimumTargetHeight));
   for i in 1:3 loop
     der(integralAcceleration[i])=if not positionHold or motorCut>.5 or immersed>.5 then -integralAcceleration[i]
-      elseif (integralAcceleration[i]>=maxIntegralAcceleration and target[i]>gps[i]) or
-             (integralAcceleration[i]<=-maxIntegralAcceleration and target[i]<gps[i]) then 0
-      else holdIntegralGain*(target[i]-gps[i]);
+      elseif (integralAcceleration[i]>=maxIntegralAcceleration and target[i]>estimatedPosition[i]) or
+             (integralAcceleration[i]<=-maxIntegralAcceleration and target[i]<estimatedPosition[i]) then 0
+      else holdIntegralGain*(target[i]-estimatedPosition[i]);
   end for;
-  acceleration=1.4*(target-gps)+2.4*(desired-gpsVelocity)+integralAcceleration;
+  acceleration=1.4*(target-estimatedPosition)+2.4*(desired-estimatedVelocity)+integralAcceleration;
   forwardAcceleration=cos(attitude[3])*acceleration[1]+sin(attitude[3])*acceleration[2];
   leftAcceleration=-sin(attitude[3])*acceleration[1]+cos(attitude[3])*acceleration[2];
   upAcceleration=max(1,9.80665+acceleration[3]);

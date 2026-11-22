@@ -1,7 +1,7 @@
 import {loadInstance} from './fmi3/instance.mjs';
 
 const models=new Map();
-const outputs=['state','whale','breathAge','swimmerState','wetSections','impact','fish','guidanceMemory','whaleSources','sharkSources','sharkFin','sharkTrunkFlex','sharkBankState'];
+const outputs=['state','whale','breathAge','swimmerState','wetSections','impact','fish','guidanceMemory','whaleSources','sharkSources','sharkFin','sharkTrunkFlex','sharkBankState','swimReserve'];
 
 async function advance({actors,environment,steps}){
   const frames=[];

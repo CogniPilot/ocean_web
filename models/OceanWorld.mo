@@ -2,12 +2,12 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   extends OceanRace;
   parameter Real surveyAtStartup=1 "Enable SLAM for clients that leave idleCamera at its default";
   input Real idleCamera(start=0) "Camera and SLAM mode: -1 active, 0 use startup setting, 1 idle";
-  input Real subManual(start=1),subPilot[4],flightManual(start=1),flightPilot[4],motorCut;
+  input Real subManual(start=1),subPilot[4],subMode(start=0),subAttitudePilot[2],flightManual(start=1),flightPilot[4],motorCut;
   input Real flightMode(start=0),racePilot(start=0),station[2](each start=0);
   Wreck.Plant sub(seaClockOffset=seaClockOffset,seaState=seaState,windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,
-    manual=subManual,pilot=subPilot,hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:8]);
+    manual=subManual,pilot=subPilot,manualMode=subMode,attitudePilot=subAttitudePilot,hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:8]);
   Wreck.Ocean droneWater(seaClockOffset=seaClockOffset,seaState=seaState,pos=drone.position,windSpeed=windSpeed,windDirection=windBearing);
-  Rdd2Survey drone(flightMode=flightMode,sailDeckEnabled=1,sailDeckState=boat.landingDeck,isCatamaran=if hobie then 1 else 0,deckEnabled=1,deckState=race.deckState,windENU=wind.droneWind,currentENU=droneWater.velocity,waterLevel=droneWater.surface+receiverWater[9],
+  Rdd2Survey drone(flightMode=flightMode,gpsDropout=0,sailDeckEnabled=1,sailDeckState=boat.landingDeck,isCatamaran=if hobie then 1 else 0,deckEnabled=1,deckState=race.deckState,windENU=wind.droneWind,currentENU=droneWater.velocity,waterLevel=droneWater.surface+receiverWater[9],
     pilot=flightManual,forward=flightPilot[1],left=flightPilot[2],climb=flightPilot[3],turn=flightPilot[4],
     stationEast=if racePilot>.5 then station[1] else estimate[1],stationNorth=if racePilot>.5 then station[2] else estimate[2],motorCut=motorCut);
   discrete Real previousGyro[3](each start=0,each fixed=true);

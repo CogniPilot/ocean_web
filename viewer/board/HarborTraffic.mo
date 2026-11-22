@@ -13,6 +13,9 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   input Real whalePilot[4]={0,0,0,-1},sharkPilot[4]={0,0,0,-1};
   input Real whaleBank=0,whaleDirect=0,whaleActuators[5]=zeros(5);
   input Real sharkBank=0;
+  parameter Real initialSwimReserve[2]={1,1};
+  output Real swimReserve[2](start=initialSwimReserve,each fixed=true) "Available muscle burst reserves for whale and shark";
+  Real burstRequest[2],swimBurst[2],whaleRoom,sharkRoom,sharkSprint;
   output Real whaleContact[2],whaleFinLift[2] "Normal load (N), minimum gap (m); port and starboard lift (N)";
   parameter Real initialFish[10]={1.65,0,0,0,0,0,0,0,0,0};
   output Real sharkTrunkFlex "Anterior trunk flexion in radians";
@@ -109,6 +112,21 @@ equation
     {localSurface,whaleSlope[1],whaleSlope[2]},swimmer.x[8]-swimmer.x[6],swimmer.x[17],swimmer.x[18],swimmer.stations[:,3]);
   sharkSources=SwimmerSections(false,{state[10],state[11],state[12],state[13],fish[3],sharkBankState[1]},
     {sharkSurface,sharkSlope[1],sharkSlope[2]},fish[6],0,0,zeros(6));
+  // Full manual effort spends a finite reserve. Easing the effort gradually replenishes it.
+  // Leave room for a full stroke before committing to the high-power gait.
+  whaleRoom=min(1,max(0,(localSurface-whaleBottomAhead-6)/4))*
+    min(1,max(0,(whaleContact[2]-.6)/1.2));
+  sharkRoom=min(1,max(0,(sharkSurface-state[12]-1.25-abs(2.32*sin(fish[3])))/1.5))*
+    min(1,max(0,(sharkContact[2]-.6)/1.2));
+  sharkSprint=if sharkPilot[1]>.5 and sharkPilot[4]<0 then sharkRoom*min(1,max(0,(sharkPilot[3]-.78)/.22)) else 0;
+  burstRequest={if whalePilot[1]>.5 and whalePilot[4]<0 and whaleDirect<.5 then whaleRoom*min(1,max(0,strokeGain))*min(1,max(0,(whalePilot[3]-.95)/.05)) else 0,
+                if sharkPilot[1]>.5 and sharkPilot[4]<0 then sharkRoom*min(1,max(0,strokeGain))*min(1,max(0,(sharkPilot[3]-.95)/.05)) else 0};
+  for i in 1:2 loop
+    swimBurst[i]=burstRequest[i]*min(1,max(0,swimReserve[i])/.32);
+    der(swimReserve[i])=-burstRequest[i]*min(.08,2*max(0,swimReserve[i]))+
+      (1-burstRequest[i])*max(0,1-swimReserve[i])/24;
+  end for;
+  swimmer.burst=swimBurst[1];
   swimmer.bankCommand=whaleBank;swimmer.directDrive=whaleDirect;swimmer.actuators=whaleActuators;
   whaleContact={swimmer.ground[10],swimmer.ground[11]};whaleFinLift={swimmer.portLift,swimmer.starboardLift};
   swimmer.bottomAhead=whaleBottomAhead;swimmer.pilot=whalePilot;swimmer.encounter=encounter;swimmer.clock=state[1];swimmer.surface=localSurface;swimmer.current=currentVelocity;swimmer.strokeGain=strokeGain;
@@ -129,7 +147,7 @@ equation
   sharkHeading=if sharkVisit[1]>.5 then sharkVisit[2] else atan2(.38*(sharkN-state[11])+.444*cos(state[1]*.074),
                      .38*(sharkE-state[10])-.888*sin(state[1]*.074)+1e-8);
   der(state[13])=fish[9];
-  fishSpeed=if sharkPilot[1]>.5 then (if sharkPilot[4]>=0 then 6.6 else 1.3+4*sharkPilot[3]) else sharkVisit[3];
+  fishSpeed=if sharkPilot[1]>.5 then (if sharkPilot[4]>=0 then 6.6 else 1.3+4*sharkPilot[3]+1.8*sharkSprint) else sharkVisit[3];
   // Outside a breach the shark levels its head before the gills leave water.
   // A deliberate breach carries its run-up momentum through this surface zone.
   sharkNoseDepth=sharkSurface-state[12]-1.72*sin(fish[3]);
@@ -140,6 +158,7 @@ equation
     else max(-.52,min(.52,.55*(sharkZ-state[12])-.45*fish[2]));
   whiteShark.z=state[12];whiteShark.heading=state[13];whiteShark.surface=sharkSurface;
   whiteShark.east=state[10];whiteShark.north=state[11];sharkContact=whiteShark.ground[6:7];
+  whiteShark.sprint=sharkSprint;whiteShark.burst=swimBurst[2];
   whiteShark.current=currentVelocity;whiteShark.drive=strokeGain;
   whiteShark.desiredSpeed=fishSpeed;whiteShark.desiredPitch=fishRequested;whiteShark.desiredHeading=sharkHeading;
   whiteShark.bankCommand=if sharkPilot[1]>.5 then sharkBank else 0;

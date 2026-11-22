@@ -418,6 +418,21 @@ async function run(){
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
   const fpvForward=new T.Vector3(),drawInstruments=firstPersonInstruments($('flightHud'));
   const helmSeat=new T.Vector3(cat ? -1.2 : -.73,0,cat ? .65 : .18),orbitCenter=new T.Vector3();
+  const cameraMenu=$('cameraDepth'),trapezeViews=new Map();
+  if(cat){
+    for(const [side,sign] of [['port',1],['starboard',-1]]){
+      const option=new Option('Trapeze · '+side,'trapeze-'+side);
+      // Eye position outside the side rail, with the skipper aft of the mast.
+      trapezeViews.set(option.value,{option,eye:new T.Vector3(-.92,sign*2.10,.94),yaw:sign*-.32,pitch:-.12});
+      cameraMenu.add(option);
+    }
+  }
+  function showTrapezeViews(show){
+    for(const {option} of trapezeViews.values()){
+      option.hidden=!show;
+      option.disabled=!show;
+    }
+  }
   let angle=-.8,distance=motor?11.5:cat?14:5.7,tilt=.16,drag=null,running=true,manual=true;
   // Keep wildlife framing independent of the vehicle's orbit and zoom.
   const wildlifeOrbits={gull:{angle:-1,tilt:.36,distance:3.3},whale:{angle:-1.15,tilt:.20,distance:14},shark:{angle:-1.15,tilt:.12,distance:6}};
@@ -425,14 +440,21 @@ async function run(){
   $('view').onpointerdown=e=>{drag=[e.clientX,e.clientY];e.target.setPointerCapture(e.pointerId);};
   $('view').onpointermove=e=>{
     if(!drag)return;
-    const orbit=wildlifeOrbit(),dx=(e.clientX-drag[0])*.008,dy=(e.clientY-drag[1])*.006;
-    const elevation=Math.min(1.4,Math.max(-1.45,(orbit?.tilt??tilt)+dy));
-    if(orbit){orbit.angle-=dx;orbit.tilt=elevation;}
-    else{angle-=dx;tilt=elevation;}
+    const dx=(e.clientX-drag[0])*.008,dy=(e.clientY-drag[1])*.006;
+    const trapeze=trapezeViews.get(cameraMenu.value);
+    if(trapeze){
+      trapeze.yaw=T.MathUtils.clamp(trapeze.yaw-dx,-1.8,1.8);
+      trapeze.pitch=T.MathUtils.clamp(trapeze.pitch-dy,-1.1,1.1);
+    }else{
+      const orbit=wildlifeOrbit(),elevation=T.MathUtils.clamp((orbit?.tilt??tilt)+dy,-1.45,1.4);
+      if(orbit){orbit.angle-=dx;orbit.tilt=elevation;}
+      else{angle-=dx;tilt=elevation;}
+    }
     drag=[e.clientX,e.clientY];
   };
   $('view').onlostpointercapture=()=>drag=null;
   $('view').onwheel=e=>{
+    if(trapezeViews.has(cameraMenu.value))return;
     const orbit=wildlifeOrbit(),scale=Math.exp(e.deltaY*.001);
     if(orbit)orbit.distance=Math.max(2,Math.min(45,orbit.distance*scale));
     else distance=Math.max(2,Math.min(22,distance*scale));
@@ -734,7 +756,7 @@ async function run(){
     const pad=$('sticks'),gull=flyingGull(),swimming=!!animalId&&!gull,boatActive=hasBoat&&!animalId&&!sub?.active&&!drone?.active;
     $('fishFinder').hidden=!swimming;$('motorSensors').hidden=!motor||!!animalId;
     $('subPanel').hidden=!!animalId||!sub?.active;
-    $('subModeLabel').hidden=true;
+    $('subModeLabel').hidden=$('subPanel').hidden||Boolean(world&&!world.hasSubMode);
     subMode.disabled=!sub?.manual;
     if(sub?.active)$('subKeys').textContent=sub.mode===0?'W/S rise/dive · A/D yaw · ↑/↓ forward/back · ←/→ strafe':
       'W/S heave thrust · A/D yaw · ↑/↓ pitch · ←/→ roll'+(sub.mode===2?' · Release to stop rotating':'');
@@ -849,6 +871,7 @@ async function run(){
     const gull=gullIndex(targetSelect.value);
     if(gull>=0||remote.npc.animals.has(targetSelect.value)||['whale','shark'].includes(targetSelect.value)){
       if(!animalId)viewBeforeAnimal=$('cameraDepth').value;
+      showTrapezeViews(false);
       if(sub){sub.active=false;sub.mapGroup.visible=false;}
       drone?.select(false);
       $('cutMotors').hidden=$('flightKeys').hidden=true;
@@ -897,6 +920,7 @@ async function run(){
     $('view').focus({preventScroll:true});
     $('onboardOption').hidden=!sub?.active;
     $('droneFpvOption').hidden=!flying;
+    showTrapezeViews(targetSelect.value==='boat');
     const viewSelect=$('cameraDepth');
     for(const option of viewSelect.options){
       if(option.value==='keel'||option.value==='line')option.hidden=flying;
@@ -920,6 +944,7 @@ async function run(){
   let lastDial=-Infinity;
   const requestedView=url.searchParams.get('view');
   if(Object.hasOwn(wildlifeOrbits,requestedView))$('cameraDepth').value=requestedView;
+  if(targetSelect.value==='boat'&&trapezeViews.has(requestedView))cameraMenu.value=requestedView;
 
   function helm(){
     for(const draw of stickIndicators)draw();
@@ -1558,17 +1583,27 @@ async function run(){
         ocean.U.boat.value.set(orbitCenter.x,orbitCenter.y,motor?motor.group.rotation.z:0,0);
       }
       const viewMode=$('cameraDepth').value;
-      const inspectionOrbit=physicsEnabled&&boat&&!animalId&&!sub?.active&&!drone?.active&&viewMode==='deck';
-      if(inspectionOrbit)orbitCenter.z+=cat?2.2:.7;
-      const orbitDistance=inspectionOrbit?distance*1.22:distance;
-      const horizontal=orbitDistance*Math.cos(tilt);
-      const fov=viewMode==='motorHelm'?62:['motorBow','motorStern','motorPort','motorStarboard','onboard'].includes(viewMode)?64:52;
+      const trapeze=trapezeViews.get(viewMode);
+      const fov=trapeze?60:viewMode==='motorHelm'?62:['motorBow','motorStern','motorPort','motorStarboard','onboard'].includes(viewMode)?64:52;
       if(camera.fov!==fov){camera.fov=fov;camera.updateProjectionMatrix();}
       camera.up.set(0,0,1);
-      camera.position.set(horizontal*Math.cos(angle),horizontal*Math.sin(angle),orbitDistance*Math.sin(tilt)).add(orbitCenter);
-      if($('cameraDepth').value==='line')camera.position.z=ocean.sampleSurface(camera.position.x,camera.position.y,true);
-      camera.position.z=Math.max(-13.1,camera.position.z);
-      camera.lookAt(orbitCenter);
+      if(trapeze){
+        const orientation=boat.group.quaternion;
+        const horizontalLook=Math.cos(trapeze.pitch);
+        camera.position.copy(trapeze.eye).applyQuaternion(orientation).add(boat.group.position);
+        camera.up.applyQuaternion(orientation);
+        fpvForward.set(horizontalLook*Math.cos(trapeze.yaw),horizontalLook*Math.sin(trapeze.yaw),Math.sin(trapeze.pitch));
+        camera.lookAt(fpvForward.applyQuaternion(orientation).add(camera.position));
+      }else{
+        const inspectionOrbit=physicsEnabled&&boat&&!animalId&&!sub?.active&&!drone?.active&&viewMode==='deck';
+        if(inspectionOrbit)orbitCenter.z+=cat?2.2:.7;
+        const orbitDistance=inspectionOrbit?distance*1.22:distance;
+        const horizontal=orbitDistance*Math.cos(tilt);
+        camera.position.set(horizontal*Math.cos(angle),horizontal*Math.sin(angle),orbitDistance*Math.sin(tilt)).add(orbitCenter);
+        if(viewMode==='line')camera.position.z=ocean.sampleSurface(camera.position.x,camera.position.y,true);
+        camera.position.z=Math.max(-13.1,camera.position.z);
+        camera.lookAt(orbitCenter);
+      }
       const flightHud=$('flightHud');
       const droneFpv=drone?.active && $('cameraDepth').value==='fpv';
       const video=$('fpvVideo');

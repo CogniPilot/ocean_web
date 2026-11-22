@@ -1,9 +1,9 @@
 model OceanSubmarine "Submarine with onboard navigation and a shared sea"
   extends OceanMission;
   parameter Real surveyAtStartup=1;
-  input Real idleCamera(start=0),subManual(start=1),subPilot[4];
+  input Real idleCamera(start=0),subManual(start=1),subPilot[4],subMode(start=0),subAttitudePilot[2];
   Wreck.Plant sub(seaClockOffset=seaClockOffset,seaState=seaState,windSpeed=windSpeed,windDirection=windBearing,
-    sensor=sensor,elevationRanges=elev,manual=subManual,pilot=subPilot,
+    sensor=sensor,elevationRanges=elev,manual=subManual,pilot=subPilot,manualMode=subMode,attitudePilot=subAttitudePilot,
     hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:8]);
   discrete Real previousGyro[3](each start=0,each fixed=true);
   final parameter Real beams[1017,3]=Wreck.Perception.directions();

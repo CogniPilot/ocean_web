@@ -36,6 +36,7 @@ self.onmessage=async({data})=>{
   try{
     const [plant,nav]=await ready;
     plant.set('manual',Number(data.manual));plant.set('pilot',data.pilot);
+    plant.set('manualMode',data.mode);plant.set('attitudePilot',data.attitude);
     plant.set('windSpeed',data.wind);plant.set('windDirection',data.bearing);
     nav.set('idleCamera',Number(!data.active));nav.set('useSonar',Number(data.active||!data.manual));
     const previousEstimate=estimate;

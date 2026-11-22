@@ -110,7 +110,8 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     return frame?{initialState:frame.slice(0,17),initialSwimmer:frame.slice(24,42),initialImpact:frame.slice(60,65),
       ...(frame.length>=70?{initialFish:[...frame.slice(65,70),...(frame.length>=75?frame.slice(70,75):[0,0,0,0,0])]}:{}),
       ...(frame.length>=81?{initialGuidance:frame.slice(75,81)}:{}),
-      ...(frame.length>=205?{initialSharkBank:frame.slice(203,205)}:{})}:{};
+      ...(frame.length>=205?{initialSharkBank:frame.slice(203,205)}:{}),
+      ...(frame.length>=207?{initialSwimReserve:frame.slice(205,207)}:{})}:{};
   }
   function pilotInputs(a,frame){
     if(!a)return {};
@@ -210,6 +211,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       const actor={id,inputs:pilotInputs(animal,animal.frame)};
       if(!started.has(id)){
         const seed=resumed(animal.frame??frame);
+        if(!animal.frame)delete seed.initialSwimReserve;
         if(!animal.frame&&seed.initialState){
           const offset=Number(id.split('-')[1])||2;
           seed.initialState[9]+=5*offset;seed.initialState[10]-=6;

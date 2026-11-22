@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
+import {pilotSticks} from '../viewer/keyboard-sticks.mjs';
+const up=pilotSticks(key=>Number(key==='ArrowUp'));
+const right=pilotSticks(key=>Number(key==='ArrowRight'));
+assert.deepEqual([up.pitch,up.roll,right.pitch,right.roll],[1,0,0,1]);
 const drone=await loadInstance('Rdd2Survey',{stationEast:-5,stationNorth:0},async u=>new Response(await readFile(u)));
 function observe(seconds){for(let i=0;i<seconds*200;i++)drone.advance(.005);return drone.get('position');}
 const hover=observe(8);
@@ -85,3 +89,34 @@ for(const mode of [1,2]){
   assert(aircraft.get('position').every(Number.isFinite));
 }
 console.log('Auto level recovered, acro rotated through inverted, throttle held and position hold re-engaged.');
+
+// Covariance should grow while dead reckoning and contract when GPS returns.
+// The drag observer must recover both wind components and track a reversal.
+const navigation=await loadInstance('Rdd2Survey',{stationEast:-5,stationNorth:0,windENU:[-3,7,0]},
+  async u=>new Response(await readFile(u)));
+function advanceNavigation(seconds){
+  for(let i=0;i<seconds*200;i++)navigation.advance(.005);
+  return navigation.get('positionCovariance');
+}
+function estimateError(){
+  const [estimate,actual]=navigation.getMany(['estimatedPosition','position']);
+  return Math.hypot(...estimate.map((value,i)=>value-actual[i]));
+}
+function windError(east,north){
+  const [e,n]=navigation.get('estimatedWindENU');
+  return Math.hypot(e-east,n-north);
+}
+assert.equal(navigation.get('windEstimateValid'),0);
+const lockedCovariance=advanceNavigation(4);
+assert.equal(navigation.get('windEstimateValid'),1);
+assert(windError(-3,7)<.08&&estimateError()<.05);
+navigation.set('gpsDropout',1);
+const dropoutCovariance=advanceNavigation(3);
+assert(dropoutCovariance.every((variance,i)=>variance>25*lockedCovariance[i]));
+assert(estimateError()<.25);
+navigation.set('gpsDropout',0);
+navigation.set('windENU',[6,-4,0]);
+const recoveredCovariance=advanceNavigation(4);
+assert(recoveredCovariance.every((variance,i)=>variance<.1*dropoutCovariance[i]));
+assert(windError(6,-4)<.08&&estimateError()<.05);
+console.log({lockedCovariance,dropoutCovariance,recoveredCovariance,positionError:estimateError(),windError:windError(6,-4)});

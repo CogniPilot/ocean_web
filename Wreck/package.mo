@@ -81,7 +81,9 @@ package Wreck
     Tank fore, aft;
     input Real sensor[91];
     input Real elevationRanges[100](each start=0) "Four elevation fans of 25 slant ranges, zero means no echo";
-    input Real manual(start=0) "Enable pilot velocity setpoints above 0.5";
+    input Real manual(start=0) "Enable manual control above 0.5";
+    input Real manualMode(start=0) "0 position, 1 auto-level, 2 body-rate acro";
+    input Real attitudePilot[2](each start=0) "Normalized roll and pitch stick commands";
     input Real pilot[4](each start=0) "Body surge, port sway, yaw rate and upward speed [m/s,m/s,rad/s,m/s]";
     Real lateralThrust(start=0,fixed=true,stateSelect=StateSelect.always) "Reversible transverse thruster [N]";
     Real swayCommand;
@@ -114,11 +116,14 @@ package Wreck
     Real goalDepth,headingError,approach,forwardError,legStart[2],legVector[2],legLength,lookback;
     Real pilotEast,pilotNorth;
     Real foreLift,aftLift;
+    Boolean positionMode,acroMode,translate,dive;
+    Real heldStation[3](start={-5,0,10.29},each fixed=true) "Estimated east, north and pressure depth";
+    Real holdE,holdN,positionSurge,positionSway,heaveRef;
     Real cmd[6], thrust[6](each stateSelect=StateSelect.always,each start=0,each fixed=true), rel[3], up[3], buoy[3], ballast[3], wet;
     parameter Real airDensity=1.225, windageCdA[3]={0.12,0.32,0.25} "Exposed hull drag areas [m2]";
     parameter Real windageCenter[3]={0.04,0,0.12} "Centre of wind pressure in body axes [m]";
     output Real windForce[3] "Aerodynamic hull load in body axes [N]";
-    Real apparentAir[3];
+    Real apparentAir[3],trimMoment[3];
     Real heading,pitch,roll;
   equation
     connect(loads.frame_b,body.frame_a);
@@ -149,7 +154,24 @@ package Wreck
     northError=goal[2]-sensor[61];
     heading=sensor[62];
     depthEst=sensor[59]/(rho*g);
-    goalDepth=if manual>.5 then 10.29 else .29-goal[3];
+    positionMode=manual>.5 and manualMode<.5;
+    acroMode=manual>.5 and manualMode>1.5;
+    translate=abs(pilot[1])+abs(pilot[2])>.025;
+    dive=abs(pilot[4])>.025;
+    goalDepth=if positionMode then heldStation[3] elseif manual>.5 then depthEst else .29-goal[3];
+    // Let the reference follow the navigation estimate during translation.
+    // Centering the sticks holds the last station and pressure depth.
+    for i in 1:2 loop
+      der(heldStation[i])=if not positionMode or translate or sensor[63]<.5 then (sensor[59+i]-heldStation[i])/.18 else 0;
+    end for;
+    der(heldStation[3])=if depthEst>.05 and (not positionMode or dive) then (depthEst-heldStation[3])/.18 else 0;
+    holdE=heldStation[1]-sensor[60];
+    holdN=heldStation[2]-sensor[61];
+    positionSurge=if translate then pilot[1] elseif sensor[63]>.5 then
+      max(-.55,min(.55,.8*(holdE*cos(heading)+holdN*sin(heading)))) else 0;
+    positionSway=if translate then pilot[2] elseif sensor[63]>.5 then
+      max(-.38,min(.38,.8*(-holdE*sin(heading)+holdN*cos(heading)))) else 0;
+    heaveRef=if dive then pilot[4] else max(-.4,min(.4,.8*(depthEst-heldStation[3])));
     verticalError=depthEst-goalDepth;
     // Waypoints advance only on measured arrival. Hold the final station.
     when sample(.2,.2) then
@@ -169,15 +191,21 @@ package Wreck
     approach=max(0,min(1,(cos(headingError)-.78)/.18));
     surgeRef=approach*max(0,min(.65,forwardError));
     swayRef=approach*max(-.15,min(.15,-pilotEast*sin(heading)+pilotNorth*cos(heading)));
-    surge=if manual>.5 then 18*(pilot[1]-sensor[64]) else 24*(surgeRef-sensor[64]);
+    surge=if positionMode then 18*(positionSurge-sensor[64]) elseif manual>.5 then 0 else 24*(surgeRef-sensor[64]);
     yawCmd=if manual>.5 then 4*(pilot[3]-sensor[58]) else 5*max(-.95,min(.95,headingError))-4*sensor[58];
-    swayCommand=if manual>.5 then 22*(pilot[2]-sensor[65]) else 26*(swayRef-sensor[65]);
+    swayCommand=if positionMode then 22*(positionSway-sensor[65]) elseif manual>.5 then 0 else 26*(swayRef-sensor[65]);
     der(lateralThrust)=(max(-16,min(16,swayCommand))-lateralThrust)/0.14;
-    heave=if manual>0.5 then 24*(pilot[4]-verticalSpeed) else 12*verticalError-15*verticalSpeed;
+    heave=if positionMode then 24*(heaveRef-verticalSpeed) elseif manual>.5 then 24*pilot[4]
+      else 12*verticalError-15*verticalSpeed;
     roll=attitude[1];
     pitch=attitude[2];
-    rollCmd=-3*roll-sensor[89];
-    pitchCmd=-4*pitch-2*sensor[90];
+    // The rate loop uses the high-rate gyro signal. The 5 Hz packet is
+    // suitable for navigation, but delayed damping can excite the thrusters.
+    trimMoment=cross({0,0,0.055},buoy)+cross({0.34,0,-0.08},-fore.mass*g*up)+cross({-0.34,0,-0.08},-aft.mass*g*up);
+    rollCmd=if acroMode then 2.8*(1.05*attitudePilot[1]-body.w_a[1])-trimMoment[1]
+      elseif manual>.5 and not positionMode then 5.4*(.49*attitudePilot[1]-roll)-2.6*body.w_a[1]-trimMoment[1] else -3*roll-sensor[89];
+    pitchCmd=if acroMode then 5.2*(.90*attitudePilot[2]-body.w_a[2])-trimMoment[2]
+      elseif manual>.5 and not positionMode then 10*(.44*attitudePilot[2]-pitch)-4*body.w_a[2]-trimMoment[2] else -4*pitch-2*sensor[90];
     // Split lift so net force and pitch torque both match their commands.
     foreLift=(-pitchCmd-propMount[5,1]*heave)/(propMount[3,1]-propMount[5,1]);
     aftLift=heave-foreLift;
@@ -201,8 +229,8 @@ package Wreck
     end for;
     fore.pressure=ocean.gaugePressure;
     aft.pressure=ocean.gaugePressure;
-    fore.target=max(0,min(fore.capacity,0.00042-0.00010*verticalError-0.0002*pitch));
-    aft.target=max(0,min(aft.capacity,0.00042-0.00010*verticalError+0.0002*pitch));
+    fore.target=max(0,min(fore.capacity,0.00042-0.00010*verticalError-(if manual>.5 and not positionMode then 0 else 0.0002*pitch)));
+    aft.target=max(0,min(aft.capacity,0.00042-0.00010*verticalError+(if manual>.5 and not positionMode then 0 else 0.0002*pitch)));
     up=body.frame_a.R.T*{0,0,1};
     wet=max(0,min(1,(ocean.surface+hullSurfaceOffset-body.r_0[3]+0.16)/0.32));
     buoy=rho*g*displaced*wet*up;
@@ -217,7 +245,7 @@ package Wreck
     der(contactForce)=(contactTarget-contactForce)/0.014;
     der(contactMoment)=(momentTarget-contactMoment)/0.014;
     netForce=windForce+buoy+ballast-dryMass*g*up-cross(body.w_a,addedMass.*rel)-wet*(3*rel+drag.*rel.*abs(rel))+transpose(propAxis)*appliedThrust;
-    loads.torque=cross(windageCenter,windForce)+cross({0,0,0.055},buoy)+cross({0.34,0,-0.08},-fore.mass*g*up)+cross({-0.34,0,-0.08},-aft.mass*g*up)
+    loads.torque=cross(windageCenter,windForce)+trimMoment
       -angularDrag.*body.w_a-cross(rel,addedMass.*rel)+transpose(propMomentArm)*appliedThrust;
     annotation(experiment(StopTime=125,Interval=0.2,Tolerance=1e-5));
   end Plant;

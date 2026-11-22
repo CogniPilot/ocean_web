@@ -13,7 +13,7 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
   constant Real volumeShare[7]={.027,.103,.225,.290,.225,.103,.027};
   input Real boatLoad[3] "Hull reaction in forward and port axes, and yaw moment";
   parameter Real startBank[2]={0,0};
-  input Real east,north,z,heading,surface,current[2],desiredSpeed,desiredPitch,desiredHeading,drive,bankCommand;
+  input Real east,north,z,heading,surface,current[2],desiredSpeed,desiredPitch,desiredHeading,drive,bankCommand,sprint,burst;
   output Real x[10](start=startState,each fixed=true)
     "Ground surge, heave, pitch, pitch rate, stroke phase, peduncle yaw, peduncle rate, caudal incidence, yaw rate, ground sway";
   output Real bank[2](start=startBank,each fixed=true) "Roll and roll rate, positive starboard down";
@@ -61,11 +61,11 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
   output Real ground[8];
   output Real tailThrust,shaftPower,frequency,finAngle,velocity[2],trunkFlex;
 protected
-  Real u,v,along,normal,wet,tailWet,finWet,turn,effort,amplitude,rate,target,rawTorque,torque;
-  Real lateral,inflow,tailX,tailY,finX,finZ,drag,bodyNormal,sideForce,feather;
+  Real u,v,along,normal,wet,tailWet,finWet,turn,effort,amplitude,rate,target,rawTorque,torque,caudalArm,torqueLimit,powerLimit,limitedTorque;
+  Real lateral,inflow,tailX,tailY,finX,finZ,drag,bodyNormal,sideForce,feather,featherControl,finExposure,lead,leadAngle,leadRate,leadInflow;
   Real immersed[7],buoyMoment,stationHalfHeight[7],tailDepth,caudalHalfHeight;
   Real bowSide,sternSide,bowFlow,sternFlow;
-  Real cp,sp,cr,sr,forward,vertical,finBank,bankTorque;
+  Real cp,sp,cr,sr,forward,vertical,finBank,bankTorque,yawWaterInertia;
 equation
   cp=cos(x[3]);sp=sin(x[3]);cr=cos(bank[1]);sr=sin(bank[1]);
   u=x[1]-current[1]*cos(heading)-current[2]*sin(heading);
@@ -83,24 +83,47 @@ equation
   tailWet=.56*Humpback.wet(tailDepth-.34*cp,caudalHalfHeight)+.44*Humpback.wet(tailDepth+.30*cp,caudalHalfHeight);
   finWet=Humpback.wet(surface-z-.42*sp+.18*cp,.27);
   turn=atan2(sin(desiredHeading-heading),cos(desiredHeading-heading));
-  effort=max(0,min(1,.11*desiredSpeed+.26*(desiredSpeed-along)));
+  effort=max(0,min(1,.11*desiredSpeed+.26*(desiredSpeed+7*burst-along)));
   // Semmens et al. (2019), tagged white shark ascents: 0.39--2.50 Hz.
-  frequency=.39+1.60*effort;rate=6.2831853*frequency;der(x[5])=rate;
-  amplitude=.26+.46*effort;target=amplitude*sin(x[5]);
-  rawTorque=drive*(14500*(target-x[6])+1500*(amplitude*rate*cos(x[5])-x[7]));
-  torque=max(-peakTorque,min(peakTorque,rawTorque))*min(1,peakPower/max(1,rawTorque*x[7]));
+  frequency=.39+(1.60+.51*burst)*effort;rate=6.2831853*frequency;der(x[5])=rate;
+  amplitude=.26+(.46+.20*sprint+.47*burst)*effort;target=amplitude*sin(x[5]);
+  torqueLimit=peakTorque*(1+1.4*sprint+8*burst);
+  powerLimit=peakPower*(1+2*sprint+14*burst);
+  rawTorque=drive*(1+1.5*sprint+5*burst)*(14500*(target-x[6])+1500*(amplitude*rate*cos(x[5])-x[7]));
+  limitedTorque=max(-torqueLimit,min(torqueLimit,rawTorque));
+  torque=limitedTorque*min(1,powerLimit/max(1,(rawTorque+featherControl*(limitedTorque-rawTorque))*x[7]));
   shaftPower=torque*x[7];
-  lateral=v-1.95*x[9]-hingeArm*cos(x[6])*x[7];
-  inflow=atan2(lateral,max(.35,along+hingeArm*sin(x[6])*x[7]));
-  feather=max(-1.22,min(1.22,.50*inflow-.60*turn+.70*x[9]));
-  der(x[8])=min(18,max(-18,(feather-x[8])*35));
-  (tailX,tailY)=Humpback.foil(along+hingeArm*sin(x[6])*x[7],lateral,x[8],tailArea,tailWet);
+  // A stronger stroke recruits more of the peduncle ahead of the caudal fin.
+  // The same lever maps fin motion and water reaction back to the hinge.
+  caudalArm=hingeArm+.21*sprint;
+  lateral=v-1.95*x[9]-caudalArm*cos(x[6])*x[7];
+  inflow=atan2(lateral,max(.35,along+caudalArm*sin(x[6])*x[7]));
+  // At high effort the actively feathered caudal foil follows the local inflow
+  // more closely, retaining a useful angle of attack during the loaded part of the beat.
+  featherControl=sprint+burst-sprint*burst;
+  // Preview the local caudal inflow over the actuator response time.
+  lead=.012*burst;
+  leadAngle=x[6]+lead*x[7];
+  leadRate=x[7]-lead*rate^2*x[6];
+  leadInflow=if lead>0 then atan2(v-1.95*x[9]-caudalArm*cos(leadAngle)*leadRate,
+    max(.35,along+caudalArm*sin(leadAngle)*leadRate)) else inflow;
+  feather=max(-1.22-.14*featherControl,min(1.22+.14*featherControl,.50*leadInflow+featherControl*.45*
+    (leadInflow-min(.50,max(-.50,leadInflow)))-.60*turn+.70*x[9]));
+  der(x[8])=min(18+80*featherControl,
+    max(-18-80*featherControl,(feather-x[8])*(35+205*featherControl)));
+  (tailX,tailY)=Humpback.foil(along+caudalArm*sin(x[6])*x[7],lateral,x[8],tailArea,tailWet);
   tailThrust=tailX;
   der(x[6])=x[7];
-  der(x[7])=(torque-hingeArm*(cos(x[6])*tailY-sin(x[6])*tailX)-580*x[6]-95*x[7])/hingeInertia;
+  der(x[7])=(torque-caudalArm*(cos(x[6])*tailY-sin(x[6])*tailX)-580*x[6]-95*x[7])/hingeInertia;
   finAngle=max(-.85,min(.85,atan2(normal,max(.60,along))+.96*(desiredPitch-x[3])-.42*x[4]));
-  (finX,finZ)=Humpback.foil(along,normal-.55*x[4],finAngle,2*pectoralArea,finWet);
-  drag=-.5*1025*.073*wet*along*abs(along);
+  // Retract part of the pectoral span in straight, fast swimming. Restore
+  // the exposed span as pitch and bank demand increase.
+  finExposure=1-.46*featherControl*max(0,min(1,(along-4)/5))*
+    max(0,1-2*abs(finAngle)-1.5*abs(bankCommand-bank[1]));
+  (finX,finZ)=Humpback.foil(along,normal-.55*x[4],finAngle,2*pectoralArea*finExposure,finWet);
+  // In a streamlined stroke, the torso presents a smaller effective drag
+  // area to the axial flow. Crossflow retains its separate drag terms.
+  drag=-.5*1025*(.073-.035*sprint)*wet*along*abs(along);
   bodyNormal=-wet*(225*normal*abs(along)+250*normal*abs(normal));
   // Two strips sample crossflow ahead and astern of the centre of mass. Their
   // separated reactions resist yaw even when the net lateral velocity is zero.
@@ -117,7 +140,9 @@ equation
   der(x[2])=(ground[3]+sp*forward+cp*vertical)/mass+9.81*(.992*wet-1);
   der(x[3])=x[4];
   der(x[4])=(ground[4]+buoyMoment+.65*cr*finZ-.16*bodyNormal-wet*(480+150*abs(along))*x[4])/720;
-  der(x[9])=(boatLoad[3]+ground[5]-1.95*tailY+1.18*bowSide-1.30*sternSide-wet*(520+200*abs(along))*x[9])/(yawInertia+wet*yawAddedInertia);
+  // A firmer torso entrains water farther forward during the sprint stroke.
+  yawWaterInertia=wet*yawAddedInertia*(1+.35*sprint);
+  der(x[9])=(boatLoad[3]+ground[5]-1.95*tailY+1.18*bowSide-1.30*sternSide-wet*(520+200*abs(along))*x[9])/(yawInertia+yawWaterInertia);
   der(x[10])=(boatLoad[2]+ground[2]+tailY+sideForce-sr*finZ)/(mass+350)-x[9]*x[1];
   // Differential pectoral lift banks the shark. Fin immersion and water
   // speed limit the control moment while buoyancy and drag right the body.
