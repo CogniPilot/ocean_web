@@ -24,6 +24,7 @@ export function npcRoom(){
       (h.vessels===undefined||(Array.isArray(h.vessels)&&h.vessels.length<=vesselLimit&&h.vessels.every(
         v=>v&&Object.hasOwn(vesselNpcNames,v.kind)&&Number.isFinite(v.started)&&
           (v.raceAt===undefined||Number.isSafeInteger(v.raceAt)&&v.raceAt%300===0)&&
+          (v.raceId===undefined||typeof v.raceId==='string'&&/^[a-f0-9]{16}$/.test(v.raceId))&&
           (v.raceWind===undefined||Number.isFinite(v.raceWind)&&v.raceWind>=0&&v.raceWind<=22))))&&
       (h.gullSeats===undefined||(Array.isArray(h.gullSeats)&&h.gullSeats.length===h.gulls.length&&
         h.gullSeats.every(seat=>seat===null||typeof seat==='string')))&&
@@ -218,7 +219,10 @@ export function npcRoom(){
       if(Object.hasOwn(vesselNpcNames,kind)){
         if(!Number.isFinite(started))return;
         const vessel={kind,started};
-        if(kind==='hobie'&&Number.isSafeInteger(raceAt)&&raceAt%300===0)vessel.raceAt=raceAt;
+        if(kind==='hobie'&&Number.isSafeInteger(raceAt)&&raceAt%300===0){
+          vessel.raceAt=raceAt;
+          vessel.raceId=Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('');
+        }
         if(kind==='hobie'&&Number.isFinite(raceWind))vessel.raceWind=Math.max(0,Math.min(22,raceWind));
         habitat.vessels.push(vessel);revision++;sync();return 'npc-'+habitat.vessels.length;
       }

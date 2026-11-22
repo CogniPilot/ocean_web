@@ -29,7 +29,7 @@ function dispose(group){
   for(const resource of [...geometries,...materials,...textures])resource.dispose();
 }
 
-export function vesselTraffic(T,scene,surface,windAt,race,onError){
+export function vesselTraffic(T,scene,surface,windAt,race,onError,onFinish){
   const craft=new Map(),sailRigs=new Map(),wind=new T.Vector2();
   function rig(kind){
     if(!sailRigs.has(kind)){
@@ -69,7 +69,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,onError){
     }};
   }
   function begin(row,id,index,utc){
-    const entry={kind:row.kind,started:row.started};
+    const entry={kind:row.kind,started:row.started,raceId:row.raceId};
     if(row.kind==='hobie')entry.racer=hobieRace(race,index,row.raceAt??nextFleetStart(utc,race.get('countdown')),row.raceWind);
     craft.set(id,entry);
     load(row.kind).then(visual=>{
@@ -88,16 +88,20 @@ export function vesselTraffic(T,scene,surface,windAt,race,onError){
   return {draw(rows,time,utc){
     for(const [id,entry] of craft){
       const row=rows[Number(id.slice(4))-1];
-      if(!row||row.started!==entry.started||row.kind!==entry.kind)remove(id,entry);
+      if(!row||row.started!==entry.started||row.kind!==entry.kind||row.raceId!==entry.raceId)remove(id,entry);
     }
     for(const [i,row] of rows.entries()){
       const id='npc-'+(i+1),entry=craft.get(id)??begin(row,id,i,utc),visual=entry.visual;
-      if(!visual)continue;
       let east,north,speed,heading,orbit,height,angle;
       if(entry.racer){
         const sample=entry.racer.sample(utc);
         ({east,north,speed,heading}=sample);
-        entry.raceStatus=sample.status;orbit=12;
+        const {status}=sample;
+        entry.raceStatus=status;orbit=12;
+        if(status.stage===5&&status.heatStart!==entry.finishedHeat){
+          entry.finishedHeat=status.heatStart;
+          onFinish(i+1,row,status);
+        }
       }else{
         const {center,radius,speed:patrolSpeed,orbit:patrolOrbit,height:patrolHeight}=routes[row.kind];
         const [a,b]=radius,clock=Math.max(0,time-row.started);
@@ -106,6 +110,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,onError){
         heading=Math.atan2(b*Math.cos(angle),-a*Math.sin(angle));
         speed=patrolSpeed;orbit=patrolOrbit;height=patrolHeight;
       }
+      if(!visual)continue;
       let z=height,roll=0,pitch=0;
       if(height===undefined){
         const dx=Math.cos(heading),dy=Math.sin(heading);

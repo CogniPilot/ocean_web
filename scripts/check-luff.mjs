@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
+import {sailFlapRate} from '../viewer/regatta.mjs';
 
 const boat = await loadInstance('Sailboat', {
   windEast: 10, windNorth: 4, currentEast: .2, currentNorth: .04,
@@ -36,3 +37,17 @@ for (const [sail, samples] of excursions.entries()) {
   assert(min < -.02 && max > .02 && reversals >= 3);
   console.log(sail ? 'Jib' : 'Main', {min, max, reversals});
 }
+
+// The audio must reject steady camber and trim even when some flow separates.
+const tracker = sailFlapRate();
+for (let i = 0; i < 150; i++) tracker.sample(i / 32, i / 32, .07 + .001 * i, .18, .6, .5, 1);
+assert.deepEqual(tracker.activity, [0, 0]);
+for (let i = 150; i < 300; i++) {
+  const time = i / 32;
+  tracker.sample(time, time, .22 + .065 * Math.sin(2 * Math.PI * 2.5 * time), .18, .6, .5, 1);
+}
+assert(tracker.activity[0] > .85 && tracker.activity[1] === 0);
+assert(Math.abs(tracker.dominant - 2.5) < .15);
+for (let i = 300; i < 321; i++) tracker.sample(i / 32, i / 32, .22, .18, .6, .5, 1);
+assert.deepEqual(tracker.activity, [0, 0]);
+console.log('Luff audio rejects steady cloth and follows a 2.5 Hz flap.');

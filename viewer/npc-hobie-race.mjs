@@ -95,7 +95,7 @@ export function hobieRace(race,index,startAt,windSpeed=11){
   const laps=Math.max(1,Math.round(holdingTime*orbitRate/(2*Math.PI)));
   const returnOrbitRate=2*Math.PI*laps/holdingTime;
   const offset=left(launchDirection),position={east:0,north:0,heading:0,speed:0,
-    status:{stage:0,elapsed:0,lapTime:0,startDelay:null}};
+    status:{stage:0,elapsed:0,lapTime:0,startDelay:null,heatStart:startAt}};
   function sample(utc){
     const elapsed=utc-startAt;
     const completedHeats=Math.max(0,Math.floor((elapsed-segments[0].time)/period));
@@ -119,6 +119,7 @@ export function hobieRace(race,index,startAt,windSpeed=11){
       position.speed=leg.speed;
     }
     const status=position.status;
+    status.heatStart=startAt+completedHeats*period;
     status.stage=heatTime<0?0:1;
     for(const event of events)if(heatTime>=event.time)status.stage=event.stage;
     const scored=status.stage>=2;

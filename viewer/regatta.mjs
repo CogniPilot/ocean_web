@@ -129,6 +129,8 @@ export function sailFlapRate(){
   const slopeScale=taper.reduce((sum,w,i)=>sum+w*(i-middle)**2,0);
   const bins=Float64Array.from({length:binCount},(_,i)=>2*Math.cos(2*Math.PI*(firstFrequency+frequencyStep*i)/sampleRate));
   const powers=new Float64Array(binCount);
+  const activitySamples=20, activityMiddle=(activitySamples-1)/2;
+  const activitySlopeScale=activitySamples*(activitySamples**2-1)/12;
   let count=0,write=0,lastTime,nextSample,lastWall,lastMain,lastJib,analysisTime,frameInterval;
   let clockTime,clockWall,wallRate,dominant;
 
@@ -182,6 +184,21 @@ export function sailFlapRate(){
     main[write]=mainY;jib[write]=jibY;
     write=(write+1)%windowSize;count=Math.min(count+1,windowSize);
   }
+  function motion(samples){
+    if(count<activitySamples)return 0;
+    let sum=0,moment=0,squares=0;
+    for(let i=0;i<activitySamples;i++){
+      const deflection=samples[(write-activitySamples+i+windowSize)%windowSize];
+      sum+=deflection;
+      moment+=(i-activityMiddle)*deflection;
+      squares+=deflection**2;
+    }
+    // Reject steady draft and linear changes in trim. Use a short window for
+    // gain so old flaps in the frequency analysis cannot keep the sound on.
+    const rms=Math.sqrt(Math.max(0,(squares-sum**2/activitySamples-moment**2/activitySlopeScale)/activitySamples));
+    const amplitude=Math.max(0,Math.min(1,(rms-.008)/.025));
+    return amplitude*amplitude*(3-2*amplitude);
+  }
   function sample(time,wall,mainY,jibY,mainLuff,jibLuff,playbackRate){
     if(time===lastTime)return wall-lastWall<.35;
     if(!Number.isFinite(mainY)||!Number.isFinite(jibY)){reset();return false;}
@@ -213,7 +230,7 @@ export function sailFlapRate(){
     lastTime=time;lastWall=wall;lastMain=mainY;lastJib=jibY;
     return true;
   }
-  return {sample,reset,get dominant(){return dominant;},
+  return {sample,reset,get activity(){return [motion(main),motion(jib)];},get dominant(){return dominant;},
     get audibleHz(){return (dominant??1.8)*(wallRate??1);}};
 }
 
@@ -387,13 +404,15 @@ export function raceAudio(){
     let luff=0;
     if(sailLuff&&state&&exposure>0){
       const main=.74*sailLuff[0],jib=.45*sailLuff[1];
-      luff=Math.min(1,main+jib);
-      if(luff>.015||flapRate){
+      if(main+jib>.015||flapRate){
         flapRate??=sailFlapRate();
         // Hull, load and instrument fields occupy the first 42 entries.
         const vertices=42,verticesPerSail=72;
-        if(!flapRate.sample(time,wall,leechDeflection(state,vertices),
-          leechDeflection(state,vertices+verticesPerSail),main,jib,playbackRate))luff=0;
+        if(flapRate.sample(time,wall,leechDeflection(state,vertices),
+          leechDeflection(state,vertices+verticesPerSail),main,jib,playbackRate)){
+          const [mainMotion,jibMotion]=flapRate.activity;
+          luff=Math.max(0,Math.min(1,main*mainMotion+jib*jibMotion)-.015);
+        }
       }
     }else flapRate?.reset();
     if(wall-lastMix<.05)return;

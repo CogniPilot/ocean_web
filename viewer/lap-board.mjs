@@ -8,10 +8,11 @@ const classes={Hobie16:'Hobie 16',Sailboat:'Pilothouse sloop',RDD2:'RDD2 drone'}
 export function lapClock(tenths){
   return Math.floor(tenths/600)+':'+((tenths%600)/10).toFixed(1).padStart(4,'0');
 }
-function valid(row){
-  return row && typeof row.id==='string' && /^[a-f0-9]{32}$/.test(row.id) &&
-    Number.isSafeInteger(row.tenths) && row.tenths>0 &&
-    (row.captain==='You'||isCaptainName(row.captain));
+function valid(row,hull){
+  if(!row||typeof row.id!=='string'||!Number.isSafeInteger(row.tenths)||row.tenths<=0)return false;
+  const npc=/^npc-([1-5])-\d{1,15}-(?:[a-f0-9]{16}|-?\d{1,15})$/.exec(row.id);
+  if(npc)return hull==='Hobie16'&&row.captain==='NPC '+npc[1];
+  return /^[a-f0-9]{32}$/.test(row.id)&&(row.captain==='You'||isCaptainName(row.captain));
 }
 function compare(a,b){
   return a.tenths-b.tenths || (a.id<b.id?-1:a.id>b.id?1:0);
@@ -26,7 +27,7 @@ export function lapTable(storage,scope,hull){
         if(!key?.startsWith(prefix))continue;
         let row;
         try{row=JSON.parse(storage.getItem(key));}catch{continue;}
-        if(valid(row)&&key===prefix+row.id&&!rows.some(r=>r.id===row.id))rows.push(row);
+        if(valid(row,hull)&&key===prefix+row.id&&!rows.some(r=>r.id===row.id))rows.push(row);
       }
     }catch{/* Storage may be unavailable in private browsing. */}
     trim();
@@ -41,7 +42,7 @@ export function lapTable(storage,scope,hull){
     if(!Array.isArray(batch)||batch.length>limit)return false;
     const before=rows.slice();
     for(const row of batch){
-      if(valid(row)&&!rows.some(r=>r.id===row.id))rows.push({id:row.id,captain:row.captain,tenths:row.tenths});
+      if(valid(row,hull)&&!rows.some(r=>r.id===row.id))rows.push({id:row.id,captain:row.captain,tenths:row.tenths});
     }
     trim();
     for(const row of rows){
@@ -80,7 +81,7 @@ export function lapLeaderboard(hull,roomName,panel){
     list.replaceChildren();
     for(const row of rows){
       const item=document.createElement('li'),time=document.createElement('time');
-      item.append(channel?row.captain:'Your lap');
+      item.append(channel||row.id.startsWith('npc-')?row.captain:'Your lap');
       time.textContent=lapClock(row.tenths);
       item.append(time);
       list.append(item);
@@ -111,10 +112,21 @@ export function lapLeaderboard(hull,roomName,panel){
     const bytes=crypto.getRandomValues(new Uint8Array(16));
     const id=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
     const row={id,captain:captain||'You',tenths:Math.round(seconds*10)};
-    if(!valid(row))return;
-    personal.get(hull).add([row]);
-    if(channel&&room.get(hull).add([row]))send();
-    render();
+    record(hull,row);
+  }
+  function record(boat,row){
+    if(!valid(row,boat))return;
+    const updated=personal.get(boat).add([row]);
+    const shared=channel&&room.get(boat).add([row]);
+    if(shared)send();
+    if((updated||shared)&&boat===hull)render();
+  }
+  function observeNpc(number,vessel,status){
+    // Peers and refreshed tabs can observe the same finish. Use the
+    // synchronized vessel identity and scheduled heat to keep one entry.
+    const spawn=vessel.raceId??Math.round(vessel.started*1000);
+    const id='npc-'+number+'-'+status.heatStart+'-'+spawn;
+    record('Hobie16',{id,captain:'NPC '+number,tenths:Math.round(status.lapTime*10)});
   }
   window.addEventListener('storage',event=>{
     for(const table of [...personal.values(),...room.values()]){
@@ -126,5 +138,5 @@ export function lapLeaderboard(hull,roomName,panel){
     }
   });
   render();
-  return {connect,send,observe,select(kind){if(hull!==kind){hull=kind;render();}}};
+  return {connect,send,observe,observeNpc,select(kind){if(hull!==kind){hull=kind;render();}}};
 }

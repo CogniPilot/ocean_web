@@ -212,13 +212,13 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   output Real boomDeckClearance(unit="m") "Vertical clearance under the aft end of the boom relative to the aft crossbar";
   final parameter Real boomTailOverhang=.13,boomSectionBottom=.064;
   parameter Real mainsheetEA(unit="N")=30000 "Assumed working axial rigidity of one sheet part";
-  parameter Real sheetTail(unit="m")=2 "Loaded line between tackle and winch";
+  parameter Real sheetTail(unit="m")=2 "Loaded line between tackle and cam cleat";
   final parameter Integer purchase=6;
-  parameter Real sheetHaulForce(unit="N")=220 "Assumed available force at the working tail";
+  parameter Real sheetHaulForce(unit="N")=330 "Peak two-handed force at the working tail";
   parameter Real sheetHoldingForce(unit="N")=500 "Assumed slip load at the working tail";
   Real haulFraction,brakeSlip;
   Real mainSheetStiffness(unit="N/m") "Effective stiffness across both blocks";
-  parameter Real blockStack(unit="m")=.24 "Estimated pin-to-pin height of the closed tackle and shackles";
+  parameter Real blockStack(unit="m")=.20 "Estimated pin-to-pin height of a closed low-profile tackle";
   output Real mainBlockClearance "Free distance between the mainsheet block cheeks [m]";
   // The hoisted sail supports the boom when the sheet is slack. The sewn
   // leech length establishes the unstrained foot angle independently of the block stack.

@@ -51,7 +51,9 @@ flush();
 assert.deepEqual(guest.habitat.vessels,[{kind:'hobie',started:2},{kind:'motorboat',started:3}]);
 assert.equal(host.spawn('hobie',4,600,13),'npc-3');
 flush();
-assert.deepEqual(guest.habitat.vessels[2],{kind:'hobie',started:4,raceAt:600,raceWind:13});
+const raceId=host.habitat.vessels[2].raceId;
+assert.match(raceId,/^[a-f0-9]{16}$/);
+assert.deepEqual(guest.habitat.vessels[2],{kind:'hobie',started:4,raceAt:600,raceWind:13,raceId});
 assert.equal(guest.hasWildlife,false);
 
 guest.select('shark');flush();

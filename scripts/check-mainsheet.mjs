@@ -40,3 +40,15 @@ assert(aftClearance>.40&&aftClearance<.50,'The free leech carries the aft boom a
 assert(Math.abs(elevation)<.045&&tension<1,'The eased boom sits nearly level on a slack mainsheet');
 assert(stations[0]-stations[21]>.75&&stations[0]-stations[21]<1.10,'The standing mast rakes aft');
 console.log({calmEasedAftClearanceM:aftClearance,boomDegrees:elevation*180/Math.PI});
+
+// In calm air, with the downhaul released, the sheet must be able to bend
+// the mast on its own. Use the mast stations that also anchor the main.
+calm.set('downhaulInput',0);
+for(let i=0;i<150;i++)calm.advance(.02);
+const eased=calm.get('mastStations');
+calm.set('trimInput',-1);
+for(let i=0;i<350;i++)calm.advance(.02);
+const [hauled,force]=calm.getMany(['mastStations','mainTension']);
+const bend=hauled[21]-eased[21];
+assert(bend>.05&&force>1700,'The stock 6:1 purchase must apply enough leech load to bend the mast');
+console.log({calmSheetInducedMastheadTravelM:bend,tackleForceN:force});

@@ -24,9 +24,11 @@ for(let lane=0;lane<5;lane++){
   }
   assert.deepEqual(stages,[0,1,2,3,4,5]);
   const result={...boat.sample(885).status};
+  assert.equal(result.heatStart,600);
   assert(result.startDelay>0&&result.startDelay<1.1&&result.lapTime>220&&result.lapTime<270);
   assert.equal(boat.sample(899.9).status.stage,0);
   assert.equal(boat.sample(900).status.stage,1);
   assert.equal(boat.sample(901.1).status.stage,2);
+  assert.equal(boat.sample(901.1).status.heatStart,900);
   console.log({lane,startDelay:result.startDelay,lapTime:result.lapTime,scored:committee.get('lapTime')});
 }

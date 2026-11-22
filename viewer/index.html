@@ -85,7 +85,57 @@ header:has(#dial:not([hidden])):has(+ #flightHud[hidden]){padding:6px 10px}heade
   body:has(#cruiserSonarPanel[open]) header small{display:none}
   #cruiserChartCanvas{max-height:max(150px,calc(100dvh - var(--panel-height,80px) - 355px));object-fit:contain;background:#91bdcd}
   #motorSensors:has(#cruiserCameras[open]) .camera-grid canvas{max-height:18dvh;object-fit:contain}
-}</style></head><body><canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas><canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output></header>
+}
+footer{left:14px;bottom:14px;width:min(540px,calc(100% - 28px));max-height:min(58dvh,560px);padding:0;display:flex;flex-direction:column;overflow:hidden;background:#071f2cf2}
+footer button,footer select,footer input[type="text"]{min-height:36px;font:inherit;font-size:13px}
+footer button{touch-action:manipulation;cursor:pointer}
+footer button[aria-expanded="true"]#settings{background:#2c655d;border-color:#9fd0bd}
+footer button:focus-visible,footer select:focus-visible,footer input:focus-visible,footer summary:focus-visible{outline:2px solid #ffca7f;outline-offset:2px}
+.control-toolbar{padding:8px 10px;border-bottom:1px solid #b3dfdf28}
+.control-toolbar #sound{min-width:38px;min-height:36px;font-size:16px}
+.control-toolbar #collapsePanel{margin-left:auto;margin-right:0}
+#vehiclePanel{display:block;overflow:auto;overscroll-behavior:contain;scrollbar-color:#53817c transparent;min-height:0}
+.control-toolbar .control-row,.control-row{display:flex;align-items:center;flex-wrap:wrap;gap:7px}
+.control-row:empty,.control-row:not(:has(>:not([hidden]))){display:none}
+.control-fields{display:grid;gap:10px;padding:10px}
+.quick-controls .control-grid,.control-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:10px 14px}
+.quick-controls .control-grid{gap:8px}
+.control-select{display:grid;min-width:0;gap:4px;color:#d4e9e8}
+.control-select select,.control-select input{min-width:0;width:100%}
+.control-select input{border:1px solid #659995;border-radius:5px;padding:5px 7px;background:#103540;color:#effdf9}
+.control-settings{display:grid;gap:5px;padding:3px 10px 10px;margin:0}
+.control-pane{min-width:0;border:1px solid #9ad7d530;border-radius:6px;background:#0c2b36}
+.control-pane>summary{padding:9px 11px;min-height:36px;line-height:18px;font-weight:600;font-size:14px;cursor:pointer}
+.control-pane[open]>summary{border-bottom:1px solid #9ad7d530}
+.control-pane>summary::marker{color:#a4e4d9}
+.control-pane p,.quick-controls p{margin:0;line-height:1.4}
+.control-label,.control-scale{display:flex;align-items:baseline;justify-content:space-between;gap:6px}
+.control-label label{font-weight:600}
+.control-label output{font-variant-numeric:tabular-nums;text-align:right}
+.control-scale{font-size:11px;color:#afcbd0}
+.control-check{display:inline-flex;align-items:center;min-height:30px;gap:6px;color:#e8f3f1}
+.control-check input{margin:0;width:16px;height:16px;accent-color:#85d4c0}
+.control-slider{min-width:0}
+.control-slider input{display:block;width:100%;min-height:30px;margin:0;accent-color:#85d4c0;touch-action:pan-y}
+.control-slider input:disabled{opacity:.5}
+.control-slider small{display:block;margin-top:5px;color:#afcbd0}
+#setup #physicsLayers{display:grid;padding:0}
+#setup #physicsLayers label{white-space:normal}
+#online{margin:0;overflow-wrap:anywhere}
+@media(max-width:580px){
+  footer{left:6px;right:6px;bottom:max(6px,env(safe-area-inset-bottom));width:auto;max-width:none;max-height:58dvh}
+  footer button,footer select,footer input[type="text"],.control-toolbar #sound{min-height:42px}
+  .control-toolbar{padding:6px}
+  .control-toolbar .control-row{gap:5px}
+  .control-toolbar #collapsePanel{margin-left:0}
+  .control-toolbar #sound{min-width:42px}
+  .control-fields{padding:8px}
+  .control-settings{padding-inline:8px}
+  .control-pane>summary{min-height:42px;padding-block:11px}
+  .control-pane .control-grid{grid-template-columns:minmax(0,1fr)}
+  .control-check,.control-slider input{min-height:40px}
+}
+</style></head><body><canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas><canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output></header>
 <section id="motorSensors" aria-label="Cruiser sensors" hidden><details id="cruiserSonarPanel" data-view="sonar"><summary>Argos 350 · 3D imaging sonar</summary>
 <div class="sonar-controls"><label>Range <select id="cruiserSonarRange"><option value="100">100 m</option><option value="200">200 m</option><option value="350">350 m</option></select></label> <span class="sonar-spec">90° fan · 18 kn limit</span>
 <div class="sonar-tabs"><button type="button" data-pane="sonar" aria-pressed="true">Sonar</button><button type="button" data-pane="chart" aria-pressed="false">Chart</button></div></div>
@@ -100,27 +150,177 @@ header:has(#dial:not([hidden])):has(+ #flightHud[hidden]){padding:6px 10px}heade
 <summary><span>Next fleet start</span><output id="countdown">—</output></summary>
 <div><small id="raceCourse"></small><output id="raceStatus"></output></div>
 <section id="bestLaps" aria-label="Best laps"><strong>Best laps</strong><small></small><ol></ol><p>No finished laps yet.</p></section>
-</details><details id="fleetRoster" open><summary>Players &amp; NPCs <span id="fleetCount"></span></summary><div><table aria-label="Players and NPCs"><thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead><tbody id="fleetEntries"></tbody></table></div></details><section id="mastPanel" aria-label="Live mast cameras" hidden><label>Mast camera <select id="mastPort"><option value="0">Forward</option><option value="1">Port</option><option value="2">Aft</option><option value="3">Starboard</option></select></label><canvas id="mastImage" width="256" height="256" aria-label="Live mast fisheye image"></canvas><button type="button" id="mastExport">Export calibrated capture</button></section></aside><footer><button id="sound" type="button" aria-label="Sound" title="Turn sound effects on" aria-pressed="false"><span aria-hidden="true">🔇</span></button> <audio id="theme" loop preload="none" src="./assets/audio/Pirate1_Theme1.mp3"></audio><button id="music" type="button" aria-label="Music by Olivier Bérubé" title="Play music by Olivier Bérubé" aria-pressed="false"><span aria-hidden="true">♫</span></button> <button type="button" id="harborMapButton" aria-haspopup="dialog" aria-keyshortcuts="M">Map</button> <button id="collapsePanel" aria-controls="vehiclePanel" aria-expanded="true">Hide controls</button> <label>Room <input type="text" id="roomName" value="regatta" maxlength="64" size="10" spellcheck="false" autocomplete="off"></label> <button id="multiplayer" type="button" aria-pressed="false">Multiplayer</button> <output id="online" aria-label="Multiplayer connection">Offline</output> <div id="vehiclePanel"><label>Control <select id="controlTarget" disabled><option value="boat">Sailboat: Hobie 16</option><option value="motorboat">Motorboat: cabin cruiser</option><option value="drone">Drone: RDD2</option><option value="sub">Sub: Piccard</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="gull">Herring gull</option></select></label> <label data-boat>Boat <select id="vessel"><option value="Sailboat">Pilothouse sloop</option><option value="Hobie16">Hobie 16</option></select></label> <label>View <select id="cameraDepth"><option value="deck">Orbit</option><option value="line">Waterline</option><option value="keel">Under hull</option><option hidden id="droneFpvOption" value="fpv">Drone FPV</option><option hidden id="onboardOption" value="onboard">Piccard Sub FPV</option><option value="gull" hidden disabled>Gull cam</option><option value="whale" hidden disabled>Whale cam</option><option value="shark" hidden disabled>Shark cam</option></select></label> <button type="button" id="gullCall" hidden>Caw</button> <button id="play">Pause</button> <label id="subModeLabel" hidden>Sub mode <select id="subMode"><option value="0">Position</option><option value="1">Auto-level</option><option value="2">Acro</option></select></label><button type="button" id="easeTraveler" aria-keyshortcuts="Shift+ArrowUp" title="Release the main traveler fully leeward (Shift+↑)" hidden>Ease traveler</button> <button id="helm" title="Sail the regatta course automatically">Engage race autopilot</button> <section id="motorPanel" hidden><label>Throttle <input id="shaftLever" type="range" min="-100" max="100" value="0"> <output id="shaftPercent" for="shaftLever">0%</output></label> <label><input id="searchLamp" type="checkbox" aria-keyshortcuts="Z"> Searchlight (Z)</label> <label>Aim <input aria-label="Searchlight bearing (left/right arrows)" id="lampYaw" type="range" min="-150" max="150" value="0"><output id="yawDegrees">0°</output></label> <label>Tilt <input id="lampTilt" type="range" min="-65" max="15" value="-12"><output id="tiltDegrees">−12°</output></label> <label><input id="keelLamp" type="checkbox" aria-keyshortcuts="X"> Underwater lights (X)</label> <button id="lampCenter" type="button">Center searchlight</button> <span>Hold W/S for throttle · A/D helm · arrows aim searchlight</span></section><section id="animalPilot" hidden><button type="button" id="animalFeed">Feed (F)</button> <button id="animalBreach" type="button">Breach</button> <span>W/S swim effort · A/D turn · ← climb · → dive · ↑/↓ whale roll starboard/port · Space to breach</span></section><button id="settings" aria-expanded="false" aria-controls="setup">Settings</button><div id="setup" hidden><label>Performance <select id="quality"><option value="fast">Fast (simplified water)</option><option value="low">Low (wakes off)</option><option value="balanced">Medium</option><option value="high">High</option></select></label> <label><input type="checkbox" id="physicsView"> Physics view</label> <label><input type="checkbox" id="collisionShapes" title="Show contact surfaces, grounding probes and landing targets"> Collision shapes</label> <label><input type="checkbox" id="inertiaShapes" title="Show inertia ellipsoids and colored radii of gyration for individual moments"> Inertia shapes</label> <label id="droneCovarianceLabel" hidden><input type="checkbox" id="showDroneCovariance"> Drone covariance</label>
-<span id="physicsLayers" hidden><label><input id="physicsRig" type="checkbox" checked> Bodies and joints</label> <label><input id="physicsHulls" type="checkbox" checked> Hull sections</label> <label><input id="physicsWater" type="checkbox" checked> Wave grids</label> <label id="waveLayerControl">Wave layer <select id="waveLayer"><option value="auto">Automatic</option><option value="surface">Surface height</option><option value="pontoons">Pontoon water samples</option><option value="near">Local displacement wake</option><option value="wind">Wind sea</option><option value="wake">Shared displacement wake</option><option value="all">All fields</option></select></label><output id="physicsStatus"></output></span>
-<label data-boat>Compass wind <select id="compassWind"><option value="apparent">Apparent</option><option value="true">True</option></select></label>
-<label>Offline simulation speed <select id="simulationSpeed"><option value="1">1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label> <button type="button" id="measureFrames" disabled>Test frame rate (15 s)</button> <button id="headroom" type="button" hidden>Test simulation headroom (15 s)</button> <output id="frameResult" aria-live="polite"></output> <button data-boat id="luff">Head into wind</button> <label>Wind <input type="range" id="wind" min="0" max="22" value="11"> <output id="windOut">11 m/s</output></label>
-<label data-boat id="vangControl"><span id="luffControlName">Vang</span> <input id="vang" type="range" min="0" max="100" value="50" title="Ease left, tighten right"> <output id="vangLoad">0 N</output></label>
-<div id="trampoline" hidden><label>Outhaul <input id="outhaul" type="range" min="0" max="100" value="65" title="Ease left, tighten right"> <output id="clewTravel" for="outhaul">0 cm</output></label>
-<label><input id="autoTrim" type="checkbox" checked> Auto ballast</label>
-<label><input id="showBallastMarker" type="checkbox" checked> Ballast marker</label>
-<label><input id="jibTackAssist" type="checkbox" checked> Jib tack assist</label>
-<label>Fore–aft <input id="ballX" type="range" min="-72" max="72" value="0"></label>
-<label>Port–starboard <input id="ballY" type="range" min="-84" max="84" value="0"></label>
-<output id="weightPos"></output><details><summary>Travelers &amp; jib sheet</summary><p>While steering by hand, ↑ eases the main traveler. Hold ↑ to ease quickly or use Shift+↑ for full release. ↓ moves it windward, including past center. Use ← for jib inboard and → for jib outboard. Moving a traveler with a shortcut takes over from Auto.</p>
-<label><input id="autoDeck" type="checkbox" checked> Auto travelers and jib sheet</label>
-<label>Main traveler · starboard ← center → port <input id="mainCar" type="range" min="-90" max="90" value="0"></label>
-<label>Jib travelers · inboard → outboard <input id="jibCar" type="range" min="18" max="88" value="42"></label>
-<label>Jib sheet · haul in → ease <input id="jibSheet" type="range" min="0" max="100" value="35"></label></details></div> <label>Sea <select id="seaState"><option value="0">Calm</option><option value=".45" selected>Swell</option><option value="1.1">Steep swell</option></select></label> <label>Time of day <select id="sky"><option>Day</option><option>Sunset</option><option>Moonlit</option><option>Cycle</option></select></label> <label><input id="storm" type="checkbox"> Rain and storm</label>
-<label>Music volume <input id="musicVolume" type="range" min="0" max="100" value="100"><output id="musicVolumeText">100%</output></label> <label>Effects volume <input id="effectsVolume" type="range" min="0" max="100" value="15"><output id="effectsVolumeText">15%</output></label>
-
-<details id="wildlifeSpawn"><summary>Spawn NPC</summary><select id="spawnKind" aria-label="NPC model"><option value="hobie">Hobie 16</option><option value="sloop">Pilothouse sloop</option><option value="motorboat">Cabin cruiser</option><option value="drone">RDD2 drone</option><option value="sub">Piccard submarine</option><option value="gull">Herring gull</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option></select> <button id="spawnAnimal" type="button">Spawn NPC</button> <output id="spawnResult" aria-live="polite"></output></details>
-<nav><button id="showSticks" aria-controls="sticks" aria-pressed="false">Sticks</button><button type="button" aria-pressed="false" id="showForces">Forces</button><button type="button" aria-pressed="false" id="showCompass">Compass</button><button type="button" data-boat id="mastCapture" aria-controls="mastPanel" aria-expanded="false">Mast cameras</button><button id="invite" type="button" hidden>Copy room link</button><details id="crew" hidden><summary>Players</summary><ul></ul></details></nav>
-<label id="flightModeLabel" hidden>Flight mode <select id="flightMode"><option value="0">Position hold</option><option value="1">Auto level</option><option value="2">Acro</option></select></label> <button id="cutMotors" hidden aria-pressed="false">Cut motors</button><p id="gullKeys" hidden>↑/↓ pitch · ←/→ bank · A/D turn · W flap · S glide · Space call</p><p id="flightKeys" hidden>RDD2 · ↑/↓ pitch · ←/→ roll · W/S climb/descend · A/D yaw · Space arm/disarm · hold Shift for fast horizontal flight · release direction to hover</p><p data-boat>Drag to orbit · Scroll to zoom · Manual helm uses A/D for rudder and S to haul both sheets in and W to ease</p></div></div></footer><div id="sticks" hidden></div>
+</details><details id="fleetRoster" open><summary>Players &amp; NPCs <span id="fleetCount"></span></summary><div><table aria-label="Players and NPCs"><thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead><tbody id="fleetEntries"></tbody></table></div></details><section id="mastPanel" aria-label="Live mast cameras" hidden><label>Mast camera <select id="mastPort"><option value="0">Forward</option><option value="1">Port</option><option value="2">Aft</option><option value="3">Starboard</option></select></label><canvas id="mastImage" width="256" height="256" aria-label="Live mast fisheye image"></canvas><button type="button" id="mastExport">Export calibrated capture</button></section></aside><footer aria-label="Simulator controls">
+<div class="control-toolbar"><div class="control-row">
+<button id="sound" type="button" aria-label="Sound" title="Turn sound effects on" aria-pressed="false"><span aria-hidden="true">🔇</span></button>
+<button type="button" id="harborMapButton" aria-haspopup="dialog" aria-keyshortcuts="M">Map</button>
+<button id="play">Pause</button>
+<button type="button" id="resetSimulation" aria-keyshortcuts="R" title="Restart the current simulation (R)">Reset</button>
+<button id="settings" aria-expanded="false" aria-controls="setup">Settings</button>
+<button id="collapsePanel" aria-label="Hide controls" aria-controls="vehiclePanel" aria-expanded="true">Controls</button>
+</div></div>
+<audio id="theme" loop preload="none" src="./assets/audio/Pirate1_Theme1.mp3"></audio>
+<div id="vehiclePanel">
+<div class="control-fields quick-controls"><div class="control-grid">
+<label class="control-select"><span>Vehicle</span><select id="controlTarget" disabled><option value="boat">Sailboat: Hobie 16</option><option value="motorboat">Motorboat: cabin cruiser</option><option value="drone">Drone: RDD2</option><option value="sub">Sub: Piccard</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="gull">Herring gull</option></select></label>
+<label class="control-select"><span>Camera</span><select id="cameraDepth"><option value="deck">Orbit</option><option value="line">Waterline</option><option value="keel">Under hull</option><option hidden id="droneFpvOption" value="fpv">Drone FPV</option><option hidden id="onboardOption" value="onboard">Piccard Sub FPV</option><option value="gull" hidden disabled>Gull cam</option><option value="whale" hidden disabled>Whale cam</option><option value="shark" hidden disabled>Shark cam</option></select></label>
+<label class="control-select" data-boat><span>Sailboat model</span><select id="vessel"><option value="Sailboat">Pilothouse sloop</option><option value="Hobie16">Hobie 16</option></select></label>
+<label class="control-select" id="subModeLabel" hidden><span>Sub mode</span><select id="subMode"><option value="0">Position</option><option value="1">Auto-level</option><option value="2">Acro</option></select></label>
+<label class="control-select" id="flightModeLabel" hidden><span>Flight mode</span><select id="flightMode"><option value="0">Position hold</option><option value="1">Auto level</option><option value="2">Acro</option></select></label>
+</div><div class="control-row">
+<button id="helm" title="Sail the regatta course automatically">Engage race autopilot</button>
+<button type="button" id="easeTraveler" aria-keyshortcuts="Shift+ArrowUp" title="Release the main traveler fully leeward (Shift+↑)" hidden>Ease traveler</button>
+<button id="cutMotors" hidden aria-pressed="false">Cut motors</button>
+<button type="button" id="gullCall" hidden>Caw</button>
+</div><section class="control-row" id="animalPilot" hidden><button type="button" id="animalFeed">Feed (F)</button> <button id="animalBreach" type="button">Breach</button> <span>W/S swim effort · A/D turn · ← climb · → dive · ↑/↓ whale roll starboard/port · Space to breach</span></section></div>
+<div id="setup" class="control-settings" aria-label="Settings" hidden>
+<details class="control-pane" data-boat><summary>Sail trim</summary>
+<div class="control-fields">
+<div class="control-grid">
+<div class="control-slider" id="vangControl"><div class="control-label"><label for="vang"><span id="luffControlName">Vang</span></label><output id="vangSet" for="vang">50%</output></div>
+<input id="vang" type="range" min="0" max="100" value="50" title="Ease left, tighten right" aria-describedby="vangScale"><div class="control-scale" id="vangScale"><span>Eased</span><span>Tight</span></div><small>Line load <output id="vangLoad">0 N</output></small></div>
+<div id="outhaulControl"><div class="control-slider"><div class="control-label"><label for="outhaul">Mainsail outhaul</label><output id="outhaulSet" for="outhaul">65%</output></div>
+<input id="outhaul" type="range" min="0" max="100" value="65" title="Ease left, tighten right" aria-describedby="outhaulScale"><div class="control-scale" id="outhaulScale"><span>Eased</span><span>Tight</span></div><small>Clew offset <output id="clewTravel" for="outhaul">0 cm</output></small></div></div>
+</div>
+<details class="control-pane" id="hobieTrim" hidden><summary>Travelers &amp; jib sheet</summary>
+<div class="control-fields">
+<div class="control-row">
+<label class="control-check"><input id="autoDeck" type="checkbox" checked><span>Auto travelers and jib sheet</span></label>
+<label class="control-check"><input id="jibTackAssist" type="checkbox" checked><span>Jib tack assist</span></label>
+</div>
+<div class="control-grid">
+<div class="control-slider"><div class="control-label"><label for="mainCar">Main traveler</label><output id="mainCarValue" for="mainCar">Auto</output></div>
+<input id="mainCar" type="range" min="-90" max="90" value="0" aria-describedby="mainCarScale"><div class="control-scale" id="mainCarScale"><span>Starboard</span><span>Port</span></div></div>
+<div class="control-slider"><div class="control-label"><label for="jibCar">Jib travelers</label><output id="jibCarValue" for="jibCar">Auto</output></div>
+<input id="jibCar" type="range" min="18" max="88" value="42" aria-describedby="jibCarScale"><div class="control-scale" id="jibCarScale"><span>Inboard</span><span>Outboard</span></div></div>
+<div class="control-slider"><div class="control-label"><label for="jibSheet">Jib sheet</label><output id="jibSheetValue" for="jibSheet">Auto</output></div>
+<input id="jibSheet" type="range" min="0" max="100" value="35" aria-describedby="jibSheetScale"><div class="control-scale" id="jibSheetScale"><span>Hauled in</span><span>Eased</span></div></div>
+</div>
+<p>↑ eases the main traveler, ↓ brings it windward, and Shift+↑ releases it fully. ← moves the jib travelers inboard and → moves them outboard.</p>
+</div></details>
+</div></details>
+<details class="control-pane" id="trampoline" hidden><summary>Crew &amp; ballast</summary>
+<div class="control-fields">
+<div class="control-row">
+<label class="control-check"><input id="autoTrim" type="checkbox" checked><span>Auto ballast</span></label>
+<label class="control-check"><input id="showBallastMarker" type="checkbox" checked><span>Ballast marker</span></label>
+</div>
+<div class="control-grid">
+<div class="control-slider"><div class="control-label"><label for="ballX">Ballast fore–aft</label><output id="ballXValue" for="ballX">Auto</output></div>
+<input id="ballX" type="range" min="-72" max="72" value="0" aria-describedby="ballXScale"><div class="control-scale" id="ballXScale"><span>Forward</span><span>Aft</span></div></div>
+<div class="control-slider"><div class="control-label"><label for="ballY">Ballast port–starboard</label><output id="ballYValue" for="ballY">Auto</output></div>
+<input id="ballY" type="range" min="-84" max="84" value="0" aria-describedby="ballYScale"><div class="control-scale" id="ballYScale"><span>Port</span><span>Starboard</span></div></div>
+</div>
+<output id="weightPos"></output>
+</div></details>
+<details class="control-pane" id="motorPanel" hidden open><summary>Engine &amp; lights</summary>
+<div class="control-fields">
+<div class="control-grid">
+<div class="control-slider"><div class="control-label"><label for="shaftLever">Throttle</label><output id="shaftPercent" for="shaftLever">0%</output></div>
+<input id="shaftLever" type="range" min="-100" max="100" value="0" aria-describedby="shaftLeverScale"><div class="control-scale" id="shaftLeverScale"><span>Astern</span><span>Ahead</span></div></div>
+</div>
+<div class="control-row">
+<label class="control-check"><input id="searchLamp" type="checkbox" aria-keyshortcuts="Z"><span>Searchlight (Z)</span></label>
+<label class="control-check"><input id="keelLamp" type="checkbox" aria-keyshortcuts="X"><span>Underwater lights (X)</span></label>
+<button id="lampCenter" type="button">Center searchlight</button>
+</div>
+<div class="control-grid">
+<div class="control-slider"><div class="control-label"><label for="lampYaw">Searchlight bearing</label><output id="yawDegrees">0°</output></div>
+<input id="lampYaw" type="range" min="-150" max="150" value="0" aria-describedby="lampYawScale"><div class="control-scale" id="lampYawScale"><span>Starboard</span><span>Port</span></div></div>
+<div class="control-slider"><div class="control-label"><label for="lampTilt">Searchlight elevation</label><output id="tiltDegrees">−12°</output></div>
+<input id="lampTilt" type="range" min="-65" max="15" value="-12" aria-describedby="lampTiltScale"><div class="control-scale" id="lampTiltScale"><span>Down</span><span>Up</span></div></div>
+</div>
+<p>Hold W or S for throttle. A and D steer, and the arrows aim the searchlight.</p>
+</div></details>
+<details class="control-pane"><summary>Wind &amp; sea</summary>
+<div class="control-fields">
+<div class="control-grid">
+<div class="control-slider"><div class="control-label"><label for="wind">Wind speed</label><output id="windOut" for="wind">21.4 kn</output></div>
+<input type="range" id="wind" min="0" max="22" value="11" aria-valuetext="21.4 kn" aria-describedby="windScale"><div class="control-scale" id="windScale"><span>Calm</span><span>42.8 kn</span></div></div>
+<label class="control-select"><span>Sea state</span><select id="seaState"><option value="0">Calm</option><option value=".45" selected>Swell</option><option value="1.1">Steep swell</option></select></label>
+<label class="control-select"><span>Time of day</span><select id="sky"><option>Day</option><option>Sunset</option><option>Moonlit</option><option>Cycle</option></select></label>
+</div>
+<div class="control-row">
+<label class="control-check"><input id="storm" type="checkbox"><span>Rain and storm</span></label>
+<button data-boat id="luff">Head into wind</button>
+</div>
+</div></details>
+<details class="control-pane"><summary>View &amp; diagnostics</summary>
+<div class="control-fields">
+<div class="control-row">
+<button id="showSticks" aria-controls="sticks" aria-pressed="false">Touch sticks</button>
+<button type="button" aria-pressed="false" id="showForces">Forces</button>
+<button type="button" aria-pressed="false" id="showCompass">Compass</button>
+<button type="button" data-boat id="mastCapture" aria-controls="mastPanel" aria-expanded="false">Mast cameras</button>
+</div>
+<div class="control-row">
+<label class="control-check"><input type="checkbox" id="physicsView"><span>Physics view</span></label>
+<label class="control-check"><input type="checkbox" id="collisionShapes" title="Show contact surfaces, grounding probes and landing targets"><span>Collision shapes</span></label>
+<label class="control-check"><input type="checkbox" id="inertiaShapes" title="Show inertia ellipsoids and colored radii of gyration for individual moments"><span>Inertia shapes</span></label>
+<label class="control-check" id="droneCovarianceLabel" hidden><input type="checkbox" id="showDroneCovariance"><span>Drone covariance</span></label>
+</div>
+<div class="control-fields" id="physicsLayers" hidden><div class="control-row">
+<label class="control-check"><input id="physicsRig" type="checkbox" checked><span>Bodies and joints</span></label>
+<label class="control-check"><input id="physicsHulls" type="checkbox" checked><span>Hull sections</span></label>
+<label class="control-check"><input id="physicsWater" type="checkbox" checked><span>Wave grids</span></label>
+<label class="control-select" id="waveLayerControl"><span>Wave layer</span><select id="waveLayer"><option value="auto">Automatic</option><option value="surface">Surface height</option><option value="pontoons">Pontoon water samples</option><option value="near">Local displacement wake</option><option value="wind">Wind sea</option><option value="wake">Shared displacement wake</option><option value="all">All fields</option></select></label>
+</div><output id="physicsStatus"></output></div>
+<div class="control-grid">
+<label class="control-select" data-boat><span>Compass wind</span><select id="compassWind"><option value="apparent">Apparent</option><option value="true">True</option></select></label>
+</div>
+</div></details>
+<details class="control-pane"><summary>Performance</summary>
+<div class="control-fields">
+<div class="control-grid">
+<label class="control-select"><span>Graphics quality</span><select id="quality"><option value="fast">Fast (simplified water)</option><option value="low">Low (wakes off)</option><option value="balanced">Medium</option><option value="high">High</option></select></label>
+<label class="control-select"><span>Offline simulation speed</span><select id="simulationSpeed"><option value="1">1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+</div>
+<div class="control-row">
+<button type="button" id="measureFrames" disabled>Test frame rate (15 s)</button>
+<button id="headroom" type="button" hidden>Test simulation headroom (15 s)</button>
+</div>
+<output id="frameResult" aria-live="polite"></output>
+</div></details>
+<details class="control-pane"><summary>Audio</summary>
+<div class="control-fields">
+<div class="control-row">
+<button id="music" type="button" aria-label="Music by Olivier Bérubé" title="Play music by Olivier Bérubé" aria-pressed="false">Music</button>
+</div>
+<div class="control-grid">
+<div class="control-slider"><div class="control-label"><label for="musicVolume">Music volume</label><output id="musicVolumeText">100%</output></div>
+<input id="musicVolume" type="range" min="0" max="100" value="100" aria-describedby="musicVolumeScale"><div class="control-scale" id="musicVolumeScale"><span>Muted</span><span>Full</span></div></div>
+<div class="control-slider"><div class="control-label"><label for="effectsVolume">Sound effects volume</label><output id="effectsVolumeText">15%</output></div>
+<input id="effectsVolume" type="range" min="0" max="100" value="15" aria-describedby="effectsVolumeScale"><div class="control-scale" id="effectsVolumeScale"><span>Muted</span><span>Full</span></div></div>
+</div>
+</div></details>
+<details class="control-pane"><summary>Multiplayer</summary>
+<div class="control-fields">
+<div class="control-row">
+<label class="control-select"><span>Room name</span><input type="text" id="roomName" value="regatta" maxlength="64" size="10" spellcheck="false" autocomplete="off"></label>
+<button id="multiplayer" type="button" aria-pressed="false">Multiplayer</button>
+<button id="invite" type="button" hidden>Copy room link</button>
+</div>
+<output id="online" aria-label="Multiplayer connection">Offline</output>
+<details id="crew" hidden><summary>Players</summary><ul></ul></details>
+</div></details>
+<details class="control-pane" id="wildlifeSpawn"><summary>Spawn NPC</summary>
+<div class="control-fields">
+<div class="control-row">
+<label class="control-select"><span>NPC model</span><select id="spawnKind" aria-label="NPC model"><option value="hobie">Hobie 16</option><option value="sloop">Pilothouse sloop</option><option value="motorboat">Cabin cruiser</option><option value="drone">RDD2 drone</option><option value="sub">Piccard submarine</option><option value="gull">Herring gull</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option></select></label>
+<button id="spawnAnimal" type="button">Spawn NPC</button>
+</div>
+<output id="spawnResult" aria-live="polite"></output>
+</div></details>
+<details class="control-pane"><summary>Keyboard shortcuts</summary>
+<div class="control-fields">
+<p id="gullKeys" hidden>↑/↓ pitch · ←/→ bank · A/D turn · W flap · S glide · Space call</p>
+<p id="flightKeys" hidden>RDD2 · ↑/↓ pitch · ←/→ roll · W/S climb/descend · A/D yaw · Space arm/disarm · hold Shift for fast horizontal flight · release direction to hover</p>
+<p data-boat>A and D steer. Hold S to haul in both sheets or W to ease them. Drag to orbit and scroll or pinch to zoom.</p>
+<p>Press M for the map, or R to restart the simulator.</p>
+</div></details>
+</div>
+</div>
+</footer><div id="sticks" hidden></div>
 <dialog id="vehiclePicker" aria-labelledby="vehiclePickerTitle"><h2 id="vehiclePickerTitle">Choose a vehicle</h2><form method="dialog"><button value="hobie">Hobie 16</button><button value="motorboat">Inboard cabin cruiser</button><button value="sloop">Pilothouse sloop</button><button value="drone">RDD2 drone</button><button value="sub">Piccard Sub</button><button value="whale">Humpback whale</button><button value="shark">Great white shark</button><button value="gull">Herring gull</button></form></dialog>
 <script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="vehicle.js?viewport=2"></script><script src="wreck.js"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
 <canvas id="harborMapCanvas" width="680" height="420" aria-label="North-up chart showing the race course, island, players and NPCs"></canvas>

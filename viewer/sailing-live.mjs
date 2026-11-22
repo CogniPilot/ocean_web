@@ -13,7 +13,7 @@ import {loadVehicleShell} from './vehicle-assets.mjs';
 import {loadInstance} from './fmi3/instance.mjs?api=2';
 import {sailboatMesh,observeBoat} from './board/boat.mjs';
 import {sailPanelFields} from './board/sail-battens.mjs';
-import {fineBowGrid} from './bow-grid.mjs';
+import {fineBowGrid,bowFoamGrid} from './bow-grid.mjs';
 import {splitCamera} from "./waterline.mjs";
 import {drawCompass,drawDroneCompass} from './compass.mjs';
 import {forceDisplay,firstPersonInstruments} from './instrumentation.mjs?hud=2';
@@ -29,7 +29,7 @@ import {harborTraffic} from './harbor-traffic.mjs';
 import {gullIndex,vesselNpcNames} from './npc-room.mjs';
 import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
-const renderInterval=1000/30;
+const renderInterval=1000/30,knotsPerMetrePerSecond=3600/1852;
 const objectDrawRange=5500;
 const directControls=['drone','sub','whale','shark','gull','motorboat'];
 const profiles={
@@ -128,7 +128,7 @@ async function run(){
   $('vessel').onchange=()=>changeVehicle($('vessel').value==='Hobie16'?'hobie':'sloop');
   document.querySelector('h1').textContent=cat?'Hobie 16':'Sailboat';
   $('trampoline').hidden=!cat;$('vangControl').hidden=false;
-  $('luffControlName').textContent=cat?'Downhaul':'Vang';
+  $('luffControlName').textContent=cat?'Mainsail downhaul':'Boom vang';
   // Start at the default loaded waterline for each hull.
   const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const simulationReady=Promise.all([
@@ -173,8 +173,24 @@ async function run(){
   }
   let wakeTicks=0,lastSections;
   const lastDrift=new T.Vector2(),nextDrift=new T.Vector2();
-  function settings(open){$('setup').hidden=!open;$('settings').setAttribute('aria-expanded',String(open));}
-  settings(false);$('settings').onclick=()=>settings($('setup').hidden);
+  const panel=$('vehiclePanel'),togglePanel=$('collapsePanel'),setup=$('setup'),settingsButton=$('settings');
+  function showControls(open){
+    panel.hidden=!open;
+    togglePanel.setAttribute('aria-label',open?'Hide controls':'Show controls');
+    togglePanel.setAttribute('aria-expanded',String(open));
+  }
+  function settings(open){
+    setup.hidden=!open;
+    settingsButton.setAttribute('aria-expanded',String(open));
+    if(open)showControls(true);
+    panel.scrollTop=open?setup.offsetTop-panel.offsetTop:0;
+  }
+  settingsButton.onclick=()=>settings(setup.hidden);
+  togglePanel.onclick=()=>{
+    if(!panel.hidden)settings(false);
+    showControls(panel.hidden);
+  };
+  const positionText=(cm,positive,negative)=>cm===0?'Centered':Math.abs(cm)+' cm '+(cm>0?positive:negative);
   const rigFields=['mastStations','mainGooseneck','mainBlockPins'];
   const hasRigGeometry=cat&&rigFields.every(name=>model.has(name));
   const hasClothPanels=cat&&sailPanelFields.flat().every(name=>model.has(name));
@@ -267,7 +283,7 @@ async function run(){
   const normalizeRoom=value=>value.trim().slice(0,64)||'regatta';
   let roomName=normalizeRoom(url.searchParams.get('room')??'');
   const roomField=$('roomName');roomField.value=roomName;
-  const laps=hasBoat||mode==='flight'?lapLeaderboard(mode==='flight'?'RDD2':vessel,roomName,$('racePanel')):null;
+  const laps=lapLeaderboard(mode==='flight'?'RDD2':hasBoat?vessel:'Hobie16',roomName,$('racePanel'));
   const remote=fleet(T,scene,roomName,$('online'),{
     read:()=>({wind:Number($('wind').value),bearing:ocean.U.bearing.value,sea:$('seaState').value,sky:$('sky').value,storm:$('storm').checked}),
     apply(settings){
@@ -374,7 +390,7 @@ async function run(){
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
   const makeWater=(T,u)=>wildlifeWater(T,u,undefined,renderer.capabilities.isWebGL2);
-  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface:Boolean(motor),bowRefinement:cat,fineBowGrid},makeWater,surfaceSpray,
+  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface:Boolean(motor),bowRefinement:cat,fineBowGrid,bowFoamGrid},makeWater,surfaceSpray,
     cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes);
   const sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   ocean.U.windPeriod.value=windField.get('period');
@@ -571,17 +587,24 @@ async function run(){
     };
     const trim=()=>{
       const auto=$('autoTrim').checked;
+      const x=$('ballX').valueAsNumber,y=$('ballY').valueAsNumber;
       $('ballX').disabled=$('ballY').disabled=auto;
+      $('ballXValue').value=auto?'Auto':positionText(x,'aft','forward');
+      $('ballYValue').value=auto?'Auto':positionText(y,'starboard','port');
       model.set('ballastManual',Number(!auto));
-      model.set('ballastCmdX',-Number($('ballX').value)/100);
-      model.set('ballastCmdY',-Number($('ballY').value)/100);
+      model.set('ballastCmdX',-x/100);
+      model.set('ballastCmdY',-y/100);
     };
     for(const id of ['autoTrim','ballX','ballY'])$(id).oninput=trim;
     trim();
     function deck(){
       const auto=$('autoDeck').checked;model.set('deckManual',Number(!auto));
       for(const [id,input] of [['mainCar','mainCarInput'],['jibCar','jibCarInput'],['jibSheet','jibTrimInput']]){
-        $(id).disabled=auto;model.set(input,Number($(id).value)/100);
+        const control=$(id),value=control.valueAsNumber;
+        control.disabled=auto;
+        $(id+'Value').value=auto?'Auto':id==='mainCar'?positionText(value,'port','starboard'):
+          id==='jibCar'?value+' cm outboard':value+'% eased';
+        model.set(input,value/100);
       }
     }
     for(const id of ['autoDeck','mainCar','jibCar','jibSheet'])$(id).oninput=deck;
@@ -837,7 +860,7 @@ async function run(){
   function reportFleet(now){
     if(now-lastFleetReport<250)return;
     lastFleetReport=now;
-    const {animals,habitat,self}=remote.npc,occupied=new Map(),npcs=[];
+    const {animals,habitat,self,owner}=remote.npc,occupied=new Map(),npcs=[];
     function addAnimal(seat,name,kind){
       if(seat)occupied.set(seat,kind);
       else npcs.push([name,fleetModels[kind]]);
@@ -846,8 +869,8 @@ async function run(){
     for(let i=0;i<habitat.gulls.length;i++)addAnimal(remote.npc.seat('gull-'+(i+1)),'Gull '+(i+1),'gull');
     const selected=targetSelect.value,localModel=occupied.get(self)??animalKind()??(selected==='boat'?(cat?'hobie':'sloop'):selected);
     const name=remote.captain;
-    const players=[[name?name+' (you)':'You',fleetModels[localModel]??'—']];
-    for(const peer of remote.players())players.push([peer.name,fleetModels[occupied.get(peer.id)??peer.model]??'—']);
+    const players=[[name?name+' (you)':'You',fleetModels[localModel]??'—',null,Boolean(name&&owner===self)]];
+    for(const peer of remote.players())players.push([peer.name,fleetModels[occupied.get(peer.id)??peer.model]??'—',null,owner===peer.id]);
     for(const [i,row] of habitat.vessels.entries()){
       const status=npcTraffic?.raceStatus?.('npc-'+(i+1));
       const progress=status?.stage===5?`Finished ${lapClock(Math.round(status.lapTime*10))}`:npcStage[status?.stage];
@@ -857,9 +880,14 @@ async function run(){
     if(signature===fleetSignature)return;
     fleetSignature=signature;
     fleetCount.textContent=rows.length;
-    fleetEntries.replaceChildren(...rows.map(([name,model,progress])=>{
-      const row=document.createElement('tr');
-      row.insertCell().textContent=name;
+    fleetEntries.replaceChildren(...rows.map(([name,model,progress,host])=>{
+      const row=document.createElement('tr'),participant=row.insertCell();
+      participant.textContent=name;
+      if(host){
+        const label=document.createElement('small');
+        label.textContent='Host';
+        participant.append(label);
+      }
       const cell=row.insertCell();
       cell.textContent=model;
       if(progress){
@@ -892,7 +920,7 @@ async function run(){
       npcTrafficLoad=import('./npc-vessels.mjs').then(({vesselTraffic})=>{
         const error=message=>{$('spawnResult').textContent=message;};
         npcTraffic=vesselTraffic(T,scene,(x,y)=>ocean.sampleSurface(x,y,true),ocean.sampleWind,race,
-          reason=>error(reason.message));
+          reason=>error(reason.message),laps.observeNpc);
       }).catch(reason=>{$('spawnResult').textContent=reason.message;npcTrafficLoad=undefined;});
     }
     while(npcCamCount>rows.length){
@@ -926,8 +954,6 @@ async function run(){
   const fishDisplay=fishFinder($('animalSonar'));
   $('animalBreach').onclick=()=>{if(ownsAnimal())remote.npc.breach(animalId);$('view').focus();};
   const axis=(a,b)=>Math.max(-1,Math.min(1,keyboard.get(a)-keyboard.get(b)+(analog.get(a)||0)-(analog.get(b)||0)));
-  const panel=$('vehiclePanel'),togglePanel=$('collapsePanel');
-  togglePanel.onclick=()=>{panel.hidden=!panel.hidden;togglePanel.textContent=panel.hidden?'Show controls':'Hide controls';togglePanel.setAttribute('aria-expanded',String(!panel.hidden));};
   new ResizeObserver(([entry])=>document.body.style.setProperty('--panel-height',entry.target.offsetHeight+'px')).observe(panel.parentElement);
   const manualSelected=()=>animalId?ownsAnimal():sub?.active?sub.manual:drone?.active?drone.manual:manual;
   function touchControls(){
@@ -945,7 +971,7 @@ async function run(){
     document.querySelectorAll('[data-boat]').forEach(el=>el.hidden=!boatActive);
     physicsVisibility();
     if(!boatActive){mastPanel.hidden=true;mastButton.setAttribute('aria-expanded','false');}
-    $('trampoline').hidden=!cat||!boatActive;
+    $('trampoline').hidden=$('hobieTrim').hidden=$('outhaulControl').hidden=!cat||!boatActive;
     $('easeTraveler').hidden=!cat||!boatActive||!manual;
     racePanel.hidden=Boolean(sub?.active||animalId||motor);
     const sensorPanel=[animalSensors,motorSensors,subSensors].find(panel=>!panel.hidden);
@@ -1022,6 +1048,20 @@ async function run(){
     if($('multiplayer').getAttribute('aria-pressed')==='true')link.searchParams.set('room',roomName);
     else link.searchParams.delete('room');
     location.assign(link);
+  }
+  function resetSimulation(){
+    const target=targetSelect.value;
+    const role=gullIndex(target)>=0?'gull':remote.npc.animals.get(target)?.kind??target;
+    if(role!==selectedRole){
+      url.searchParams.delete('demo');
+      url.searchParams.delete('view');
+      if(role==='boat'){
+        url.searchParams.delete('control');
+        url.searchParams.set('boat',vessel);
+      }else url.searchParams.set('control',role);
+      history.replaceState(history.state,'',url);
+    }
+    location.reload();
   }
   let loadingDrone,droneScorer,scoredTime=0,scoreEpoch;
   const flightControl=$('flightMode');
@@ -1104,7 +1144,7 @@ async function run(){
     }
     drone?.select(targetSelect.value==='drone');
     const flying=Boolean(drone?.active);
-    laps?.select(flying?'RDD2':vessel);
+    laps.select(flying?'RDD2':hasBoat?vessel:'Hobie16');
     $('view').focus({preventScroll:true});
     $('onboardOption').hidden=!sub?.active;
     $('droneFpvOption').hidden=!flying;
@@ -1155,9 +1195,11 @@ async function run(){
   $('harborMapButton').onclick=toggleMap;
   mapDialog.addEventListener('close',()=>$('view').focus({preventScroll:true}));
   addEventListener('keydown',e=>{
-    if(e.code!=='KeyM'||e.repeat||e.altKey||e.ctrlKey||e.metaKey||e.target.isContentEditable||
+    if(!['KeyM','KeyR'].includes(e.code)||e.defaultPrevented||e.repeat||e.altKey||e.ctrlKey||e.metaKey||e.target.isContentEditable||
       ['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
-    e.preventDefault();toggleMap();
+    e.preventDefault();
+    if(e.code==='KeyM')toggleMap();
+    else resetSimulation();
   });
   addEventListener('keydown',e=>{
     const fullRelease=e.shiftKey&&e.code==='ArrowUp';
@@ -1184,15 +1226,23 @@ async function run(){
     keys.clear();keyboard.clear();touchControls();
   };
   touchControls();
-  $('outhaul').oninput=()=>model?.set('outhaulInput',$('outhaul').valueAsNumber/100);
-  $('vang').oninput=()=>model.set(cat?'downhaulInput':'vangInput',Number($('vang').value)/100);
+  for(const [id,input] of [['outhaul','outhaulInput'],['vang',cat?'downhaulInput':'vangInput']]){
+    $(id).oninput=()=>{
+      const value=$(id).valueAsNumber;
+      $(id+'Set').value=value+'%';
+      model?.set(input,value/100);
+    };
+  }
+  $('resetSimulation').onclick=resetSimulation;
   $('play').onclick=()=>{
     running=!running;
     acc=0;prev=physicsWall=performance.now();
     if(!running)world?.clearQueued();
     $('play').textContent=running?'Pause':'Resume';
   };
-  function applyWind(){const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;ocean.U.referenceWind.value=w;$('windOut').textContent=w+' m/s';}
+  function applyWind(){const w=+$('wind').value;if(world){world.set('windSpeed',w);world.set('windBearing',ocean.U.bearing.value);}else{windField.set('meanEast',w*Math.cos(ocean.U.bearing.value));windField.set('meanNorth',w*Math.sin(ocean.U.bearing.value));}ocean.U.wind.value=w;ocean.U.referenceWind.value=w;
+    const knots=(w*knotsPerMetrePerSecond).toFixed(1)+' kn';
+    $('windOut').value=knots;$('wind').setAttribute('aria-valuetext',knots);}
   $('wind').oninput=()=>{applyWind();remote.changeWeather('wind',Number($('wind').value));};
   function resize(){
     lastReflection=-Infinity;
@@ -1390,7 +1440,7 @@ async function run(){
         const raceClass=drone?.active?'RDD2':vessel;
         const normalSpeed=playbackRate===1&&!frameTest?.headroom;
         if(stage<2||!normalSpeed)timedLap=normalSpeed;
-        if(!sub?.active)laps?.observe(stage,lap,remote.captain,timedLap);
+        if(!sub?.active&&(hasBoat||drone?.active))laps.observe(stage,lap,remote.captain,timedLap);
         if(stage===5)lastLaps.set(raceClass,timer);
         const lastLap=lastLaps.get(raceClass);
         let cue=['Wait for start','Cross upwind','Mark 1','Mark 2','Cross finish downwind','Finished'][stage];
@@ -1565,8 +1615,8 @@ async function run(){
         ocean.U.swellCenter.value.set(s[0],s[1]);
         ocean.U.swell.value.set(amplitude,phase,k*Math.cos(direction),k*Math.sin(direction));
         if(cat){
-          $('weightPos').textContent='X '+ballastX.toFixed(2)+' m · Y '+ballastY.toFixed(2)+' m'+
-            (rightingSide?' · Righting · Z '+ballastZ.toFixed(2)+' m':'');
+          $('weightPos').value='Actual ballast · '+positionText(Math.round(100*ballastX),'forward','aft')+' · '+
+            positionText(Math.round(100*ballastY),'port','starboard')+(rightingSide?' · Righting':'');
           if(!$('setup').hidden)$('clewTravel').textContent=(100*model.get('mainClewOffset')).toFixed(1)+' cm';
         }
         extra=[cat?ballastX:0,cat?ballastY:0,mainCar,jibCar,ve,vn,yawRate,0];
@@ -1577,7 +1627,7 @@ async function run(){
             cat?model.get('sailTail'):null,cat?model.get('stayPath'):null,t,geometry);
         }
         $('vangLoad').textContent=vang.toFixed(0)+' N';
-        if(!drone?.active&&!sub?.active)$('readout').textContent='Speed '+(Math.hypot(ve,vn)*1.94384449).toFixed(1)+' kn';
+        if(!drone?.active&&!sub?.active)$('readout').textContent='Speed '+(Math.hypot(ve,vn)*knotsPerMetrePerSecond).toFixed(1)+' kn';
       }else{
         ocean.U.swellCenter.value.set(0,0);
         ocean.U.swell.value.fromArray(world.get('swell'));
@@ -1630,7 +1680,7 @@ async function run(){
         motorState=[engine[0],engine[3],Number($('searchLamp').checked),Number($('keelLamp').checked),rad*$('lampYaw').value,-rad*$('lampTilt').value];
         motor.update(t,...motorState.slice(0,2),motorState.slice(2),roomTime);
         if(imagingActive())imagingPing(now,pose,ocean.sampleSurface,visitors.fish,visitors.contacts);
-        if(!animalId)$('readout').textContent=Math.round(engine[0])+' rpm · '+(1.94384*engine[1]).toFixed(1)+' kn';
+        if(!animalId)$('readout').textContent=Math.round(engine[0])+' rpm · '+(knotsPerMetrePerSecond*engine[1]).toFixed(1)+' kn';
       }
       remote.frame(now,s,cat,extra,sub?.mesh,drone?.group,animalId?selectedRole:targetSelect.value,lamp?.visible,drone,motor?.group,motorState,roomTime);
       reportFleet(now);

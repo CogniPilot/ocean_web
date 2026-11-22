@@ -24,7 +24,7 @@
  }
  uniform vec2 spectrumDrift;
  uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable,hullSpectrumOnly,bowFineAvailable,bowFineSpacing,bowFoamAvailable;
- uniform vec4 bowFineBounds;
+ uniform vec4 bowFineBounds,bowFoamBounds;
  const vec2 bowAtlasSize=vec2(64.,128.);
  vec2 spectralUV(vec2 p){return (p-spectrumDrift)/spectrumPeriod+vec2(.5/64.);}
  float elevationSample(highp sampler2D map,vec2 uv){
@@ -73,12 +73,11 @@
    float coarse=elevationSample(bowMap,(mod(local*4.,32.)+vec2(1.5))/bowAtlasSize);
    return mix(coarse,fine,blendFine);
  }
- float bowFoamCoverage(vec2 p){
-   if(bowFoamAvailable<.5||!nearBowField(p,4.))return 0.;
-   vec2 local=bowLocal(p);
-   float edge=bowFineWeight(local);
+ float bowFoamCoverage(vec2 local){
+   vec2 margin=min(local-bowFoamBounds.xy,bowFoamBounds.zw-local);
+   float edge=smoothstep(0.,.20,min(margin.x,margin.y));
    if(edge<=0.)return 0.;
-   vec2 index=(local-bowFineBounds.xy)/bowFineSpacing;
+   vec2 index=(local-bowFoamBounds.xy)/bowFineSpacing;
    vec2 foam=texture2D(bowMap,(index+vec2(1.5,40.5))/bowAtlasSize).rg;
    return edge*mix(foam.x,foam.y,spectrumBlend);
  }
@@ -340,7 +339,7 @@ function hullFoam(scene,uniforms,cruiserHullGLSL,cruiserSurface){
  }
  return {mesh,clear,sample};
 }
-function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowRefinement,fineBowGrid},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
+function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowRefinement,fineBowGrid,bowFoamGrid},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
  const U={cruiserTilt:{value:new Float32Array(10)},cruiserCount:{value:0},cruiserPose:{value:new Float32Array(20)},cruiserAim:{value:new Float32Array(20)},cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  const swimmerWater=makeSwimmerWater(THREE,U);
  const skyTarget=new THREE.WebGLRenderTarget(512,192,{type:THREE.HalfFloatType});
@@ -418,6 +417,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  incidentTexture.minFilter=incidentTexture.magFilter=THREE.LinearFilter;
  U.incidentMap={value:incidentTexture};U.wakeAvailable={value:0};U.hullSpectrumOnly={value:0};
  const {x:fineX,y:fineY,columns:fineColumns,rows:fineRows,spacing:fineStep}=fineBowGrid;
+ const {x:foamX,y:foamY,columns:foamColumns,rows:foamRows}=bowFoamGrid;
  const bowBytes=new Uint8Array(32*32*4),fineBowBytes=new Uint8Array(fineColumns*fineRows*4);
  const bowAtlas=new Uint8Array(64*128*4),bowTexture=new THREE.DataTexture(bowAtlas,64,128);
  bowTexture.minFilter=bowTexture.magFilter=THREE.LinearFilter;
@@ -425,6 +425,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  U.bowFoamAvailable={value:0};
  U.bowFineSpacing={value:fineStep};
  U.bowFineBounds={value:new THREE.Vector4(fineX,fineY,fineX+(fineColumns-1)*fineStep,fineY+(fineRows-1)*fineStep)};
+ U.bowFoamBounds={value:new THREE.Vector4(foamX,foamY,foamX+(foamColumns-1)*fineStep,foamY+(foamRows-1)*fineStep)};
  let spray;
  function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=U.bowFineAvailable.value=U.bowFoamAvailable.value=0;trails.clear();}
  function displayedHeight(data,k,blend){
@@ -468,9 +469,9 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
        }
        U.bowFineAvailable.value=1;
      }else U.bowFineAvailable.value=0;
-     if(foam?.length===fineColumns*fineRows){
-       for(let row=0;row<fineRows;row++)for(let col=0;col<fineColumns;col++){
-         const k=((row+40)*64+col+1)*4,next=foam[row*fineColumns+col];
+     if(foam?.length===foamColumns*foamRows){
+       for(let row=0;row<foamRows;row++)for(let col=0;col<foamColumns;col++){
+         const k=((row+40)*64+col+1)*4,next=foam[row*foamColumns+col];
          bowAtlas[k]=U.bowFoamAvailable.value?Math.round(THREE.MathUtils.lerp(bowAtlas[k],bowAtlas[k+1],U.spectrumBlend.value)):next;
          bowAtlas[k+1]=next;
        }
@@ -749,8 +750,18 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
      float densityCutoff=clamp(1.-8.*windCoverage,.36,1.);
      float breaking=smoothstep(.085,.32,windCrest)*smoothstep(.045,.17,gravitySlope);
      float foam=breaking*smoothstep(densityCutoff-.08,densityCutoff+.06,scum);
-     float bowFoam=bowFoamCoverage(wp.xy);
-     if(bowFoam>0.)foam=max(foam,bowFoam*(.32+.68*smoothstep(.16,.72,noise2(wp.xy*23.+.8*tm))));
+     if(bowFoamAvailable>.5&&nearBowField(wp.xy,4.)){
+       vec2 local=bowLocal(wp.xy);
+       vec2 flow=local+vec2(tm*clamp(.45*abs(boat.w),.4,2.8),0.);
+       float cluster=noise2(flow*vec2(3.7,7.1));
+       float bowFoam=bowFoamCoverage(local+vec2(.05,-.13)*(cluster-.5));
+       if(bowFoam>0.){
+         float bubbles=noise2(flow*vec2(19.,26.)+vec2(11.,27.));
+         float porosity=.72*cluster+.28*bubbles;
+         float cutoff=mix(.69,.33,bowFoam);
+         foam=max(foam,bowFoam*smoothstep(cutoff-.07,cutoff+.10,porosity));
+       }
+     }
      if(swimmer.y>0.)foam=max(foam,min(1.,swimmer.y)*(.40+.60*smoothstep(.22,.75,noise2(wp.xy*12.+.28*tm))));
      float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
      foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum)*smoothstep(.01,.16,abs(windCrest)));
