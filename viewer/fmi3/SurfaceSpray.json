@@ -1,0 +1,1 @@
+{"token": "2c1ed82d-5b22-40e7-ba30-041d1ece5b10", "variables": {"time": [0, "Float64", 1], "gravity": [1, "Float64", 1], "density": [2, "Float64", 1], "surfaceTension": [3, "Float64", 1], "sections": [4, "Float64", 80], "release": [5, "Float64", 80]}}

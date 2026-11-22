@@ -145,6 +145,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real waterFraction;
   input Real windEast, windNorth, currentEast, currentNorth, waveHeight, waveRoll, wavePitch;
   input Real orbitalEast,orbitalNorth,orbitalUp "Wave particle velocity at the boat [m/s]";
+  input Real raceGoal[3](each start=0) "Enable, east, north; the standalone pilot defaults to its local course";
   input Real manualHelm,rudderInput,trimInput;
   input Real vangInput "Tackle adjustment, 0 eased to 1 tight";
   input Real droneLoad[6] "Drone contact force and moment about hull origin, ENU";
@@ -242,9 +243,10 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   final parameter Real ballastReducedMass=ballastMass*(1-ballastMass/(mass+podMass))
     "Parallel-axis coefficient for shifting crew relative to the combined centre of mass [kg]";
   Real ballastRollInertia,ballastPitchInertia;
+  Real crewSide(start=0,fixed=true),crewHeel(start=0,fixed=true),crewPitch(start=0,fixed=true),crewCross;
   Real ballastX(start=0,fixed=true),ballastY(start=0,fixed=true),targetX,targetY;
   Real hullLift[2],hullPitch[2],hullRoll[2],massRoll,massPitch;
-  parameter Real mass=64, noGo=0.83;
+  parameter Real mass=64, noGo=if catamaran then 1.04 else .83;
   parameter Real launchEast=-8,launchNorth=-7,launchHeading=-2.1;
   Real east(start=launchEast,fixed=true), north(start=launchNorth,fixed=true), heading(start=launchHeading,fixed=true);
   output Real shoreWrench[6];
@@ -256,6 +258,12 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real sheet,rudder(start=0,fixed=true);
   discrete Integer leg(start=1,fixed=true), tack(start=1,fixed=true);
   Real goalE,goalN,dx,dy,desired,upwind,relative,crossTrack,course,error,sheetTarget;
+  output Real signedLogSpeed(start=launchSpeed,fixed=true) "Filtered through-water speed along the keel, positive ahead [m/s]";
+  discrete output Integer tackRecovery(start=0,fixed=true) "0 tracking, 1 waiting for sternway, 2 backing, 3 sailing off";
+  discrete Real stallDuration(start=0,fixed=true), phaseSince(start=0,fixed=true);
+  discrete Integer recoveryTurn(start=1,fixed=true);
+  discrete Boolean reverseHelm(start=false,fixed=true);
+  Real tackBand,raceCourse,raceError,windOffBow,jibWorkingSide,helmTarget;
   parameter Real forestaySlope=(1.16-.12)/(2.78-.09) "Aft rake per metre of rise";
   parameter Real footX[2]={.12,1.16-(.19-.09)*forestaySlope};
   parameter Real axisX[2]={0,-forestaySlope/sqrt(1+forestaySlope^2)},axisZ[2]={1,1/sqrt(1+forestaySlope^2)};
@@ -284,26 +292,41 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real beamFraction[4]={0,.46,.86,1},deckZ=.077;
   parameter Real centerMassX=-.14846 "Longitudinal mass centre for level design trim [m]";
   Real pitchBuoyancy,weightArm;
+  function hullStations "Rigid section dimensions shared by every integration stage"
+    input Real xs[7],widths[7],deck,depthScale;
+    output Real stations[6,6] "Midpoint, half-beam, four keel-to-deck heights";
+  protected
+    Real x,w,scale,profile[3];
+  algorithm
+    for i in 1:6 loop
+      x:=(xs[i]+xs[i+1])/2;
+      w:=(widths[i]+widths[i+1])/2;
+      if depthScale>1 then
+        profile:=Shore.pontoonSection(x);
+        stations[i,:]:={x,profile[1],profile[2]+(profile[3]-profile[2]),
+          profile[2]+(profile[3]-profile[2])*.90,profile[2]+(profile[3]-profile[2])*.56,profile[2]};
+      else
+        scale:=(.48+1.55*w)*depthScale;
+        stations[i,:]:={x,w,-.19*scale,-.16*scale,-.05*scale,deck};
+      end if;
+    end for;
+  end hullStations;
+  final parameter Real stationGeometry[6,6]=hullStations(stationX,beamHalf,deckZ,if catamaran then 2.65 else 1);
   function hullHydrostatics
-    input Real xs[7],widths[7],fractions[4],deck,rot[3,3],surface[3],waterLevel,yOffset,depthScale;
+    input Real xs[7],stations[6,6],fractions[4],rot[3,3],surface[3],waterLevel,yOffset,depthScale;
     input Real sections[6],useSections;
     input Real amp,kDir[2],phase,waveNumber,frequency,translation[3],spinRate[3];
     output Real lift,pitchTorque,rollTorque,dynamicForce[3],dynamicPitch,maxDeckWet,volume[6],skin;
   protected
-    Real profile[3],stationDeck,stationLevel,center[3],x,y,w,scale,bottom,top,area,wetDepth,verticalProjection,point[3],lever[3];
+    Real stationDeck,stationLevel,center[3],x,y,w,bottom,top,area,wetDepth,verticalProjection,point[3],lever[3];
     Real sectionZ[4],localLift,wave,crestPhase,draft,deckWet,wetFraction,normalV,waterV[3],velocity[3],panelForce[3],deckPoint[3];
     Real deckPressure,entryPressure,edgeA[3],edgeB[3],depthA,depthB,wetLength;
   algorithm
     skin:=0;lift:=0; pitchTorque:=0;rollTorque:=0;dynamicForce:=zeros(3);dynamicPitch:=0;maxDeckWet:=0;volume:=zeros(6);
     verticalProjection:=surface*rot[:,3];
     for station in 1:6 loop
-      x:=(xs[station]+xs[station+1])/2;
-      w:=(widths[station]+widths[station+1])/2;
-      scale:=(.48+1.55*w)*depthScale;
-      profile:=Shore.pontoonSection(x);
-      stationDeck:=if depthScale>1 then profile[2] else deck;
-      if depthScale>1 then w:=profile[1];end if;
-      sectionZ:=if depthScale>1 then stationDeck*ones(4)+(profile[3]-stationDeck)*{1,.90,.56,0} else {-.19*scale,-.16*scale,-.05*scale,deck};
+      x:=stations[station,1];w:=stations[station,2];
+      sectionZ:=stations[station,3:6];stationDeck:=sectionZ[4];
       center:=rot*{x,yOffset,0};
       stationLevel:=waterLevel+(if useSections>.5 then sections[station]-surface[1:2]*center[1:2] else 0);
       for strip in 1:3 loop
@@ -329,21 +352,23 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
             deckPoint:=rot*{x,y+yOffset,stationDeck};
             deckWet:=stationLevel+surface*deckPoint+amp*sin(phase+kDir*deckPoint[1:2]);
             if x>1 then maxDeckWet:=max(maxDeckWet,deckWet);end if;
-            wetFraction:=min(1,wetDepth/.065);
-            // One-sided pressure on wetted underside and overtopped deck.
-            // Relative velocity includes angular motion at this section and deep-water orbital flow.
-            waterV:=amp*frequency*{kDir[1]/waveNumber*sin(crestPhase),kDir[2]/waveNumber*sin(crestPhase),-cos(crestPhase)};
-            velocity:=translation+cross(spinRate,lever)-waterV;
-            normalV:=velocity*rot[:,3];
-            deckPressure:=-.5*1025*1.1*max(0,normalV)^2*min(1,max(0,deckWet)/.09);
-            entryPressure:=.5*1025*.65*max(0,-normalV)^2*wetFraction;
-            panelForce:=(entryPressure+deckPressure)*area*rot[:,3];
-            // Form drag when the bow shoulders and foredeck bury.
-            if x>1 then
-              panelForce[1]:=panelForce[1]-.5*1025*.28*area*min(1,max(0,deckWet)/.15)*velocity[1]*abs(velocity[1]);
+            if wetDepth>0 or deckWet>0 then
+              wetFraction:=min(1,wetDepth/.065);
+              // One-sided pressure on wetted underside and overtopped deck.
+              // Relative velocity includes angular motion at this section and deep-water orbital flow.
+              waterV:=amp*frequency*{kDir[1]/waveNumber*sin(crestPhase),kDir[2]/waveNumber*sin(crestPhase),-cos(crestPhase)};
+              velocity:=translation+cross(spinRate,lever)-waterV;
+              normalV:=velocity*rot[:,3];
+              deckPressure:=-.5*1025*1.1*max(0,normalV)^2*min(1,max(0,deckWet)/.09);
+              entryPressure:=.5*1025*.65*max(0,-normalV)^2*wetFraction;
+              panelForce:=(entryPressure+deckPressure)*area*rot[:,3];
+              // Form drag when the bow shoulders and foredeck bury.
+              if x>1 then
+                panelForce[1]:=panelForce[1]-.5*1025*.28*area*min(1,max(0,deckWet)/.15)*velocity[1]*abs(velocity[1]);
+              end if;
+              dynamicForce:=dynamicForce+panelForce;
+              dynamicPitch:=dynamicPitch+(lever[3]-.52)*panelForce[1]-lever[1]*panelForce[3];
             end if;
-            dynamicForce:=dynamicForce+panelForce;
-            dynamicPitch:=dynamicPitch+(lever[3]-.52)*panelForce[1]-lever[1]*panelForce[3];
           end if;
           lift:=lift+localLift;rollTorque:=rollTorque+lever[2]*localLift; pitchTorque:=pitchTorque-lever[1]*localLift;
         end for;
@@ -367,19 +392,30 @@ equation
   swellPhase=swellK*(east*cos(swellBearing)+north*sin(swellBearing))-swellOmega*(time+seaClockOffset);
   swellLocal=swellK*{cos(swellBearing-heading),sin(swellBearing-heading)};
   deckImmersion=max(deckWet);contactLoad=sum(hullLift);
-  targetX=if not catamaran then 0 else max(-.72,min(.72,if ballastManual>.5 then ballastCmdX else -3.8*pitch-1.4*pitchRate));
-  targetY=if not catamaran then 0 else max(-.84,min(.84,if ballastManual>.5 then ballastCmdY else 3.8*heel+1.2*rollRate));
-  der(ballastX)=max(-.35,min(.35,(targetX-ballastX)/.65));
-  der(ballastY)=max(-.48,min(.48,(targetY-ballastY)/.55));
+  // The crew anticipates the new windward side and trims to sustained heel.
+  // Filtering attitude keeps a passing wave from sending them across the deck.
+  der(crewSide)=if catamaran then (tanh(3*sin(beta))-crewSide)/.65 else 0;
+  der(crewHeel)=if catamaran then (heel-crewHeel)/2.4 else 0;
+  der(crewPitch)=if catamaran then (pitch-crewPitch)/3.5 else 0;
+  crewCross=if trueWindAngle<1.60 then max(0,min(1,4*(abs(crewSide)-.4)))*max(0,min(1,(.20-ballastY*crewSide)/.25)) else 0;
+  targetX=if not catamaran then 0 else max(-.72,min(.72,if ballastManual>.5 then ballastCmdX else -2.4*crewPitch));
+  targetY=if not catamaran then 0 else max(-.84,min(.84,if ballastManual>.5 then ballastCmdY else
+    .56*buildingWind*crewSide+1.15*crewHeel));
+  der(ballastX)=if ballastManual>.5 then max(-.35,min(.35,(targetX-ballastX)/.65))
+    else max(-.10,min(.10,(targetX-ballastX)/2.8));
+  der(ballastY)=if ballastManual>.5 then max(-.48,min(.48,(targetY-ballastY)/.55))
+    else max(-.14-.54*crewCross,min(.14+.54*crewCross,(targetY-ballastY)/(2.4-1.85*crewCross)));
   // The nominal hull inertias include centered crew. Add the change for moving across the deck.
   ballastRollInertia=ballastReducedMass*ballastY^2;
   ballastPitchInertia=ballastReducedMass*ballastX^2;
   massRoll=-9.80665*ballastMass*(rotation[2,1]*ballastX+rotation[2,2]*ballastY+rotation[2,3]*.52);
   massPitch=9.80665*ballastMass*(rotation[1,1]*ballastX+rotation[1,2]*ballastY+rotation[1,3]*.52);
-  goalE=if leg==1 then -32 else if leg==2 then -15 else -8;
-  goalN=if leg==1 then -18 else if leg==2 then 9 else -7;
+  goalE=if raceGoal[1]>.5 then raceGoal[2] elseif leg==1 then -32 else if leg==2 then -15 else -8;
+  goalN=if raceGoal[1]>.5 then raceGoal[3] elseif leg==1 then -18 else if leg==2 then 9 else -7;
   dx=goalE-navE; dy=goalN-navN;
   // Simulated instruments. Only this measurement layer reads true vehicle motion.
+  // Bidirectional water-speed log at the centre of the boat, with sensor lag.
+  der(signedLogSpeed)=(surge+.012*sin(7*time)-signedLogSpeed)/.42;
   gyro=yawRate+0.002+0.0025*sin(23.1*time);
   magnetic=heading+.015*sin(5.7*time);
   accelX=(fx+sum(foilAxial)+skinDrag)/mass+.025*sin(18*time);
@@ -414,12 +450,32 @@ equation
   when dx*dx+dy*dy<6.25 then
     leg=if pre(leg)==3 then 1 else pre(leg)+1;
   end when;
-  when crossTrack>4 then
+  // A catamaran needs room to reaccelerate before another tack. Narrow the
+  // corridor approaching a mark so the final layline still reaches the gate.
+  tackBand=if catamaran then min(30,max(10,.35*sqrt(dx^2+dy^2))) else 4;
+  when crossTrack>tackBand then
     tack=-1;
-  elsewhen crossTrack < -4 then
+  elsewhen crossTrack < -tackBand then
     tack=1;
   end when;
-  course=if reachTrial>.5 then -2.1 elseif abs(relative)<noGo then upwind+tack*noGo else desired;
+  raceCourse=if reachTrial>.5 then -2.1 elseif abs(relative)<noGo then upwind+tack*noGo else desired;
+  raceError=atan2(sin(raceCourse-courseEstimate),cos(raceCourse-courseEstimate));
+  windOffBow=atan2(sin(courseEstimate-upwind),cos(courseEstimate-upwind));
+  when sample(0,.1) then
+    stallDuration=if pre(tackRecovery)==0 and catamaran and manualHelm<.5 and reachTrial<.5 and cupSpeed>2 and abs(windOffBow)<.59
+      and signedLogSpeed<.50 and abs(raceError)>.24 and abs(gyro)<.25 then pre(stallDuration)+.1 else 0;
+    tackRecovery=if manualHelm>.5 or not catamaran then 0
+      elseif pre(tackRecovery)==0 then (if stallDuration>=1.1 then 1 else 0)
+      elseif pre(tackRecovery)==1 then (if signedLogSpeed<-.22 then 2
+        elseif time-pre(phaseSince)>14 or (abs(windOffBow)>.77 and signedLogSpeed>.25) then 3 else 1)
+      elseif pre(tackRecovery)==2 then (if pre(recoveryTurn)*windOffBow>.90 or signedLogSpeed>.09 or time-pre(phaseSince)>18 then 3 else 2)
+      else (if signedLogSpeed>1.10 or time-pre(phaseSince)>12 then 0 else 3);
+    phaseSince=if tackRecovery<>pre(tackRecovery) then time else pre(phaseSince);
+    recoveryTurn=if tackRecovery==1 and pre(tackRecovery)==0 then (if raceError>=0 then 1 else -1) else pre(recoveryTurn);
+    reverseHelm=if manualHelm>.5 or tackRecovery==0 or signedLogSpeed>.09 then false
+      elseif tackRecovery==2 or (tackRecovery==3 and signedLogSpeed<-.22) then true else pre(reverseHelm);
+  end when;
+  course=if tackRecovery==3 then upwind+recoveryTurn*(noGo+.22) else raceCourse;
   error=atan2(sin(course-courseEstimate),cos(course-courseEstimate));
   ve=cos(heading)*surge-sin(heading)*sway+currentEast;
   vn=sin(heading)*surge+cos(heading)*sway+currentNorth;
@@ -445,15 +501,15 @@ equation
   reachFraction=min(1,max(0,(trueWindAngle-1.22)/.96));
   reachTrim=reachFraction^2*(3-2*reachFraction);
   mainCarTarget=if deckManual>.5 then mainCarInput else
-    windSide*((1-reachTrim)*(.25*buildingWind+.27*depower)+.9*reachTrim);
+    windSide*((1-reachTrim)*.045*depower+.9*reachTrim);
   jibCarTarget=if deckManual>.5 then jibCarInput else
     (1-reachTrim)*(.18+.16*buildingWind+.19*depower)+.88*reachTrim;
-  autoPayout=if catamaran and deckManual<=.5 then
+  autoPayout=if tackRecovery==1 or tackRecovery==2 then .29 elseif catamaran and deckManual<=.5 then
     (1-reachTrim)*(.012+.065*(1-buildingWind))+reachTrim*2*sheetArm*sin(abs(sheetTarget)/2)
     else 2*sheetArm*sin(abs(sheetTarget)/2);
   der(mainCar)=if catamaran then max(-.40,min(.40,(min(.9,max(-.9,mainCarTarget))-mainCar)/.38)) else 0;
   der(jibCar)=if catamaran then max(-.40,min(.40,(min(.88,max(.18,jibCarTarget))-jibCar)/.38)) else 0;
-  jibTrimTarget=if manualHelm>.5 then min(1,max(0,(payout-.012)/.578+
+  jibTrimTarget=if (tackRecovery==1 or tackRecovery==2) and deckManual<.5 then .07 elseif manualHelm>.5 then min(1,max(0,(payout-.012)/.578+
     (if deckManual>.5 then jibTrimInput-.35 else 0))) elseif deckManual>.5 then jibTrimInput else min(1,abs(sheetTarget)/1.5);
   der(jibSheet)=if catamaran then max(-.7,min(.7,(jibTrimTarget-jibSheet)/.5)) else 0;
   sheet=trim[1];
@@ -464,8 +520,10 @@ equation
   leadVel[2,:]={0,der(jibCar),0};
   leadVel[3,:]=-leadVel[2,:];
   lineTarget[1]=if catamaran then blockStack-.010+attachRadius[1]*max(0,payout-.012)/sheetArm else sqrt(fairlead[1,3]^2+(attachRadius[1]*payout/sheetArm)^2);
+  // Hold the jib's working sheet through the eye to push the bow onto the new tack.
+  jibWorkingSide=if (tackRecovery==1 or tackRecovery==2) and deckManual<.5 then -recoveryTurn else windSide;
   for j in 2:3 loop
-    lineTarget[j]=if catamaran then (if (j==2 and windSide<0) or (j==3 and windSide>0) then lineSpan[j]+.035
+    lineTarget[j]=if catamaran then (if (j==2 and jibWorkingSide<0) or (j==3 and jibWorkingSide>0) then lineSpan[j]+.035
       else .47+2.1*jibSheet) else sqrt(fairlead[2,3]^2+(.88*feet[2]*payout/sheetArm)^2);
   end for;
   mainSheetStiffness=purchase^2*mainsheetEA/(sheetTail+purchase*linePaid[1]);
@@ -542,7 +600,12 @@ equation
   cloth[2].leechTension=0;
   cloth[1].boomElevation=boomElevation;
   cloth[2].boomElevation=0;
-  der(rudder)=((if manualHelm>.5 then .54*rudderInput else max(-0.56,min(0.56,1.35*error-0.45*gyro)))-rudder)/0.2;
+  // Centre the blades while flow dies. A measured sternway threshold
+  // reverses the helm; the separate ahead threshold avoids switching at zero.
+  helmTarget=if manualHelm>.5 then .54*rudderInput elseif tackRecovery==1 then 0
+    elseif tackRecovery==2 then -.55*recoveryTurn
+    else (if reverseHelm then -1 else 1)*max(-.56,min(.56,1.35*error-.45*gyro));
+  der(rudder)=(helmTarget-rudder)/.2;
 
   // Body to level, heading-aligned frame (forward, port, up). Wave slopes
   // and orbital velocity are supplied by the same sea as the hull buoyancy.
@@ -659,7 +722,7 @@ equation
   der(heave)=vertical;
   for hull in 1:2 loop
     sectionVolume[hull,:]=if hull==1 or catamaran then volumes[hull,:] else zeros(6);
-    (hullLift[hull],hullPitch[hull],hullRoll[hull],impact[hull,:],impactTorque[hull],deckWet[hull],volumes[hull,:],wettedSkin[hull])=hullHydrostatics(stationX,beamHalf,beamFraction,deckZ,rotation,surfaceNormal,(if useSectionWater>.5 then 0 else waveHeight)-heave,(if hull==1 then 1 else -1)*halfSpacing,if catamaran then 2.65 else 1,previousWater[hull,:]*(1-waterFraction)+sectionWater[hull,:]*waterFraction,useSectionWater,swellAmplitude,swellLocal,swellPhase,swellK,swellOmega,{surge,sway,vertical},spin);
+    (hullLift[hull],hullPitch[hull],hullRoll[hull],impact[hull,:],impactTorque[hull],deckWet[hull],volumes[hull,:],wettedSkin[hull])=hullHydrostatics(stationX,stationGeometry,beamFraction,rotation,surfaceNormal,(if useSectionWater>.5 then 0 else waveHeight)-heave,(if hull==1 then 1 else -1)*halfSpacing,if catamaran then 2.65 else 1,previousWater[hull,:]*(1-waterFraction)+sectionWater[hull,:]*waterFraction,useSectionWater,swellAmplitude,swellLocal,swellPhase,swellK,swellOmega,{surge,sway,vertical},spin);
   end for;
   buoyancy=hullLift[1]+(if catamaran then hullLift[2] else 0);
   pitchBuoyancy=hullPitch[1]+(if catamaran then hullPitch[2] else 0);

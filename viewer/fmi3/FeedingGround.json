@@ -1,0 +1,1 @@
+{"token": "70590b54-3856-4145-86f4-0e5d5318a849", "variables": {"time": [0, "Float64", 1], "clock": [1, "Float64", 1], "pose": [2, "Float64", 6], "whale": [3, "Float64", 1], "feedAge": [4, "Float64", 1], "gape": [5, "Float64", 1], "capture": [6, "Float64", 1], "school": [7, "Float64", 144], "returns": [8, "Float64", 144], "inMouth": [9, "Float64", 36]}}

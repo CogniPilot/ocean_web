@@ -11,7 +11,11 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),deckManual,mainCar,jibCar,jibSheet;
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
   Real sailLandingWrench[6],committeeLandingWrench[6],windProbe[2];
-  Sailboat boat(seaClockOffset=seaClockOffset,catamaran=hobie,droneLoad=sailLandingWrench+race.racerLoad,mass=if hobie then 205 else 64,
+  input Real swimmerWater[15](each start=0) "Local swimmer-wave elevations at twelve hull panels, centre elevation, forward and port slopes";
+  input Real animalTraffic[10,9](each start=0);
+  input Real animals[2,6](each start=0);
+  discrete Real animalWrench[6](each start=0,each fixed=true);
+  Sailboat boat(seaClockOffset=seaClockOffset,catamaran=hobie,droneLoad=sailLandingWrench+race.racerLoad+animalWrench,mass=if hobie then 205 else 64,
     launchHeight=if hobie then .2 else .069,ballastMass=if hobie then 60 else 0,
     halfSpacing=if hobie then 1.02 else 0,deckZ=if hobie then .23 else .077,
     centerMassX=if hobie then -.28 else -.14846,
@@ -26,14 +30,14 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     foilY=if hobie then {1.02,1.02,-1.02,-1.02} else zeros(4),
     foilArea=if hobie then {.62,.11,.62,.11} else {.115,.044,0,0},
     aspect=if hobie then {.65,3.4,.65,3.4} else {3.5,2.6,1,1},
-    manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,
+    raceGoal={1,race.pilotTarget[1],race.pilotTarget[2]},manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,
     deckManual=deckManual,mainCarInput=mainCar,jibCarInput=jibCar,jibTrimInput=jibSheet,reachTrial=0,
     ballastManual=ballastManual,ballastCmdX=ballastX,ballastCmdY=ballastY,traffic=traffic,
     windEast=wind.localEast,windNorth=wind.localNorth,currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],
     orbitalEast=boatWater.velocity[1]-boatWater.meanFlow[1],orbitalNorth=boatWater.velocity[2]-boatWater.meanFlow[2],orbitalUp=boatWater.velocity[3],
     useSectionWater=1,sectionWater=surfaceSections,previousWater=priorSections,waterStamp=sectionStamp,
-    waveHeight=boatWater.surface,wavePitch=-atan(boatWater.surfaceSlope*{cos(boat.heading),sin(boat.heading)}),
-    waveRoll=atan(boatWater.surfaceSlope*{-sin(boat.heading),cos(boat.heading)}),
+    waveHeight=boatWater.surface+swimmerWater[13],wavePitch=-atan(swimmerWater[14]+boatWater.surfaceSlope*{cos(boat.heading),sin(boat.heading)}),
+    waveRoll=atan(swimmerWater[15]+boatWater.surfaceSlope*{-sin(boat.heading),cos(boat.heading)}),
     swellK=swellK,swellOmega=swellOmega,swellAmplitude=Wreck.SpectralSea.swellHeight(seaState),
     wakeEast=waves.waveLoad[1],wakeNorth=waves.waveLoad[2],wakeYaw=waves.waveLoad[3]);
   MarineWind wind(phaseOffset=seaClockOffset,advectionAnchor=windAnchor,meanEast=windSpeed*cos(windBearing),meanNorth=windSpeed*sin(windBearing),
@@ -54,6 +58,11 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   discrete Real priorSections[2,6](each start=0,each fixed=true),sectionStamp(start=0,fixed=true);
   Real stripAlong[2,6],stripAcross[2];
 equation
+  when sample(0,.025) then
+    animalWrench=WildlifeContact(animals,{boat.east,boat.north,boat.heave,boat.heel,boat.pitch,boat.heading},
+      {boat.ve,boat.vn,boat.yawRate},boat.totalMass,if hobie then 5.04 else 2.32,
+      if hobie then .18 else .33,boat.halfSpacing,if hobie then .25 else .28,animalTraffic);
+  end when;
   for hull in 1:2 loop
     stripAcross[hull]=(3-2*hull)*boat.halfSpacing*cos(boat.heel);
     for panel in 1:6 loop
@@ -70,7 +79,7 @@ equation
       bowSpeed,BowWavePatch.localStrips(waves.sourceStrips,bowFrame),boat.stationX,boat.beamHalf) else zeros(14,6);
     for hull in 1:2 loop
       for panel in 1:6 loop
-        surfaceSections[hull,panel]=waves.sectionHeight[hull,panel]+boatWater.tide+
+        surfaceSections[hull,panel]=swimmerWater[(hull-1)*6+panel]+waves.sectionHeight[hull,panel]+boatWater.tide+
           Wreck.Perception.seaHeight(boatWater.tile,
             boat.east+cos(boat.heading)*stripAlong[hull,panel]-sin(boat.heading)*stripAcross[hull],
             boat.north+sin(boat.heading)*stripAlong[hull,panel]+cos(boat.heading)*stripAcross[hull]);

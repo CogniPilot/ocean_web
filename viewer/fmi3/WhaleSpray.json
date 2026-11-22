@@ -1,0 +1,1 @@
+{"token": "115cf965-0166-4bd8-91a4-aa86a72173a1", "variables": {"time": [0, "Float64", 1], "breathAge": [1, "Float64", 1], "impactAge": [2, "Float64", 1], "impactSpeed": [3, "Float64", 1], "wind": [4, "Float64", 2], "swimVelocity": [5, "Float64", 2], "plume": [6, "Float64", 840], "bubbles": [7, "Float64", 800], "curtain": [8, "Float64", 388], "droplets": [9, "Float64", 3120]}}

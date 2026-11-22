@@ -1,48 +1,90 @@
 export function forceDisplay(T,scene,sub,yacht,cat,model){
- const group=new T.Group();scene.add(group);group.visible=false;
- const specs=[];
- function arrow(parent,origin,color){
-   const glyph=new T.ArrowHelper(new T.Vector3(1,0,0),new T.Vector3(),1,color);
-   for(const m of [glyph.line,glyph.cone]){m.material.depthTest=false;m.renderOrder=12;}
-   group.add(glyph);specs.push({parent,origin:new T.Vector3(...origin),glyph});
- }
- if(yacht){
-   arrow(yacht,cat?[-.6,0,3.3]:[-.28,0,1.1],0xffad4d);
-   arrow(yacht,cat?[1.1,0,2.2]:[.62,0,.93],0xffad4d);
-   for(let k=0;k<(cat?4:2);k++)
-     arrow(yacht,[0,0,0],0x6cbcff);
-   arrow(yacht,[0,0,-.08],0x77e7ba);
- }
- const subStart=specs.length,buoyIndex=subStart-1;
- if(sub){
-   for(const r of sub.userData.rotors)arrow(sub,r.center.toArray(),0xff82af);
-   arrow(sub,[0,0,.055],0x77e7ba);arrow(sub,[0,0,0],0xff524b);
- }
- const dir=new T.Vector3(),up=new T.Vector3(0,0,1),yaw=new T.Quaternion();
- return (enabled,b,f,showSub)=>{
-   group.visible=enabled;if(!enabled)return;
-   if(b&&!showSub)yaw.setFromAxisAngle(up,b[2]);
-   const [sails,foils,arms]=showSub||!model?[]:model.getMany(['rigForce','foilLoad','foilArm']);
-   for(let i=0;i<specs.length;i++){
-     const {glyph,parent,origin}=specs[i];
-     if((parent===sub)!==showSub){glyph.visible=false;continue;}
-     glyph.position.copy(origin).applyQuaternion(parent.quaternion).add(parent.position);
-     if(parent===sub){
-       if(!f?.thrust){glyph.visible=false;continue;}
-       const rotor=i-subStart,rotors=sub.userData.rotors;
-       if(rotor<rotors.length)dir.copy(rotors[rotor].axis).multiplyScalar(f.thrust[rotor]).applyQuaternion(sub.quaternion);
-       else if(rotor===rotors.length)dir.fromArray(f.buoyancy).applyQuaternion(sub.quaternion);
-       else dir.fromArray(f.contact);
-     }else if(i<2)dir.fromArray(sails,3*i).applyQuaternion(yaw);
-     else if(i<buoyIndex){
-       const offset=3*(i-2);
-       glyph.position.fromArray(arms,offset).applyQuaternion(yaw).add(parent.position);
-       dir.fromArray(foils,offset).applyQuaternion(yaw);
-     }else dir.set(0,0,b[29]);
-     const n=dir.length();glyph.visible=n>.03;
-     if(glyph.visible){const len=.24*Math.log1p(n);glyph.setDirection(dir.normalize());glyph.setLength(len,Math.min(.18,len*.32),Math.min(.10,len*.18));}
-   }
- };
+  function makeArrow(parent,origin,color){
+    const glyph=new T.ArrowHelper(new T.Vector3(1,0,0),new T.Vector3(...origin),1,color);
+    for(const mesh of [glyph.line,glyph.cone]){
+      mesh.material.depthTest=false;
+      mesh.renderOrder=12;
+      mesh.layers.set(3); // Main-view instruments, excluded from optical sensors.
+    }
+    parent.add(glyph);
+    return glyph;
+  }
+  const boatForces=new T.Group(),subForces=new T.Group();
+  boatForces.name='Sailboat body-frame forces';
+  yacht?.add(boatForces);
+  scene.add(subForces);
+  boatForces.visible=subForces.visible=false;
+  const sails=[],foils=[],thrusters=[];
+  let buoyancy,subBuoyancy,contact;
+  function boatArrow(origin,color){
+    const glyph=makeArrow(boatForces,origin,color);
+    return {glyph,start:new T.Vector3(),end:new T.Vector3(),
+      startArm:glyph.position.clone(),endArm:glyph.position.clone()};
+  }
+  if(yacht){
+    sails.push(boatArrow(cat?[-.6,0,3.3]:[-.28,0,1.1],0xffad4d),
+      boatArrow(cat?[1.1,0,2.2]:[.62,0,.93],0xffad4d));
+    for(let i=0;i<(cat?4:2);i++)foils.push(boatArrow([0,0,0],0x6cbcff));
+    buoyancy=boatArrow([0,0,-.08],0x77e7ba);
+  }
+  if(sub){
+    for(const r of sub.userData.rotors)thrusters.push(makeArrow(subForces,r.center.toArray(),0xff82af));
+    subBuoyancy=makeArrow(subForces,[0,0,.055],0x77e7ba);
+    contact=makeArrow(subForces,[0,0,0],0xff524b);
+  }
+  const direction=new T.Vector3(),inverse=new T.Quaternion(),angles=new T.Euler();
+  let stamp;
+  function draw(glyph,vector){
+    const n=vector.length();
+    glyph.visible=n>.03;
+    if(!glyph.visible)return;
+    const len=.24*Math.log1p(n);
+    glyph.setDirection(vector.normalize());
+    glyph.setLength(len,Math.min(.18,len*.32),Math.min(.10,len*.18));
+  }
+  function sample(arrow,values,i,previous){
+    arrow.start.lerp(arrow.end,previous);
+    arrow.end.fromArray(values,3*i).applyQuaternion(inverse);
+    if(stamp===undefined)arrow.start.copy(arrow.end);
+  }
+  return (enabled,b,f,showSub,time,blend,previous)=>{
+    boatForces.visible=Boolean(enabled&&!showSub&&b);
+    subForces.visible=Boolean(enabled&&showSub&&f?.thrust);
+    if(boatForces.visible){
+      if(time!==stamp){
+        // Modelica reports loads and wet-foil arms in a level heading frame.
+        // Undo pitch and heel once per sample. The hull supplies the display pose.
+        inverse.setFromEuler(angles.set(b[4],b[5],0,'ZYX')).invert();
+        const [rig,load,arm]=model.getMany(['rigForce','foilLoad','foilArm']);
+        sails.forEach((a,i)=>sample(a,rig,i,previous));
+        foils.forEach((a,i)=>{
+          sample(a,load,i,previous);
+          a.startArm.lerp(a.endArm,previous);
+          a.endArm.fromArray(arm,3*i).applyQuaternion(inverse);
+          if(stamp===undefined)a.startArm.copy(a.endArm);
+        });
+        buoyancy.start.lerp(buoyancy.end,previous);
+        buoyancy.end.set(0,0,b[29]);
+        if(stamp===undefined)buoyancy.start.copy(buoyancy.end);
+        stamp=time;
+      }
+      for(const a of sails)draw(a.glyph,direction.lerpVectors(a.start,a.end,blend));
+      for(const a of foils){
+        a.glyph.position.lerpVectors(a.startArm,a.endArm,blend);
+        draw(a.glyph,direction.lerpVectors(a.start,a.end,blend));
+      }
+      // Buoyancy is vertical in the world even while the hull heels.
+      inverse.copy(yacht.quaternion).invert();
+      draw(buoyancy.glyph,direction.lerpVectors(buoyancy.start,buoyancy.end,blend).applyQuaternion(inverse));
+    }else stamp=undefined;
+    if(subForces.visible){
+      subForces.position.copy(sub.position);
+      subForces.quaternion.copy(sub.quaternion);
+      thrusters.forEach((glyph,i)=>draw(glyph,direction.copy(sub.userData.rotors[i].axis).multiplyScalar(f.thrust[i])));
+      draw(subBuoyancy,direction.fromArray(f.buoyancy));
+      draw(contact,direction.fromArray(f.contact).applyQuaternion(inverse.copy(sub.quaternion).invert()));
+    }
+  };
 }
 export function sonarPlot(ctx,frame,az){
  const origin=[224,165],scale=13;
@@ -69,7 +111,7 @@ export function firstPersonInstruments(canvas){
     ctx.fillStyle='#032224c9';ctx.fillRect(x-w,y-9,2*w,18);ctx.strokeRect(x-w,y-9,2*w,18);
     ctx.fillStyle=ctx.strokeStyle;ctx.fillText(text,x,y);
   }
-  return function draw(values,fov,height){
+  return function draw(values,fov,height,target){
     const {roll,pitch,yaw,speed,level,sub,vertical}=values;
     const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(2,devicePixelRatio);
     if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){
@@ -87,6 +129,17 @@ export function firstPersonInstruments(canvas){
     }
     box(0,top,String(Math.round(heading)%360).padStart(3,'0')+'°T');
     line(-3,top+11,0,top+15);line(0,top+15,3,top+11);
+    if(target){
+      // Use the same bow-relative bearing as the heading tape. Targets outside
+      // its ±30 degree span stay at the edge and point toward the required turn.
+      const turn=Math.atan2(Math.sin(yaw-target.angle),Math.cos(yaw-target.angle))/deg;
+      const x=Math.max(-30,Math.min(30,turn))*w/125,y=top+42;
+      ctx.save();ctx.strokeStyle=ctx.fillStyle='#ffade3';ctx.translate(x,y);
+      ctx.save();ctx.rotate(turn>30?Math.PI/2:turn < -30?-Math.PI/2:0);
+      ctx.beginPath();ctx.moveTo(0,-6);ctx.lineTo(5,4);ctx.lineTo(-5,4);ctx.closePath();ctx.fill();ctx.restore();
+      ctx.fillText(target.label+' · '+target.bearing+' · '+Math.round(target.range)+' m',0,17);
+      ctx.restore();
+    }
     const focal=height/(2*Math.tan(fov*deg/2));
     ctx.save();ctx.beginPath();ctx.rect(-w*.31,-h*.25,w*.62,h*.5);ctx.clip();ctx.rotate(-roll);
     for(let angle=-80;angle<=80;angle+=5){
@@ -114,6 +167,6 @@ export function firstPersonInstruments(canvas){
       box(x,0,v.toFixed(1));ctx.fillText(label,x,64);
     }
     if(!sub)ctx.fillText('V/S '+vertical.toFixed(1)+' m/s',0,h*.36);
-    canvas.setAttribute('aria-label',(sub?'Piccard Sub':'Drone')+' heading '+Math.round(heading)%360+' degrees true, '+(sub?'depth ':'altitude ')+level.toFixed(1)+' metres, speed '+speed.toFixed(1)+' metres per second');
+    canvas.setAttribute('aria-label',(sub?'Piccard Sub':'Drone')+' heading '+Math.round(heading)%360+' degrees true, '+(sub?'depth ':'altitude ')+level.toFixed(1)+' metres, speed '+speed.toFixed(1)+' metres per second'+(target?', '+target.label+' bearing '+target.bearing+', '+Math.round(target.range)+' metres':''));
   };
 }

@@ -10,8 +10,9 @@ export function splitCamera(T){
  ${oceanHeightGLSL}
  void main(){vec2 uv=2.*p-1.;vec3 d=normalize(forward+slope*(up*uv.y+right*uv.x*aspect));vec3 port=positionEye+d*.34;
  float h=port.z-heightAt(port.xy);float edge=exp(-abs(h)*150.);
+ float aa=max(.0018,fwidth(h));
  vec2 glass=clamp(p+vec2(0.,.009*edge*sign(h)),0.,1.);
- vec3 c=mix(texture2D(sea,glass).rgb,texture2D(air,glass).rgb,smoothstep(-.0018,.0018,h));
+ vec3 c=mix(texture2D(sea,glass).rgb,texture2D(air,glass).rgb,smoothstep(-aa,aa,h));
  gl_FragColor=vec4(mix(c,vec3(.68,.83,.87),edge*.27),1.);
  #include <tonemapping_fragment>
  #include <colorspace_fragment>
@@ -22,11 +23,12 @@ export function splitCamera(T){
    renderer.getDrawingBufferSize(size);above.setSize(size.x,size.y);below.setSize(size.x,size.y);
    eye.updateMatrixWorld();eye.getWorldDirection(u.forward.value);u.right.value.setFromMatrixColumn(eye.matrixWorld,0);u.up.value.setFromMatrixColumn(eye.matrixWorld,1);
    u.positionEye.value.copy(eye.position);u.slope.value=Math.tan(T.MathUtils.degToRad(eye.fov/2));u.aspect.value=eye.aspect;
-   for(const key of ['tile','tide','blend','swell','swellCenter','boat','spectrumMap','incidentMap','spectrumDrift','spectrumPeriod','spectrumBlend','wakeAvailable','bowMap','bowAvailable'])u[key]=water.U[key];
-   world.fog=null;water.dome.visible=true;water.U.under.value=0;
+   for(const key of ['tile','tide','blend','swell','swellCenter','boat','spectrumMap','incidentMap','spectrumDrift','spectrumPeriod','spectrumBlend','wakeAvailable','bowMap','bowAvailable','swimmerWater','whalePatch','sharkPatch','whalePatchPrevious','sharkPatchPrevious','swimmerBlend','swimmerFin','swimmerHalfFloat'])u[key]=water.U[key];
+   const oldBackground=world.background;
+   world.background=null;world.fog=null;water.dome.visible=true;water.U.under.value=0;
    renderer.setRenderTarget(above);renderer.render(world,eye);
-   world.fog=fog;water.dome.visible=false;water.U.under.value=1;
+   world.background=fog.color;world.fog=fog;water.dome.visible=false;water.U.under.value=1;
    renderer.setRenderTarget(below);renderBelow(world,eye);
-   renderer.setRenderTarget(null);renderer.render(scene,camera);water.dome.visible=true;world.fog=null;
+   renderer.setRenderTarget(null);renderer.render(scene,camera);water.dome.visible=true;world.fog=null;world.background=oldBackground;
  };
 }

@@ -1,6 +1,7 @@
 // Sender times and local arrival times are monotonic milliseconds with unrelated origins.
 export class PeerTimeline {
-  constructor() {
+  constructor(timestampIndex = 215) {
+    this.timestampIndex = timestampIndex;
     this.samples = [];
     this.clockOffset = Infinity;
     this.armed = false;
@@ -8,7 +9,8 @@ export class PeerTimeline {
 
   receive(data, arrival) {
     // Earlier clients leave this reserved float at zero.
-    const sent = data[215] > 0 ? data[215] * 1000 : arrival;
+    const stamp = data[this.timestampIndex];
+    const sent = stamp > 0 ? stamp * 1000 : arrival;
     const latest = this.samples.at(-1);
     if (latest && sent <= latest.sent) return false;
     if (latest && arrival - latest.arrival > 2500) {

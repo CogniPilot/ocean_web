@@ -3,7 +3,7 @@ import {isCaptainName} from './captains.mjs';
 // Each retained finish has its own storage key so simultaneous tabs cannot
 // overwrite one another's laps. Only the ten fastest per course and hull survive.
 const limit=10;
-const hulls=['Hobie16','Sailboat'];
+const classes={Hobie16:'Hobie 16',Sailboat:'Pilothouse sloop',RDD2:'RDD2 drone'};
 
 export function lapClock(tenths){
   return Math.floor(tenths/600)+':'+((tenths%600)/10).toFixed(1).padStart(4,'0');
@@ -68,13 +68,15 @@ export function lapLeaderboard(hull,roomName,panel){
     try{storage.setItem(panelKey,String(panel.open));}catch{}
   });
   const details=panel.querySelector('#bestLaps');
-  const personal=lapTable(storage,'personal',hull);
-  const room=new Map(hulls.map(kind=>[kind,lapTable(storage,'room/'+roomName,kind)]));
-  let channel,finished=false;
+  const personal=new Map(Object.keys(classes).map(kind=>[kind,lapTable(storage,'personal',kind)]));
+  const roomTables=name=>new Map(Object.keys(classes).map(kind=>[kind,lapTable(storage,'room/'+name,kind)]));
+  let room=roomTables(roomName);
+  let channel;
+  const finished=new Set();
   const heading=details.querySelector('small'),list=details.querySelector('ol'),empty=details.querySelector('p');
   function render(){
-    const rows=(channel?room.get(hull):personal).rows;
-    heading.textContent=(hull==='Hobie16'?'Hobie 16':'Pilothouse sloop')+' · '+(channel?'Room '+roomName:'This device');
+    const rows=(channel?room:personal).get(hull).rows;
+    heading.textContent=classes[hull]+' · '+(channel?'Room '+roomName:'This device');
     list.replaceChildren();
     for(const row of rows){
       const item=document.createElement('li'),time=document.createElement('time');
@@ -92,7 +94,8 @@ export function lapLeaderboard(hull,roomName,panel){
       if(rows.length)channel.send({boat,rows},target?{target}:undefined).catch(()=>{});
     }
   }
-  function connect(action){
+  function connect(action,name=roomName){
+    if(name!==roomName){roomName=name;room=roomTables(name);}
     channel=action;
     if(action)action.onMessage=packet=>{
       if(channel!==action)return;
@@ -102,19 +105,19 @@ export function lapLeaderboard(hull,roomName,panel){
     render();
   }
   function observe(stage,seconds,captain){
-    const entered=stage===5&&!finished;
-    finished=stage===5;
+    const entered=stage===5&&!finished.has(hull);
+    if(stage===5)finished.add(hull);else finished.delete(hull);
     if(!entered)return;
     const bytes=crypto.getRandomValues(new Uint8Array(16));
     const id=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
     const row={id,captain:captain||'You',tenths:Math.round(seconds*10)};
     if(!valid(row))return;
-    personal.add([row]);
+    personal.get(hull).add([row]);
     if(channel&&room.get(hull).add([row]))send();
     render();
   }
   window.addEventListener('storage',event=>{
-    for(const table of [personal,...room.values()]){
+    for(const table of [...personal.values(),...room.values()]){
       if(event.key===null||event.key.startsWith(table.prefix)){
         // Rebuild from the settled storage contents, including deletions.
         table.reload();
@@ -123,5 +126,5 @@ export function lapLeaderboard(hull,roomName,panel){
     }
   });
   render();
-  return {connect,send,observe};
+  return {connect,send,observe,select(kind){if(hull!==kind){hull=kind;render();}}};
 }

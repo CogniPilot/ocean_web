@@ -1,24 +1,45 @@
  const oceanHeightGLSL=`
- uniform sampler2D tile;uniform float blend,tide;
+ // Packed high/low bytes must reach the decode without sampler precision loss.
+ uniform highp sampler2D tile;uniform float blend,tide;
  uniform vec4 swell,boat; uniform vec2 swellCenter;
- uniform sampler2D spectrumMap,incidentMap,bowMap;
+ uniform highp sampler2D spectrumMap,incidentMap,bowMap,swimmerWater;
+ uniform vec4 whalePatch,sharkPatch,whalePatchPrevious,sharkPatchPrevious;
+ uniform vec2 swimmerBlend;uniform vec4 swimmerFin;uniform float swimmerHalfFloat;
+ vec4 animalWave(vec2 p,vec4 region){
+   if(region.z<=0.)return vec4(0.);
+   vec2 q=(p-region.xy)/region.z;
+   float edge=max(abs(q.x),abs(q.y));
+   if(edge>=.48)return vec4(0.);
+   vec4 data=texture2D(swimmerWater,vec2(.5+q.x,(.5+q.y+region.w)*.25));
+   if(swimmerHalfFloat<.5)data=vec4((255.*data.r-128.)/254.,data.g,(255.*data.ba-128.)/127.);
+   return (1.-smoothstep(.38,.48,edge))*data;
+ }
+ vec4 wildlifeWave(vec2 p){
+   vec4 whale=mix(animalWave(p,whalePatchPrevious),animalWave(p,whalePatch),swimmerBlend.x);
+   if(max(sharkPatch.z,sharkPatchPrevious.z)<=0.)return whale;
+   float a=swimmerBlend.y;
+   vec2 fin=swimmerFin.xy-(1.-a)*swimmerFin.zw;
+   vec2 shift=(1.-smoothstep(.45,1.30,distance(p,fin)))*swimmerFin.zw;
+   return whale+mix(animalWave(p-a*shift,sharkPatchPrevious),animalWave(p+(1.-a)*shift,sharkPatch),a);
+ }
  uniform vec2 spectrumDrift;
- uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable;
+ uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable,hullSpectrumOnly;
  vec2 spectralUV(vec2 p){return (p-spectrumDrift)/spectrumPeriod+vec2(.5/64.);}
- float elevationSample(sampler2D map,vec2 uv){
+ float elevationSample(highp sampler2D map,vec2 uv){
    vec4 pair=texture2D(map,uv);
    vec2 weights=vec2(65280.,255.);
    return (mix(dot(pair.rg,weights),dot(pair.ba,weights),spectrumBlend)-32768.)/8192.;
  }
+ float incidentElevation(vec2 uv){return hullSpectrumOnly>.5?0.:elevationSample(incidentMap,uv);}
  // Match the hull-wave window used for the Modelica water probes.
  float wakeFalloff(vec2 p){return smoothstep(.35,.49,length(p-boat.xy)/spectrumPeriod);}
  float spectralElevation(vec2 p){
    if(spectrumPeriod<=0.)return 0.;
    vec2 uv=spectralUV(p);
    float falloff=wakeAvailable>.5?wakeFalloff(p):0.;
-   if(falloff>=1.)return elevationSample(incidentMap,uv);
+   if(falloff>=1.)return incidentElevation(uv);
    float z=elevationSample(spectrumMap,uv);
-   return falloff<=0.?z:mix(z,elevationSample(incidentMap,uv),falloff);
+   return falloff<=0.?z:mix(z,incidentElevation(uv),falloff);
  }
  bool nearBowField(vec2 p,float radius){
    #ifdef DISABLE_BOW_FIELD
@@ -38,7 +59,7 @@
   vec4 data=texture2D(tile,p/64.+vec2(.5/32.));
   return tide+swell.x*sin(swell.y+dot(p-swellCenter,swell.zw))+spectralElevation(p)+mix(dot(data.rg,vec2(255.*256.,255.)),dot(data.ba,vec2(255.*256.,255.)),blend)*16./65535.-8.;
  }
- float heightAt(vec2 p){return backgroundHeightAt(p)+bowElevation(p);}
+ float heightAt(vec2 p){return backgroundHeightAt(p)+bowElevation(p)+wildlifeWave(p).x;}
  `;
 // A single camera-centred batch. The two vertices of each streak share a seed
 // and wrap together, so drops never stretch across the edge of the rain volume.
@@ -138,81 +159,6 @@ vec4 skyRadiance(vec3 d){
  return vec4(mix(fair,base*(.45+.55*day),storm),(1.-clouds*.81)*(1.-storm));
 }
 `;
-// One point batch for droplets from both hulls. Emission follows the measured
-// wet forebody sections. After release, droplets travel independently of the boat.
-function bowSpray(scene,U){
- const slots=2048,geometry=new THREE.BufferGeometry();
- const origins=new THREE.BufferAttribute(new Float32Array(slots*3),3).setUsage(THREE.DynamicDrawUsage);
- const velocity=new THREE.BufferAttribute(new Float32Array(slots*3),3).setUsage(THREE.DynamicDrawUsage);
- const life=new THREE.BufferAttribute(new Float32Array(slots*2),2).setUsage(THREE.DynamicDrawUsage);
- geometry.setAttribute('position',origins);geometry.setAttribute('launchVelocity',velocity);geometry.setAttribute('drop',life);
- const material=new THREE.ShaderMaterial({uniforms:U,transparent:true,depthWrite:false,
-   vertexShader:oceanHeightGLSL+`
-     uniform float tm,under;uniform vec2 viewport;
-     attribute vec3 launchVelocity;attribute vec2 drop;varying float opacity;
-     void main(){
-       float age=tm-position.z;
-       float dz=age*(launchVelocity.z-4.905*age);
-       gl_Position=vec4(2.,2.,2.,1.);gl_PointSize=1.;opacity=0.;
-       if(drop.x<=0. || under>.5 || age<0. || dz<0.)return;
-       vec2 p=position.xy+age*launchVelocity.xy;
-       vec4 eye=viewMatrix*vec4(p,heightAt(position.xy)+dz+.012,1.);
-       gl_Position=projectionMatrix*eye;
-       float pixels=drop.x*viewport.y*projectionMatrix[1][1]/max(.1,-eye.z);
-       gl_PointSize=clamp(pixels,1.,9.);
-       opacity=drop.y*min(1.,pixels*pixels)*smoothstep(0.,.025,dz+.012);
-     }`,
-   fragmentShader:`uniform vec3 sunDir;varying float opacity;
-     void main(){
-       vec2 q=2.*gl_PointCoord-1.;float a=opacity*(1.-smoothstep(.12,1.,dot(q,q)));
-       if(a<.012)discard;
-       gl_FragColor=vec4(mix(vec3(.15,.25,.29),vec3(.85,.93,.95),smoothstep(-.15,.22,sunDir.z)),a);
-       #include <tonemapping_fragment>
-       #include <colorspace_fragment>
-     }`});
- const points=new THREE.Points(geometry,material);
- points.name='Bow spray';points.frustumCulled=false;points.visible=false;points.renderOrder=1;scene.add(points);
- const priorWet=[0,0];
- let slot=0,seed=853,previous,lastDrop=-Infinity;
- function random(){seed=(Math.imul(1664525,seed)+1013904223)>>>0;return seed/4294967296;}
- function clear(){life.array.fill(0);life.needsUpdate=true;points.visible=false;previous=undefined;lastDrop=-Infinity;}
- function sample(strips,time,speed){
-   if(previous===time)return;
-   if(previous!==undefined&&(time<previous||time-previous>.31))clear();
-   const dt=previous===undefined?0:time-previous;
-   previous=time;
-   let emitted=false;
-   for(let hull=0;hull<2;hull++){
-     const stern=18*hull;
-     let tip=stern+15;
-     while(tip>stern+3 && strips[tip+2]<.0007)tip-=3;
-     const shoulder=tip-3;
-     let dx=strips[tip]-strips[shoulder],dy=strips[tip+1]-strips[shoulder+1];
-     const length=Math.hypot(dx,dy),wet=strips[tip+2]+.42*strips[shoulder+2];
-     const loading=dt>0?Math.max(0,(wet-priorWet[hull])/dt):0;
-     priorWet[hull]=wet;
-     if(!dt||length<.02||speed<1.5||wet<.0003)continue;
-     dx/=length;dy/=length;
-     const strength=Math.min(1,(speed-1.5)/6)*Math.min(1,Math.sqrt(wet/.012));
-     const impact=Math.min(1,loading/.085);
-     const count=Math.min(160,Math.round(dt*1450*strength*(.68+.65*impact)));
-     for(let i=0;i<count;i++){
-       const phase=(i+random())*dt/count,side=random()<.5?-1:1;
-       const along=(.40+.65*strips[tip+2]/wet-.64*random())*length+phase*speed;
-       const beam=side*(.065+.075*random());
-       origins.setXYZ(slot,strips[shoulder]+along*dx-beam*dy,strips[shoulder+1]+along*dy+beam*dx,time+phase);
-       const surge=speed*(.18+.32*random()),sway=side*speed*(.10+.20*random());
-       const rise=Math.min(4.1,speed*(.13+.20*random())*(.95+.65*impact));
-       velocity.setXYZ(slot,surge*dx-sway*dy,surge*dy+sway*dx,rise);
-       life.setXY(slot,.004+.010*random(),.52+.40*random());
-       slot=(slot+1)%slots;lastDrop=time+phase;emitted=true;
-     }
-   }
-   if(emitted)origins.needsUpdate=velocity.needsUpdate=life.needsUpdate=true;
-   points.visible=time-lastDrop<1.;
- }
- return {points,sample,clear};
-}
 // Render white water over the solved surface along the past wet stern sections.
 function hullFoam(scene,uniforms){
  const count=52,tracks=[[],[]],geometry=new THREE.BufferGeometry();
@@ -260,7 +206,7 @@ function hullFoam(scene,uniforms){
    for(const track of tracks)track.length=0;
    mesh.visible=false;stamp=undefined;
  }
- function sample(strips,time,speed,cat){
+ function sample(strips,time,speed,cat,cruiser){
    if(!strips||time===stamp)return;
    const drift=uniforms.spectrumDrift.value,dx=drift.x,dy=drift.y;
    if(stamp!==undefined&&time-stamp>.26)clear();
@@ -281,7 +227,7 @@ function hullFoam(scene,uniforms){
        const p=track[Math.min(j,track.length-1)]??[0,0,0,0];
        const before=track[Math.max(0,j-1)]??p,after=track[j+1]??p;
        const ux=before[0]-after[0],uy=before[1]-after[1],length=Math.hypot(ux,uy);
-       const width=(cat?.16:.20)+.16*p[3]+.08*Math.max(0,time-p[2]);
+       const width=(cruiser?.65:cat?.16:.20)+.16*p[3]+(cruiser?.23:.08)*Math.max(0,time-p[2]);
        const strength=j<track.length&&length>.02?p[3]:0;
        visible||=strength>.025;
        for(let side=0;side<2;side++){
@@ -297,8 +243,9 @@ function hullFoam(scene,uniforms){
  }
  return {mesh,clear,sample};
 }
-function atmosphere(scene,waterCaptureLayer){
- const U={cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
+function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBeamGLSL,searchlightHeight,hullGlowLobes){
+ const U={cruiserTilt:{value:new Float32Array(10)},cruiserCount:{value:0},cruiserPose:{value:new Float32Array(20)},cruiserAim:{value:new Float32Array(20)},cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
+ const swimmerWater=makeSwimmerWater(THREE,U);
  const skyTarget=new THREE.WebGLRenderTarget(512,192,{type:THREE.HalfFloatType});
  skyTarget.texture.wrapS=THREE.RepeatWrapping;
  U.skyMap={value:skyTarget.texture};
@@ -341,7 +288,18 @@ function atmosphere(scene,waterCaptureLayer){
  windMap.wrapS=windMap.wrapT=THREE.RepeatWrapping;windMap.minFilter=windMap.magFilter=THREE.LinearFilter;windMap.needsUpdate=true;
  U.windMap={value:windMap};U.windPeriod={value:288};U.windFieldActive={value:0};
  U.windBlend={value:1};U.referenceWind={value:11};
+ let gustField;
+ // Bilinear lookup uses the same 48-cell periodic grid as MarineWind.sampleWind.
+ function sampleWind(east,north,result){
+   if(!gustField)return result.set(U.wind.value*Math.cos(U.bearing.value),U.wind.value*Math.sin(U.bearing.value));
+   const wrap=v=>((v%48)+48)%48,x=wrap(east*48/U.windPeriod.value),y=wrap(north*48/U.windPeriod.value);
+   const i=Math.floor(x),j=Math.floor(y),u=x-i,v=y-j,k=(i+1)%48,l=(j+1)%48;
+   const a=3*(48*j+i),b=3*(48*j+k),c=3*(48*l+i),d=3*(48*l+k);
+   const value=n=>(1-v)*((1-u)*gustField[a+n]+u*gustField[b+n])+v*((1-u)*gustField[c+n]+u*gustField[d+n]);
+   return result.set(value(0),value(1));
+ }
  function updateWind(field){
+   gustField=field;
    for(let i=0;i<48*48;i++){
      const k=i*4;
      // Store the displayed and incoming speed / roughness together. The next
@@ -361,14 +319,14 @@ function atmosphere(scene,waterCaptureLayer){
  const incidentTexture=new THREE.DataTexture(incidentBytes,64,64);
  incidentTexture.wrapS=incidentTexture.wrapT=THREE.RepeatWrapping;
  incidentTexture.minFilter=incidentTexture.magFilter=THREE.LinearFilter;
- U.incidentMap={value:incidentTexture};U.wakeAvailable={value:0};
+ U.incidentMap={value:incidentTexture};U.wakeAvailable={value:0};U.hullSpectrumOnly={value:0};
  const bowBytes=new Uint8Array(32*32*4),bowTexture=new THREE.DataTexture(bowBytes,32,32);
  bowTexture.wrapS=bowTexture.wrapT=THREE.RepeatWrapping;
  bowTexture.minFilter=bowTexture.magFilter=THREE.LinearFilter;
  U.bowMap={value:bowTexture};U.bowAvailable={value:0};
  U.forebodyPort={value:new THREE.Vector3()};U.forebodyStarboard={value:new THREE.Vector3()};
  let spray;
- function clearWake(){spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=0;trails.clear();}
+ function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=0;trails.clear();}
  function displayedHeight(data,k,blend){
    const old=(data[k]<<8)+data[k+1],latest=(data[k+2]<<8)+data[k+3];
    return Math.round(old+blend*(latest-old));
@@ -381,11 +339,7 @@ function atmosphere(scene,waterCaptureLayer){
      data[k]=old>>8;data[k+1]=old&255;data[k+2]=packed>>8;data[k+3]=packed&255;
    }
  }
- function updateSpectrum(heights,x,y,period,wake,bow){
-   if(wake){
-     encodeSpectrum(incidentBytes,heights,U.wakeAvailable.value,wake);
-     incidentTexture.needsUpdate=true;U.wakeAvailable.value=1;
-   }
+ function updateFullSpectrum(heights,x,y,period,bow){
    if(bow){
      encodeSpectrum(bowBytes,bow,U.bowAvailable.value);
      bowTexture.needsUpdate=true;U.bowAvailable.value=1;
@@ -393,6 +347,20 @@ function atmosphere(scene,waterCaptureLayer){
    encodeSpectrum(spectrumBytes,heights,U.spectrumPeriod.value);
    spectrumTexture.needsUpdate=true;
    U.spectrumDrift.value.set(x,y);U.spectrumPeriod.value=period;
+ }
+ // Integrated worlds get their incident sea from boatWater.tile. Their 64²
+ // spectrum contains only local and shared hull radiation.
+ function updateHullSpectrum(heights,x,y,period,bow){
+   U.hullSpectrumOnly.value=U.wakeAvailable.value=1;
+   updateFullSpectrum(heights,x,y,period,bow);
+ }
+ function updateSpectrum(heights,x,y,period,wake,bow){
+   U.hullSpectrumOnly.value=0;
+   if(wake){
+     encodeSpectrum(incidentBytes,heights,U.wakeAvailable.value,wake);
+     incidentTexture.needsUpdate=true;U.wakeAvailable.value=1;
+   }
+   updateFullSpectrum(heights,x,y,period,bow);
  }
  const pixels=new Uint8Array(32*32*4),tile=new THREE.DataTexture(pixels,32,32);
  tile.wrapS=tile.wrapT=THREE.RepeatWrapping;tile.minFilter=tile.magFilter=THREE.LinearFilter;tile.needsUpdate=true;
@@ -436,8 +404,44 @@ function atmosphere(scene,waterCaptureLayer){
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
  uniform sampler2D windMap; uniform float windFieldActive,windBlend,referenceWind,windPeriod;
- uniform sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
+ uniform highp sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
  uniform vec3 forebodyPort,forebodyStarboard;
+ uniform vec2 cruiserTilt[5];uniform int cruiserCount;uniform vec4 cruiserPose[5],cruiserAim[5];
+ ${cruiserBeamGLSL}
+ vec3 lampScatter(vec3 surface,float daylight){
+   vec3 lit=vec3(0.);
+   for(int i=0;i<5;i++){
+     if(i>=cruiserCount)break;
+     vec4 pose=cruiserPose[i],aim=cruiserAim[i];vec2 delta=surface.xy-pose.xy;
+     if(dot(delta,delta)>45.*45.)continue;
+     vec2 forward=vec2(cos(pose.w),sin(pose.w));
+     vec2 horizontal=vec2(dot(delta,forward),dot(delta,vec2(-forward.y,forward.x)));
+     vec2 tilt=cruiserTilt[i];float dz=surface.z-pose.z;
+     float unpitchedZ=sin(tilt.y)*horizontal.x+cos(tilt.y)*dz;
+     vec3 body=vec3(cos(tilt.y)*horizontal.x-sin(tilt.y)*dz,
+                    cos(tilt.x)*horizontal.y+sin(tilt.x)*unpitchedZ,
+                    -sin(tilt.x)*horizontal.y+cos(tilt.x)*unpitchedZ);
+     if(aim.w>.5&&dot(horizontal,horizontal)<120.){
+       float scatter=0.;
+       ${hullGlowLobes.map(({center,radius,weight})=>`{
+         vec3 q=(body-vec3(${center.map(x=>x.toFixed(3)).join(',')}))/vec3(${radius.join(',')});
+         scatter+=${weight}*exp(-.50*dot(q,q));
+       }`).join('')}
+       lit+=vec3(1.19,.56,.095)*scatter*(under>.5?.12:1.);
+     }
+     if(aim.z<.5||under>.5)continue;
+     {
+       float bearing=aim.x;
+       vec3 axis=vec3(cos(bearing)*cos(aim.y),sin(bearing)*cos(aim.y),-sin(aim.y));
+       vec3 lens=vec3(.56,0.,${searchlightHeight})+.097*axis,ray=body-lens;
+       float dist=length(ray);
+       float cone=smoothstep(.953,.996,dot(ray,axis)/max(.01,dist));
+       if(cone>0.&&cruiserBlocksBeam(lens,body))cone=0.;
+       lit+=vec3(1.,.91,.69)*cone/(1.+.018*dist*dist);
+     }
+   }
+   return lit*mix(.86,.23,daylight);
+ }
  uniform highp sampler2D transmissionDepth;uniform mat4 throughMatrix;uniform vec3 throughEye;uniform vec2 cameraRange;
  uniform vec2 transmissionSize;
 
@@ -467,6 +471,25 @@ function atmosphere(scene,waterCaptureLayer){
    vec4 d=throughSample(lo+texel,surface,rayScale,edgeWidth,waterColor);
    return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
  }
+ // At long range a submerged fin can occupy only a few capture texels.
+ // A quadratic B-spline averages their depth-tested contributions without
+ // creating intermediate depths or bleeding a dry silhouette into the water.
+ vec4 distantThrough(vec2 uv,float surface,float rayScale,float edgeWidth,vec3 waterColor,float strength){
+   vec2 pixel=uv*transmissionSize-.5;
+   vec2 centre=floor(pixel+.5),d=pixel-centre;
+   vec2 lo=mix(max(vec2(0.),-d),.5*(.5-d)*(.5-d),strength);
+   vec2 hi=mix(max(vec2(0.),d),.5*(.5+d)*(.5+d),strength);
+   vec2 mid=1.-lo-hi,texel=1./transmissionSize;
+   vec4 total=vec4(0.);
+   for(int j=-1;j<=1;j++){
+     float wy=j<0?lo.y:j>0?hi.y:mid.y;
+     for(int i=-1;i<=1;i++){
+       float wx=i<0?lo.x:i>0?hi.x:mid.x;
+       total+=wx*wy*throughSample((centre+vec2(float(i),float(j))+.5)*texel,surface,rayScale,edgeWidth,waterColor);
+     }
+   }
+   return total;
+ }
  void main(){
    vec3 eye=normalize(cameraPosition-wp);
    vec4 air=texture2D(windMap,wp.xy/windPeriod+.5/48.);
@@ -485,6 +508,8 @@ function atmosphere(scene,waterCaptureLayer){
    vec2 bowSlope;
    vec2 d=surfaceSlope(wp.xy,bowSlope);
    #endif
+   vec4 swimmer=wildlifeWave(wp.xy);
+   d+=swimmer.zw;
    float gravitySlope=length(d);
    d+=fade*rippleSlope(wp.xy,tm,baseDir,rippleWind)*(.80+.50*puff-.23*lull);
    // Resolve fine wind rows nearby; their aggregate roughness stays visible farther out.
@@ -503,6 +528,7 @@ function atmosphere(scene,waterCaptureLayer){
      vec3 through=skyColor(normalize(skyRay+vec3(0.,0.,.0001)));
      vec3 underside=mix(vec3(.006,.040,.061),vec3(.015,.14,.17),incidence)*(.24+.76*day);
      color=mix(underside,through,transmissionGate*(1.-pow(1.-incidence,5.)));
+     color=mix(color,vec3(.48,.66,.67)*(.24+.76*day),.78*swimmer.y);
      vec3 attenuation=exp(-vec3(.18,.057,.032)*length(wp-cameraPosition));
      color=mix(vec3(.013,.105,.145)*(.22+.78*day),color,attenuation);
    }else{
@@ -526,18 +552,18 @@ function atmosphere(scene,waterCaptureLayer){
      float surfaceDepth=captureClip.w;
      float rayScale=length(throughEye-wp)/max(.01,surfaceDepth);
      float edgeWidth=max(.008,.5*fwidth(surfaceDepth));
-     vec4 transmitted;
-     bool nearSurface=eyeDistance<32. || length(wp.xy-boat.xy)<8.;
-     if(nearSurface){
-       transmitted=filteredThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor);
-     }else{
-       transmitted=throughSample(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor);
-     }
-     // A bent ray can land on the dry hull. Use only the additional submerged
-     // coverage in the straight view, avoiding a hard switch or a doubled edge.
-     if(transmitted.a<.999){
-       vec4 straight=nearSurface?filteredThrough(screen,surfaceDepth,rayScale,edgeWidth,waterColor)
-                                :throughSample(screen,surfaceDepth,rayScale,edgeWidth,waterColor);
+     vec2 samplePixel=refrUV*transmissionSize;
+     float footprint=max(length(dFdx(samplePixel)),length(dFdy(samplePixel)));
+     float centrePath=max(0.,(viewDepth(texture2D(transmissionDepth,refrUV).r)-surfaceDepth)*rayScale);
+     float blur=clamp(smoothstep(14.,38.,eyeDistance)*smoothstep(.6,3.,centrePath)
+                      +.35*smoothstep(.75,2.,footprint),0.,1.);
+     vec4 transmitted=blur>.025
+       ?distantThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor,blur)
+       :filteredThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor);
+     // A bent ray can land on the dry hull. Refill uncovered samples using
+     // the straight ray, preserving the water path of each underlying texel.
+     if(transmitted.a<.995){
+       vec4 straight=filteredThrough(screen,surfaceDepth,rayScale,edgeWidth,waterColor);
        transmitted.rgb+=straight.rgb*max(0.,straight.a-transmitted.a)/max(.001,straight.a);
      }
      vec2 frameMargin=min(screen,1.-screen);
@@ -553,10 +579,11 @@ function atmosphere(scene,waterCaptureLayer){
      float densityCutoff=clamp(1.-8.*windCoverage,.36,1.);
      float breaking=smoothstep(.085,.32,windCrest)*smoothstep(.045,.17,gravitySlope);
      float foam=breaking*smoothstep(densityCutoff-.08,densityCutoff+.06,scum);
+     foam=max(foam,min(1.,swimmer.y)*(.40+.60*smoothstep(.22,.75,noise2(wp.xy*12.+.28*tm))));
      float edge=wakeAvailable>.5?1.-wakeFalloff(wp.xy):0.;
      if(edge>0.){
        vec2 uvWake=spectralUV(wp.xy);
-       float hullCrest=elevationSample(spectrumMap,uvWake)-elevationSample(incidentMap,uvWake)+bowElevation(wp.xy);
+       float hullCrest=elevationSample(spectrumMap,uvWake)-incidentElevation(uvWake)+bowElevation(wp.xy);
        if(hullCrest>.012){
          // Use small drifting patches to break up the visible foam on the crest.
          float bubbles=noise2((wp.xy-spectrumDrift)*6.);
@@ -587,6 +614,7 @@ function atmosphere(scene,waterCaptureLayer){
      float haze=smoothstep(70.,430.,length(wp-cameraPosition));
      color=mix(color,skyColor(normalize(vec3(-eye.xy,.01))),haze*.90);
    }
+   if(cruiserCount>0)color+=lampScatter(wp,day)*(.70+.30*smoothstep(-.14,.14,dot(d,baseDir)));
    gl_FragColor=vec4(color,1.);
    #include <tonemapping_fragment>
    #include <colorspace_fragment>
@@ -594,17 +622,32 @@ function atmosphere(scene,waterCaptureLayer){
  scene.add(water);
 
  const trails=hullFoam(scene,U);
- function updateHullFoam(strips,time,speed,cat){
+ function updateHullFoam(strips,time,speed,cat,cruiser=false){
    if(!strips)return;
-   trails.sample(strips,time,speed,cat);
-   if(cat){spray??=bowSpray(scene,U);spray.sample(strips,time,speed);}
+   trails.sample(strips,time,speed,cat||cruiser,cruiser);
+   if(cat){
+     spray??=makeSpray(THREE,scene,'Bow spray',2,sampleSurface);
+     const area=[0,0];
+     let heading=0;
+     for(let h=0;h<2;h++){
+       const start=h*18;
+       let k=start+15;
+       while(k>start+3&&strips[k+2]<.0007)k-=3;
+       const dx=strips[k]-strips[k-3],dy=strips[k+1]-strips[k-2];
+       heading=Math.atan2(dy,dx);
+       const x=strips[k]-.24*dx,y=strips[k+1]-.24*dy;
+       spray.positions[h].set(x,y,sampleSurface(x,y));
+       area[h]=(strips[k+2]+.42*strips[k-1])/Math.max(.1,Math.hypot(dx,dy));
+     }
+     spray.sample(time,area,speed,heading);
+   }
    const strength=Math.max(0,Math.min(1,(speed-1.25)/2.8));
    function crestSource(target,index,active){
      const immersion=active?Math.min(1,(strips[index+2]+.45*strips[index-1])/.014):0;
      target.value.set(strips[index],strips[index+1],strength*immersion);
    }
    crestSource(U.forebodyPort,15,true);
-   crestSource(U.forebodyStarboard,33,cat);
+   crestSource(U.forebodyStarboard,33,cat||cruiser);
  }
  const encodeHeight=h=>Math.round(65535*Math.max(0,Math.min(1,(h+8)/16)));
  let firstTile=true;
@@ -618,6 +661,39 @@ function atmosphere(scene,waterCaptureLayer){
    }
    firstTile=false;tile.needsUpdate=true;U.tide.value=f.tide;U.wind.value=f.wind;
  }
+ // Bilinear, periodic sampling at the texel centres used by backgroundHeightAt.
+ function sampleSurface(east,north,optical=false){
+   function sample(data,n,x,y,blend){
+     const ix=Math.floor(x),iy=Math.floor(y),fx=x-ix,fy=y-iy;
+     let value=0;
+     for(let j=0;j<2;j++)for(let i=0;i<2;i++){
+       const k=4*(((iy+j)&(n-1))*n+((ix+i)&(n-1)));
+       value+=(i?fx:1-fx)*(j?fy:1-fy)*displayedHeight(data,k,blend);
+     }
+     return value;
+   }
+   const swell=U.swell.value,center=U.swellCenter.value,period=U.spectrumPeriod.value;
+   let h=U.tide.value+swell.x*Math.sin(swell.y+(east-center.x)*swell.z+(north-center.y)*swell.w);
+   if(!firstTile)h+=sample(pixels,32,east/2,north/2,U.blend.value)*16/65535-8;
+   if(period>0){
+     const drift=U.spectrumDrift.value;
+     const x=64*(east-drift.x)/period,y=64*(north-drift.y)/period,blend=U.spectrumBlend.value;
+     const data=U.wakeAvailable.value?incidentBytes:spectrumBytes;
+     let packed=U.hullSpectrumOnly.value?32768:sample(data,64,x,y,blend);
+     if(optical&&U.wakeAvailable.value){
+       const boat=U.boat.value,r=Math.hypot(east-boat.x,north-boat.y);
+       const f=Math.max(0,Math.min(1,(r/period-.35)/.14));
+       if(f<1){const w=f*f*(3-2*f);packed=w*packed+(1-w)*sample(spectrumBytes,64,x,y,blend);}
+       if(U.bowAvailable.value&&r<4){
+         const c=Math.cos(boat.z),s=Math.sin(boat.z),dx=east-boat.x,dy=north-boat.y;
+         h+=(sample(bowBytes,32,4*(dx*c+dy*s),4*(-dx*s+dy*c),blend)-32768)/8192;
+       }
+     }
+     h+=(packed-32768)/8192;
+   }
+   if(optical)h+=swimmerWater.elevation(east,north);
+   return h;
+ }
  const mirrorCamera=new THREE.PerspectiveCamera(),reflectRT=new THREE.WebGLRenderTarget(512,320),throughRT=new THREE.WebGLRenderTarget(512,320);
  // Mip-filter thin silhouettes as ripple distortion minifies the reflected image.
  reflectRT.texture.generateMipmaps=true;
@@ -630,13 +706,13 @@ function atmosphere(scene,waterCaptureLayer){
  const mirrorLook=new THREE.Vector3(),mirrorClip=new THREE.Plane(new THREE.Vector3(0,0,1));
  const clearThrough=new THREE.Color(0x144958);
  let simpleCapture=false;
- function capture(renderer,camera,submergedScenery,reflect,transmit){
+ function capture(renderer,camera,submergedScenery){
    camera.updateMatrixWorld();
    const oldBackground=scene.background,oldFog=scene.fog;
    const foamVisible=trails.mesh.visible,sprayVisible=spray?.points.visible;
    if(spray)spray.points.visible=false;
    water.visible=false;trails.mesh.visible=false;dome.visible=false;scene.fog=null;
-   if(reflect){
+   {
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
      if(simpleCapture)mirrorCamera.layers.set(waterCaptureLayer);
@@ -652,7 +728,7 @@ function atmosphere(scene,waterCaptureLayer){
      renderer.render(scene,mirrorCamera);renderer.clippingPlanes=[];
      if(hideSubmerged)submergedScenery.visible=true;
    }
-   if(transmit){
+   {
      U.throughMatrix.value.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
      U.throughEye.value.copy(camera.position);U.cameraRange.value.set(camera.near,camera.far);
      renderer.getDrawingBufferSize(U.viewport.value);
@@ -680,5 +756,61 @@ function atmosphere(scene,waterCaptureLayer){
    const throughWidth=Math.max(320,width),throughHeight=Math.max(200,height);
    throughRT.setSize(throughWidth,throughHeight);U.transmissionSize.value.set(throughWidth,throughHeight);
  }
- return {U,dome,water,update,updateSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,updateSky};
+ return {U,dome,water,drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,updateSky};
+}
+
+// Low maritime cloud banks in world coordinates. Soft particles scatter light
+// at different depths; local extinction also fades opaque geometry inside a bank.
+function harborClouds(T,scene){
+  const group=new T.Group();group.name='Low maritime clouds';scene.add(group);
+  const canvas=document.createElement('canvas');canvas.width=canvas.height=96;
+  const ctx=canvas.getContext('2d'),im=ctx.createImageData(96,96);
+  for(let y=0;y<96;y++)for(let x=0;x<96;x++){
+    const u=(x-47.5)/47.5,v=(y-47.5)/47.5;
+    const scallop=.09*Math.sin(8*u+4*v)*Math.cos(6*v)+.035*Math.sin(19*v-13*u);
+    const a=Math.max(0,1-u*u-v*v+scallop);
+    const k=4*(y*96+x);im.data[k]=im.data[k+1]=im.data[k+2]=238+13*v;im.data[k+3]=135*a*a;
+  }
+  ctx.putImageData(im,0,0);
+  const map=new T.CanvasTexture(canvas),material=new T.SpriteMaterial({map,transparent:true,opacity:.65,depthWrite:false,fog:false});
+  // Forward scattering brightens the sunward face. Both the sprites and
+  // in-cloud fog use the same sky exposure as the ocean and skydome.
+  const light={value:new T.Vector3(0,0,1)};
+  material.onBeforeCompile=shader=>{
+    shader.uniforms.cloudLight=light;
+    shader.fragmentShader='uniform vec3 cloudLight;\n'+shader.fragmentShader.replace('#include <map_fragment>',`
+      #include <map_fragment>
+      vec2 q=vMapUv*2.-1.;
+      vec3 n=normalize(vec3(q,sqrt(max(.02,1.-dot(q,q)))));
+      diffuseColor.rgb*=.70+.30*max(0.,dot(n,mat3(viewMatrix)*cloudLight));
+    `);
+  };
+  const banks=[[17,-10,11,17,10,5],[-43,24,28,24,15,8],[58,38,39,26,17,10]];
+  for(const [x,y,z,w,d,h] of banks)for(let j=0;j<13;j++){
+    const a=j*2.4,r=Math.sqrt(j/13),sprite=new T.Sprite(material);
+    sprite.position.set(x+w*r*Math.cos(a),y+d*r*Math.sin(a),z+.43*h*Math.cos(3*a));
+    sprite.scale.set(1.25*w,1.55*h,1);group.add(sprite);
+  }
+  const fog=new T.FogExp2(0xd8e3e8,.03);
+  const twilight=new T.Color(),dayColor=new T.Color(),nightColor=new T.Color();
+  return (travel,eye,storm,sky)=>{
+    group.position.set(9*Math.sin(travel.x/85),8*Math.sin(travel.y/85),0);
+    const elevation=sky.sunDir.value.z;
+    const day=T.MathUtils.smoothstep(elevation,-.12,.18);
+    const dusk=1-T.MathUtils.smoothstep(Math.abs(elevation),.03,.48);
+    light.value.copy(elevation>0?sky.sunDir.value:sky.moonDir.value);
+    nightColor.setRGB(.008,.015,.031).multiplyScalar(.65+.35*Math.max(0,sky.moonDir.value.z));
+    twilight.setRGB(.87,.49,.28);
+    dayColor.setRGB(.83,.89,.92).lerp(twilight,dusk);
+    material.color.copy(nightColor).lerp(dayColor,day).multiplyScalar(storm?.38:1);
+    if(storm)material.color.addScalar(.22*Math.max(0,sky.lightning.value.y));
+    fog.color.copy(material.color);
+    let density=0;
+    for(const [x,y,z,w,d,h] of banks){
+      const r=((eye.x-x-group.position.x)/w)**2+((eye.y-y-group.position.y)/d)**2+((eye.z-z)/h)**2;
+      density=Math.max(density,1-r);
+    }
+    fog.density=.085*density*(storm?1.4:1);
+    return density>0?fog:null;
+  };
 }

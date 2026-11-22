@@ -76,36 +76,12 @@ function oceanVisitors(T,scene){
  }
  const tailPath=new T.CatmullRomCurve3([[-.4,0,0],[-.92,0,-.03],[-1.48,.06,-.09],[-2.12,.15,-.11]].map(p=>new T.Vector3(...p)));
  ray.add(new T.Mesh(new T.TubeGeometry(tailPath,20,.024,8,false),dark));
- const swimmers=[];
- import('./vendor/gltf-loader.mjs').then(async ({GLTFLoader})=>{
-   const loader=new GLTFLoader();
-   await Promise.all([['shark',3.2,-10,-4,.095],['whale',9,-18,-7,.043]].map(async ([name,length,lane,depth,speed])=>{
-     const {scene:model,animations}=await loader.loadAsync('assets/'+name+'.glb');
-     const swimmer=new T.Group();swimmer.name=name;scene.add(swimmer);
-     model.rotation.x=Math.PI/2;swimmer.add(model);swimmer.updateMatrixWorld(true);
-     const bounds=new T.Box3().setFromObject(model,true);
-     const size=bounds.getSize(new T.Vector3());
-     const head=model.getObjectByName('Root').getWorldPosition(new T.Vector3());
-     const tail=model.getObjectByName('Tail_end').getWorldPosition(new T.Vector3());
-     const heading=Math.atan2(head.y-tail.y,head.x-tail.x);
-     const scale=length/Math.max(size.x,size.y);model.scale.setScalar(scale);
-     model.position.copy(bounds.getCenter(new T.Vector3())).multiplyScalar(-scale);
-     const mixer=new T.AnimationMixer(model);mixer.clipAction(animations[0]).play();
-     swimmers.push({swimmer,mixer,lane,depth,speed,heading});
-   }));
- }).catch(error=>console.error('Marine animal asset',error));
  let dolphin;
  fetch('assets/dolphin.json').then(r=>r.json()).then(asset=>{
    dolphin=new T.Mesh(fishGeometry(T,asset),new T.MeshStandardMaterial({vertexColors:true,roughness:.38,side:T.DoubleSide}));
    scene.add(dolphin);
  });
  return t=>{
-   for(const {swimmer,mixer,lane,depth,speed,heading} of swimmers){
-     const phase=t*speed;
-     swimmer.position.set(12*Math.sin(phase),lane+3*Math.cos(phase),depth+.4*Math.sin(phase*2));
-     swimmer.rotation.z=Math.atan2(-3*Math.sin(phase),12*Math.cos(phase))-heading;
-     mixer.setTime(t);
-   }
    const a=t*.075,b=t*.055;
    ray.position.set(1+9*Math.sin(a),-5.7+1.6*Math.cos(a),-8+.44*Math.sin(.22*t));
    ray.rotation.z=Math.atan2(-1.6*Math.sin(a),9*Math.cos(a));

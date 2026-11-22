@@ -47,12 +47,15 @@ mkdir -p "$library_root"
 ln -sfn "$root/Wreck" "$library_root/Wreck"
 roots=(--source-root "$root/.deps/msl" --source-root "$root/.deps/modelica_models" --source-root "$library_root")
 status=0
-for model in Sailboat Hobie16 Rdd2Survey HullWake WakeSpectrum BowWavePatch MarineWind Regatta Wreck.Plant Wreck.Navigation Wreck.SurveySLAM; do
+for model in CruiserImagingSonar Sailboat Hobie16 Rdd2Survey HerringGull FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray HarborTraffic HullWake WakeSpectrum BowWavePatch MarineWind Regatta Wreck.Plant Wreck.Navigation Wreck.SurveySLAM; do
   extra=()
   source=Wreck/package.mo
   if [[ $model == Hobie16 ]]; then source=viewer/board/Hobie16.mo; extra=(--source-root "$root/viewer/board/Shore.mo" --source-root "$root/viewer/board/Sailboat.mo" --source-root "$root/viewer/board/SailMembrane.mo"); fi
+  if [[ $model == HullWildlife ]]; then extra=(--source-root "$root/viewer/board/WildlifeContact.mo"); fi
+  if [[ $model == HarborTraffic ]]; then extra=(--source-root "$root/viewer/board/WildlifeContact.mo" --source-root "$root/viewer/board/WildlifeGuidance.mo" --source-root "$root/viewer/board/SwimmerSections.mo" --source-root "$root/viewer/board/GreatWhite.mo" --source-root "$root/viewer/board/Humpback.mo" --source-root "$root/viewer/board/Shore.mo"); fi
   if [[ $model == Regatta ]]; then extra=(--source-root "$root/viewer/board/BowWavePatch.mo"); fi
-  if [[ $model == BowWavePatch || $model == WakeSpectrum || $model == HullWake || $model == MarineWind || $model == Regatta || $model == Rdd2Survey ]]; then source="viewer/board/$model.mo"; fi
+  if [[ $model == HullWildlife || $model == HerringGull || $model == FeedingGround || $model == SwimmerWake || $model == SurfaceSpray || $model == WhaleSpray || $model == BowWavePatch || $model == WakeSpectrum || $model == HullWake || $model == MarineWind || $model == Regatta || $model == HarborTraffic || $model == Rdd2Survey ]]; then source="viewer/board/$model.mo"; fi
+  if [[ $model == CruiserImagingSonar ]]; then source=viewer/board/CruiserImagingSonar.mo; extra=(--source-root "$root/viewer/board/Shore.mo"); fi
   if [[ $model == Sailboat ]]; then source=viewer/board/Sailboat.mo; extra=(--source-root "$root/viewer/board/Shore.mo" --source-root "$root/viewer/board/SailMembrane.mo"); fi
   "$compiler" compile "$source" -m "$model" "${roots[@]}" "${extra[@]}" --target fmi3 -o "build/fmi3/$model" || status=1
 done

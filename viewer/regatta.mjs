@@ -1,3 +1,4 @@
+import {inboardMixer} from './inboard-audio.mjs';
 import {showInLowWaterCapture} from './render-layers.mjs';
 
 // Compass bearing clockwise from true north in the east/north world frame.
@@ -61,13 +62,17 @@ export function courseScene(T,scene,race){
   mesh(boat,new T.BoxGeometry(1.85,1.45,.08),white,0,0,2.32);
   mesh(boat,new T.BoxGeometry(.52,.48,.68),navy,-3.13,0,.58);
   rod(boat,[0,0,2.34],[0,0,4],.033,metal);
-  mesh(boat,new T.BoxGeometry(.96,.03,.73),orange,-.48,0,3.6);
   // Aft landing pad shares the height and extent of the Modelica deck.
   mesh(boat,new T.BoxGeometry(1.45,1.3,.012),navy,-1.98,0,.777);
   for(const y of [-.22,.22])mesh(boat,new T.BoxGeometry(.65,.065,.008),white,-1.98,y,.786);
   mesh(boat,new T.BoxGeometry(.065,.47,.008),white,-1.98,0,.786);
   batchScenery(T,boat);
   boat.children.forEach(showInLowWaterCapture);
+  // Keep the hoist attached to the mast while the free edge streams downwind.
+  const cloth=new T.PlaneGeometry(.98,.72,12,3),flagMaterial=mat(0xff671a);flagMaterial.side=T.DoubleSide;
+  const flag=mesh(boat,cloth,flagMaterial,0,0,3.60);flag.name='Committee wind flag';showInLowWaterCapture(flag);
+  const uv=cloth.attributes.uv,verticesFlag=cloth.attributes.position,localWind=new T.Vector2();
+  cloth.boundingSphere=new T.Sphere(new T.Vector3(),1.4);
   const canvas=document.createElement('canvas');canvas.width=512;canvas.height=168;
   const ctx=canvas.getContext('2d'),texture=new T.CanvasTexture(canvas);
   const boardMaterial=new T.MeshBasicMaterial({map:texture});
@@ -85,9 +90,20 @@ export function courseScene(T,scene,race){
   mark(race.get('pinEast'),race.get('pinNorth'));
   race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i]));
   let previous;
-  return label=>{
+  return (label,time=0,sampleWind)=>{
     const [heave,roll,pitch]=race.get('launchPose');
     boat.position.z=heave;boat.rotation.x=roll;boat.rotation.y=-pitch;
+    if(sampleWind){
+      sampleWind(boat.position.x,boat.position.y,localWind);
+      const speed=localWind.length(),tension=1-Math.exp(-speed/3);
+      flag.rotation.z=Math.atan2(localWind.y,localWind.x)-boat.rotation.z;
+      for(let i=0;i<uv.count;i++){
+        const u=uv.getX(i),v=uv.getY(i),phase=time*(4+.32*speed)-8*u+.75*v;
+        verticesFlag.setXYZ(i,u*(.10+.88*tension),.14*u*tension*(Math.sin(phase)+.30*Math.sin(1.7*phase)),
+          .72*(v-.5)-.61*(1-tension)*u+.04*u*tension*Math.cos(phase));
+      }
+      verticesFlag.needsUpdate=true;cloth.computeVertexNormals();
+    }
     const poses=race.get('markPose');
     const east=race.get('markEast'),north=race.get('markNorth');
     marks.forEach((mark,i)=>{
@@ -103,7 +119,7 @@ export function courseScene(T,scene,race){
   };
 }
 export function raceAudio(){
-  let audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
+  let engines,audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
   let submerged,surface,effects,level=.15;
   function setVolume(value){
     level=value;
@@ -125,6 +141,24 @@ export function raceAudio(){
         source.connect(destination);source.start();
       }).catch(error=>console.warn('Ambience unavailable',file,error));
   }
+  let hitBuffer,loadingHit=false;
+  async function loadHit(){
+    if(hitBuffer||loadingHit)return;
+    loadingHit=true;
+    try{
+      const response=await fetch(new URL('./assets/audio/hit.mp3',import.meta.url));
+      if(!response.ok)throw Error('Sonar audio HTTP '+response.status);
+      hitBuffer=await audio.decodeAudioData(await response.arrayBuffer());
+    }catch(error){console.warn('Sonar alert unavailable',error);}
+    finally{loadingHit=false;}
+  }
+  function imagingHit(distance,underwater){
+    if(!enabled||audio.state!=='running'||distance>32||!hitBuffer)return;
+    const source=audio.createBufferSource(),gain=audio.createGain();
+    source.buffer=hitBuffer;
+    gain.gain.value=(underwater?.20:.55)/(1+distance/5);
+    source.connect(gain).connect(effects);source.onended=()=>{source.disconnect();gain.disconnect();};source.start();
+  }
   async function setEnabled(on){
     if(!audio && !on)return;
     if(!audio){
@@ -142,7 +176,7 @@ export function raceAudio(){
       rainfall.connect(rainFilter).connect(rain).connect(weather).connect(effects);rainfall.start();
       blower.connect(filter).connect(wind).connect(effects);blower.start();
     }
-    if(on)await audio.resume();else await audio.suspend();
+    if(on){void loadHit();await audio.resume();}else await audio.suspend();
     enabled=audio.state==='running';return enabled;
   }
   function update(speed,storm,height,seaState){
@@ -175,5 +209,39 @@ export function raceAudio(){
     src.connect(low).connect(gain).connect(weather);src.onended=()=>{src.disconnect();low.disconnect();gain.disconnect();};
     src.start(t);src.stop(t+3.6);
   }
-  return {setEnabled,update,signal,thunder,setVolume};
+  function wildlife(kind,distance,pan,underwater,strength){
+    if(!enabled||audio.state!=='running'||distance>240)return;
+    if(kind==='gull'){
+      const t=audio.currentTime,stereo=audio.createStereoPanner();stereo.pan.value=pan;stereo.connect(effects);
+      for(const [i,delay] of [0,.24,.53].entries()){
+        const osc=audio.createOscillator(),gain=audio.createGain(),filter=audio.createBiquadFilter(),start=t+delay;
+        osc.type='sawtooth';osc.frequency.setValueAtTime(1120-i*75,start);
+        osc.frequency.exponentialRampToValueAtTime(1690-i*100,start+.045);osc.frequency.exponentialRampToValueAtTime(770,start+.20);
+        filter.type='lowpass';filter.frequency.value=underwater?720:3650;
+        gain.gain.setValueAtTime(.0001,start);gain.gain.exponentialRampToValueAtTime(Math.max(.001,.19*strength/(1+distance/22)),start+.024);
+        gain.gain.exponentialRampToValueAtTime(.0001,start+.21);
+        osc.connect(filter).connect(gain).connect(stereo);osc.onended=()=>{osc.disconnect();gain.disconnect();filter.disconnect();if(i===2)stereo.disconnect();};
+        osc.start(start);osc.stop(start+.22);
+      }
+      return;
+    }
+    const t=audio.currentTime,impact=kind==='impact',length=impact?2.35:1.05;
+    const src=audio.createBufferSource(),band=audio.createBiquadFilter(),gain=audio.createGain(),stereo=audio.createStereoPanner();
+    src.buffer=noise;src.loop=true;band.type=impact?'lowpass':'bandpass';
+    const cutoff=(impact?1600:2300)*(underwater?.32:1);
+    band.frequency.setValueAtTime(cutoff,t);band.frequency.exponentialRampToValueAtTime(cutoff*(impact?.16:.48),t+length);
+    band.Q.value=impact?.68:.86;stereo.pan.value=pan;
+    const peak=strength*(impact?1.65:.95)/(1+distance/18);
+    gain.gain.setValueAtTime(.0001,t);gain.gain.exponentialRampToValueAtTime(Math.max(.001,peak),t+(impact?.055:.09));
+    gain.gain.exponentialRampToValueAtTime(.0001,t+length);
+    src.connect(band).connect(gain).connect(stereo).connect(effects);
+    src.onended=()=>{for(const n of [src,band,gain,stereo])n.disconnect();};
+    src.start(t);src.stop(t+length);
+  }
+  function motorSound(local,peers,camera,underwater,running){
+    if(!enabled||(!engines&&!local&&!peers.length))return;
+    engines??=inboardMixer(audio,effects,noise);
+    engines(local,peers,camera,underwater,running);
+  }
+  return {setEnabled,update,signal,thunder,setVolume,wildlife,imagingHit,motorSound};
 }

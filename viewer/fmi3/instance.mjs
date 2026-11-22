@@ -20,10 +20,14 @@ export async function loadInstance(name,inputs,read=fetch){
   function result(offset, count) {
     return count===1 ? m.HEAPF64[offset] : Array.from(m.HEAPF64.subarray(offset,offset+count));
   }
-  function get(name) {
+  function get(name, destination) {
     const [reference,kind,count]=metadata.variables[name];
     check(kind==='Int64' ? m._read_integer(reference) : m._read_real(reference,count));
-    return result(m._buffer()/8,count);
+    const offset=m._buffer()/8;
+    if(destination===undefined)return result(offset,count);
+    if(destination.length!==count)throw Error('Wrong output dimensions for '+name);
+    destination.set(m.HEAPF64.subarray(offset,offset+count));
+    return destination;
   }
   function getMany(names) {
     if (!m._read_batch || names.length>128) return names.map(get);

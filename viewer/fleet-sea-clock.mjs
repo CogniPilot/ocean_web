@@ -16,7 +16,7 @@ export class FleetSeaClock {
     const rate=last?Math.max(0,Math.min(1.5,(phase-last.phase)*1000/(now-last.now))):0;
     this.peers.set(id,{joined,phase,now,rate});
   }
-  sample(local,now){
+  sample(local,now,roomHost){
     let leader=this.id,joined=this.joined;
     for(const [id,peer] of this.peers){
       if(now-peer.now>2000)continue;
@@ -24,6 +24,7 @@ export class FleetSeaClock {
         leader=id;joined=peer.joined;
       }
     }
+    if(roomHost&&(roomHost===this.id||this.peers.has(roomHost)))leader=roomHost;
     this.leader=leader;
     if(leader!==this.id){
       const peer=this.peers.get(leader);

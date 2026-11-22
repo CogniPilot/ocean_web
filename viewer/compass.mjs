@@ -1,6 +1,6 @@
 // Bearings on the dial are clockwise from true north. Model vectors are east/north.
-export function drawCompass(canvas,wind,bearing,current,heading,location,noGo,target){
-  if(location==='surface')return drawSailingDial(canvas,wind,bearing,current,heading,noGo,target);
+export function drawCompass(canvas,wind,bearing,current,heading,location,noGo,target,boatSpeed=0){
+  if(location==='surface')return drawSailingDial(canvas,wind,bearing,heading,noGo,target,boatSpeed);
   const ctx=canvas.getContext('2d'),windColor='#ffc46e',currentColor='#71dce4';
   const currentSpeed=Math.hypot(current[0],current[1]);
   const flow=Math.atan2(current[1],current[0]);
@@ -29,16 +29,16 @@ export function drawCompass(canvas,wind,bearing,current,heading,location,noGo,ta
 
 // Angles from the model are east-zero and counterclockwise. The sailing dial
 // is bow-up and clockwise, with zero at twelve o'clock.
-function drawSailingDial(canvas,wind,bearing,current,heading,noGo,target){
+function drawSailingDial(canvas,wind,bearing,heading,noGo,target,boatSpeed){
   const ctx=canvas.getContext('2d');
-  const centerX=67,centerY=66,r=54;
+  const centerX=51,centerY=48,r=39;
   const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
   const from=wrap(heading-bearing-Math.PI);
   const hasWind=wind>.01,inside=hasWind&&Math.abs(from)<=noGo;
   const compass=a=>String(((Math.round(90-a*180/Math.PI)%360)+360)%360).padStart(3,'0')+'°';
   const side=from<0?'port':'starboard';
   const angle=Math.round(Math.abs(from)*180/Math.PI);
-  const currentSpeed=Math.hypot(...current);
+  if(canvas.height!==192)canvas.height=192;
   ctx.setTransform(2,0,0,2,0,0);ctx.clearRect(0,0,274,132);
   ctx.save();ctx.translate(centerX,centerY);
   ctx.beginPath();ctx.arc(0,0,r,0,2*Math.PI);ctx.fillStyle='#112a34';ctx.fill();
@@ -57,7 +57,7 @@ function drawSailingDial(canvas,wind,bearing,current,heading,noGo,target){
   // True compass card rotates beneath a fixed bow index.
   const bowBearing=Math.PI/2-heading;
   ctx.textAlign='center';ctx.textBaseline='middle';
-  for(let i=0;i<72;i++){
+  for(let i=0;i<72;i+=2){
     const a=i*Math.PI/36-bowBearing,major=i%6===0;
     ctx.strokeStyle=major?'#d2e4e8':'#77949c';ctx.lineWidth=major?1.5:1;
     ctx.beginPath();ctx.moveTo((r-1)*Math.sin(a),-(r-1)*Math.cos(a));
@@ -76,19 +76,21 @@ function drawSailingDial(canvas,wind,bearing,current,heading,noGo,target){
   const targetColor='#ffade3';
   if(target){
     ctx.save();ctx.rotate(heading-target.angle);
-    ctx.beginPath();ctx.moveTo(0,-35);ctx.lineTo(5,-24);ctx.lineTo(0,-27);ctx.lineTo(-5,-24);ctx.closePath();
+    ctx.beginPath();ctx.moveTo(0,-31);ctx.lineTo(4,-21);ctx.lineTo(0,-23);ctx.lineTo(-4,-21);ctx.closePath();
     ctx.strokeStyle='#172831';ctx.lineWidth=2;ctx.stroke();ctx.fillStyle=targetColor;ctx.fill();ctx.restore();
   }
   ctx.restore();
-  function label(msg,y,color,size,bold=false){
-    ctx.font=(bold?'bold ':'')+size+'px system-ui,sans-serif';ctx.fillStyle=color;ctx.fillText(msg,141,y);
+  ctx.textAlign='left';
+  function text(msg,x,y,color,font){
+    ctx.fillStyle=color;ctx.font=font;ctx.fillText(msg,x,y);
   }
-  label('TRUE HEADING',12,'#c1d5da',10,true);
-  label(compass(heading)+'T',37,'#fff',26,true);
-  label(hasWind?(inside?'IN NO-GO ZONE':'TRUE WIND FROM'):'CALM',55,inside?'#ffae96':'#c1d5da',11,true);
-  label(hasWind?angle+'° '+(angle===0||angle===180?'':side):'—',72,'#fff',15,true);
-  label(wind.toFixed(1)+' m/s · No-go ±'+Math.round(noGo*180/Math.PI)+'°',89,'#ffbd97',11);
-  label('Set '+(currentSpeed>.005?compass(Math.atan2(current[1],current[0])):'—')+' · '+currentSpeed.toFixed(2)+' m/s',106,'#84d9df',11);
-  if(target)label(target.label+'  '+target.bearing,126,targetColor,13,true);
-  canvas.setAttribute('aria-label','Bow-up sailing dial. '+(hasWind?'True wind from '+angle+' degrees'+(angle===0||angle===180?'':' '+side)+'. '+(inside?'Inside':'Outside')+' the no-go sector.':'Calm.')+' Heading '+compass(heading)+'.'+(target?' '+target.label+' bearing '+target.bearing+'.':''));
+  const windKnots=(wind*1.94384449).toFixed(1)+' kn',boatKnots=(boatSpeed*1.94384449).toFixed(1)+' kn';
+  text('BOAT',103,14,'#c1d5da','bold 10px system-ui');
+  text('TRUE WIND',183,14,'#ffc46e','bold 10px system-ui');
+  text(boatKnots,103,37,'#fff','bold 19px system-ui');
+  text(windKnots,183,37,'#ffd091','bold 19px system-ui');
+  text(compass(heading)+'T',103,58,'#e2eff0','bold 13px monospace');
+  text(hasWind?angle+'° '+side:'Calm',183,58,inside?'#ffae96':'#ffc46e','12px system-ui');
+  if(target)text(target.label+'  '+target.bearing+'  '+Math.round(target.range)+' m',103,80,targetColor,'bold 11px system-ui');
+  canvas.setAttribute('aria-label','Heading '+compass(heading)+' true. Boat '+boatKnots+', true wind '+windKnots+' from '+angle+' degrees '+side+'.'+(target?' '+target.label+' bearing '+target.bearing+', '+Math.round(target.range)+' metres.':''));
 }

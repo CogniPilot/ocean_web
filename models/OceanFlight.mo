@@ -1,13 +1,14 @@
 model OceanFlight "RDD2 with marine weather, immersion and landing contact"
   extends OceanMission;
   input Real flightManual(start=1),flightPilot[4],motorCut;
+  input Real flightMode(start=0),racePilot(start=0);
   input Real station[2](start={-5,0});
   input Real peerDeck[14] "Active, catamaran flag, then ENU deck state";
-  Rdd2Survey drone(sailDeckEnabled=peerDeck[1],isCatamaran=peerDeck[2],sailDeckState=peerDeck[3:14],
+  Rdd2Survey drone(flightMode=flightMode,sailDeckEnabled=peerDeck[1],isCatamaran=peerDeck[2],sailDeckState=peerDeck[3:14],
     deckEnabled=1,deckState=race.deckState,windENU=wind.droneWind,currentENU=boatWater.velocity,
     waterLevel=boatWater.surface+waterOffset,pilot=flightManual,forward=flightPilot[1],
     left=flightPilot[2],climb=flightPilot[3],turn=flightPilot[4],
-    stationEast=station[1],stationNorth=station[2],motorCut=motorCut);
+    stationEast=if racePilot>.5 then race.pilotTarget[1] else station[1],stationNorth=if racePilot>.5 then race.pilotTarget[2] else station[2],motorCut=motorCut);
   Real waterOffset;
   discrete Real surfaceWake(start=0,fixed=true),priorWake(start=0,fixed=true);
 equation

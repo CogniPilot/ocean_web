@@ -1,3 +1,4 @@
+import {pilotSticks} from './keyboard-sticks.mjs';
 import {GLTFLoader} from './vendor/gltf-loader.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
 function loadAirframe(){
@@ -22,7 +23,7 @@ function assembleAirframe(T,model,mounts){
     const k=blades.findIndex(({hub})=>Math.sign(hub.x-center.x)===Math.sign(mounts[3*i])&&Math.sign(hub.y-center.y)===Math.sign(mounts[3*i+1]));
     if(k<0)throw Error('Drone propeller positions disagree with the RDD2 motor layout');
     const [{hub,mesh}]=blades.splice(k,1);
-    const pivot=new T.Group();pivot.position.copy(hub).sub(center).multiplyScalar(scale);
+    const pivot=new T.Group();pivot.name='RDD2 rotor '+i;pivot.position.copy(hub).sub(center).multiplyScalar(scale);
     group.add(pivot);pivot.attach(mesh);props.push(pivot);
   }
   return {group,props};
@@ -42,14 +43,18 @@ export async function surveyDrone(T,scene,world){
   scene.add(group);
   let active=false,manual=true;
   function input(axis,fast=false){
-    for(const [key,a,b] of [['forward','KeyW','KeyS'],['left','KeyA','KeyD'],['climb','KeyR','KeyF'],['turn','KeyQ','KeyE']])
-      flight.set(key,active&&manual?axis(a,b)*(fast && (key==='forward'||key==='left')?2:1):0);
+    const stick=pilotSticks(axis),gain=fast?2:1;
+    flight.set('forward',active&&manual?gain*stick.pitch:0);
+    flight.set('left',active&&manual?-gain*stick.roll:0);
+    flight.set('climb',active&&manual?stick.throttle:0);
+    flight.set('turn',active&&manual?stick.yaw:0);
   }
   function instruments(){
     const [[roll,pitch,yaw],gps,v]=flight.getMany(['attitude','gps','gpsVelocity']);
     return {roll,pitch,yaw,speed:Math.hypot(v[0],v[1]),level:gps[2],vertical:v[2]};
   }
-  return {group,instruments,get active(){return active;},get position(){return flight.get('position');},
+  return {group,instruments,get throttle(){return flight.get('throttle');},get rotorAngles(){return flight.get('rotorAngle');},
+    set flightMode(value){flight.set('flightMode',value);},get active(){return active;},get position(){return flight.get('position');},
     get drag(){return flight.get('dragBody');},
     get manual(){return manual;},set manual(value){manual=value;flight.set('pilot',Number(value));input(()=>0);},
     select(value){active=value;input(()=>0);},

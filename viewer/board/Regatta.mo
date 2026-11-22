@@ -176,6 +176,16 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
     elevation:=elevationAt(total,point[1]-drift[1],point[2]-drift[2],period)
       -blend^2*(3-2*blend)*elevationAt(hull,point[1]-drift[1],point[2]-drift[2],period);
   end localWaveElevation;
+  function roundingApproach "Approach/departure targets and current coordinates in the mark gate frame"
+    input Real position[2],mark[2],incoming[2],outgoing[2];
+    output Real approach[2],departure[2],gatePosition[2];
+  protected Real away[2],tangent[2],relative[2];
+  algorithm
+    away:=2*mark-incoming-outgoing;away:=away/max(.01,sqrt(away*away));
+    tangent:={-away[2],away[1]};relative:=position-mark;
+    approach:=mark+10*away-9*tangent;departure:=mark+10*away+9*tangent;
+    gatePosition:={relative*away,relative*tangent};
+  end roundingApproach;
   function passedToPort "Cross the outside angle bisector counterclockwise"
     input Real previous[2],position[2],mark[2],incoming[2],outgoing[2],limit;
     output Boolean crossedGate;
@@ -206,7 +216,10 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
       BowWavePatch.potentialHead(relative*pose[3:4],relative*{-pose[4],pose[3]},velocity,sources) else 0;
   end nearHullElevation;
   output Real countdown;
+  output Real pilotTarget[2] "Approach, round to port, and cross the finish";
   discrete output Integer stage(start=0,fixed=true) "0 prestart, 1 start open, 2/3 marks, 4 finish, 5 finished";
+  discrete Boolean roundingReady(start=false,fixed=true);
+  Real markApproach[2],markDeparture[2],markPosition[2];
   discrete output Real elapsed(start=0,fixed=true);
   discrete output Real lapTime(start=0,fixed=true) "Time from the boat crossing the start until it crosses the finish";
   discrete Real crossed(start=0,fixed=true);
@@ -287,6 +300,13 @@ equation
   markNorth=markOffset[2:3,2]+{gateNorth+legLength*upN,gateNorth+legLength*(upN/2-sqrt(3.0)*rightN/2)};
   along=(east-gateEast)*upE+(north-gateNorth)*upN;
   across=(east-gateEast)*rightE+(north-gateNorth)*rightN;
+  (markApproach,markDeparture,markPosition)=roundingApproach({east,north},
+    if stage==2 then {markEast[1],markNorth[1]} else {markEast[2],markNorth[2]},
+    if stage==2 then {gateEast,gateNorth} else {markEast[1],markNorth[1]},
+    if stage==2 then {markEast[2],markNorth[2]} else {gateEast,gateNorth});
+  pilotTarget=if stage==2 or stage==3 then (if roundingReady then markDeparture else markApproach)
+    else {gateEast,gateNorth}+{upE,upN}*(if stage==1 and (along<=0 or along<2 and abs(across)<lineLength*.4) then 14
+      elseif stage==4 and along<0 and abs(across)>lineLength*.4 then 15 else -14);
   countdown=300-mod(utc,300);
   when sample(0,.05) then
     boundary=floor(utc/300)*300;
@@ -302,6 +322,12 @@ equation
           elseif pre(stage)==3 and passedToPort(pre(lastPosition),{east,north},{markEast[2],markNorth[2]},
             {markEast[1],markNorth[1]},{gateEast,gateNorth},zone) then 4
           elseif pre(stage)==4 and finishCross then 5 else pre(stage);
+    // Keep the departure target through the crossing. A miss outside the
+    // scored segment sends the pilot back to the approach side for another try.
+    roundingReady=if stage<>pre(stage) or (stage<>2 and stage<>3) then false
+      elseif markPosition[2]<-2 and markPosition[1]>3 and markPosition[1]<zone-2 then true
+      elseif markPosition[2]>1 and (markPosition[1]<.70 or markPosition[1]>zone) then false
+      else pre(roundingReady);
     started=if boundary>pre(heat) and (pre(stage)<=1 or pre(stage)==5) then boundary else pre(started);
     elapsed=if stage>=2 and pre(stage)<>5 then utc-started elseif stage==5 then pre(elapsed) else 0;
     crossed=if stage==2 and pre(stage)<>2 then utc else pre(crossed);

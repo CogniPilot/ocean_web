@@ -1,11 +1,11 @@
 // Pack static solids sharing a material into one draw call. Sensors retain individual boxes.
-function batchScenery(T,group){
+function batchScenery(T,group,attributes=[]){
  const byMaterial=new Map();
  for(const part of [...group.children]){
    if(!part.isMesh)continue;
    part.updateMatrix();
    let batch=byMaterial.get(part.material);
-   if(!batch){batch={position:[],normal:[],color:[]};byMaterial.set(part.material,batch);}
+   if(!batch){batch={position:[],normal:[],color:[]};for(const name of attributes)batch[name]=[];byMaterial.set(part.material,batch);}
    const geom=part.geometry.index?part.geometry.toNonIndexed():part.geometry.clone();
    geom.applyMatrix4(part.matrix);
    for(const key of Object.keys(batch)){
@@ -50,18 +50,21 @@ function seabedMaterials(T,illumination){
  }
  return {iron:textured('.18,.25,.24','metal'),deck:textured('.20,.23,.19','metal'),rib:textured('.26,.28,.23','metal'),wood:textured('.35,.20,.085','wood'),sand:textured('','sand'),dark:new T.MeshStandardMaterial({color:0x172927})};
 }
-function marineLife(T,scene,webgl2){
+function marineLife(T,scene,webgl2,schoolState){
  const fish=new T.Group();scene.add(fish);
  const visitors=oceanVisitors(T,scene);
- const count=34,pose=new T.Object3D(),swimPhase={value:0};
+ const count=36,pose=new T.Object3D(),swimPhase={value:0};
  let school,swimmers=[],schoolTime=0;
  function updateSchool(t){
-   swimPhase.value=t*6%8;
+   const shared=schoolState?.();
+   fish.visible=!!shared;
+   if(!shared)return;
+   swimPhase.value=shared.time*6%8;
    for(let i=0;i<(school?count:swimmers.length);i++){
-     const f=school?pose:swimmers[i],a=t*.11+i*.17;
-     f.scale.setScalar(.68+.4*Math.abs(Math.sin(i)));
-     f.position.set(-1+4*Math.sin(a)+.8*Math.sin(i*11),-3.8+1.9*Math.cos(a)+.67*Math.cos(i*2),-9.4+.8*Math.sin(i*3.2)+.18*Math.sin(t*.9+i));
-     f.rotation.z=Math.atan2(-1.9*Math.sin(a),4*Math.cos(a))+.07*Math.sin(t*6+i);
+     const f=school?pose:swimmers[i],k=i*4,visible=shared.restock[i]<=shared.time;
+     f.scale.setScalar(visible?.68+.4*Math.abs(Math.sin(i)):0);
+     f.position.fromArray(shared.positions,k);
+     f.rotation.z=shared.positions[k+3];
      if(school){
        f.updateMatrix();school.setMatrixAt(i,f.matrix);
      }else{
@@ -92,8 +95,8 @@ function marineLife(T,scene,webgl2){
      school.morphTargetInfluences=new Array(geo.morphAttributes.position.length).fill(0);
      school.instanceMatrix.setUsage(T.DynamicDrawUsage);
      // Bounds cover all swim paths and the length of a fish, even between pose updates.
-     school.boundingSphere=new T.Sphere(new T.Vector3(-1,-3.8,-9.4),6);
-     fish.add(school);
+     school.boundingSphere=new T.Sphere(new T.Vector3(11,-20,-5),23);
+     school.name='Survey fish school';fish.add(school);
    }else{
      for(let i=0;i<count;i++)fish.add(new T.Mesh(geo,mat));
      swimmers=fish.children;
@@ -176,15 +179,33 @@ function coast(T,scene,instanceRocks=true){
  }
  if(instanceRocks)rocks.computeBoundingSphere();
  const bark=new T.MeshStandardMaterial({color:0x71634a}),leaf=new T.MeshStandardMaterial({color:0x4e7349,side:T.DoubleSide});
+ const palms=[],palmTime={value:0},palmWind={value:Array.from({length:9},()=>new T.Vector2())};
+ function bendPalm(shader){
+   shader.uniforms.palmTime=palmTime;shader.uniforms.palmWind=palmWind;
+   shader.vertexShader='attribute vec3 palmBend; uniform float palmTime; uniform vec2 palmWind[9];\n'+shader.vertexShader.replace('#include <begin_vertex>',
+     `#include <begin_vertex>
+      vec2 wind=palmWind[int(palmBend.x)];float speed=length(wind);
+      vec2 direction=wind/max(.001,speed),across=vec2(-direction.y,direction.x);
+      float bend=(1.-exp(-speed/11.))*palmBend.y*palmBend.y;
+      float phase=.89*palmTime+palmBend.x*2.;
+      transformed.xy+=bend*(direction*(.64+.14*sin(phase))+.08*across*cos(phase));
+      transformed.z+=bend*palmBend.z*.24*sin(2.6*palmTime+3.*palmBend.z+palmBend.x);`);
+ }
+ bark.onBeforeCompile=bendPalm;leaf.onBeforeCompile=bendPalm;
  for(let i=0;i<9;i++){
    const x=(random()-.5)*18,y=(random()-.5)*12,z=terrain(x,y),h=2.9+random()*2.4;
-   const trunk=new T.Mesh(new T.CylinderGeometry(.10,.20,h,8),bark);trunk.rotation.x=Math.PI/2+.13;trunk.position.set(x,y,z+h/2);land.add(trunk);
+   palms.push([center[0]+x,center[1]+y]);
+   const trunk=new T.Mesh(new T.CylinderGeometry(.10,.20,h,8),bark);trunk.rotation.x=Math.PI/2+.13;trunk.position.set(x,y-.065*h,z+h/2);
+   const local=trunk.geometry.attributes.position,weights=[];
+   for(let k=0;k<local.count;k++)weights.push(i,Math.max(0,Math.min(1,.5+local.getY(k)/h)),0);
+   trunk.geometry.setAttribute('palmBend',new T.Float32BufferAttribute(weights,3));land.add(trunk);
    for(let j=0;j<8;j++){
-     const a=j*.785+random()*.3,vertices=[],indices=[];
+     const a=j*.785+random()*.3,vertices=[],indices=[],weights=[];
      for(let b=0;b<=10;b++){const u=b/10,l=2.3*u,w=.29*Math.sin(Math.PI*u)*(b%2?.65:1);
        for(const side of [-1,1])vertices.push(x+l*Math.cos(a)-side*w*Math.sin(a),y-.13*h+l*Math.sin(a)+side*w*Math.cos(a),z+h+.7*Math.sin(Math.PI*u)-u*u);
+       weights.push(i,1,u,i,1,u);
        if(b)indices.push(2*b-2,2*b-1,2*b,2*b,2*b-1,2*b+1);}
-     const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(vertices,3));g.setIndex(indices);g.computeVertexNormals();land.add(new T.Mesh(g,leaf));}
+     const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(vertices,3));g.setAttribute('palmBend',new T.Float32BufferAttribute(weights,3));g.setIndex(indices);g.computeVertexNormals();land.add(new T.Mesh(g,leaf));}
  }
  const blades=[],indices=[];
  for(let i=0;i<200;i++){
@@ -195,5 +216,10 @@ function coast(T,scene,instanceRocks=true){
  }
  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(blades,3));g.setIndex(indices);g.computeVertexNormals();
  scene.add(new T.Mesh(g,new T.MeshStandardMaterial({color:0x42624c,side:T.DoubleSide})));
- batchScenery(T,land);land.add(rocks);return land;
+ batchScenery(T,land,['palmBend']);land.add(rocks);
+ land.userData.updatePalms=(time,sampleWind)=>{
+   palmTime.value=time;
+   palms.forEach(([x,y],i)=>sampleWind(x,y,palmWind.value[i]));
+ };
+ return land;
 }

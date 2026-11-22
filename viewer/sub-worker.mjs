@@ -6,13 +6,15 @@ const ready=Promise.all([
   loadInstance('Wreck_Plant',{manual:1,windSpeed:11,windDirection:.45}),
   loadInstance('Wreck_Navigation',{idleCamera:1,useSonar:0})
 ]);
+let previousGyro=[0,0,0];
 let tick=0, estimate, image, features, ping, dvl, sentImage;
 let mapRows, mappedKeys=-1, closures=-1;
 const blankImage=new Float64Array(864);
 function acquire(plant,nav,active){
   nav.set('stamp',tick*.01);
-  const [position,orientation,velocity,yawRate,pressure,accel,rates]=plant.getMany(
-    ['position','orientation','velocity','yawRate','pressure','specificForce','rates']);
+  const [position,orientation,velocity,yawRate,pressure,accel,gyro]=plant.getMany(
+    ['position','orientation','velocity','yawRate','pressure','specificForce','gyroAngle']);
+  const rates=gyro.map((value,i)=>(value-previousGyro[i])/.2);previousGyro=gyro;
   nav.set('truth',[...position,...orientation,...velocity,yawRate,pressure,...accel,...rates]);
   const names=active?['sensor','elev','estimate','image','features','keyframes','ping']:['sensor','elev','estimate'];
   const [sensor,ranges,pose,pixels,corners,history,echoes]=nav.getMany(names);
@@ -46,8 +48,8 @@ self.onmessage=async({data})=>{
     self.postMessage({waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,
       thrust:survey.slice(3,10),buoyancy:survey.slice(10,13),contact:survey.slice(13,16),mapRows,
       time:tick*.01,position,q,rpm,cavitation,flow,
-      ...(previousEstimate!==estimate?{estimate}:{}),
-      ...(data.showSensorImage && sentImage!==image?{image,features,ping,dvl}:{})},mapRows?[mapRows.buffer]:[]);
+      ...(previousEstimate!==estimate?{estimate,dvl}:{}),
+      ...(data.showSensorImage && sentImage!==image?{image,features,ping}:{})},mapRows?[mapRows.buffer]:[]);
     sentImage=data.showSensorImage?image:undefined;
     mapRows=undefined;
   }catch(error){self.postMessage({error:error.message});}

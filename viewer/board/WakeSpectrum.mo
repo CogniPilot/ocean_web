@@ -164,9 +164,9 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     Integer mx,my,strip,oppositeRow,opposite[n];
     Real km,peak,windSpeed,directional,seed,trial;
     Real sr,si,mr,mi,stripR,stripI,momentArm,crossTerm,forceScale;
-    Real cx[12,n],sx[12,n],cy[12,n],sy[12,n],ka,kb,length,width,draft,weight;
+    Real cx[12,n],sx[12,n],cy[12,n],sy[12,n],ka,kb,weight;
     Real peerR[n,n],peerI[n,n];
-    Real armAlong[12],armAcross[12];
+    Real armAlong[12],armAcross[12],stripLength[12],stripWidth[12],stripDraft[12];
     Real re[n,n],im[n,n],packedR[n,n],packedI[n,n],unused[n,n];
   algorithm
     if active then
@@ -178,7 +178,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     dx:=L/n;probe:=zeros(3);load:=zeros(3);forceScale:=1025*9.80665*dx^2/n^2;
     // Fourier transform of six immersed strips on each hull. Separable phase
     // tables preserve the exact subcell locations and avoid a forward FFT.
-    armAlong:=zeros(12);armAcross:=zeros(12);
+    armAlong:=zeros(12);armAcross:=zeros(12);stripLength:=zeros(12);stripWidth:=zeros(12);stripDraft:=zeros(12);
     cx:=zeros(12,n);sx:=zeros(12,n);cy:=zeros(12,n);sy:=zeros(12,n);
     if active and localHull then
       for hull in 1:2 loop
@@ -188,6 +188,9 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
           along:=.5*(xs[panel]+xs[panel+1])*cos(pitch)+(3-2*hull)*sep*sin(heel)*sin(pitch);
           across:=(3-2*hull)*sep*cos(heel);
           armAlong[strip]:=along;armAcross[strip]:=across;
+          stripLength[strip]:=max(.001,xs[panel+1]-xs[panel]);
+          stripWidth[strip]:=max(.001,beams[panel]+beams[panel+1]);
+          stripDraft[strip]:=vol[hull,panel]/(stripLength[strip]*stripWidth[strip]);
           ex:=x+along*cos(bearing)-across*sin(bearing);
           ny:=y+along*sin(bearing)+across*cos(bearing);
           for i in 1:n loop
@@ -210,17 +213,15 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
         sr:=0;si:=0;mr:=0;mi:=0;
         omega:=sqrt(9.80665*k*tanh(k*h));
         if active then
-          if localHull then
+          // A Nyquist component has no signed direction on this even grid.
+          if localHull and abs(mx)<div(n,2) and abs(my)<div(n,2) then
             ka:=kx*cos(bearing)+ky*sin(bearing);kb:=-kx*sin(bearing)+ky*cos(bearing);
             for hull in 1:2 loop
               for panel in 1:6 loop
                 strip:=(hull-1)*6+panel;
-                length:=max(.001,xs[panel+1]-xs[panel]);
-                width:=max(.001,beams[panel]+beams[panel+1]);
-                draft:=vol[hull,panel]/(length*width);
                 // Match each strip's volume and rectangular second moments.
                 // Submerged sources radiate less energy at short wavelengths.
-                weight:=vol[hull,panel]/dx^2*exp(-.5*k*draft-((ka*length)^2+(kb*width)^2)/24);
+                weight:=vol[hull,panel]/dx^2*exp(-.5*k*stripDraft[strip]-((ka*stripLength[strip])^2+(kb*stripWidth[strip])^2)/24);
                 stripR:=weight*(cx[strip,i]*cy[strip,j]-sx[strip,i]*sy[strip,j]);
                 stripI:=-weight*(sx[strip,i]*cy[strip,j]+cx[strip,i]*sy[strip,j]);
                 sr:=sr+stripR;si:=si+stripI;
@@ -228,11 +229,6 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
                 mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
               end for;
             end for;
-            // The signed wavevector is ambiguous on a Nyquist row or column.
-            // Omit it so a symmetric tow cannot acquire a spurious lateral load.
-            if abs(mx)==div(n,2) or abs(my)==div(n,2) then
-              sr:=0;si:=0;mr:=0;mi:=0;
-            end if;
           end if;
           sourceR[i]:=sr;sourceI[i]:=si;
           c:=cos(omega*dt);s:=sin(omega*dt);
@@ -254,7 +250,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
         end if;
         // Directional gravity-wave spectrum. Independent reproducible phase and
         // Rayleigh amplitude per travelling mode break up parallel crest lines.
-        if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then
+        if abs(mx)<div(n,2) and abs(my)<div(n,2) and kx*ue+ky*un>0 then
           km:=k/peak;
           directional:=max(0,(kx*ue+ky*un)/(k*max(.01,windSpeed)));
           seed:=mod(sin(mx*127.1+my*311.7)*43758.5453,1);

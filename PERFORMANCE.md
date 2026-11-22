@@ -1,5 +1,22 @@
 # Ocean simulator performance
 
+## Desktop simulation headroom
+
+In an offline vehicle, open **Settings** and choose **Test simulation headroom (15 s)**. The test advances the current scene as quickly as both the vehicle worker and the authoritative wildlife worker can run, then restores normal pacing. The result uses the slower clock. The regular frame-rate test keeps normal pacing. Changing quality, pausing or hiding the tab interrupts the measurement.
+
+The requested desktop targets are 20× on Low, 10× on Medium and 5× on High. With 10 ms physics steps, these correspond to average wall-time budgets of 0.5, 1 and 2 ms per advance. Field updates, readbacks and other work due at lower frequencies also count. A run at 60 FPS can still miss all three targets.
+
+A 1024 × 650 Chromium run used hardware Vulkan rendering on the workstation’s RTX 3090 and Ryzen 9 5950X, at device scale 1. The sea was set to Swell. Both the whale and shark were active. Values below are measured simulated seconds per wall second. Each row used consecutive Low, Medium and High samples, so these runs sampled different points along the trajectories. Other builds were running on the workstation.
+
+| Scene | Low | Medium | High |
+| --- | ---: | ---: | ---: |
+| Hobie, prior to the final shore/hull/sea builds | 1.25× | 1.12× | 1.11× |
+| Cruiser, twelve-strip hydrostatics and optimized incident sea | 4.97× | 3.10× | 3.06× |
+
+Both scenes rendered at approximately 59–60 FPS in these runs. These are workstation results. Sustained physical-phone throughput, input latency and thermal behavior still need device tests.
+
+An isolated paired wildlife test compared 16,500 outputs in open water, at the island, and near the seabed. Conservative flat-bottom bounds preserved those values exactly and increased open-water throughput from 19.88× to 21.67×. Four hundred 12,288-element swimmer wake field readbacks took 225–263 ms when converted to new JavaScript arrays and 8–10 ms when copied into reusable typed storage. The checked wet field was bit-identical. Neither isolated measurement includes the complete vehicle, harbor and rendering workload.
+
 ## Published integrated Hobie scene
 
 On November 20, 2026, the deployed world manifest selected `OceanWorld.fmu.f2e68b8f094c95b1.json`. Measurements used an AMD Ryzen 9 5950X development workstation under shared load. The browser run used Chromium with a 393 × 852 CSS pixel touch viewport, device scale factor 2 and SwiftShader software rendering. These figures establish where time goes on this build. Physical Android and iPhone measurements are still needed.

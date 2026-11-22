@@ -45,10 +45,17 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
   output Real dragBody[3]=aircraft.aerodynamicDrag;
   parameter Real origin[2]={-5,0} "Survey launch coordinates ENU";
   input Real pilot,forward,left,climb,turn,stationEast,stationNorth;
+  input Real flightMode(start=0) "Manual modes: 0 position hold, 1 auto level, 2 acro";
+  Boolean positionHold,acro;
+  parameter Real maxBodyRate=4.2,maxYawRate=2.2 "Manual rate limits [rad/s]";
+  final parameter Real maxThrust=4*aircraft.thrustCoefficient_N_s2*aircraft.omegaMax^2;
+  final parameter Real hoverFraction=aircraft.vehicleMass_kg*9.80665/maxThrust;
+  Real throttle(start=hoverFraction,fixed=true) "Manual collective fraction; R/F adjust and release retains";
+  Real gyroQ[4](start={1,0,0,0},each fixed=true),rotation[3,3],bodyRate[3];
   output Real position[3],quaternion[4],rotorSpeed[4];
   output Real rotorAngle[4](each start=0,each fixed=true);
   Real target[3](start={-5,0,5},each fixed=true),yawTarget(start=0,fixed=true);
-  Real attitude[3](each start=0,each fixed=true);
+  Real attitude[3];
   discrete Real gps[3](start={-5,0,5},each fixed=true),gpsVelocity[3](each start=0,each fixed=true);
   parameter Real holdIntegralGain=.36 "Position-loop integral gain [1/s3]";
   parameter Real maxIntegralAcceleration=6 "Bound on sustained disturbance rejection [m/s2]";
@@ -73,17 +80,22 @@ equation
     gpsVelocity=aircraft.truth.velocityWorldEnu_m_s;
   end when;
   // Ideal 10 Hz GNSS plus body-rate gyro integration, initialized on a level pad.
-  der(attitude[1])=aircraft.imu.angularVelocityBodyFlu_rad_s[1]+tan(attitude[2])*(sin(attitude[1])*aircraft.imu.angularVelocityBodyFlu_rad_s[2]+cos(attitude[1])*aircraft.imu.angularVelocityBodyFlu_rad_s[3]);
-  der(attitude[2])=cos(attitude[1])*aircraft.imu.angularVelocityBodyFlu_rad_s[2]-sin(attitude[1])*aircraft.imu.angularVelocityBodyFlu_rad_s[3];
-  der(attitude[3])=(sin(attitude[1])*aircraft.imu.angularVelocityBodyFlu_rad_s[2]+cos(attitude[1])*aircraft.imu.angularVelocityBodyFlu_rad_s[3])/cos(attitude[2]);
-  der(yawTarget)=if pilot>.5 then turn else 0;
+  bodyRate=aircraft.imu.angularVelocityBodyFlu_rad_s;
+  der(gyroQ)=LieGroups.SO3.Quat.kinematics(gyroQ,bodyRate);
+  rotation=LieGroups.SO3.Quat.to_DCM(gyroQ);
+  attitude={atan2(rotation[3,2],rotation[3,3]),atan2(-rotation[3,1],sqrt(rotation[1,1]^2+rotation[2,1]^2)),atan2(rotation[2,1],rotation[1,1])};
+  positionHold=pilot<=.5 or flightMode<.5;
+  acro=pilot>.5 and flightMode>1.5;
+  der(yawTarget)=if not positionHold then 12*atan2(sin(attitude[3]-yawTarget),cos(attitude[3]-yawTarget)) elseif pilot>.5 then turn else 0;
+  der(throttle)=if positionHold then 8*(max(0,min(1,collective/maxThrust))-throttle)
+    elseif (throttle>=1 and climb>0) or (throttle<=0 and climb<0) then 0 else .45*climb;
   desired=if pilot>.5 then {2*(forward*cos(yawTarget)-left*sin(yawTarget)),2*(forward*sin(yawTarget)+left*cos(yawTarget)),climb}
     else {max(-2,min(2,stationEast-target[1])),max(-2,min(2,stationNorth-target[2])),max(-1,min(1,5-target[3]))};
-  der(target[1:2])=desired[1:2];
+  der(target[1:2])=if positionHold then desired[1:2] else gpsVelocity[1:2]+10*(gps[1:2]-target[1:2]);
   minimumTargetHeight=if deckEnabled>.5 and (position[1]-deckState[1])^2+(position[2]-deckState[2])^2<16 then deckState[3]+.35 elseif sailDeckEnabled>.5 and (position[1]-sailDeckState[1])^2+(position[2]-sailDeckState[2])^2<9 then sailDeckState[3]-.15 else 1;
-  der(target[3])=max(desired[3],-4*max(0,target[3]-minimumTargetHeight));
+  der(target[3])=if not positionHold then gpsVelocity[3]+10*(gps[3]-target[3]) else max(desired[3],-4*max(0,target[3]-minimumTargetHeight));
   for i in 1:3 loop
-    der(integralAcceleration[i])=if motorCut>.5 or immersed>.5 then -integralAcceleration[i]
+    der(integralAcceleration[i])=if not positionHold or motorCut>.5 or immersed>.5 then -integralAcceleration[i]
       elseif (integralAcceleration[i]>=maxIntegralAcceleration and target[i]>gps[i]) or
              (integralAcceleration[i]<=-maxIntegralAcceleration and target[i]<gps[i]) then 0
       else holdIntegralGain*(target[i]-gps[i]);
@@ -92,11 +104,13 @@ equation
   forwardAcceleration=cos(attitude[3])*acceleration[1]+sin(attitude[3])*acceleration[2];
   leftAcceleration=-sin(attitude[3])*acceleration[1]+cos(attitude[3])*acceleration[2];
   upAcceleration=max(1,9.80665+acceleration[3]);
-  pitchTarget=max(-tiltLimit,min(tiltLimit,atan2(forwardAcceleration,upAcceleration)));
-  rollTarget=max(-tiltLimit,min(tiltLimit,atan2(-leftAcceleration,sqrt(forwardAcceleration^2+upAcceleration^2))));
-  collective=aircraft.vehicleMass_kg*(9.80665+acceleration[3])/max(.5,cos(attitude[1])*cos(attitude[2]));
-  torque={.86*(rollTarget-attitude[1]),.86*(pitchTarget-attitude[2]),.42*atan2(sin(yawTarget-attitude[3]),cos(yawTarget-attitude[3]))}-
-    {.23*aircraft.imu.angularVelocityBodyFlu_rad_s[1],.23*aircraft.imu.angularVelocityBodyFlu_rad_s[2],.18*aircraft.imu.angularVelocityBodyFlu_rad_s[3]};
+  pitchTarget=if not positionHold then tiltLimit*max(-1,min(1,forward)) else max(-tiltLimit,min(tiltLimit,atan2(forwardAcceleration,upAcceleration)));
+  rollTarget=if not positionHold then -tiltLimit*max(-1,min(1,left)) else max(-tiltLimit,min(tiltLimit,atan2(-leftAcceleration,sqrt(forwardAcceleration^2+upAcceleration^2))));
+  collective=if not positionHold then maxThrust*max(0,min(1,throttle)) else aircraft.vehicleMass_kg*(9.80665+acceleration[3])/max(.5,cos(attitude[1])*cos(attitude[2]));
+  torque={if acro then -.23*maxBodyRate*max(-1,min(1,left)) else .86*atan2(sin(rollTarget-attitude[1]),cos(rollTarget-attitude[1])),
+    if acro then .23*maxBodyRate*max(-1,min(1,forward)) else .86*(pitchTarget-attitude[2]),
+    if positionHold then .42*atan2(sin(yawTarget-attitude[3]),cos(yawTarget-attitude[3])) else .18*maxYawRate*turn}
+    -{.23*bodyRate[1],.23*bodyRate[2],.18*bodyRate[3]};
   for k in 1:4 loop
     // The RDD2 effectiveness matrix has orthogonal rows. Use its actual motor order.
     motorThrust[k]=collective/4+sum(aircraft.rotorEffectiveness[j+1,k]*torque[j]/

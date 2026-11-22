@@ -2,6 +2,84 @@
 
 A checked item records the specific result described. Open items include partially implemented requests and identify the remaining check.
 
+## Current simulator requests · 2026-11-21
+
+### Performance priority
+
+- [ ] Reach sustained simulation headroom of 20× on Low, 10× on Medium and 5× on High on the desktop. Measure the complete offline scene with vehicle and wildlife running. Keep separate measurements for frame rate and physical phones.
+- [x] Add a 15-second offline headroom test to Settings. It reports the slower of the vehicle and harbor clocks, the selected tier target, frame rate and 95th-percentile frame time. Ordinary play still runs at normal speed.
+
+### Latest playtests
+
+- [x] Match Piccard WASD and arrow keys to two mobile joysticks and preserve its Q/E and R/F aliases. Joining the shark or whale releases Piccard input and hides its sensor window; returning to the sub restores it. Verified in desktop and emulated mobile Chromium.
+- [x] Default audio off on each new session and silence previously enabled background tabs. Added cruiser engine and propeller sound tied to signed shaft speed and load.
+- [x] Shade clouds from scene illumination at night. Show Piccard-style grain and underwater light scatter in hull camera feeds, with bow, stern, port and starboard mounts.
+- [x] Reduce fast great-white body motion. In the straight-swim test, anterior bend falls below 0.009° at 3.56 m/s while the tail swings about ±22°. The skinned primary dorsal stays on the torso.
+- [x] Rebuild the great white’s rostrum, resting gape, shorter mandible, dental arcades, gum pads and recessed mouth lining from front, side and three-quarter references. Swim, partial bite and full bite use the same model.
+- [x] Let the race pilot gain sternway before reversing rudders on a stalled Hobie tack. Recovered from both signs in the compiled plant.
+- [x] Resolve shark buoyancy and pitch moment along the body. The nose submerged in 1.43 s from an 85° nose-up release, and all three deliberate breaches reentered.
+- [x] Steer the automatic whale around the island and sound ahead before diving. In three 100 s approaches the minimum skin clearance was 2.75–3.28 m. Starting inside the turn radius produced a 1.1 cm glancing contact and the whale swam clear.
+- [x] Profile the Firefox simulator and the shoreline freeze with Linux perf. Evaluate whale contact on a 200 Hz physics clock and run wildlife in a dedicated worker. The second simulated second of an overlapping boulder release fell from 44.3 s to 65 ms in the same test.
+- [x] Use the single Rumoca SIL stick convention for all seven controllable roles. Verified signed inputs from keyboard and touch, including drone Acro and Piccard.
+- [x] Verify the full 600 m Hobie race in the site’s default north wind through both mark roundings and finish. The shipping Regatta Wasm scored a 598.0 s lap.
+
+- [x] Sharpen the gull’s upper bill and taper the lower bill into a shorter, separate tip. Checked the new profile in flight in Chromium.
+- [x] Keep the cruiser throttle where the skipper leaves it. Verified W/S, touch release and restoring the lever after reloading the tab.
+- [x] Separate the room’s storm switch from time of day. Rain, clouds and lighting were exercised with both Day and Moonlit.
+- [x] Use the cruiser’s 3D sonar as its only sonar instrument, including at the helm. Large contacts repeat the supplied hit.mp3 faster at short range. A 9.2 m return repeated every 1.68 s and a 23.2 m return every 2.87 s. Two clients verified six consecutive shared alerts, silence on the seabed and muted listeners.
+- [x] Add a separate cruiser 3D imaging sonar panel. A compiled 36 m scan and browser pick resolved range, bearing and elevation. Night alerts can use the same scanner when its display is closed.
+- [x] Verify the X-controlled downward floods and overlapping warm glow around the hull, deck occlusion of the independent Z searchlight and shared radar rotation. Twelve strip samples drive the cruiser’s heave, roll and pitch. In moderate waves at rest, beam seas produced 10.47° peak-to-peak roll and head seas produced 12.87° pitch.
+
+### Water interaction and performance
+
+- [x] Hobie and humpback water spray share a Modelica discharge law based on relative impact velocity and wet area. The renderer draws ballistic, velocity-aligned drops.
+- [x] Wet fluke trailing-edge sockets shed a finite film as the tail emerges. Dry-start emitters carry no film. Exercised runoff and detached spray in a manual breach.
+- [x] Replace round breach particles with an asymmetric impact curtain, falling spray and submerged bubble wash. The spout begins at the blowholes and widens into drifting mist. A full browser breach exercised all four effects.
+- [x] Interpolate the near-field water patch and transport its bound ridge with the dorsal fin. The measured positional jitter fell from 18.0 to 2.75 cm RMS.
+- [x] Wildlife wakes feed both hull dynamics. A nearby whale impact produced 12 cm heave and 1.11° roll on the Hobie, 5 cm and 0.91° on the cruiser.
+- [ ] Wildlife patch updates fell from 86.8 to 4.38 ms (whale) and 149.8 to 4.80 ms (shark) in the ten-source test. GPU/readback was prototyped separately. Profile the drone runtime independently.
+- [x] Correct split-waterline clear color and height-sampler precision. Seven angular jumps disappeared in a frozen Balanced comparison. Distant refraction filtering retained 93% of the submerged shark contrast and reduced the largest pixel jump from 35.9 to 13.9 levels.
+
+### Whale and shark
+
+- [ ] Check normal whale surfacing against the sequence supplied by the user. Show the blowholes and a spreading mist plume, the arched back, then the lifted flukes with most of the animal submerged.
+- [ ] Review the animated humpback at the waterline and from below. Check long scalloped pectorals, ventral throat pleats and broad notched flukes with a dark upper face and mottled white panels with black borders underneath.
+- [ ] Validate breach mechanics. Measure tail thrust, muscle power, approach depth and speed, water exit angle, height, roll, re-entry and recovery. Compare against animal observations. Keep the trajectory force-driven.
+- [x] Whale pectoral controls, deterministic direct-actuator headless environment and opposite-roll recovery check. Opposite fin commands produced approximately ±39.5° of bank.
+- [x] Use unilateral terrain contact on whale and shark skin points. Compiled flat-bottom, powered-shore and beached tests pass. A dry shark tail produces zero water thrust.
+- [ ] Verify whale and shark contact stops both sailboats and powered motorboats. Exercise glancing hits, different depths, player-controlled and NPC animals, and multiplayer.
+- [ ] Validate both Modelica animal plants, guidance, wake and foam against observations and keep Three.js focused on visualization. Record approximations and calibration evidence before describing either plant as research-grade.
+- [ ] Review the adult great white at the requested scale and from the supplied front and side views. Check the continuous jaw opening around the snout, tooth placement, five gill slits, countershading without a black stripe and fins-only exposure at the surface.
+- [x] Exercise separate whale and shark cameras in two local browser clients watching shared NPCs. Manually pilot a whale and trigger the breach cycle from its controls.
+- [ ] Verify both animals patrol, investigate boats or subs, follow alongside at a safe distance, and return to patrol. Include the host’s Hobie, another player’s sub and an occupied route.
+- [x] Exercise manual whale and shark swim, dive, surface and NPC control in the compiled runtime. Keyboard and mobile joystick routes passed on both animals.
+- [x] Shared feeding works in a controlled two-browser encounter. A whale caught five and a shark one. Both clients saw all six fish disappear and return while retaining scores. Compiled sonar range, azimuth, elevation and field-of-view tests passed.
+
+### Multiplayer, birds and harbor
+
+- [x] Profile and optimize the cruiser and wildlife runtime. Identical RTX 3090 cruiser runs before and after the terrain optimization measured 17.5 and 49.7 FPS, at 0.923× and 1.012× real time. Four camera feeds and lights ran at 54.1 FPS in a separate sample.
+- [x] Build an express-cruiser hull, swept windshield, hardtop, cockpit, helm and swim platform. Local and remote boats share the mesh. Bow and propeller wake were exercised underway.
+
+- [ ] Reproduce same-room invisibility after refresh across independent devices. Test named rooms, reconnect and late join. The editable room field should default to regatta and copied links should preserve it.
+- [ ] Verify first-arrival host election, poor-ping fallback and transfer when the host leaves. Only the host can change wind and weather or advance wildlife. Guests should see the host’s NPCs, including later spawns, the sailing Hobie and its wildlife-following drone.
+- [ ] Whale blow, impact and gull calls use shared events. Verified two-client gull cries and no replay after host transfer or reconnect. Verify end-to-end audio on separate physical devices.
+- [ ] Compiled gull model exercises powered flight and gliding with continuous state. Flight speed and frequency are compared with published measurements. Both gull and drone crossed the cloud layer. Further species-specific calibration is needed for research use.
+- [x] Animate the race committee flag and island palms with local wind and gusts.
+- [x] Make the inboard cabin cruiser selectable and run it under power in Chromium. The underwater bow camera switched below the waterline while underway.
+- [x] Verify one aimable rooftop searchlight (Z), the under-hull lighting circuit (X), four independent underwater cameras and the fish finder. Every camera showed stronger illumination at night when its lights were switched on. Peer lighting state and visibility were tested.
+
+### Helm, instruments and racing
+
+- [x] Show rendered mast sensor images in the sailing UI. Verified four lenses and populated 512 × 512 camera and 1024 × 512 panorama captures.
+- [x] Show boat force arrows in the hull frame and the submarine DVL beams and returns in orbit.
+- [ ] Match RDD2 keyboard sticks to the Rumoca interactive demo. Check tap versus sustained hold, return to neutral, throttle and arming. Check comparable progressive response on the Hobie tiller and submarine.
+- [x] Complete all 17 submarine survey stations. The shipped standalone sub passed a headless run with minimum 2.73 cm guard-to-wreck clearance.
+- [ ] Test realistic crew transfer. Auto ballast should settle gently in steady sailing and cross quickly during a tack. Upwind automatic traveler should keep the boom near center on both tacks.
+- [x] Show the compact sailing compass, true wind, boat speed and waypoint information by default; group less frequent controls in Settings.
+- [x] Exercise drone race autopilot on the triangle. A headless run completed all gates and posted a 289.85 s lap.
+- [ ] Verify player sailboat race autopilot from start to scored finish, including tacks on the upwind leg, and verify course and lap display in both sailboat and drone browsers.
+- [x] Package the current local preview and verify the simulation clock advances in Chromium.
+
 ## Single-FMU architecture
 
 - [ ] Export one Rumoca FMI 3 LS-WASM component that owns the vehicle plants, actuators, electrical systems, ocean, all sensors, estimation, control, contact, race state and simulation clocks.

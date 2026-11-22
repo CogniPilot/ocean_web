@@ -154,8 +154,105 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     z:=3.6-4.2*((x/17)^2+(y/11)^2)+.34*sin(x*.64)*cos(y*.55)+.37*cos(.34*x-.51*y);
   end terrain;
 
+  function seabed "Upper surface of the sand mesh and surrounding level bottom"
+    input Real east,north;
+    output Real height;
+  protected
+    Real x,y,h,t,u,v;
+    constant Real dx=58/74,dy=46/62;
+  algorithm
+    x:=east-36;y:=north-40;height:=-13.7;
+    if abs(x)<=29 and abs(y)<=23 then
+      h:=-29+dx*floor((x+29)/dx);t:=-23+dy*floor((y+23)/dy);
+      u:=(x-h)/dx;v:=(y-t)/dy;
+      height:=max(height,if u+v<=1 then (1-u-v)*terrain(h,t)+u*terrain(h+dx,t)+v*terrain(h,t+dy)
+        else (u+v-1)*terrain(h+dx,t+dy)+(1-v)*terrain(h+dx,t)+(1-u)*terrain(h,t+dy));
+    end if;
+  end seabed;
+  // Pass the mesh tables once so each indexed lookup uses the same immutable data.
+  function rockSurface "Deepest boulder surface inside the broad-phase bounds"
+    input Real pos[3],sand[4],boulders[46,13],facets[80,4];
+    output Real surface[4] "Normal and signed clearance";
+  protected
+    Real delta[3],gradient[3],local[3],inv[3,3],bestNormal[3],normal[3],distance,highest,clearance;
+    Integer facet;
+  algorithm
+    normal:=sand[1:3];clearance:=sand[4];
+    for rock in 1:46 loop
+      delta:=pos-boulders[rock,1:3];
+      if delta*delta<boulders[rock,4]^2 then
+        inv:=[boulders[rock,5],boulders[rock,6],boulders[rock,7];
+          boulders[rock,8],boulders[rock,9],boulders[rock,10];
+          boulders[rock,11],boulders[rock,12],boulders[rock,13]];
+        local:=inv*delta;highest:=-1e6;bestNormal:={0,0,1};facet:=1;
+        while facet<=80 and highest<min(0,clearance) loop
+          gradient:=transpose(inv)*facets[facet,1:3];
+          distance:=(facets[facet,1:3]*local-facets[facet,4])/sqrt(gradient*gradient);
+          if distance>highest then highest:=distance;bestNormal:=gradient/sqrt(gradient*gradient);end if;
+          facet:=facet+1;
+        end while;
+        if highest<min(0,clearance) then clearance:=highest;normal:=bestNormal;end if;
+      end if;
+    end for;
+    surface:={normal[1],normal[2],normal[3],clearance};
+  end rockSurface;
+  function aboveFlatBottom "Conservative sphere clear of both the island mesh and the level seabed"
+    input Real east,north,z,radius;
+    output Boolean clear;
+  algorithm
+    clear:=z-radius> -13.7 and (abs(east-36)>29+radius or abs(north-40)>23+radius);
+  end aboveFlatBottom;
+  function skinContact "Compressive terrain force on one swimmer skin point, in level heading axes"
+    input Real pos[3],cy,sy,velocity[3],damping;
+    output Real contact[5] "Force XYZ, normal load, signed clearance";
+  protected
+    constant Real dx=58/74,dy=46/62;
+    Real surface[4],normal[3],n[3],slip[3],force[3],east,north,h,t,u,v,height,clearance,load,support,normalSpeed;
+  algorithm
+    east:=pos[1]-36;north:=pos[2]-40;height:=-13.7;normal:={0,0,1};
+    if abs(east)<=29 and abs(north)<=23 then
+      h:=-29+dx*floor((east+29)/dx);t:=-23+dy*floor((north+23)/dy);
+      u:=(east-h)/dx;v:=(north-t)/dy;
+      if u+v<=1 then
+        height:=terrain(h,t);
+        normal:={-(terrain(h+dx,t)-height)/dx,-(terrain(h,t+dy)-height)/dy,1};
+        height:=height-normal[1]*(east-h)-normal[2]*(north-t);
+      else
+        height:=terrain(h+dx,t+dy);
+        normal:={-(height-terrain(h,t+dy))/dx,-(height-terrain(h+dx,t))/dy,1};
+        height:=height-normal[1]*(east-h-dx)-normal[2]*(north-t-dy);
+      end if;
+      if height< -13.7 then height:=-13.7;normal:={0,0,1};end if;
+    end if;
+    normal:=normal/sqrt(normal*normal);clearance:=(pos[3]-height)*normal[3];
+    if abs(east)<22 and abs(north)<15 and abs(pos[3])<6 then
+      surface:=rockSurface(pos,{normal[1],normal[2],normal[3],clearance},rocks,planes);
+      normal:=surface[1:3];clearance:=surface[4];
+    end if;
+    force:=zeros(3);load:=0;
+    if clearance<0 then
+      n:={cy*normal[1]+sy*normal[2],-sy*normal[1]+cy*normal[2],normal[3]};
+      normalSpeed:=velocity*n;slip:=velocity-normalSpeed*n;
+      // Cap the overlap correction speed to dissipate an impact, including a deeply overlapping reset.
+      support:=damping*min(5,-28*clearance);
+      load:=max(0,support-damping*min(1,-clearance/.015)*normalSpeed-max(0,support/.55-damping)*max(0,normalSpeed));
+      force:=load*(n-.48*slip/sqrt(.2^2+slip*slip));
+    end if;
+    contact:={force[1],force[2],force[3],load,clearance};
+  end skinContact;
   function contact
     input Real pos[3],heading,rotation[3,3],velocity[3],spin[3],xs[7],widths[7],spacing;
+    output Real wrench[6] "Force and moment in the level heading frame";
+  algorithm
+    if abs(pos[1]-36)>31 or abs(pos[2]-40)>26 then
+      wrench:=zeros(6);
+    else
+      wrench:=islandContact(pos,heading,rotation,velocity,spin,xs,widths,spacing,rocks,planes);
+    end if;
+  end contact;
+  function islandContact "Sand and boulder contact within the island bounds"
+    input Real pos[3],heading,rotation[3,3],velocity[3],spin[3],xs[7],widths[7],spacing;
+    input Real boulders[46,13],facets[80,4];
     output Real wrench[6] "Force and moment in the level heading frame";
   protected
     Real arm[3],p[3],normal[3],delta[3],n[3],v[3],slip[3],force[3],localPoint[3];
@@ -165,7 +262,6 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     Real ch,sh,profile[3],inv[3,3],q[3],gradient[3],magnitude;
   algorithm
     wrench:=zeros(6);
-    if abs(pos[1]-36)>31 or abs(pos[2]-40)>26 then return; end if;
     ch:=cos(heading);sh:=sin(heading);
     // A rotation preserves distance from the hull origin. Screen rocks
     // once for the whole vessel before testing the unchanged hull samples.
@@ -174,8 +270,8 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
       +max(max(abs(pontoon[:,3:4])),.19*(.48+1.55*maxBeam))^2);
     nearby:=fill(0,46);count:=0;
     for rock in 1:46 loop
-      delta:=pos-rocks[rock,1:3];
-      if delta*delta<(reach+rocks[rock,4])^2 then
+      delta:=pos-boulders[rock,1:3];
+      if delta*delta<(reach+boulders[rock,4])^2 then
         count:=count+1;
         nearby[count]:=rock;
       end if;
@@ -207,15 +303,15 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
           penetration:=(z-p[3])/sqrt(normal*normal);normal:=normal/sqrt(normal*normal);
           for candidate in 1:count loop
             r:=nearby[candidate];
-            delta:=p-rocks[r,1:3];
-            if delta*delta<rocks[r,4]^2 then
-              inv:=[rocks[r,5],rocks[r,6],rocks[r,7];rocks[r,8],rocks[r,9],rocks[r,10];rocks[r,11],rocks[r,12],rocks[r,13]];
+            delta:=p-boulders[r,1:3];
+            if delta*delta<boulders[r,4]^2 then
+              inv:=[boulders[r,5],boulders[r,6],boulders[r,7];boulders[r,8],boulders[r,9],boulders[r,10];boulders[r,11],boulders[r,12],boulders[r,13]];
               q:=inv*delta;highest:=-1e6;n:={0,0,1};
               f:=1;
               // One separating plane rules out a stronger contact at this point.
               while f<=80 and highest < -max(0,penetration) loop
-                gradient:=transpose(inv)*planes[f,1:3];magnitude:=sqrt(gradient*gradient);
-                d:=(planes[f,1:3]*q-planes[f,4])/magnitude;
+                gradient:=transpose(inv)*facets[f,1:3];magnitude:=sqrt(gradient*gradient);
+                d:=(facets[f,1:3]*q-facets[f,4])/magnitude;
                 if d>highest then highest:=d;n:=gradient/magnitude;end if;
                 f:=f+1;
               end while;
@@ -233,5 +329,5 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
         end for;
       end for;
     end for;
-  end contact;
+  end islandContact;
 end Shore;

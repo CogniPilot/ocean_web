@@ -38,3 +38,5 @@ https://opengameart.org/content/underwater-or-space-engine-rumble
 
 Calm surface ambience adapted from RandomMind’s Vistula wave recording, CC0 1.0.
 https://opengameart.org/content/sea-and-river-wave-sounds
+
+Imaging sonar alert (hit.mp3) supplied by the project user. No license was provided.

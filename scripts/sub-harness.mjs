@@ -6,12 +6,13 @@ export async function subHarness(){
   const [plant,nav]=await Promise.all([
     loadInstance('Wreck_Plant',{windSpeed:11,windDirection:.45},read),loadInstance('Wreck_Navigation',{},read)
   ]);
-  let tick=0;
+  let tick=0,lastGyro=[0,0,0];
   function sample(){
     const pos=plant.get('position'),q=plant.get('orientation');
     nav.set('stamp',tick/100);
+    const gyro=plant.get('gyroAngle'),rates=gyro.map((value,i)=>(value-lastGyro[i])/.2);lastGyro=gyro;
     nav.set('truth',[...pos,...q,...plant.get('velocity'),plant.get('yawRate'),plant.get('pressure'),
-      ...plant.get('specificForce'),...plant.get('rates')]);
+      ...plant.get('specificForce'),...rates]);
     const [sensor,elev,image,estimate,features,history]=nav.getMany([
       'sensor','elev','image','estimate','features','keyframes'
     ]);

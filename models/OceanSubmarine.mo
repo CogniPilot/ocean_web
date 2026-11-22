@@ -5,6 +5,7 @@ model OceanSubmarine "Submarine with onboard navigation and a shared sea"
   Wreck.Plant sub(seaClockOffset=seaClockOffset,seaState=seaState,windSpeed=windSpeed,windDirection=windBearing,
     sensor=sensor,elevationRanges=elev,manual=subManual,pilot=subPilot,
     hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:8]);
+  discrete Real previousGyro[3](each start=0,each fixed=true);
   final parameter Real beams[1017,3]=Wreck.Perception.directions();
   discrete output Real sensor[91](each start=0,each fixed=true),elev[100](each start=0,each fixed=true),
     image[864](each start=0,each fixed=true),estimate[21](each start=0,each fixed=true),
@@ -28,8 +29,9 @@ equation
     priorWake=if initial() then sampledWake else pre(sampledWake);
   end when;
   when sample(0,.2) then
+    previousGyro=sub.gyroAngle;
     (sensor,elev,image,estimate,keyframes,features,ping)=Wreck.Perception.sampleFrame(time,
-      cat(1,sub.position,sub.orientation,sub.velocity,{sub.yawRate,sub.pressure},sub.specificForce,sub.rates),
+      cat(1,sub.position,sub.orientation,sub.velocity,{sub.yawRate,sub.pressure},sub.specificForce,(sub.gyroAngle-pre(previousGyro))/.2),
       beams,zeros(1017),0,pre(image),pre(estimate),pre(keyframes),idleCamera<surveyAtStartup-.5,
       idleCamera<surveyAtStartup-.5,idleCamera<surveyAtStartup-.5 or subManual<.5);
   end when;

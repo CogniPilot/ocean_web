@@ -60,3 +60,28 @@ for(let k=0;k<20000;k++){
 const horizontalRms=Math.sqrt(horizontalSquared/samples),altitudeRms=Math.sqrt(altitudeSquared/samples);
 console.log({horizontalRms,altitudeRms});
 assert(horizontalRms<1 && altitudeRms<.25,'Aircraft lost its moving station in crosswind');
+
+// The same pitch input commands a bank-limited attitude or a sustained body
+// rate. Keep the aircraft clear of the surface throughout the inverted pass.
+for(const mode of [1,2]){
+  const aircraft=await loadInstance('Rdd2Survey',{pilot:1,flightMode:mode,waterLevel:-50},async u=>new Response(await readFile(u)));
+  const advance=steps=>{for(let i=0;i<steps;i++)aircraft.advance(.005);};
+  aircraft.set('climb',.6);advance(80);aircraft.set('climb',0);
+  const throttle=aircraft.get('throttle');
+  aircraft.set('forward',1);
+  let inverted=false;
+  for(let i=0;i<300;i++){
+    advance(1);
+    const [,x,y]=aircraft.get('quaternion');
+    inverted ||= 1-2*(x*x+y*y)<-.8;
+  }
+  assert.equal(inverted,mode===2);
+  if(mode===1)assert(Math.abs(aircraft.get('attitude')[1]-.72)<.02);
+  aircraft.set('forward',0);advance(160);
+  if(mode===1)assert(Math.abs(aircraft.get('attitude')[1])<.02);
+  else assert(Math.abs(aircraft.get('bodyRate')[1])<.15);
+  assert(Math.abs(aircraft.get('throttle')-throttle)<1e-6);
+  aircraft.set('flightMode',0);advance(200);
+  assert(aircraft.get('position').every(Number.isFinite));
+}
+console.log('Auto level recovered, acro rotated through inverted, throttle held and position hold re-engaged.');

@@ -15,14 +15,15 @@ case ${1:-OceanWorld} in
   OceanSloop) modelName=OceanSloop; defaultOut=build/ocean-sloop ;;
   OceanSubmarine) modelName=OceanSubmarine; defaultOut=build/ocean-submarine ;;
   OceanFlight) modelName=OceanFlight; defaultOut=build/ocean-flight ;;
-  *) echo "Expected OceanWorld, OceanSailing, OceanSloop, OceanSubmarine or OceanFlight" >&2; exit 2 ;;
+  OceanMotorboat) modelName=OceanMotorboat; defaultOut=build/ocean-motorboat ;;
+  *) echo "Expected OceanWorld, OceanSailing, OceanSloop, OceanSubmarine, OceanFlight or OceanMotorboat" >&2; exit 2 ;;
 esac
 roots=(--source-root "$lib" --source-root models/OceanRace.mo)
 case $modelName in
   OceanSloop) roots+=(--source-root models/OceanSailing.mo) ;;
-  OceanSubmarine|OceanFlight) roots+=(--source-root models/OceanMission.mo) ;;
+  OceanSubmarine|OceanFlight|OceanMotorboat) roots+=(--source-root models/OceanMission.mo) ;;
 esac
-for model in Shore Sailboat SailMembrane MarineWind WakeSpectrum BowWavePatch Regatta Rdd2Survey; do
+for model in WildlifeContact Shore Sailboat SailMembrane MarineWind WakeSpectrum BowWavePatch Regatta Rdd2Survey; do
   roots+=(--source-root "viewer/board/$model.mo")
 done
 # The coupled FMI kernel holds event snapshots and sensor tensor temporaries

@@ -12,11 +12,13 @@ export function wreckCaustics(T,renderer,water,mobile){
       void main(){
         launch=position.xy;
         float d=.35;
-        vec2 grad=vec2(heightAt(launch+vec2(d,0.))-heightAt(launch-vec2(d,0.)),
-                       heightAt(launch+vec2(0.,d))-heightAt(launch-vec2(0.,d)))/(2.*d);
+        vec4 animal=wildlifeWave(launch);
+        vec2 grad=vec2(backgroundHeightAt(launch+vec2(d,0.))-backgroundHeightAt(launch-vec2(d,0.)),
+                       backgroundHeightAt(launch+vec2(0.,d))-backgroundHeightAt(launch-vec2(0.,d)))/(2.*d);
+        grad+=animal.zw;
         grad+=rippleSlope(launch,tm,vec2(cos(bearing),sin(bearing)),wind);
         vec3 ray=refract(-sunDir,normalize(vec3(-grad,1.)),1./1.333);
-        landing=launch+ray.xy*((-13.7-heightAt(launch))/min(ray.z,-.05));
+        landing=launch+ray.xy*((-13.7-backgroundHeightAt(launch)-animal.x)/min(ray.z,-.05));
         gl_Position=vec4((landing-vec2(16.,0.))/32.,0.,1.);
       }`,
     fragmentShader:`varying vec2 launch,landing;
@@ -36,7 +38,25 @@ export function wreckCaustics(T,renderer,water,mobile){
   const u={wreckFlux:{value:flux.texture},wreckDepth:{value:shadow.depthTexture},
     wreckProjection:{value:new T.Matrix4()},waterRay:{value:new T.Vector3()},sunStrength:{value:0}};
   let last=-Infinity;
-  return {uniforms:u,occluders:shadowScene,setWreck(group){shadowScene.add(group.clone(true));},update(t,enabled=true){
+  function lightSkin(material,tide){
+    material.onBeforeCompile=shader=>{
+      Object.assign(shader.uniforms,{wreckFlux:u.wreckFlux,waterRay:u.waterRay,sunStrength:u.sunStrength,seaLevel:tide});
+      shader.vertexShader='varying vec3 skinWorld;\n'+shader.vertexShader.replace(
+        '#include <worldpos_vertex>','#include <worldpos_vertex>\nskinWorld=(modelMatrix*vec4(transformed,1.)).xyz;');
+      shader.fragmentShader='varying vec3 skinWorld;uniform sampler2D wreckFlux;uniform vec3 waterRay;uniform float sunStrength,seaLevel;\n'+
+        shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+        float depthWater=max(0.,seaLevel-skinWorld.z);
+        float immerse=smoothstep(.02,.32,depthWater);
+        diffuseColor.rgb*=exp(-min(depthWater,12.)*vec3(.10,.037,.018));
+        vec2 causticUV=(skinWorld.xy+waterRay.xy*((-13.7-skinWorld.z)/min(-.05,waterRay.z))-vec2(16.,0.))/64.+.5;
+        vec2 margin=min(causticUV,1.-causticUV);
+        float coverage=smoothstep(0.,.08,min(margin.x,margin.y));
+        float flux=clamp(texture2D(wreckFlux,clamp(causticUV,0.,1.)).r/.13-.90,-.55,2.3);
+        diffuseColor.rgb*=1.+coverage*immerse*sunStrength*flux*vec3(.30,.46,.50);`);
+    };
+    material.customProgramCacheKey=()=>'submerged-skin-flux';
+  }
+  return {uniforms:u,lightSkin,occluders:shadowScene,setWreck(group){shadowScene.add(group.clone(true));},update(t,enabled=true){
     if(!enabled){u.sunStrength.value=0;return;}
     const sun=water.U.sunDir.value;
     u.sunStrength.value=Math.max(0,sun.z)*(1-.8*water.U.storm.value);
