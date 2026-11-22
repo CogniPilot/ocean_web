@@ -23,8 +23,9 @@
    return whale+mix(animalWave(p-a*shift,sharkPatchPrevious),animalWave(p+(1.-a)*shift,sharkPatch),a);
  }
  uniform vec2 spectrumDrift;
- uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable,hullSpectrumOnly,bowFineAvailable,bowFineSpacing;
+ uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable,hullSpectrumOnly,bowFineAvailable,bowFineSpacing,bowFoamAvailable;
  uniform vec4 bowFineBounds;
+ const vec2 bowAtlasSize=vec2(64.,128.);
  vec2 spectralUV(vec2 p){return (p-spectrumDrift)/spectrumPeriod+vec2(.5/64.);}
  float elevationSample(highp sampler2D map,vec2 uv){
    vec4 pair=texture2D(map,uv);
@@ -66,11 +67,20 @@
    float fine=0.;
    if(blendFine>0.){
      vec2 index=(local-bowFineBounds.xy)/bowFineSpacing;
-     fine=elevationSample(bowMap,(index+vec2(36.5,1.5))/64.);
+     fine=elevationSample(bowMap,(index+vec2(36.5,1.5))/bowAtlasSize);
      if(blendFine>=1.)return fine;
    }
-   float coarse=elevationSample(bowMap,(mod(local*4.,32.)+vec2(1.5))/64.);
+   float coarse=elevationSample(bowMap,(mod(local*4.,32.)+vec2(1.5))/bowAtlasSize);
    return mix(coarse,fine,blendFine);
+ }
+ float bowFoamCoverage(vec2 p){
+   if(bowFoamAvailable<.5||!nearBowField(p,4.))return 0.;
+   vec2 local=bowLocal(p);
+   float edge=bowFineWeight(local);
+   if(edge<=0.)return 0.;
+   vec2 index=(local-bowFineBounds.xy)/bowFineSpacing;
+   vec2 foam=texture2D(bowMap,(index+vec2(1.5,40.5))/bowAtlasSize).rg;
+   return edge*mix(foam.x,foam.y,spectrumBlend);
  }
  vec2 sampledHeightsAt(vec2 p){
   vec4 data=texture2D(tile,p/64.+vec2(.5/32.));
@@ -409,13 +419,14 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  U.incidentMap={value:incidentTexture};U.wakeAvailable={value:0};U.hullSpectrumOnly={value:0};
  const {x:fineX,y:fineY,columns:fineColumns,rows:fineRows,spacing:fineStep}=fineBowGrid;
  const bowBytes=new Uint8Array(32*32*4),fineBowBytes=new Uint8Array(fineColumns*fineRows*4);
- const bowAtlas=new Uint8Array(64*64*4),bowTexture=new THREE.DataTexture(bowAtlas,64,64);
+ const bowAtlas=new Uint8Array(64*128*4),bowTexture=new THREE.DataTexture(bowAtlas,64,128);
  bowTexture.minFilter=bowTexture.magFilter=THREE.LinearFilter;
  U.bowMap={value:bowTexture};U.bowAvailable={value:0};U.bowFineAvailable={value:0};
+ U.bowFoamAvailable={value:0};
  U.bowFineSpacing={value:fineStep};
  U.bowFineBounds={value:new THREE.Vector4(fineX,fineY,fineX+(fineColumns-1)*fineStep,fineY+(fineRows-1)*fineStep)};
  let spray;
- function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=U.bowFineAvailable.value=0;trails.clear();}
+ function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=U.bowFineAvailable.value=U.bowFoamAvailable.value=0;trails.clear();}
  function displayedHeight(data,k,blend){
    const old=(data[k]<<8)+data[k+1],latest=(data[k+2]<<8)+data[k+3];
    return Math.round(old+blend*(latest-old));
@@ -440,7 +451,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
      data[k]=old>>8;data[k+1]=old&255;data[k+2]=packed>>8;data[k+3]=packed&255;
    }
  }
- function updateFullSpectrum(heights,x,y,period,bow,fineBow){
+ function updateFullSpectrum(heights,x,y,period,bow,fineBow,foam){
    if(bow){
      encodeSpectrum(bowBytes,bow,U.bowAvailable.value);
      // Both grids use one sampler. The extra coarse row and column preserve its periodic seam.
@@ -457,6 +468,14 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
        }
        U.bowFineAvailable.value=1;
      }else U.bowFineAvailable.value=0;
+     if(foam?.length===fineColumns*fineRows){
+       for(let row=0;row<fineRows;row++)for(let col=0;col<fineColumns;col++){
+         const k=((row+40)*64+col+1)*4,next=foam[row*fineColumns+col];
+         bowAtlas[k]=U.bowFoamAvailable.value?Math.round(THREE.MathUtils.lerp(bowAtlas[k],bowAtlas[k+1],U.spectrumBlend.value)):next;
+         bowAtlas[k+1]=next;
+       }
+       U.bowFoamAvailable.value=1;
+     }else U.bowFoamAvailable.value=0;
      bowTexture.needsUpdate=true;U.bowAvailable.value=1;
    }
    encodeSpectrum(spectrumBytes,heights,U.spectrumPeriod.value);
@@ -465,9 +484,9 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  }
  // Integrated worlds get their incident sea from boatWater.tile. Their 64²
  // spectrum contains only local and shared hull radiation.
- function updateHullSpectrum(heights,x,y,period,bow,fineBow){
+ function updateHullSpectrum(heights,x,y,period,bow,fineBow,foam){
    U.hullSpectrumOnly.value=U.wakeAvailable.value=1;
-   updateFullSpectrum(heights,x,y,period,bow,fineBow);
+   updateFullSpectrum(heights,x,y,period,bow,fineBow,foam);
  }
  function updateSpectrum(heights,x,y,period,wake,bow){
    U.hullSpectrumOnly.value=0;
@@ -730,6 +749,8 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
      float densityCutoff=clamp(1.-8.*windCoverage,.36,1.);
      float breaking=smoothstep(.085,.32,windCrest)*smoothstep(.045,.17,gravitySlope);
      float foam=breaking*smoothstep(densityCutoff-.08,densityCutoff+.06,scum);
+     float bowFoam=bowFoamCoverage(wp.xy);
+     if(bowFoam>0.)foam=max(foam,bowFoam*(.32+.68*smoothstep(.16,.72,noise2(wp.xy*23.+.8*tm))));
      if(swimmer.y>0.)foam=max(foam,min(1.,swimmer.y)*(.40+.60*smoothstep(.22,.75,noise2(wp.xy*12.+.28*tm))));
      float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
      foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum)*smoothstep(.01,.16,abs(windCrest)));
@@ -766,11 +787,12 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  scene.add(water);
 
  const trails=hullFoam(scene,U,cruiserHullGLSL,cruiserSurface),bowSprayArea=new Float64Array(4);
- function updateHullFoam(strips,time,speed,cat,cruiser=false){
+ function updateHullFoam(strips,time,speed,cat,cruiser=false,jets,frame){
    if(!strips)return;
    trails.sample(strips,time,speed,cat||cruiser,cruiser);
    if(cat){
      spray??=makeSpray(THREE,scene,'Bow spray',4,sampleSurface,{bow:true});
+     if(jets&&frame){spray.sampleShoulders(time,jets,frame);return;}
      const area=bowSprayArea;
      const heading=Math.atan2(strips[16]-strips[1],strips[15]-strips[0]);
      const c=Math.cos(heading),s=Math.sin(heading);

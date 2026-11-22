@@ -51,7 +51,7 @@ async function handle(request){
       const battenFields=[1,2].flatMap(sail=>
         ['battenCount','battenLuff','battenLeech','mesh'].map(name=>`boat.cloth[${sail}].${name}`));
       const schedules=[
-        [waveDt*100,['waves.height','waves.driftE','waves.driftN','bowSources','bowSpeed'],'wakeSurface'],
+        [waveDt*100,['waves.height','waves.driftE','waves.driftN','bowSources','bowSpeed','bowFrame'],'wakeSurface'],
         [waveDt*100,['waves.sourceStrips'],'wakeSource'],
         [waveDt*100,['boat.stationGeometry','boat.beamFraction','boat.halfSpacing','boat.sectionVolume','boat.sectionWater','boat.stationX','boat.beamHalf',
           'boat.hydroStationGeometry','boat.hydroSectionVolume','hydroSurfaceProbes',
@@ -105,7 +105,7 @@ async function handle(request){
     transfer.push(data.buffer);
     return data;
   });
-  let bowHeight,bowFineHeight;
+  let bowHeight,bowFineHeight,bowFoam,bowSpray;
   const bowSnapshot=bowFields&&sampled[bowFields.index];
   if(bowSnapshot){
     const {sources,speed}=bowFields;
@@ -115,12 +115,15 @@ async function handle(request){
       bowField??=await loadInstance('BowWavePatch',refineBows?{refineBows:1}:{});
       bowField.set('sources',values);bowField.set('relativeSpeed',velocity);
       bowField.advance(.01);
-      const [coarse,fine]=refineBows?bowField.getMany(['height','fineHeight']):[bowField.get('height')];
+      const [coarse,fine,foam,jets]=refineBows?
+        bowField.getMany(['height','fineHeight','fineFoam','sprayRelease']):[bowField.get('height')];
       bowHeight=Float32Array.from(coarse);
       transfer.push(bowHeight.buffer);
       if(fine){
         bowFineHeight=Float32Array.from(fine);
-        transfer.push(bowFineHeight.buffer);
+        bowFoam=Uint8Array.from(foam,value=>Math.round(255*value));
+        bowSpray=Float32Array.from(jets);
+        transfer.push(bowFineHeight.buffer,bowFoam.buffer,bowSpray.buffer);
       }
     }
   }
@@ -136,7 +139,7 @@ async function handle(request){
       surveyMap.closures=closures;
     }
   }
-  self.postMessage({id:request.id,time:session.time(),values,layout,mapRows,sampled,bowHeight,bowFineHeight},transfer);
+  self.postMessage({id:request.id,time:session.time(),values,layout,mapRows,sampled,bowHeight,bowFineHeight,bowFoam,bowSpray},transfer);
 }
 // Opening the guest is asynchronous. Process later control packets in order.
 let queue=Promise.resolve();

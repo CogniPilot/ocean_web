@@ -32,7 +32,7 @@ export function waterStreaks(T,scene,name,capacity,bow=false){
         float radius=max(launch.w,pixel*.8);
         p.xy+=radius*vec2(position.x,2.*position.y-1.);
         gl_Position=projectionMatrix*vec4(p,1.);
-        alpha=.58*min(1.,launch.w/radius)*exp(-1.4*age);
+        alpha=.73*min(1.,launch.w/radius)*exp(-1.4*age);
         #else
         vec3 base=path(max(0.,age-water.y));
         if(max(tip.z,base.z)<water.x-.015)return;
@@ -82,10 +82,10 @@ export function surfaceSpray(T,scene,name,count,surface,{bow=false}={}){
   const drops=waterStreaks(T,scene,name,bow?768:2048,bow),positions=Array.from({length:count},()=>new T.Vector3());
   const before=positions.map(p=>p.clone()),wetAt=new Float64Array(count).fill(-Infinity);
   const sections=new Float64Array(80),lastArea=new Float64Array(count),carry=new Float64Array(count);
-  let previous,model,seed=7561;
+  let previous,shoulderTime,model,seed=7561;
   loadInstance('SurfaceSpray',{}).then(m=>{model=m;}).catch(console.error);
   function random(){seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;}
-  function clear(){previous=undefined;wetAt.fill(-Infinity);carry.fill(0);lastArea.fill(0);drops.clear();}
+  function clear(){previous=shoulderTime=undefined;wetAt.fill(-Infinity);carry.fill(0);lastArea.fill(0);drops.clear();}
   // A sampler fills world positions and wetted cross-sections from the solved
   // boat or animal. For runoff, sample actual animated trailing-edge vertices.
   function sample(time,area,speed,heading,edgeCount=0){
@@ -130,5 +130,30 @@ export function surfaceSpray(T,scene,name,count,surface,{bow=false}={}){
     for(let i=0;i<count;i++)before[i].copy(positions[i]);
     previous=time;drops.draw(time);
   }
-  return {positions,sample,draw:drops.draw,points:drops.mesh,clear,dispose:drops.dispose};
+  function sampleShoulders(time,release,[east,north,c,s]){
+    if(shoulderTime!==undefined&&(time<shoulderTime||time-shoulderTime>.5))clear();
+    const dt=time-(shoulderTime??time);
+    if(shoulderTime===time)return;
+    for(let i=0;i<count;i++){
+      const k=i*6,x=east+c*release[k]-s*release[k+1],y=north+s*release[k]+c*release[k+1];
+      const old=before[i],flux=release[k+5];
+      if(dt>0&&flux>0){
+        carry[i]+=Math.min(64,dt*flux/.000004);
+        const n=Math.floor(carry[i]);carry[i]-=n;
+        for(let j=0;j<n;j++){
+          const f=(j+random())/n,along=(random()-.5)*.13,across=(random()-.5)*.08;
+          const px=old.x+f*(x-old.x)+c*along-s*across;
+          const py=old.y+f*(y-old.y)+s*along+c*across;
+          const level=surface(px,py,true);
+          const forward=release[k+2]*(.82+.36*random()),side=release[k+3]*(.76+.48*random());
+          const rise=release[k+4]*(.68+.78*random());
+          drops.emit(px,py,level+.012,shoulderTime+dt*f,c*forward-s*side,s*forward+c*side,rise,
+            .003+.010*random(),level,.032);
+        }
+      }
+      old.set(x,y,0);
+    }
+    shoulderTime=time;drops.draw(time);
+  }
+  return {positions,sample,sampleShoulders,draw:drops.draw,points:drops.mesh,clear,dispose:drops.dispose};
 }

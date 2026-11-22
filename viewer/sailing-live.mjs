@@ -1460,8 +1460,11 @@ async function run(){
           nextDrift.set(world.get('waves.driftE'),world.get('waves.driftN'));
           if(!lastHullHeight || lastDrift.distanceToSquared(nextDrift)>16)lastDrift.copy(nextDrift);
           ocean.updateHullSpectrum(hullHeight,nextDrift.x,nextDrift.y,world.get('waves.period'),
-            cat||motor?world.get('bowHeight'):undefined,cat?world.get('bowFineHeight'):undefined);
-          if(!omitWake&&(model||motor))ocean.updateHullFoam(world.get('waves.sourceStrips'),waveTick,cat||motor?(world.get('bowSpeed')?.[0]??world.get('engine')?.[1]??model?.get('surge')):model.get('surge'),cat,Boolean(motor));
+            cat||motor?world.get('bowHeight'):undefined,cat?world.get('bowFineHeight'):undefined,cat?world.get('bowFoam'):undefined);
+          if(!omitWake&&(model||motor)){
+            const speed=world.get('bowSpeed')?.[0]??world.get('engine')?.[1]??model?.get('surge');
+            ocean.updateHullFoam(world.get('waves.sourceStrips'),waveTick,speed,cat,Boolean(motor),world.get('bowSpray'),world.get('bowFrame'));
+          }
           wavePresentation.sample(waveTick,now);
         }
         lastHullHeight=hullHeight;

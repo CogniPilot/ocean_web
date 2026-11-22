@@ -10,6 +10,100 @@ model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source dis
   input Real sources[14,6] "Modelica line sources used by the vehicle hydrodynamics";
   output Real height[n,n] "Short-range linear Bernoulli head in the local axes";
   output Real fineHeight[fineRows,fineColumns] "Nested bow elevations, port rows and forward columns [m]";
+  output Real fineFoam[fineRows,fineColumns] "Breaking sheet coverage on the fine bow grid";
+  output Real sprayRelease[4,6] "Per bow shoulder: forward and port position, forward/port/up velocity, spray volume flux";
+protected
+  Real entries[2,6];
+  Real leeway;
+
+  function ramp
+    input Real x;
+    output Real weight;
+  protected
+    Real p;
+  algorithm
+    p:=min(1,max(0,x));
+    weight:=p*p*(3-2*p);
+  end ramp;
+
+  function bowEntries
+    input Real velocity[2],sources[14,6],enabled;
+    output Real entry[2,6] "Water-entry position, half width, diverted head, breaking fraction, lateral speed";
+  protected
+    Real flux,tip,shoulder,area,width,normal,head,wet;
+    Integer j;
+  algorithm
+    entry:=zeros(2,6);
+    if enabled>.5 and velocity[1]>.1 then
+      for hull in 1:2 loop
+        j:=7*hull;
+        tip:=max(0,sources[j,3]);
+        shoulder:=max(0,sources[j-1,3]);
+        flux:=tip+shoulder;
+        if flux>1e-7 then
+          // The last two positive source strengths measure intercepted volume.
+          // Their relative strengths track the waterline as the fine bows emerge.
+          area:=flux/velocity[1];
+          width:=.48*sqrt(area);
+          wet:=area/(area+.005);
+          normal:=.34*velocity[1];
+          head:=normal^2/(2*9.80665);
+          entry[hull,:]:={(tip*sources[j,5]+shoulder*sources[j-1,5])/flux,
+            (tip*sources[j,2]+shoulder*sources[j-1,2])/flux,width,
+            wet*head/(1+head/.27),wet*ramp((normal/sqrt(9.80665*max(.045,sqrt(area)))-.67)/.66),normal};
+        end if;
+      end for;
+    end if;
+  end bowEntries;
+
+  function shoulderSheet
+    input Real x,y,entry[2,6],leeway;
+    input Boolean foam=false;
+    output Real signal;
+  protected
+    Real down,run,center,width,offset,pulse,ridge;
+  algorithm
+    signal:=0;
+    for hull in 1:2 loop
+      if entry[hull,4]>0 then
+        down:=entry[hull,1]-x;
+        if down>-.13 and down<1.72 then
+          run:=max(0,down);
+          center:=entry[hull,2]-leeway*run;
+          // In the hull frame the diverted sheet advects aft while spreading
+          // sideways. The two shoulders merge into the entry at the tip.
+          offset:=abs(y-center)-(entry[hull,3]+.46*run);
+          width:=(.105+.065*run)*(if foam then 1.45 else 1);
+          ridge:=max(0,1-(offset/width)^2)^2;
+          pulse:=ramp((down+.13)/.42)*(1-ramp((down-.48)/1.24));
+          signal:=signal+pulse*ridge*(if foam then 1.5*entry[hull,5] else entry[hull,4]);
+        end if;
+      end if;
+    end for;
+    if foam then signal:=min(1,signal);end if;
+  end shoulderSheet;
+
+  function sprayAtShoulder
+    input Real entry[2,6],speed,leeway;
+    output Real release[4,6];
+  protected
+    Real side,normal,wetArea;
+    Integer j;
+  algorithm
+    release:=zeros(4,6);
+    for hull in 1:2 loop
+      for wing in 1:2 loop
+        j:=2*(hull-1)+wing;
+        side:=3-2*wing;
+        normal:=entry[hull,6];
+        wetArea:=(entry[hull,3]/.48)^2;
+        release[j,:]:={entry[hull,1]-.20,entry[hull,2]-.20*leeway+side*(entry[hull,3]+.092),
+          .26*speed,side*normal,.95*normal,.065*wetArea*speed*entry[hull,5]};
+      end for;
+    end for;
+  end sprayAtShoulder;
+
+public
 
   function lineFlow
     input Real x,y,low,high,core2,velocity[2];
@@ -88,7 +182,7 @@ model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source dis
   end hullSources;
 
   function sampleGrid
-    input Real velocity[2],sources[14,6],length;
+    input Real velocity[2],sources[14,6],length,entry[2,6],leeway;
     output Real eta[n,n];
   protected
     Real dx,side;
@@ -97,21 +191,25 @@ model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source dis
     dx:=length/n;
     for j in 1:n loop
       side:=(if j<=n/2 then j-1 else j-1-n)*dx;
-      eta[j,:]:={potentialHead((if i<=n/2 then i-1 else i-1-n)*dx,side,velocity,sources) for i in 1:n};
+      eta[j,:]:={potentialHead((if i<=n/2 then i-1 else i-1-n)*dx,side,velocity,sources)
+        +shoulderSheet((if i<=n/2 then i-1 else i-1-n)*dx,side,entry,leeway) for i in 1:n};
     end for;
   end sampleGrid;
 
   function sampleFineGrid
-    input Real velocity[2],sources[14,6],origin[2],spacing,enabled;
-    output Real eta[fineRows,fineColumns];
+    input Real velocity[2],sources[14,6],origin[2],spacing,enabled,entry[2,6],leeway;
+    output Real eta[fineRows,fineColumns],foam[fineRows,fineColumns];
   protected
     Real side;
   algorithm
     eta:=zeros(fineRows,fineColumns);
+    foam:=zeros(fineRows,fineColumns);
     if enabled>.5 then
       for j in 1:fineRows loop
         side:=origin[2]+(j-1)*spacing;
-        eta[j,:]:={potentialHead(origin[1]+(i-1)*spacing,side,velocity,sources) for i in 1:fineColumns};
+        eta[j,:]:={potentialHead(origin[1]+(i-1)*spacing,side,velocity,sources)
+          +shoulderSheet(origin[1]+(i-1)*spacing,side,entry,leeway) for i in 1:fineColumns};
+        foam[j,:]:={shoulderSheet(origin[1]+(i-1)*spacing,side,entry,leeway,true) for i in 1:fineColumns};
       end for;
     end if;
   end sampleFineGrid;
@@ -127,6 +225,9 @@ model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source dis
     end for;
   end localStrips;
 equation
-  height=sampleGrid(relativeSpeed,sources,length);
-  fineHeight=sampleFineGrid(relativeSpeed,sources,fineOrigin,fineSpacing,refineBows);
+  entries=bowEntries(relativeSpeed,sources,refineBows);
+  leeway=max(-.3,min(.3,relativeSpeed[2]/max(.6,relativeSpeed[1])));
+  height=sampleGrid(relativeSpeed,sources,length,entries,leeway);
+  (fineHeight,fineFoam)=sampleFineGrid(relativeSpeed,sources,fineOrigin,fineSpacing,refineBows,entries,leeway);
+  sprayRelease=sprayAtShoulder(entries,relativeSpeed[1],leeway);
 end BowWavePatch;

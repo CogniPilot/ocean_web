@@ -24,6 +24,27 @@ function interpolate(field,x,y,n){
   return (1-b)*((1-a)*at(0,0)+a*at(1,0))+b*((1-a)*at(0,1)+a*at(1,1));
 }
 
+// Keep only one bow wet. The water must divide on its two shoulders, and a
+// lifted hull or a stationary boat must add no breaking foam or spray.
+const isolatedBow=new Float64Array(14*6);
+isolatedBow.set([1.55,1.02,.08,.012,2.25,.49],5*6);
+field.set('sources',isolatedBow);
+field.set('relativeSpeed',[6,0]);
+field.advance(.01);
+const [foam,jets]=field.getMany(['fineFoam','sprayRelease']);
+function coverage(x,y){
+  const {columns,spacing}=fineBowGrid;
+  return foam[Math.round((y-fineBowGrid.y)/spacing)*columns+Math.round((x-fineBowGrid.x)/spacing)];
+}
+assert(coverage(1.7,.75)>.45&&coverage(1.7,1.3)>.45,'Water should split to both sides of the wet bow');
+assert(coverage(1.7,1.02)<.01&&coverage(1.7,-1.02)===0,'A dry bow and the gap between crests should remain clear');
+assert(jets[3]>0&&jets[9]<0&&jets[4]>0&&jets[10]>0&&jets[5]>0&&jets[11]>0);
+assert(jets[17]===0&&jets[23]===0,'The lifted bow must release no spray');
+field.set('relativeSpeed',[0,0]);
+field.advance(.01);
+assert(field.get('fineFoam').every(value=>value===0));
+assert(field.get('sprayRelease').filter((_,i)=>i%6===5).every(value=>value===0));
+
 for(const launchSpeed of [3,6,8,13]){
   const parameters={'boat.launchSpeed':launchSpeed,'boat.launchEast':-130,'boat.launchNorth':-90,
     'boat.launchHeading':0,prevailingBearing:Math.PI/2};

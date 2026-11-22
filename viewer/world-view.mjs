@@ -74,7 +74,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
    refineBows:hasBoat&&mode!=='sloop',
    optionalInputs:['animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
-   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed',...inertiaOutputs,
+   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame',...inertiaOutputs,
      ...(hasBoat&&mode!=='sloop'?['boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins',
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.stationX','boat.beamHalf']:[]),
@@ -97,6 +97,8 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    const acceptWake=surveyView.wakeSurface && revision===wakeRevision;
    if(acceptWake&&f.bowHeight)state.set('bowHeight',f.bowHeight);
    if(acceptWake&&f.bowFineHeight)state.set('bowFineHeight',f.bowFineHeight);
+   if(acceptWake&&f.bowFoam)state.set('bowFoam',f.bowFoam);
+   if(acceptWake&&f.bowSpray)state.set('bowSpray',f.bowSpray);
    unpack(layout.outputs,f.values);
    f.sampled?.forEach((values,i)=>{if(values && (i!==wakeGroup || acceptWake))unpack(layout.sampled[i],values);});
  }
@@ -150,6 +152,6 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    if(offsets.has('omitWake'))set('omitWake',Number(!enabled));
    if(surveyView.wakeSurface!==enabled)wakeRevision++;
    surveyView.wakeSurface=enabled;
-   if(!enabled){state.delete('waves.height');state.delete('bowHeight');state.delete('bowFineHeight');}
+   if(!enabled)for(const name of ['waves.height','bowHeight','bowFineHeight','bowFoam','bowSpray'])state.delete(name);
  },hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map,dvl=false){surveyView.dvl=camera||dvl;surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }
