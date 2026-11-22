@@ -14,9 +14,11 @@ export OCEAN_PERF_CONTROL="$pipes/control" OCEAN_PERF_ACK="$pipes/ack"
 export OCEAN_PHYSICS_TRACE="$out/trace.json"
 perf_bin=${PERF:-perf}
 node_bin=${NODE:-node}
+wasm_flags=(--no-liftoff)
+if [[ ${OCEAN_WASM_LAZY:-0} != 1 ]]; then wasm_flags+=(--no-wasm-lazy-compilation); fi
 "$perf_bin" record -o "$out/perf.data" -e cycles:u -k mono -F 499 --no-inherit --mmap-pages 16 \
     --delay=-1 --control="fifo:$pipes/control,$pipes/ack" \
-    -- "$node_bin" --perf-prof --perf-prof-path="$out" --logfile="$out/v8.log" --no-liftoff --no-wasm-lazy-compilation \
+    -- "$node_bin" --perf-prof --perf-prof-path="$out" --logfile="$out/v8.log" "${wasm_flags[@]}" \
     scripts/profile-physics.mjs "$root" "$role" "$ticks" "$@" | tee "$out/timing.json"
 "$perf_bin" inject --jit -i "$out/perf.data" -o "$out/perf.jit.data"
 "$perf_bin" report -i "$out/perf.jit.data" --stdio --no-children --no-call-graph \

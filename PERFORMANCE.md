@@ -553,12 +553,16 @@ sampled user-space cycles at 499 Hz after 200 warm-up steps. Each vehicle used
 the same settings and 10 ms communication step in both builds, with 500 to
 16,000 timed steps per capture. Wakes were enabled for the marine scenarios in
 the table. Replay deltas are absolute differences in the sampled output lanes.
-The sloop candidate used slightly more CPU, so its archive was excluded from
-the release. The measured gains leave the 10× target open.
+The sloop used 0.6% more CPU in the wakes-on capture above. A separate
+1,500-step Fast capture with V8's lazy WebAssembly compilation measured
+6.49 to 4.69 ms per step and read, 28% fewer CPU cycles, and a step p95 of
+32.27 to 20.66 ms. The release includes the sloop archive for that Fast
+improvement. The measured gains leave the 10× target open.
 
 Run `scripts/profile-physics-perf.sh build/pages sailing build/physics-profiles/sailing 900`
 after packaging with `scripts/package-pages.sh build/pages --world`. The script
 writes the binary perf data, symbol report, timings, and numerical replay.
 Use `--no-wakes` for the Fast physics setting and `--banked` for the shark
-maneuver. Compare `flight-idle` on the baseline with `habitat` on the new
+maneuver. Set `OCEAN_WASM_LAZY=1` for the sloop Fast capture. Compare
+`flight-idle` on the baseline with `habitat` on the new
 build for the swimmer environment measurement.
