@@ -4,6 +4,17 @@ import {feedingHarbor} from './feeding-harbor.mjs';
 import {greatWhiteLength} from './wildlife-wake.mjs';
 import {GLTFLoader} from './vendor/gltf-loader.mjs';
 
+export function interpolateSharkTail(previous,next,f){
+  // Fish state on the wire at offset 65: peduncle angle and angular rate.
+  const from=previous[70]??0,to=next[70]??0,delta=to-from;
+  const duration=next[0]-previous[0],fromRate=previous[71],toRate=next[71];
+  if(!(duration>0&&duration<=.21)||!Number.isFinite(fromRate)||!Number.isFinite(toRate))
+    return from+f*delta;
+  // Use both solved angular rates between snapshots. Straight interpolation
+  // can miss the reversal of a tail stroke inside a 100 or 200 ms packet.
+  return from+f*f*(3-2*f)*delta+duration*f*(1-f)*((1-f)*fromRate-f*toRate);
+}
+
 async function marineAnimal(T,name,length,caustics,tideUniform){
   const url=new URL('./assets/'+name+'.glb',import.meta.url);
   url.search=new URL(import.meta.url).search;
@@ -23,10 +34,10 @@ async function marineAnimal(T,name,length,caustics,tideUniform){
   let articulate,edgePoints;
   if(name==='whale')model.position.set(0,0,0);
   group.updateMatrixWorld(true);
-  function joint(name,axis){
+  function joint(name,axis,label){
     const bone=model.getObjectByName(T.PropertyBinding.sanitizeNodeName(name)),rest=bone.quaternion.clone();
     const local=(axis??new T.Vector3(0,-1,0)).applyQuaternion(bone.getWorldQuaternion(new T.Quaternion()).invert());
-    bone.userData.physicsJoint={axis:local.toArray(),label:name.replace('TopFlipper','Flipper')};
+    bone.userData.physicsJoint={axis:local.toArray(),label};
     const swing=new T.Quaternion();return angle=>bone.quaternion.copy(rest).multiply(swing.setFromAxisAngle(local,angle));
   }
   if(name==='whale'){
@@ -56,16 +67,17 @@ async function marineAnimal(T,name,length,caustics,tideUniform){
         else points[i].set(group.position.x,group.position.y,-1000);
       }
     };
-    const proximal=joint('Spine3'),distal=joint('Spine4'),fluke=joint('Tail');
-    const port=joint('TopFlipper.L'),starboard=joint('TopFlipper.R');
+    const proximal=joint('Spine3',null,'Tail bend · front'),distal=joint('Spine4',null,'Tail bend · rear');
+    const fluke=joint('Tail',null,'Fluke feather');
+    const port=joint('TopFlipper.L',null,'Port flipper'),starboard=joint('TopFlipper.R',null,'Starboard flipper');
     articulate=(state,k)=>{
       const flex=state[k+7]-state[k+5];
       proximal(.60*flex);distal(.40*flex);fluke(state[k+15]);
       port(state[k+16]);starboard(state[k+17]);
     };
   }else{
-    const lateral=n=>joint(n,new T.Vector3(0,0,1));
-    const trunk=lateral('Spine2'),peduncle=lateral('Spine3'),tail=lateral('Tail');
+    const lateral=(name,label)=>joint(name,new T.Vector3(0,0,1),label);
+    const trunk=lateral('Spine2','Trunk flex'),peduncle=lateral('Spine3','Peduncle sweep'),tail=lateral('Tail','Caudal feather');
     articulate=state=>{
       const flex=state[202]??0,bend=state[70]??0;
       trunk(flex);peduncle(bend-flex);tail((state[72]??0)-bend);
@@ -99,6 +111,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       const whale=animal.kind==='whale';
       marineAnimal(T,animal.kind,whale?10:greatWhiteLength,caustics,tideUniform).then(visual=>{
         if(visuals.get(id)!==entry)return;
+        visual.group.userData.swimmer={id,kind:animal.kind};
         entry.visual=visual;
         if(whale)entry.effects=whaleEffects(T,scene,sampleSurface);
         visual.group.visible=false;
@@ -249,7 +262,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       }
       const row=entry.shown,previous=entry.previous;
       for(let k=0;k<row.length;k++)row[k]=(previous[k]??0)+f*((frame[k]??0)-(previous[k]??0));
-      v.group.visible=true;v.mouth(animal.gape??0);
+      v.group.visible=true;v.group.userData.contactPose=row;v.mouth(animal.gape??0);
       if(animal.kind==='whale'){
         row.set(frame.slice(60,65),60);
         const angle=frame[20]-previous[20];
@@ -258,6 +271,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
         v.group.position.fromArray(row,17);v.group.rotation.set(row[35],-row[21],row[20],'ZYX');v.articulate(row,24);
         entry.effects.update(row,row[0],v,wind);
       }else{
+        row[70]=interpolateSharkTail(previous,frame,f);
         v.group.position.fromArray(row,9);v.group.rotation.set(row[203],-row[67],row[12],'ZYX');v.articulate(row);
       }
     }

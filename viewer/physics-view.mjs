@@ -11,7 +11,7 @@ export function physicsView(T,canvas,status){
   const ink=canvas.getContext('2d');
   const clip=new T.Vector3(),projected=new T.Vector2();
   const colors={main:'#79edff',jib:'#b2ffa8',mast:'#ffd080',joint:'#ff9cce',batten:'#fff07b',
-    wet:'#5af2e9',dry:'#a1aab7',wind:'#7ebaff',wake:'#bd96ff',near:'#ffce74'};
+    wet:'#5af2e9',dry:'#a1aab7',wind:'#7ebaff',wake:'#bd96ff',near:'#ffce74',swimmer:'#62ffe3'};
   const clothEdges=new Set();
   for(let row=0;row<5;row++)for(let col=0;col<3;col++){
     const i=row*4+col;
@@ -106,12 +106,14 @@ export function physicsView(T,canvas,status){
   }
   function drawJoints(joints,length){
     for(const [joint,axis,name] of joints){
-      b.fromArray(axis).normalize().multiplyScalar(length);a.copy(b).negate();
+      // The display length is in metres, including for scaled glTF bones.
+      center.setFromMatrixPosition(joint.matrixWorld);
+      b.fromArray(axis).transformDirection(joint.matrixWorld).multiplyScalar(length);
+      a.copy(center).sub(b);b.add(center);
       ink.strokeStyle=colors.joint;ink.lineWidth=2;ink.beginPath();
-      segment(a,b,joint);ink.stroke();
-      a.set(0,0,0);
-      dot(a,joint,colors.joint,4);
-      if(name)label(b,joint,name,colors.joint);
+      segment(a,b);ink.stroke();
+      dot(center,null,colors.joint,3);
+      if(name)label(center,null,name,colors.joint);
     }
   }
 
@@ -134,7 +136,7 @@ export function physicsView(T,canvas,status){
       });
       markCache.set(group,joints);
     }
-    drawJoints(joints,kind==='gull'?.07:kind==='drone'?.09:kind==='motorboat'?.34:.35);
+    drawJoints(joints,kind==='gull'?.07:kind==='drone'?.09:kind==='motorboat'?.34:kind==='shark'?.19:.35);
     if(kind==='sub'){
       const rotors=group.userData.rotors;
       for(const [i,rotor] of rotors.entries()){
@@ -176,21 +178,27 @@ export function physicsView(T,canvas,status){
     }
   }
 
-  function drawGrid(field,x,y,tide,color){
-    const {values,subtract,length,east=0,north=0,cos=1,sin=0,local=false}=field;
-    const size=Math.sqrt(values.length),spacing=length/size;
+  function drawGrid(field,x,y,tide,color,requireSignal=false){
+    const {values,subtract,length,east=0,north=0,cos=1,sin=0,local=false,bounded=false,stride=1,heightAt}=field;
+    const size=field.size??Math.sqrt(values.length),spacing=length/size;
     // Crop the periodic fields around the subject without changing their
     // origin or sample spacing. The near field uses the solver's signed indices.
     const radius=Math.min(12,12*spacing),first=-size/2,last=first+size-1;
-    const i0=local?first:Math.ceil((x-east-radius)/spacing),i1=local?last:Math.floor((x-east+radius)/spacing);
-    const j0=local?first:Math.ceil((y-north-radius)/spacing),j1=local?last:Math.floor((y-north+radius)/spacing);
-    const columns=i1-i0+1;
+    const i0=bounded?0:local?first:Math.ceil((x-east-radius)/spacing);
+    const i1=bounded?size-1:local?last:Math.floor((x-east+radius)/spacing);
+    const j0=bounded?0:local?first:Math.ceil((y-north-radius)/spacing);
+    const j1=bounded?size-1:local?last:Math.floor((y-north+radius)/spacing);
+    const columns=Math.floor((i1-i0)/stride)+1;
     const index=(i)=>(i%size+size)%size;
-    ink.strokeStyle=color;ink.lineWidth=local?1.15:1;ink.globalAlpha=local?.77:.48;ink.beginPath();
-    let k=0;
-    for(let j=j0;j<=j1;j++)for(let i=i0;i<=i1;i++){
-      const offset=index(j)*size+index(i);
-      a.set(east+spacing*(i*cos-j*sin),north+spacing*(i*sin+j*cos),tide+values[offset]-(subtract?.[offset]??0));
+    ink.strokeStyle=color;ink.lineWidth=local||bounded?1.15:1;
+    ink.globalAlpha=(local||bounded)?.77:.48;ink.beginPath();
+    let k=0,hasSignal=!requireSignal;
+    for(let j=j0;j<=j1;j+=stride)for(let i=i0;i<=i1;i+=stride){
+      const e=east+spacing*(i*cos-j*sin),n=north+spacing*(i*sin+j*cos);
+      const offset=bounded?j*size+i:index(j)*size+index(i);
+      const height=heightAt?heightAt(e,n):values[offset]-(subtract?.[offset]??0);
+      hasSignal||=Math.abs(height)>.00001;
+      a.set(e,n,tide+height);
       const p=project(a);
       gridPixels[k]=p?.x??NaN;gridPixels[k+1]=p?.y??NaN;
       if(p){
@@ -204,8 +212,9 @@ export function physicsView(T,canvas,status){
       }
       k+=2;
     }
-    ink.stroke();ink.globalAlpha=1;
-    return size+'×'+size+' / '+spacing+' m';
+    if(hasSignal)ink.stroke();
+    ink.globalAlpha=1;
+    return hasSignal?size+'×'+size+' / '+spacing.toPrecision(2)+' m':null;
   }
   function drawSources(field,tide){
     const {sources,east,north,cos,sin}=field;
@@ -222,19 +231,36 @@ export function physicsView(T,canvas,status){
     }
   }
   function drawWater(fields,x,y,layer){
-    if(layer==='auto')layer=fields?.near?'near':'wind';
+    if(layer==='auto')layer=fields?.swimmerKind?'swimmer':fields?.near?'near':'wind';
     const captions=[];
-    for(const [key,name] of [['wind','Blue wind sea'],['wake','Violet wake FFT'],['near','Gold near-hull field']]){
+    if(layer==='swimmer'||layer==='all'){
+      if(fields?.swimmer){
+        const {swimmer,tide,swimmerKind}=fields;
+        const dimensions=drawGrid(swimmer,x,y,tide,colors.swimmer);
+        const {sources}=swimmer;
+        for(let i=0;i<sources.length;i+=5){
+          if(sources[i+2]>.0003)dot(a.set(sources[i],sources[i+1],tide),null,colors.near,2.4);
+        }
+        const name=swimmerKind==='whale'?'Humpback':'Great white';
+        captions.push(name+' wake · '+dimensions+' Modelica grid · alternate nodes · elevations relative to tide');
+        captions.push('Gold · displaced-water sources');
+      }else if(layer==='swimmer'||fields?.swimmerKind){
+        captions.push('No active swimmer wake for this view');
+      }
+    }
+    for(const [key,name] of [['wind','Blue wind sea'],['wake','Violet shared wake FFT'],['near','Gold near-hull field']]){
       if(layer!==key&&layer!=='all')continue;
       const field=fields?.[key];
       if(!field?.values)continue;
       const height=field.height??fields.tide;
-      const dimensions=drawGrid(field,x,y,height,colors[key]);
+      const dimensions=drawGrid(field,x,y,height,colors[key],key==='wake');
+      if(!dimensions)continue;
       const frame=field.local?'follows hull heading, offset from incident sea':key==='wake'||field.advected?'current drift':'world axes';
       captions.push(name+' '+dimensions+' · '+frame);
       if(key==='near')drawSources(field,height);
+      if(key==='wind')captions.push('Long swell is analytic');
     }
-    return captions.length?captions.join(' | ')+' · Long swell is analytic':
+    return captions.length?captions.join(' | '):
       'Selected wave field unavailable in this view or quality';
   }
   function drawProbes(probes){
@@ -261,6 +287,7 @@ export function physicsView(T,canvas,status){
     if(options.rig){
       drawBody(body);
       if(body.rig)drawRig(body.rig);
+      if(group.userData.swimmer)captions.push('Pink · rig joints driven by the swimmer model');
     }
     if(options.hulls){
       if(hull?.stations)drawHull(hull,group);

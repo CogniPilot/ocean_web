@@ -17,10 +17,15 @@ async function ride(amplitude,heading){
     launchPitch:-Math.atan(slope),windEast:0,windNorth:0,manualHelm:1,swellBearing:0,swellAmplitude:amplitude},read);
   assert(Math.abs(boat.get('swellK')-k)<1e-9);
   assert(Math.abs(boat.get('swellOmega')-omega)<1e-9);
+  assert(boat.get('swellPresetAmplitudes').every((value,i)=>Math.abs(value-[0,.65,1.20][i])<1e-9));
   const initialForce=boat.get('swellForce')[0];
-  for(let i=0;i<600;i++)boat.advance(.01);
+  let peakForward=0;
+  for(let i=0;i<600;i++){
+    boat.advance(.01);
+    if(i%10===9)peakForward=Math.max(peakForward,boat.get('ballastX'));
+  }
   const [speed,phase,force,ballast]=boat.getMany(['surge','swellPhase','swellForce','ballastX']);
-  return {initialForce,speed,phase:Math.atan2(Math.sin(phase),Math.cos(phase)),force:force[0],ballast};
+  return {initialForce,speed,phase:Math.atan2(Math.sin(phase),Math.cos(phase)),force:force[0],ballast,peakForward};
 }
 
 const calm=await ride(0,0),swell=await ride(1.20,0),head=await ride(1.20,Math.PI);
@@ -28,5 +33,5 @@ assert.equal(calm.initialForce,0);
 assert(swell.initialForce>100&&head.initialForce< -100,'Incident pressure points down the face');
 assert(swell.speed>launchSpeed+.7&&swell.speed>calm.speed+2);
 assert(Math.abs(swell.speed-omega/k)<.5&&Math.cos(swell.phase)<-.4,'Hobie stays on the downhill face');
-assert(Math.abs(swell.ballast)>.10&&Math.abs(swell.ballast)<=.72,'Automatic fore-aft trim remains active on the wave');
+assert(swell.peakForward>.05&&swell.peakForward<.125,'Automatic trim limits forward travel while surfing');
 console.log({wavelength:2*Math.PI/k,period:2*Math.PI/omega,phaseSpeed:omega/k,calm,swell,head});

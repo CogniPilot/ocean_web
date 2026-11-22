@@ -42,3 +42,17 @@ for(const sign of [-1,1]){
   boat.advance(.02);
   assert(sign*boat.get('ballastX')<0,'Ballast moves to counter the pitch');
 }
+
+const lowBow={launchEast:-140,launchNorth:-80,launchHeading:0,launchHeight:.10,
+  launchPitch:.11,manualHelm:1,windEast:0,windNorth:0};
+const stationary=await loadInstance('Hobie16',{...lowBow,launchSpeed:0},read);
+const fast=await loadInstance('Hobie16',{...lowBow,launchSpeed:7},read);
+const [clearance,reserve,immersion,target]=fast.getMany(['bowClearance','bowClearanceReserve','deckImmersion','targetX']);
+assert(clearance>0&&clearance<.08&&immersion===0,'The low bow is still dry');
+assert(reserve>stationary.get('bowClearanceReserve')+.09,'Forward speed raises the dry reserve');
+assert(target<-.5&&target<stationary.get('targetX')-.4,'Automatic trim moves aft before the deck is wet');
+fast.advance(.02);
+assert(fast.get('ballastX')<0,'Automatic ballast carriage responds to the dry foredeck');
+
+const manual=await loadInstance('Hobie16',{...lowBow,launchSpeed:7,ballastManual:1,ballastCmdX:.65},read);
+assert(Math.abs(manual.get('targetX')-.65)<1e-8,'Manual fore-aft ballast retains control');

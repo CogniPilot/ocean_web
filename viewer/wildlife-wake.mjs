@@ -43,7 +43,7 @@ export function wildlifeWater(T,uniforms,load=loadInstance,halfFloat=false){
     fin.set(0,0,0,0);
     for(const p of patches){
       p.stamp=undefined;
-      for(const f of [p.current,p.previous]){f.region.z=0;f.field=null;}
+      for(const f of [p.current,p.previous]){f.region.z=0;f.field=null;f.inspection=null;}
     }
   }
   function sample(i,time,sources,impact,id,blend){
@@ -55,6 +55,10 @@ export function wildlifeWater(T,uniforms,load=loadInstance,halfFloat=false){
     }
     if(time===p.stamp&&id===p.id)return;
     const reset=p.stamp===undefined||id!==p.id||time<=p.stamp||time-p.stamp>.6;
+    if(reset){
+      p.current.region.z=0;
+      p.current.inspection=null;
+    }
     if(i===1){
       // Section six is the dorsal fin. Transport its bound ridge with the
       // interpolated fin while the radiated wave behind it stays in world ENU.
@@ -70,11 +74,15 @@ export function wildlifeWater(T,uniforms,load=loadInstance,halfFloat=false){
     uniforms[p.key+'Previous'].value=previous.region;
     const [center,active]=m.getMany(['center','active']);
     current.region.set(center[0],center[1],active>0?n*p.cell:0,current.region.w);
+    current.inspection=null;
     if(!active)return;
     // Each ping-pong slot owns its storage across solver calls. Copy from
     // Wasm directly without allocating and boxing 12,288 numbers per sample.
     const field=current.field??=new Float64Array(3*count);
     m.get('field',field);
+    const halfSpan=(n-1)*p.cell/2;
+    current.inspection={id,sources,east:center[0]-halfSpan,north:center[1]-halfSpan,
+      length:n*p.cell,size:n,stride:2,bounded:true,heightAt:heightReaders[i]};
     for(let k=0;k<count;k++){
       const out=4*(current.region.w*count+k);
       const height=field[k],foam=field[2*count+k];
@@ -90,19 +98,28 @@ export function wildlifeWater(T,uniforms,load=loadInstance,halfFloat=false){
     }
     texture.needsUpdate=true;
   }
+  function patchElevation(i,x,y){
+    const p=patches[i],a=mix.getComponent(i);
+    let dx=0,dy=0,z=0;
+    if(i===1&&(fin.z||fin.w)){
+      const distance=Math.hypot(x-fin.x+(1-a)*fin.z,y-fin.y+(1-a)*fin.w);
+      const f=Math.max(0,Math.min(1,(distance-.45)/.85)),weight=1-f*f*(3-2*f);
+      dx=fin.z*weight;dy=fin.w*weight;
+    }
+    if(a<1)z+=(1-a)*probe(p.previous,x-a*dx,y-a*dy);
+    if(a>0)z+=a*probe(p.current,x+(1-a)*dx,y+(1-a)*dy);
+    return z;
+  }
+  const heightReaders=patches.map((_,i)=>(x,y)=>patchElevation(i,x,y));
+  function inspection(kind,id){
+    const i=kind==='whale'?0:1,p=patches[i];
+    if(p.id!==id)return null;
+    if(p.current.inspection?.id===id)return p.current.inspection;
+    return mix.getComponent(i)<1&&p.previous.inspection?.id===id?p.previous.inspection:null;
+  }
   function elevation(x,y){
     let z=0;
-    for(let i=0;i<2;i++){
-      const p=patches[i],a=mix.getComponent(i);
-      let dx=0,dy=0;
-      if(i===1&&(fin.z||fin.w)){
-        const distance=Math.hypot(x-fin.x+(1-a)*fin.z,y-fin.y+(1-a)*fin.w);
-        const f=Math.max(0,Math.min(1,(distance-.45)/.85)),weight=1-f*f*(3-2*f);
-        dx=fin.z*weight;dy=fin.w*weight;
-      }
-      if(a<1)z+=(1-a)*probe(p.previous,x-a*dx,y-a*dy);
-      if(a>0)z+=a*probe(p.current,x+(1-a)*dx,y+(1-a)*dy);
-    }
+    for(let i=0;i<patches.length;i++)z+=patchElevation(i,x,y);
     return z;
   }
   const loads=new Float64Array(15);
@@ -123,5 +140,5 @@ export function wildlifeWater(T,uniforms,load=loadInstance,halfFloat=false){
     loads[14]=(elevation(x-step*s,y+step*c)-elevation(x+step*s,y-step*c))/(2*step);
     return loads;
   }
-  return {sample,clear,elevation,hullWater};
+  return {sample,clear,elevation,hullWater,inspection};
 }

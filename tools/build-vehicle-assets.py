@@ -9,6 +9,32 @@ import numpy as np
 DEST = Path(__file__).resolve().parents[1] / "viewer/assets"
 
 
+def paint_hobie_number(data, rgb, u, v, depth, flank):
+    # Cut a light panel into the graphite flash and paint original block numerals.
+    center = .134
+    panel_width = .044 - .005*((depth-.43)/.27)**2
+    panel = flank*np.clip(.5+512*(panel_width-np.abs(u-center)), 0, 1)
+    data[:, :, :3] = data[:, :, :3]*(1-panel[:, :, None]) + np.asarray(rgb)*panel[:, :, None]
+
+    # A viewer on the port side sees positive hull X toward the left.
+    x = .5 + np.where(v>5/14, -1, 1)*(u-center)/.058
+    y = (depth-.205)/.44
+    one = ((.080,.258),(.277,.090),(.277,.921))
+    six_hook = ((.882,.163),(.802,.085),(.679,.085),(.592,.155),
+                (.542,.284),(.526,.460),(.526,.680))
+    six_loop = [(.696+.170*math.cos(i*math.tau/20), .683+.230*math.sin(i*math.tau/20))
+                for i in range(21)]
+    distance = np.full(u.shape, np.inf)
+    for points in (one, six_hook, six_loop):
+        for (ax,ay),(bx,by) in zip(points,points[1:]):
+            east,down = 1.7*(x-ax),y-ay
+            dx,dy = 1.7*(bx-ax),by-ay
+            along = np.clip((east*dx + down*dy)/(dx*dx + dy*dy), 0, 1)
+            distance = np.minimum(distance, np.hypot(east-along*dx,down-along*dy))
+    ink = panel*np.clip(.5+15*(.072-distance), 0, 1)
+    data[:, :, :3] = data[:, :, :3]*(1-ink[:, :, None]) + np.asarray((.025,.029,.034))*ink[:, :, None]
+
+
 def coating(name, rgb, metal=0, rough=.38, stripes=False):
     """Embed original UV paint and roughness maps. Shared small textures suit mobile GPUs."""
     mat = bpy.data.materials.new(name)
@@ -41,6 +67,7 @@ def coating(name, rgb, metal=0, rough=.38, stripes=False):
                                     (.291,.326,(.70,.73,.75))]:
                     coverage = flank*np.clip(.5+512*np.minimum(stripe-lo,hi-stripe), 0, 1)
                     data[:, :, :3] = data[:, :, :3]*(1-coverage[:, :, None]) + np.asarray(color)*coverage[:, :, None]
+                paint_hobie_number(data, rgb, u, v, flank_depth, flank)
         else:
             image.colorspace_settings.name = 'Non-Color'
             data[:, :, :3] = (rough + 2*grain + .15*scuff)[:, :, None]
@@ -120,7 +147,12 @@ def hull(name, stations, section, material, side=1, center=0, deck_joint=False):
         for loop in poly.loop_indices:
             v=mesh.loops[loop].vertex_index
             along = (verts[v][0]-stations[0][0])/(stations[-1][0]-stations[0][0]) if deck_joint else v//n/(len(stations)-1)
-            uv.data[loop].uv=(along, 1 if j==n-1 and v%n==0 else ring[v%n][2])
+            around = 1 if j==n-1 and v%n==0 else ring[v%n][2]
+            # Both hulls use one atlas. The starboard loft mirrors Y, so swap
+            # its flank rows and keep the wrap seam continuous.
+            if deck_joint and side<0:
+                around = 10/14-around
+            uv.data[loop].uv=(along, around)
     # Section traces port-deck edge through the keel and around the deck crown.
     import bmesh
     bm=bmesh.new()

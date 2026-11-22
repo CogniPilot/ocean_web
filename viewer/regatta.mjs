@@ -90,7 +90,7 @@ export function courseScene(T,scene,race){
   mark(race.get('pinEast'),race.get('pinNorth'));
   race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i]));
   let previous;
-  return (label,time=0,sampleWind)=>{
+  function update(label,time=0,sampleWind){
     const [heave,roll,pitch]=race.get('launchPose');
     boat.position.z=heave;boat.rotation.x=roll;boat.rotation.y=-pitch;
     if(sampleWind){
@@ -116,7 +116,8 @@ export function courseScene(T,scene,race){
     ctx.fillText('TRI 1   '+bearing,256,49);
     ctx.font='bold 35px monospace';ctx.fillText('S – 1p – 2p – F',256,99);
     ctx.fillStyle='#ffbe52';ctx.font='bold 43px monospace';ctx.fillText(label,256,151);texture.needsUpdate=true;
-  };
+  }
+  return {update,committee:boat,marks};
 }
 export function sailFlapRate(){
   const sampleRate=32,windowSize=96,firstFrequency=.5,frequencyStep=.25,binCount=47;

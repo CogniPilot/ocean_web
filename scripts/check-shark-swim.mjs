@@ -1,6 +1,7 @@
 // Compare the rigid torso to the moving tail in steady cruise and sustained sprint.
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
 const read = async url => new Response(await readFile(url));
 const degrees = 180 / Math.PI;
@@ -47,3 +48,39 @@ assert(fast.speed > 2 * slow.speed);
 assert(fast.yawExcursion < 4 && fast.yawExcursion < slow.yawExcursion);
 assert(slow.maxAnterior > 1 && fast.maxAnterior < .1 && fast.maxPeduncle > 15);
 console.log({slow, fast});
+
+globalThis.THREE=createRequire(import.meta.url)('../viewer/vendor/three.min.js');
+const {interpolateSharkTail}=await import('../viewer/harbor-traffic.mjs');
+const burst=await loadInstance('HarborTraffic',{
+  initialState:[0,-28,6,0,2,-25,2,6,0,-200,-160,-5,0,-.06,0,0,0],
+  initialFish:[3,0,0,0,0,0,0,0,0,0],sharkPilot:[1,0,1,-1]
+},read);
+const frames=[];
+for(let tick=0;tick<1000;tick++){
+  burst.advance(.01);
+  const fish=burst.get('fish'),frame=new Float64Array(75);
+  frame[0]=burst.time;frame[70]=fish[5];frame[71]=fish[6];
+  frames.push(frame);
+}
+for(const stride of [10,20]){
+  let linearError=0,interpolatedError=0,count=0;
+  for(let index=100;index<frames.length-stride;index++){
+    const start=frames[index],end=frames[index+stride];
+    for(let t=1;t<stride;t++){
+      const fraction=t/stride,actual=frames[index+t][70];
+      const linear=start[70]+fraction*(end[70]-start[70]);
+      linearError+=(linear-actual)**2;
+      interpolatedError+=(interpolateSharkTail(start,end,fraction)-actual)**2;
+      count++;
+    }
+  }
+  const linearDegrees=Math.sqrt(linearError/count)*degrees;
+  const interpolatedDegrees=Math.sqrt(interpolatedError/count)*degrees;
+  assert(interpolatedDegrees<linearDegrees*.35,'Interpolation lost the solved high-speed tail reversals');
+  console.log({packetMilliseconds:10*stride,linearDegrees,interpolatedDegrees});
+}
+const start=frames[100],end=Array.from(frames[140]);
+assert.equal(interpolateSharkTail(start,end,0),start[70]);
+assert.equal(interpolateSharkTail(start,end,1),end[70]);
+assert.equal(interpolateSharkTail(start,end,.5),start[70]+.5*(end[70]-start[70]));
+assert.equal(interpolateSharkTail(start,frames[110].slice(0,71),.5),start[70]+.5*(frames[110][70]-start[70]));

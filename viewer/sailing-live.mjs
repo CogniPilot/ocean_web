@@ -1,5 +1,8 @@
 import {harborMap} from './harbor-map.mjs';
 import {physicsView,hullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
+import {collisionOverlay,drawAnimalCollision,drawSailboatContacts} from './collision-view.mjs';
+import {surfaceCollisionShapes} from './surface-collision-view.mjs';
+import {subCollisionShapes} from './sub-collision-view.mjs';
 import {cruiserSonar,imagingBeepInterval} from './cruiser-sonar.mjs';
 import {cruiserChart} from './cruiser-chart.mjs';
 import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
@@ -182,14 +185,15 @@ async function run(){
     lastDial=-Infinity;
   };
   const physicsToggle=$('physicsView'),physicsCanvas=$('physicsCanvas');
-  const physicsLayers=$('physicsLayers');
+  const physicsLayers=$('physicsLayers'),collisionToggle=$('collisionShapes');
+  collisionToggle.checked=url.searchParams.get('collisions')==='1';
   const waveGrids=$('physicsWater'),waveLayer=$('waveLayer');
   waveGrids.onchange=()=>$('waveLayerControl').hidden=!waveGrids.checked;
   let inspector,physicsEnabled=false,inspectionHull,inspectionTime,hullGridSamples;
   function physicsVisibility(){
     physicsEnabled=physicsToggle.checked;
     physicsCanvas.hidden=physicsLayers.hidden=!physicsEnabled;
-    world?.setPhysicsRequested(physicsEnabled);
+    world?.setPhysicsRequested(physicsEnabled||collisionToggle.checked);
     if(physicsEnabled)inspector??=physicsView(T,physicsCanvas,$('physicsStatus'));
   }
   physicsToggle.checked=url.searchParams.get('physics')==='1';
@@ -240,7 +244,7 @@ async function run(){
   if(!world){
     for(const [input,field] of [['hullStations','stationX'],['hullWidths','beamHalf'],['hullOffset','halfSpacing']])race.set(input,model.get(field));
   }
-  const boardClock=courseScene(T,scene,race),audio=raceAudio();
+  const course=courseScene(T,scene,race),audio=raceAudio();
   let lastCountdown=null,raceTick=0;
   const lastLaps=new Map();
   const normalizeRoom=value=>value.trim().slice(0,64)||'regatta';
@@ -401,6 +405,36 @@ async function run(){
   const materials=seabedMaterials(T,caustics.uniforms);const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;submergedScenery.add(bottom);
   showInLowWaterCapture(bottom);
   const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);let life;
+  const defaultContactHull={cat},contactHullFields=['stationX','beamHalf','halfSpacing'];
+  let collisionPainter,shoreContacts,structureContacts,peerCollisionSamples,contactHull;
+  function drawCollisions(){
+    if(!collisionPainter){
+      collisionPainter=collisionOverlay(T);
+      shoreContacts=surfaceCollisionShapes(T,island,course.committee,course.marks);
+      const wreck=makeWreck(T,materials);
+      structureContacts=subCollisionShapes(T,wreck);
+      wreck.children[0]?.geometry.dispose();
+    }
+    collisionPainter.begin();
+    if(!contactHull&&model&&contactHullFields.every(name=>model.has(name))){
+      const [stations,widths,spacing]=model.getMany(contactHullFields);
+      contactHull={cat,stations,widths,spacing};
+    }
+    shoreContacts.draw(collisionPainter,boat?.group,contactHull??defaultContactHull,motor?.group,drone?.group);
+    structureContacts.draw(collisionPainter,sub?.mesh.visible?sub.mesh:null);
+    if(boat)drawSailboatContacts(collisionPainter,boat.group,cat,peerCollisionSamples);
+    for(const animal of remote.npc.animals.values()){
+      const frame=visitors.cameraSubject(animal.id);
+      if(frame)drawAnimalCollision(collisionPainter,frame,animal.kind);
+    }
+    collisionPainter.render(renderer,camera);
+  }
+  collisionToggle.onchange=()=>{
+    if(collisionToggle.checked)url.searchParams.set('collisions','1');
+    else url.searchParams.delete('collisions');
+    history.replaceState(history.state,'',url);
+    world?.setPhysicsRequested(physicsEnabled||collisionToggle.checked);
+  };
   function playImagingHit(position){
     audio.imagingHit(camera.position.distanceTo(position),camera.position.z<ocean.U.tide.value);
   }
@@ -518,7 +552,7 @@ async function run(){
     }
     for(const id of ['autoDeck','mainCar','jibCar','jibSheet'])$(id).oninput=deck;
     deck();
-    moveTraveler=code=>{
+    moveTraveler=(code,fullRelease=false,repeating=false)=>{
       const auto=$('autoDeck'),main=$('mainCar'),jib=$('jibCar');
       if(auto.checked){
         main.value=Math.round(model.get('mainCar')*100);
@@ -528,17 +562,20 @@ async function run(){
       const step=5;
       if(code==='ArrowUp'||code==='ArrowDown'){
         const leeward=Math.sin(model.get('vane'))>=0?-1:1;
-        main.value=main.valueAsNumber+(code==='ArrowUp'?leeward:-leeward)*step;
+        const easing=code==='ArrowUp';
+        if(fullRelease)main.value=leeward*Number(main.max);
+        else main.value=main.valueAsNumber+(easing?leeward*(repeating?30:step):-leeward*step);
       }else{
         jib.value=jib.valueAsNumber+(code==='ArrowRight'?step:-step);
       }
       deck();
     };
+    $('easeTraveler').onclick=()=>moveTraveler('ArrowUp',true);
   }
   function applySea(){
-    const level=Number($('seaState').value);
-    if(world)world.set('seaState',level);
-    else model.set('swellAmplitude',level===1.1 ? 1.20 : level===.45 ? .65 : 0);
+    const sea=$('seaState');
+    if(world)world.set('seaState',Number(sea.value));
+    else model.set('swellAmplitude',model.get('swellPresetAmplitudes')[sea.selectedIndex]);
   }
   if(!world)applySea();
   $('seaState').onchange=()=>{applySea();remote.changeWeather('sea',$('seaState').value);};
@@ -863,6 +900,7 @@ async function run(){
     physicsVisibility();
     if(!boatActive){mastPanel.hidden=true;mastButton.setAttribute('aria-expanded','false');}
     $('trampoline').hidden=!cat||!boatActive;
+    $('easeTraveler').hidden=!cat||!boatActive||!manual;
     racePanel.hidden=Boolean(sub?.active||animalId||motor);
     const sensorPanel=[animalSensors,motorSensors,subSensors].find(panel=>!panel.hidden);
     const rosterPanel=sensorPanel??raceSidebar;
@@ -1074,11 +1112,13 @@ async function run(){
     e.preventDefault();toggleMap();
   });
   addEventListener('keydown',e=>{
+    const fullRelease=e.shiftKey&&e.code==='ArrowUp';
+    const formControl=['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName);
     if(!moveTraveler||mapDialog.open||targetSelect.value!=='boat'||!manual||
-      e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||e.target.isContentEditable||
-      ['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)||!e.code.startsWith('Arrow'))return;
+      e.altKey||e.ctrlKey||e.metaKey||(e.shiftKey&&!fullRelease)||e.target.isContentEditable||
+      (formControl&&!(fullRelease&&e.target.type==='range'))||!e.code.startsWith('Arrow'))return;
     e.preventDefault();
-    moveTraveler(e.code);
+    if(!fullRelease||!e.repeat)moveTraveler(e.code,fullRelease,e.repeat);
   });
   addEventListener('keydown',e=>{if(!e.defaultPrevented&&!mapDialog.open&&e.code!=='KeyM'&&manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){if(animalId){if(e.code==='KeyF'&&!flyingGull()){if(!e.repeat)$('animalFeed').click();return;}if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat){if(flyingGull())remote.npc.gullCall(gullIndex(animalId));else $('animalBreach').click();}return;}if(e.code.startsWith('Arrow'))e.preventDefault();}else if(drone?.active){
       if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat)$('cutMotors').click();return;}
@@ -1269,7 +1309,8 @@ async function run(){
     try{
       if(keyboard.active){keyboard.advance(now);helm();}
       if(model&&remote.needsTraffic(now>=raceTick)){
-        model.set('traffic',remote.contacts(model.get('east'),model.get('north')));
+        peerCollisionSamples=remote.contacts(model.get('east'),model.get('north'));
+        model.set('traffic',peerCollisionSamples);
       }
       if(now>=raceTick){
         raceTick=now+50;
@@ -1288,7 +1329,7 @@ async function run(){
         if(lastCountdown!==null&&lastCountdown<5&&left>295)audio.signal();
         lastCountdown=left;const label=left>298?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
         const sceneryTime=world?.time??model.time;
-        boardClock(label,sceneryTime,ocean.sampleWind);island.userData.updatePalms(sceneryTime,ocean.sampleWind);$('countdown').textContent=label;
+        course.update(label,sceneryTime,ocean.sampleWind);island.userData.updatePalms(sceneryTime,ocean.sampleWind);$('countdown').textContent=label;
         const lap=scorer.get('lapTime');
         const tenths=Math.round(lap*10);
         const timer=lapClock(tenths);
@@ -1847,12 +1888,14 @@ async function run(){
         ocean.U.under.value=Number(submerged);ocean.dome.visible=!submerged;
         if(submerged)renderBelow(scene,camera);else renderer.render(scene,camera);
       }
+      if(collisionToggle.checked)drawCollisions();
       if(physicsEnabled){
         const inspected=subject??(sub?.active?sub.mesh:drone?.active?drone.group:
           animalId?visitors.cameraSubject(animalId):motor?.group??boat?.group);
+        const swimmer=inspected?.userData.swimmer;
         const sailing=inspected&&inspected===boat?.group;
         const kind=sailing?'boat':inspected===sub?.mesh?'sub':inspected===drone?.group?'drone':
-          inspected===motor?.group?'motorboat':animalKind()??view.split('-')[0];
+          inspected===motor?.group?'motorboat':swimmer?.kind??animalKind()??view.split('-')[0];
         const showHulls=$('physicsHulls').checked;
         const showRig=$('physicsRig').checked,rig=sailing?boat.inspection:null;
         if(rig&&showRig&&cat&&!rig.battens&&battenInspectionFields.every(name=>model.has(name))){
@@ -1869,6 +1912,10 @@ async function run(){
             strips:showHulls&&kind==='motorboat'&&motor?cruiserInspectionFields.map(name=>world.get(name)):null};
           if(waveGrids.checked){
             const water=body.water={tide:previousSurface?.tide??ocean.U.tide.value};
+            if(swimmer){
+              water.swimmerKind=swimmer.kind;
+              water.swimmer=ocean.swimmerWater.inspection(swimmer.kind,swimmer.id);
+            }
             if(previousSurface?.tile)water.wind={values:previousSurface.tile,length:64};
             if(world&&lastHullHeight){
               const drift=ocean.U.spectrumDrift.value;
