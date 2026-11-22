@@ -20,6 +20,7 @@ protected
   Real zTarget,orbit,airCourse,headingError,bankTarget,drive,rate,stroke,sweep,strokeRate;
   Real gamma,pressure,refCl,desiredVz,pitchTarget,tailCommand,rollCommand;
   Real arm[4],side[4],strokeVz[4],inflow[4],stripCl[4],stripCd[4],stripQ[4],fx[4],fz[4];
+  Real chordwiseFlow,stripVertical[4],stripFlow[4],sinInflow[4],cosInflow[4];
   Real lift,forward,scale,work,tailAngle,tailCl,tailPressure,tailDrag,bodyDrag;
 equation
   zTarget=seaLevel+9+2*offset;
@@ -53,20 +54,26 @@ equation
   tailCommand=max(-.30,min(.30,-.73*(pitchTarget-pitch)+.076*pitchRate));
   der(tailTrim)=max(-2.5,min(2.5,(tailCommand-tailTrim)/.065));
 
+  chordwiseFlow=max(1,x[5]);
   for j in 1:4 loop
     side[j]=if j<=2 then -1 else 1;
     arm[j]=span*(if mod(j,2)==1 then .12 else .36)*(1-(if mod(j,2)==1 then .03 else .27)*sweep);
     strokeVz[j]=arm[j]*strokeRate*cos(stroke);
-    inflow[j]=atan2(x[6]+strokeVz[j]+side[j]*arm[j]*rollRate,max(1,x[5]));
+    stripVertical[j]=x[6]+strokeVz[j]+side[j]*arm[j]*rollRate;
+    inflow[j]=atan2(stripVertical[j],chordwiseFlow);
     // Wrist flexion reduces the outer upstroke area and distal feathers twist
     // toward the local inflow. Opposite incidence changes roll the bird.
     stripCl[j]=max(-.70,min(1.48,4.7*(.065+pitch+side[j]*differential-inflow[j]
       +(if mod(j,2)==1 then .26 else .47)*(inflow[j]-gamma))));
     stripCd[j]=.012+.045*stripCl[j]^2;
-    stripQ[j]=.125*rho*area*(x[5]^2+(x[6]+strokeVz[j]+side[j]*arm[j]*rollRate)^2)*
+    stripQ[j]=.125*rho*area*(x[5]^2+stripVertical[j]^2)*
       (1-(if mod(j,2)==1 then .04 else .30)*sweep);
-    fx[j]=stripQ[j]*(-stripCl[j]*sin(inflow[j])-stripCd[j]*cos(inflow[j]));
-    fz[j]=stripQ[j]*( stripCl[j]*cos(inflow[j])-stripCd[j]*sin(inflow[j]))*cos(stroke);
+    // Rotate the foil force with the normalized inflow components.
+    stripFlow[j]=sqrt(chordwiseFlow^2+stripVertical[j]^2);
+    sinInflow[j]=stripVertical[j]/stripFlow[j];
+    cosInflow[j]=chordwiseFlow/stripFlow[j];
+    fx[j]=stripQ[j]*(-stripCl[j]*sinInflow[j]-stripCd[j]*cosInflow[j]);
+    fz[j]=stripQ[j]*( stripCl[j]*cosInflow[j]-stripCd[j]*sinInflow[j])*cos(stroke);
   end for;
   work=sum({max(0,-fz[j]*strokeVz[j]) for j in 1:4});
   scale=min(1,maxMusclePower/max(.001,work));power=scale*work;

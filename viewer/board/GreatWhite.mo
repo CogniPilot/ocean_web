@@ -27,7 +27,7 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
     Real cy,sy,cp,sp,cr,sr,arm[3],point[3],velocity[3],contact[5],along,side,up,tailRate;
   algorithm
     loads:=zeros(8);loads[7]:=1e6;
-    cy:=cos(heading);sy:=sin(heading);cp:=cos(state[3]);sp:=sin(state[3]);
+    cp:=cos(state[3]);sp:=sin(state[3]);
     cr:=cos(bank[1]);sr:=sin(bank[1]);
     // Even with maximum tail sweep, all probes fit inside this sphere.
     // The gap remains the exact minimum over the rotated contact points.
@@ -39,6 +39,7 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
       end for;
       return;
     end if;
+    cy:=cos(heading);sy:=sin(heading);
     for i in 1:9 loop
       along:=length/4.8*skin[i,1];
       side:=length/4.8*skin[i,2]-(if i==5 then .91*sin(state[6]) else 0);

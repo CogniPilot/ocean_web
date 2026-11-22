@@ -52,6 +52,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0){
    inputs.push(...Object.values(boatInputs));
  }
  if(mode==='motorboat')inputs.push('throttleLever','helmLever');
+ if(mode==='habitat')initial.animalPosition=[-5,0,0];
  if(hasSub){initial.subManual=1;inputs.push('subPilot');}
  if(hasFlight){initial.flightManual=1;inputs.push('flightPilot','motorCut','flightMode','racePilot');}
  if(hasFlight)initial.station=[-5,0];

@@ -33,12 +33,13 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
   function foil "Lift perpendicular to local flow, profile and induced drag opposite velocity"
     input Real u,w,angle,area,water;
     output Real fx,fz;
-  protected Real v,alpha,cl,cd,k;
+  protected Real v,alpha,s,c,cl,cd,k;
   algorithm
     v:=sqrt(u*u+w*w+.000001);
     alpha:=angle-atan2(w,u+.000001);
-    cl:=1.28*tanh(4.1*sin(alpha)*cos(alpha))*cos(alpha);
-    cd:=.021+.075*cl^2+1.1*sin(alpha)^2;
+    s:=sin(alpha);c:=cos(alpha);
+    cl:=1.28*tanh(4.1*s*c)*c;
+    cd:=.021+.075*cl^2+1.1*s^2;
     k:=.5*rho*area*water*v;
     fx:=k*(-cl*w-cd*u);
     fz:=k*(cl*u-cd*w);
@@ -50,11 +51,11 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
     constant Real along[7]={-2,.5,4.35,-.55,-.55,-3.72,-3.72};
     constant Real side[7]={0,0,0,3.42,-3.42,2.16,-2.16};
     constant Real below[7]={-.84,-1.23,-.30,-1.90,-1.90,-.22,-.22};
-    Real cy,sy,cr,sr,cp,sp,ct,st,lever,zOffset,yOffset,pitch,rate;
+    Real cy,sy,cr,sr,cp,sp,ct,st,lever,zOffset,yOffset,cosPitch,sinPitch,rate;
     Real arm[3],velocity[3],pos[3],force[3],rel[3],contact[5];
   algorithm
     loads:=zeros(11); loads[11]:=1e6;
-    cy:=cos(state[10]);sy:=sin(state[10]);cr:=cos(state[12]);sr:=sin(state[12]);
+    cr:=cos(state[12]);sr:=sin(state[12]);
     cp:=cos(state[6]);sp:=sin(state[6]);ct:=cos(state[8]);st:=sin(state[8]);
     // The furthest fluke probe stays within 6.7 m of the body origin.
     if Shore.aboveFlatBottom(state[1],state[2],state[3],6.7) then
@@ -65,16 +66,17 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
       end for;
       return;
     end if;
+    cy:=cos(state[10]);sy:=sin(state[10]);
     for i in 1:7 loop
       // Rotate the skin offsets in roll and pitch. Fluke points translate with the torso hinge.
       yOffset:=side[i]*cr-below[i]*sr; zOffset:=side[i]*sr+below[i]*cr;
-      lever:=along[i];pitch:=if i<=5 then state[6] else state[8];
+      lever:=along[i];cosPitch:=if i<=5 then cp else ct;sinPitch:=if i<=5 then sp else st;
       rate:=if i<=5 then state[7] else state[9];
-      rel:={lever*cos(pitch)-zOffset*sin(pitch),yOffset,lever*sin(pitch)+zOffset*cos(pitch)};
+      rel:={lever*cosPitch-zOffset*sinPitch,yOffset,lever*sinPitch+zOffset*cosPitch};
       arm:=rel+(if i<=5 then zeros(3) else {bx*cp,0,bx*sp});
-      velocity:={state[4]-state[11]*arm[2]-rate*rel[3]-state[13]*yOffset*sin(pitch),
+      velocity:={state[4]-state[11]*arm[2]-rate*rel[3]-state[13]*yOffset*sinPitch,
         state[15]+state[11]*arm[1]-state[13]*zOffset,
-        state[5]+rate*rel[1]+state[13]*yOffset*cos(pitch)};
+        state[5]+rate*rel[1]+state[13]*yOffset*cosPitch};
       if i>5 then velocity:=velocity+{-state[7]*bx*sp,0,state[7]*bx*cp}; end if;
       pos:={state[1]+cy*arm[1]-sy*arm[2],state[2]+sy*arm[1]+cy*arm[2],state[3]+arm[3]};
       contact:=Shore.skinContact(pos,cy,sy,velocity,if i<=5 then 55000 else 16000);
@@ -89,7 +91,7 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
           loads[6]:=loads[6]+(rel[1]+tx*ct)*force[3]-(rel[3]+tx*st)*force[1];
         end if;
         loads[7]:=loads[7]+force[2];loads[8]:=loads[8]+arm[1]*force[2]-arm[2]*force[1];
-        loads[9]:=loads[9]+yOffset*(cos(pitch)*force[3]-sin(pitch)*force[1])-zOffset*force[2];
+        loads[9]:=loads[9]+yOffset*(cosPitch*force[3]-sinPitch*force[1])-zOffset*force[2];
         loads[10]:=loads[10]+contact[4];
       end if;
     end for;

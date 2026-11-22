@@ -517,3 +517,48 @@ At revision `aab8a55`, Linux perf sampled the shipped sailing WebAssembly after 
 * **Spectral work.** Time the wake update and background spectrum independently of ordinary steps. Cache phase-independent mode coefficients while their wind, depth and preset inputs are constant, then compare the surface, wave loads, rig loads and vessel trajectory against the original run.
 
 A tenfold improvement on this baseline requires approximately 0.86 ms per 10 ms of simulated time, including the pose read. Even eliminating the measured bulk-copy cost entirely would yield about 1.45× speedup. For local reproduction use `node scripts/profile-world.mjs build/pages/sailing 1200 --swell`. CI compares candidate and reference on the same runner.
+## Latest browser and vehicle measurements
+
+The viewer caps scene updates and drawing at 30 FPS. In a 393 × 852 touch
+viewport, Chromium reported 30 FPS and 1.00× simulation speed on the published
+Fast cruiser. The worker still steps the FMU in 10 ms increments.
+
+Shark and whale play now loads a sea and weather component centered on the
+swimmer. The previous environment stepped a hidden RDD2. In two Linux perf
+captures with wakes omitted, mean environment step and read time fell from
+2.36 to 1.48 ms and sampled user CPU cycles fell by 40%. This measurement
+covers the environment worker. The swimmer solver runs in its own worker.
+
+The generated solvers now copy contiguous event histories in runs and validate
+contiguous array assignments before copying directly into the destination.
+The compact wildlife builds also reuse orientation calculations and use a
+higher optimizer setting. The gull rotates its foil forces using normalized
+inflow components.
+
+| Vehicle | Baseline ms per step and read | Candidate ms per step and read | CPU cycle speedup | Largest observed replay delta |
+| --- | ---: | ---: | ---: | ---: |
+| Hobie 16 | 6.843 | 6.241 | 1.10× | 0 |
+| Pilothouse sloop | 7.606 | 7.663 | 0.99× | 4.61e-7 |
+| Cabin cruiser | 3.090 | 2.752 | 1.13× | 0 |
+| RDD2 | 2.442 | 1.952 | 1.26× | 8.88e-15 |
+| Piccard survey submarine | 7.436 | 6.455 | 1.15× | 5.33e-15 |
+| Humpback | 0.492 | 0.461 | 1.06× | 0 |
+| Great white, pitching and banking | 0.522 | 0.516 | 1.01× | 0 |
+| Herring gull | 0.097 | 0.093 | 1.04× | 3.34e-10 |
+| Coupled development world | 13.663 | 13.029 | 1.05× | 0 |
+
+These profiles compare the published archives from `fb9e68f` with the
+candidate on a Ryzen 9 5950X using Node.js 22 and Linux perf. Each capture
+sampled user-space cycles at 499 Hz after 200 warm-up steps. Each vehicle used
+the same settings and 10 ms communication step in both builds, with 500 to
+16,000 timed steps per capture. Wakes were enabled for the marine scenarios in
+the table. Replay deltas are absolute differences in the sampled output lanes.
+The sloop candidate used slightly more CPU, so its archive was excluded from
+the release. The measured gains leave the 10× target open.
+
+Run `scripts/profile-physics-perf.sh build/pages sailing build/physics-profiles/sailing 900`
+after packaging with `scripts/package-pages.sh build/pages --world`. The script
+writes the binary perf data, symbol report, timings, and numerical replay.
+Use `--no-wakes` for the Fast physics setting and `--banked` for the shark
+maneuver. Compare `flight-idle` on the baseline with `habitat` on the new
+build for the swimmer environment measurement.

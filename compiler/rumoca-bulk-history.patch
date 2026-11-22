@@ -1,0 +1,152 @@
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
+@@ -622,6 +622,43 @@
+ {% endmacro %}
+
+
++{#- Adjacent pre() lanes share a copy if their storage and indices advance
++    together. Split overlapping forward P-to-P writes to preserve the scalar
++    assignment order for kernels reading and writing the same P array. -#}
++{%- macro copy_history(bindings, dest, y, p, compare=false) %}
++{%- set run = namespace(count=0, dst=0, src=0, from_y=false) %}
++{%- for binding in bindings %}
++    {%- set from_y = binding.source.Y is defined %}
++    {%- set src = binding.source.Y.index if from_y else binding.source.P.index %}
++    {%- set dst = binding.dest_p_index %}
++    {%- if run.count > 0 and (from_y != run.from_y or dst != run.dst + run.count or
++        src != run.src + run.count or
++        (not from_y and run.dst > run.src and run.count >= run.dst - run.src)) %}
++{{- history_run(run, dest, y, p, compare) }}
++        {%- set run.count = 0 %}
++    {%- endif %}
++    {%- if run.count == 0 %}
++        {%- set run.dst = dst %}{%- set run.src = src %}{%- set run.from_y = from_y %}
++    {%- endif %}
++    {%- set run.count = run.count + 1 %}
++{%- endfor %}
++{%- if run.count > 0 %}{{ history_run(run, dest, y, p, compare) }}{% endif %}
++{%- endmacro %}
++{%- macro history_run(run, dest, y, p, compare) %}
++    { const double* source = {{ y if run.from_y else p }} + {{ run.src }};
++      double* target = {{ dest }} + {{ run.dst }};
++{%- if compare %}
++      if (!history && memcmp(target, source, {{ run.count }} * sizeof(double)) != 0)
++          for (size_t lane = 0; lane < {{ run.count }} && !history; ++lane)
++              history = rmc_value_changed(target[lane], source[lane], m->tolerance);
++{%- endif %}
++{%- if run.count == 1 %}
++      *target = *source; }
++{%- else %}
++      memmove(target, source, {{ run.count }} * sizeof(double)); }
++{%- endif %}
++{%- endmacro %}
++
+ {%- macro assertions(solve, fmi, messages, rows, prefix, observed_actions) %}
+ {%- if fmi.assertions and solve.events.actions|length > 0 %}
+ {{ message_support(rows, prefix, observed_actions|length > 0) }}
+@@ -697,9 +734,7 @@
+ static {{ prefix }}Status update_assertion_memory(ModelInstance* m) {
+     (void)m;
+ {{- discrete_rows(solve, fmi.discrete_memories, prefix) }}
+-{%- for binding in solve.solve_layout.pre_param_bindings %}
+-    m->p[{{ binding.dest_p_index }}] = {% if binding.source.Y is defined %}m->y[{{ binding.source.Y.index }}]{% else %}m->p[{{ binding.source.P.index }}]{% endif %};
+-{%- endfor %}
++{{- copy_history(solve.solve_layout.pre_param_bindings, "m->p", "m->y", "m->p") }}
+     return {{ prefix }}OK;
+ }
+ {%- endmacro %}
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
+@@ -7,7 +7,7 @@
+     order the schedule lists them. The linked runtime walks the same facts
+     (rumoca-solver fmi_me/kernel/component.rs and runtime/solve_runtime/
+     relation_memory.rs, discrete_rows.rs). -#}
+-{%- from "fmi-c-kernel.jinja" import scalar_op %}
++{%- from "fmi-c-kernel.jinja" import scalar_op, copy_history %}
+
+ {%- macro initial_mode(solve, active) -%}
+ {%- if solve.solve_layout.initial_event_parameter_index is not none %}m->p[{{ solve.solve_layout.initial_event_parameter_index }}] = {{ "1.0" if active else "0.0" }}; {% endif -%}
+@@ -557,6 +557,7 @@
+
+ /* The pre-binding lanes (pre_params.rs). */
+ {%- set lanes = ev.pre_bindings %}
++{%- if ev.iteration_lanes|length > 0 %}
+ static double rmc_pre_source(const double* y, const double* p, size_t lane) {
+ {%- if lanes|length > 0 %}
+     static const size_t source[{{ lanes|length }}] = { {% for lane in lanes %}{{ lane.source }},{% endfor %} };
+@@ -567,9 +568,6 @@
+ {%- endif %}
+ }
+ static const size_t rmc_pre_dest[{{ [lanes|length, 1]|max }}] = { {% for lane in lanes %}{{ lane.dest }},{% else %}0{% endfor %} };
+-static const size_t rmc_pre_lanes = {{ lanes|length }};
+-#define RMC_PRE_LANES rmc_pre_lanes
+-{%- if ev.iteration_lanes|length > 0 %}
+ static const size_t rmc_iteration_lanes[{{ [ev.iteration_lanes|length, 1]|max }}] = { {% for lane in ev.iteration_lanes %}{{ lane }},{% else %}0{% endfor %} };
+ static const size_t rmc_iteration_lane_count = {{ ev.iteration_lanes|length }};
+ #define RMC_ITERATION_LANES rmc_iteration_lane_count
+@@ -793,7 +791,7 @@
+    component.rs commit_event_runtime_state. Pre values are seeded from the
+    event entry; each later pass reads the previous pass (Appendix B). */
+ static {{ prefix }}Status rmc_event_iterate_passes(ModelInstance* m, bool canonicalize) {
+-    for (size_t k = 0; k < RMC_PRE_LANES; ++k) m->p[rmc_pre_dest[k]] = rmc_pre_source(m->rmc_entry_y, m->rmc_entry_p, k);
++{{- copy_history(solve.solve_layout.pre_param_bindings, "m->p", "m->rmc_entry_y", "m->rmc_entry_p") }}
+     bool settled = false;
+     RmcSurface surface = {0};
+     for (size_t pass = 0; pass < {{ schedule.fixed_point_cap }} && !settled; ++pass) {
+@@ -831,13 +829,11 @@
+ {%- endif %}
+     /* pre_params.rs commit_pre_params_after_event_at. */
+     bool history = false;
++{%- if ev.pre_bindings|length > 0 %}
+     double committed_p[P_LEN];
+     memcpy(committed_p, m->p, sizeof(m->p));
+-    for (size_t k = 0; k < RMC_PRE_LANES; ++k) {
+-        double value = rmc_pre_source(m->y, committed_p, k);
+-        history |= rmc_value_changed(m->p[rmc_pre_dest[k]], value, m->tolerance);
+-        m->p[rmc_pre_dest[k]] = value;
+-    }
++{%- endif %}
++{{- copy_history(solve.solve_layout.pre_param_bindings, "m->p", "m->y", "committed_p", true) }}
+     if (!canonicalize || !history) return {{ prefix }}OK;
+     /* component.rs canonicalize_committed_event_view. */
+     for (size_t round = 0; round < {{ schedule.fixed_point_cap }}; ++round) {
+@@ -904,7 +900,7 @@
+     }
+ {%- endif %}
+     if (settle_values(m) != {{ prefix }}OK || rmc_relation_refresh(m, false, &changed) != {{ prefix }}OK) return {{ prefix }}Error;
+-    for (size_t k = 0; k < RMC_PRE_LANES; ++k) m->p[rmc_pre_dest[k]] = rmc_pre_source(m->y, m->p, k);
++{{- copy_history(solve.solve_layout.pre_param_bindings, "m->p", "m->y", "m->p") }}
+     if (rmc_discrete_owners(m, &changed, true, false) != {{ prefix }}OK) return {{ prefix }}Error;
+     memcpy(m->rmc_entry_y, m->y, sizeof(m->y));
+     memcpy(m->rmc_entry_p, m->p, sizeof(m->p));
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/me_projection.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/me_projection.jinja
+@@ -1203,6 +1203,20 @@
+ {%- macro assignment_functions(me) %}
+ {%- for program in me.assign.plan.programs %}
+ static int rmc_asg_p{{ loop.index0 }}(ModelInstance* m) {
++{%- set load = program.ops[0] %}
++{%- set store = program.ops[1] %}
++{%- if program.ops|length == 2 and load.kind == "TensorLoad" and load.lanes == 1
++    and load.count >= 16 and store.kind == "StoreOutputRange"
++    and store.count == load.count and store.start == load.dst and store.stride == 1
++    and store.output_span is defined and not store.output_span.descending and store.output_span.stride == 1 %}
++    /* This segment is only a contiguous load and store. Validate before
++       publishing the range, then copy directly from its source array. */
++    const double* source = m->{{ load.input | lower }} + {{ load.input_start }};
++    unsigned invalid = 0;
++    for (size_t k = 0; k < {{ load.count }}; ++k) invalid |= !isfinite(source[k]);
++    if (invalid) return 1;
++    memmove(m->y + {{ store.output_span.start }}, source, {{ load.count }} * sizeof(double));
++{%- else %}
+     double r[{{ program.temporary_count if program.temporary_count > 0 else 1 }}]; (void)r;
+ {%- for op in program.ops %}
+ {%- if op.kind == "StoreOutputRange" and op.output_span is defined %}
+@@ -1218,6 +1232,7 @@
+ {%- endif %}
+ {%- endif %}
+ {%- endfor %}
++{%- endif %}
+     return 0;
+ }
+ {%- endfor %}

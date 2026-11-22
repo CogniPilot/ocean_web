@@ -16,12 +16,13 @@ case ${1:-OceanWorld} in
   OceanSubmarine) modelName=OceanSubmarine; defaultOut=build/ocean-submarine ;;
   OceanFlight) modelName=OceanFlight; defaultOut=build/ocean-flight ;;
   OceanMotorboat) modelName=OceanMotorboat; defaultOut=build/ocean-motorboat ;;
-  *) echo "Expected OceanWorld, OceanSailing, OceanSloop, OceanSubmarine, OceanFlight or OceanMotorboat" >&2; exit 2 ;;
+  OceanHabitat) modelName=OceanHabitat; defaultOut=build/ocean-habitat ;;
+  *) echo "Expected OceanWorld, OceanSailing, OceanSloop, OceanSubmarine, OceanFlight, OceanMotorboat or OceanHabitat" >&2; exit 2 ;;
 esac
 roots=(--source-root "$lib" --source-root models/OceanRace.mo)
 case $modelName in
   OceanSloop) roots+=(--source-root models/OceanSailing.mo) ;;
-  OceanSubmarine|OceanFlight|OceanMotorboat) roots+=(--source-root models/OceanMission.mo) ;;
+  OceanSubmarine|OceanFlight|OceanMotorboat|OceanHabitat) roots+=(--source-root models/OceanMission.mo) ;;
 esac
 for model in WildlifeContact Shore Sailboat SailMembrane MarineWind WakeSpectrum BowWavePatch Regatta Rdd2Survey; do
   roots+=(--source-root "viewer/board/$model.mo")

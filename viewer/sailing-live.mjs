@@ -100,9 +100,9 @@ async function run(){
   const selectedRole=['sub','drone','whale','shark','motorboat'].includes(initialTarget)?initialTarget:'boat';
   const fullWorld=selectedRole!=='motorboat'&&url.searchParams.get('runtime')==='world'&&requestedHull!=='Sailboat';
   const sailingMode=requestedHull==='Sailboat'?'sloop':'sailing';
-  const modes={boat:sailingMode,motorboat:'motorboat',drone:'flight',sub:'submarine',whale:'flight',shark:'flight'};
+  const modes={boat:sailingMode,motorboat:'motorboat',drone:'flight',sub:'submarine',whale:'habitat',shark:'habitat'};
   const mode=selectedRole==='motorboat'?'motorboat':fullWorld?'world':packaged?modes[selectedRole]:url.searchParams.get('runtime')==='sailing'?sailingMode:null;
-  const hasBoat=mode!=='motorboat'&&mode!=='submarine'&&mode!=='flight';
+  const hasBoat=!mode||mode==='world'||mode===sailingMode;
   const hasSub=fullWorld||mode==='submarine'||(!packaged&&!mode);
   const cat=hasBoat&&(mode==='world'||mode==='sailing'||requestedHull==='Hobie16');
   const vessel=cat?'Hobie16':'Sailboat';
@@ -1055,6 +1055,13 @@ async function run(){
         if(mode==='flight'&&drone){
           const [east,north]=drone.position;
           world.set('peerDeck',remote.nearbyDeck(east,north,now));
+        }
+        if(mode==='habitat'&&animalId){
+          const frame=visitors.frame(animalId);
+          if(frame){
+            const offset=animalKind()==='whale'?17:9;
+            world.set('animalPosition',frame.slice(offset,offset+3));
+          }
         }
         if(world.hasSwimmerWater&&(model||motor))world.set('swimmerWater',localSwimmerWater());
         if(world.hasAnimalTraffic)world.set('animalTraffic',visitors.contacts());

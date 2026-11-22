@@ -15,7 +15,12 @@ name = xml.attrib['modelName']
 headers = Path('.deps/rumoca-src/crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers')
 c = source / 'sources'
 # Binaryen's -O2 pass expands the spectral FMU's large array initialization.
-optimization = '-O1' if name in ('WakeSpectrum', 'SwimmerWake', 'Wreck_SurveySLAM') else '-O2'
+if name in ('WakeSpectrum', 'SwimmerWake', 'Wreck_SurveySLAM'):
+    optimization = '-O1'
+elif name in ('HarborTraffic', 'HerringGull'):
+    optimization = '-O3'
+else:
+    optimization = '-O2'
 subprocess.run(['emcc',optimization, '-I'+str(headers), '-I'+str(c),
                 *map(str, sorted(c.glob('*.c'))), 'scripts/browser-fmi3.c',
                 '-sSTACK_SIZE=4194304','-sMODULARIZE=1','-sEXPORT_ES6=1','-sENVIRONMENT=web,worker,node',

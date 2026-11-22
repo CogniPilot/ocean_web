@@ -57,7 +57,9 @@ export function npcRoom(){
       if(target&&id!==target)continue;
       if(m.version===2){
         const shared=m.extendedGulls?habitat:{...habitat,gulls:habitat.gulls.slice(0,2).map(r=>r.slice(0,12))};
-        send({type:'harbor',version:2,extendedGulls:true,joined,frame:last?.frame,items,habitat:shared},id);
+        const frame=m.sharkBank?last?.frame:last?.frame?.slice(0,203);
+        const roster=m.sharkBank?items:items.map(a=>a.frame?.length>203?{...a,frame:a.frame.slice(0,203)}:a);
+        send({type:'harbor',version:2,extendedGulls:true,sharkBank:true,joined,frame,items:roster,habitat:shared},id);
       }else{
         if(last?.frame)send([joined,...last.frame.slice(0,70)],id);
         send({type:'animals',items:items.map(a=>({...a,frame:a.frame?.slice(0,70)}))},id);
@@ -72,7 +74,7 @@ export function npcRoom(){
     owner=viable[0][0];
   }
   function send(data,target){channel?.send(data,target?{target}:undefined).catch(()=>{});}
-  function hello(target){send([joined],target);send({type:'hello',version:2,extendedGulls:true,joined},target);}
+  function hello(target){send([joined],target);send({type:'hello',version:2,extendedGulls:true,sharkBank:true,joined},target);}
   return {
     connect(action,id){
       channel=action;self=id;habitatOwner=id;session++;animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
@@ -82,7 +84,7 @@ export function npcRoom(){
         let m=members.get(peerId);
         if((data.type==='hello'||data.type==='harbor')&&data.version===2&&Number.isSafeInteger(data.joined)&&data.joined>0){
           if(!m){m={joined:data.joined,samples:[]};members.set(peerId,m);elect();hello(peerId);}
-          m.version=2;m.extendedGulls=data.extendedGulls===true;
+          m.version=2;m.extendedGulls=data.extendedGulls===true;m.sharkBank=data.sharkBank===true;
           if(data.type==='hello'){sync(peerId);return;}
         }
         if(!Array.isArray(data)){
