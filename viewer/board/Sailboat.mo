@@ -156,6 +156,10 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   input Real downhaulInput "Catamaran luff adjustment, 0 eased to 1 hauled";
   parameter Real downhaulTravel(unit="m")=.10 "Available shortening at the tack";
   parameter Real luffRigidity(unit="N")=45000, downhaulStiffness(unit="N/m")=40000;
+  input Real outhaulInput(start=.65) "Main clew adjustment, zero eased and one tight";
+  output Real mainClewOffset(start=0,fixed=true) "Aft travel of the main clew from neutral [m]";
+  final parameter Real outhaulTravel=.18;
+  Real clewArm;
   Real downhaulShortening(start=0,fixed=true),tackDrop,downhaulTension;
   Real payout(start=.12,fixed=true),drumAngle,lineSpeed,boomLimit;
   parameter Real drumRadius=.043, sheetArm=.44;
@@ -201,7 +205,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   discrete Real midSag[3,3](each start=0,each fixed=true);
   discrete Real tangLean[2](each start=0,each fixed=true),tangRate[2](each start=0,each fixed=true);
   Real contactBody[2,3],mainMomentBody[3],jibWireLoad[3];
-  output Real sailTail[2,4,3] "Paired face telltales on main and jib";
+  output Real sailTail[2,6,3] "Paired face telltales on main and jib";
+  output Real sailLuff[2] "Airflow-weighted luffing intensity on main and jib";
   output Real shroudTail[2,3] "Direction of each sidestay streamer in hull coordinates, port first";
   function streamerDirection
     input Real relativeVelocity[3],gravityDown[3],density;
@@ -216,7 +221,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real tailArm[2,3],tailFluid[2,3];
   Real tailImmersion[2] "Wet fraction across the ribbon near the waterline";
   Real mainCarTarget,jibCarTarget,windSide;
-  Real trueWindAngle,windForCrew,buildingWind,depower,reachFraction,reachTrim,autoPayout;
+  Real trueWindAngle,windForCrew,buildingWind,depower,reachFraction,reachTrim,poweredReach,autoPayout;
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
   parameter Real swellK=.34,swellBearing=1.04159;
   parameter Real swellOmega=sqrt(9.80665*swellK);
@@ -268,7 +273,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real footX[2]={.12,1.16-(.19-.09)*forestaySlope};
   parameter Real axisX[2]={0,-forestaySlope/sqrt(1+forestaySlope^2)},axisZ[2]={1,1/sqrt(1+forestaySlope^2)};
   output Real sheetRotation[2,3,3] "Sail frame to hull frame";
-  SailMembrane cloth[2](cutAngle={footCut,0},footInTrack={catamaran,false},each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={0,spans[2]*forestaySlope},roach={mainRoach,0});
+  SailMembrane cloth[2](each attachedAirflow=catamaran,telltaleCount={if catamaran then 3 else 2,2},
+    telltaleRows={{2,3,5},{2,4,5}},cutAngle={footCut,0},footInTrack={catamaran,false},each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={0,spans[2]*forestaySlope},roach={mainRoach,0});
   Real rotation[3,3],rig[2,3,3],trim[2](each start=.17,each fixed=true), waterRelative[3],spin[3],origin[2,3];
   Real pitchRate(start=launchPitchRate,fixed=true),rigMoment[2,3],rigForce[2,3],surfaceNormal[3];
   output Real sailVertex[2,24,3],wettedArea[2],leechSpeed[2],sailMoment[3];
@@ -500,17 +506,21 @@ equation
   depower=min(1,max(0,max((windForCrew-10.5)/5,(abs(sin(heel))-.24)/.24)));
   reachFraction=min(1,max(0,(trueWindAngle-1.22)/.96));
   reachTrim=reachFraction^2*(3-2*reachFraction);
+  // A moving catamaran pulls the apparent wind forward on a reach.
+  // Keep the sheets engaged there, then ease for a deep downwind course.
+  poweredReach=if catamaran and sqrt(sailWind*sailWind)>6 then
+    sin(Modelica.Constants.pi*min(1,max(0,(trueWindAngle-1.22)/1.48)))^2 else 0;
   mainCarTarget=if deckManual>.5 then mainCarInput else
-    windSide*((1-reachTrim)*.045*depower+.9*reachTrim);
+    windSide*((1-reachTrim)*.045*depower+(.9-.42*poweredReach)*reachTrim);
   jibCarTarget=if deckManual>.5 then jibCarInput else
     (1-reachTrim)*(.18+.16*buildingWind+.19*depower)+.88*reachTrim;
   autoPayout=if tackRecovery==1 or tackRecovery==2 then .29 elseif catamaran and deckManual<=.5 then
-    (1-reachTrim)*(.012+.065*(1-buildingWind))+reachTrim*2*sheetArm*sin(abs(sheetTarget)/2)
+    (1-reachTrim)*(.012+.065*(1-buildingWind))+reachTrim*((1-poweredReach)*2*sheetArm*sin(abs(sheetTarget)/2)+.14*poweredReach)
     else 2*sheetArm*sin(abs(sheetTarget)/2);
   der(mainCar)=if catamaran then max(-.40,min(.40,(min(.9,max(-.9,mainCarTarget))-mainCar)/.38)) else 0;
   der(jibCar)=if catamaran then max(-.40,min(.40,(min(.88,max(.18,jibCarTarget))-jibCar)/.38)) else 0;
   jibTrimTarget=if (tackRecovery==1 or tackRecovery==2) and deckManual<.5 then .07 elseif manualHelm>.5 then min(1,max(0,(payout-.012)/.578+
-    (if deckManual>.5 then jibTrimInput-.35 else 0))) elseif deckManual>.5 then jibTrimInput else min(1,abs(sheetTarget)/1.5);
+    (if deckManual>.5 then jibTrimInput-.35 else 0))) elseif deckManual>.5 then jibTrimInput else (1-poweredReach)*min(1,abs(sheetTarget)/1.5)+.21*poweredReach;
   der(jibSheet)=if catamaran then max(-.7,min(.7,(jibTrimTarget-jibSheet)/.5)) else 0;
   sheet=trim[1];
   fairlead[1,:]={-attachRadius[1],if catamaran then mainCar else 0,if catamaran then travelerRiser-.50 else -.105};
@@ -553,12 +563,12 @@ equation
   // Head-to-clew reinforcement transfers boom downhaul into an aft spar load.
   // Its stretch is measured between the moving masthead and the rotating boom.
   leechDelta={mastTip,0,spans[1]+tackDrop}-sheetRotation[1,:,:]*
-    {-feet[1]*cos(boomElevation),0,feet[1]*sin(boomElevation)};
+    {-clewArm*cos(boomElevation),0,clewArm*sin(boomElevation)};
   leechLength=sqrt(leechDelta*leechDelta);
   leechDirection=leechDelta/leechLength;
   leechLoad=if catamaran then leechEA*max(0,leechLength/leechRest-1) else 0;
   leechLift=leechLoad*leechDirection*(sheetRotation[1,:,:]*
-    {feet[1]*sin(boomElevation),0,feet[1]*cos(boomElevation)});
+    {clewArm*sin(boomElevation),0,clewArm*cos(boomElevation)});
   der(mastTip)=mastTipRate;
   (mastModalMass+.25*rigWaterMass[1])*der(mastTipRate)=(if catamaran then sheetRotation[1,1,:]*cloth[1].mastLoad else 0)
     -leechLoad*leechDirection[1]-mastStiffness*mastTip-2*mastDampingRatio*sqrt(mastModalMass*mastStiffness)*mastTipRate;
@@ -592,7 +602,9 @@ equation
   der(downhaulShortening)=if catamaran then (downhaulTravel*max(0,min(1,downhaulInput))-downhaulShortening)/.25 else 0;
   tackDrop=downhaulShortening/(1+luffRigidity/(spans[1]*downhaulStiffness));
   downhaulTension=luffRigidity*tackDrop/spans[1];
-  clewTorque=feet[1]*(sin(boomElevation)*cloth[1].clewForce[1]+cos(boomElevation)*cloth[1].clewForce[3]);
+  der(mainClewOffset)=if catamaran then (outhaulTravel*(max(0,min(1,outhaulInput))-.65)-mainClewOffset)/.22 else 0;
+  clewArm=feet[1]+mainClewOffset;
+  clewTorque=clewArm*(sin(boomElevation)*cloth[1].clewForce[1]+cos(boomElevation)*cloth[1].clewForce[3]);
   der(boomElevation)=boomLiftRate;
   der(boomLiftRate)=(clewTorque+leechLift-vangTension*vangArm+sheetLift-(if catamaran then 26 else .95)*cos(boomElevation)-(if catamaran then 90 else 3)*boomLiftRate
     +900*max(0,(if catamaran then -.25 else -.035)-boomElevation)-900*max(0,boomElevation-.65))/((if catamaran then 11 else .28)+hingeWaterInertia[1]);
@@ -600,6 +612,8 @@ equation
   cloth[2].leechTension=0;
   cloth[1].boomElevation=boomElevation;
   cloth[2].boomElevation=0;
+  cloth[1].clewOffset=mainClewOffset;
+  cloth[2].clewOffset=0;
   // Centre the blades while flow dies. A measured sternway threshold
   // reverses the helm; the separate ahead threshold avoids switching at zero.
   helmTarget=if manualHelm>.5 then .54*rudderInput elseif tackRecovery==1 then 0
@@ -668,6 +682,7 @@ equation
     wettedArea[m]=cloth[m].wetArea;
     leechSpeed[m]=cloth[m].leechSpeed;
     sailTail[m,:,:]=cloth[m].faceTail;
+    sailLuff[m]=cloth[m].luffLevel;
     rigForce[m,:]=rig[m,:,:]*cloth[m].fluidForce;
     rigMoment[m,:]=rig[m,:,:]*cloth[m].fluidMoment+cross(origin[m,:],rigForce[m,:]);
     sailForward[m]=rigForce[m,1];sailPort[m]=rigForce[m,2];

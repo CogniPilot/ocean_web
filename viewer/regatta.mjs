@@ -120,7 +120,7 @@ export function courseScene(T,scene,race){
 }
 export function raceAudio(){
   let engines,audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
-  let submerged,surface,effects,level=.15;
+  let submerged,surface,effects,luffGain,level=.15;
   function setVolume(value){
     level=value;
     if(effects)effects.gain.setTargetAtTime(level,audio.currentTime,.025);
@@ -141,23 +141,18 @@ export function raceAudio(){
         source.connect(destination);source.start();
       }).catch(error=>console.warn('Ambience unavailable',file,error));
   }
-  let hitBuffer,loadingHit=false;
-  async function loadHit(){
-    if(hitBuffer||loadingHit)return;
-    loadingHit=true;
-    try{
-      const response=await fetch(new URL('./assets/audio/hit.mp3',import.meta.url));
-      if(!response.ok)throw Error('Sonar audio HTTP '+response.status);
-      hitBuffer=await audio.decodeAudioData(await response.arrayBuffer());
-    }catch(error){console.warn('Sonar alert unavailable',error);}
-    finally{loadingHit=false;}
-  }
   function imagingHit(distance,underwater){
-    if(!enabled||audio.state!=='running'||distance>32||!hitBuffer)return;
-    const source=audio.createBufferSource(),gain=audio.createGain();
-    source.buffer=hitBuffer;
-    gain.gain.value=(underwater?.20:.55)/(1+distance/5);
-    source.connect(gain).connect(effects);source.onended=()=>{source.disconnect();gain.disconnect();};source.start();
+    if(!enabled||audio.state!=='running'||distance>32)return;
+    const tone=audio.createOscillator(),gain=audio.createGain(),t=audio.currentTime;
+    const level=(underwater?.20:.55)/(1+distance/5);
+    tone.frequency.setValueAtTime(underwater?830:1370,t);
+    tone.frequency.exponentialRampToValueAtTime(underwater?420:780,t+.13);
+    gain.gain.setValueAtTime(.0001,t);
+    gain.gain.linearRampToValueAtTime(level,t+.007);
+    gain.gain.exponentialRampToValueAtTime(.0001,t+.15);
+    tone.connect(gain).connect(effects);
+    tone.onended=()=>{tone.disconnect();gain.disconnect();};
+    tone.start(t);tone.stop(t+.16);
   }
   async function setEnabled(on){
     if(!audio && !on)return;
@@ -176,13 +171,36 @@ export function raceAudio(){
       rainfall.connect(rainFilter).connect(rain).connect(weather).connect(effects);rainfall.start();
       blower.connect(filter).connect(wind).connect(effects);blower.start();
     }
-    if(on){void loadHit();await audio.resume();}else await audio.suspend();
+    if(on)await audio.resume();else await audio.suspend();
     enabled=audio.state==='running';return enabled;
   }
-  function update(speed,storm,height,seaState){
+  function luffing(amount,exposure){
+    if(!luffGain&&amount>0&&exposure>0){
+      const seconds=3.2,flap=audio.createBuffer(1,Math.round(seconds*audio.sampleRate),audio.sampleRate);
+      const data=flap.getChannelData(0);
+      let body=0,crackle=0;
+      for(let i=0;i<data.length;i++){
+        const phase=i/data.length*2*Math.PI;
+        const hit=Math.max(0,Math.sin(19*phase+.75*Math.sin(4*phase)))**7;
+        const flutter=.25+.75*(.5+.5*Math.sin(11*phase+Math.sin(3*phase)))**2;
+        const white=2*Math.random()-1;
+        body+=.074*(white-body);crackle+=.32*(white-crackle);
+        data[i]=(body*2.8+.7*(white-crackle))*hit*flutter;
+      }
+      const source=audio.createBufferSource();
+      source.buffer=flap;source.loop=true;
+      const band=audio.createBiquadFilter();band.type='highpass';band.frequency.value=105;
+      luffGain=audio.createGain();luffGain.gain.value=0;
+      source.connect(band).connect(luffGain).connect(effects);
+      source.start();
+    }
+    luffGain?.gain.setTargetAtTime(.82*exposure*amount,audio.currentTime,.10);
+  }
+  function update(speed,storm,height,seaState,luff=0){
     if(!enabled || audio.currentTime-lastMix<.05)return;
     lastMix=audio.currentTime;
     const exposure=Math.max(0,Math.min(1,(height+.35)/.7));
+    luffing(luff,exposure);
     if(exposure<1)startAmbience('deep_rumble.mp3',submerged);
     const calm=1-Math.min(1,seaState/1.1);
     const surfaceLevel=storm?0:.44*exposure*calm/(1+Math.max(0,height)/16);
@@ -243,5 +261,5 @@ export function raceAudio(){
     engines??=inboardMixer(audio,effects,noise);
     engines(local,peers,camera,underwater,running);
   }
-  return {setEnabled,update,signal,thunder,setVolume,wildlife,imagingHit,motorSound};
+  return {get enabled(){return enabled;},setEnabled,update,signal,thunder,setVolume,wildlife,imagingHit,motorSound};
 }

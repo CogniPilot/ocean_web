@@ -2,7 +2,7 @@ import {loadInstance} from './fmi3/instance.mjs';
 
 // Each quad represents a small volume of water released at a particular time.
 // Its endpoints span a short exposure of a ballistic trajectory in world space.
-export function waterStreaks(T,scene,name,capacity){
+export function waterStreaks(T,scene,name,capacity,bow=false){
   const geometry=new T.InstancedBufferGeometry();
   geometry.setAttribute('position',new T.Float32BufferAttribute([-1,0,0,1,0,0,-1,1,0,1,1,0],3));
   geometry.setIndex([0,1,2,2,1,3]);
@@ -12,7 +12,7 @@ export function waterStreaks(T,scene,name,capacity){
   }
   const origin=attribute('origin',4),launch=attribute('launch',4),water=attribute('water',2);
   const clock={value:0},pixels={value:600};
-  const material=new T.ShaderMaterial({uniforms:{clock,pixels},transparent:true,depthWrite:false,side:T.DoubleSide,
+  const material=new T.ShaderMaterial({defines:bow?{BOW_DROPLETS:1}:{},uniforms:{clock,pixels},transparent:true,depthWrite:false,side:T.DoubleSide,
     vertexShader:`
       uniform float clock,pixels;
       attribute vec4 origin,launch;
@@ -24,7 +24,17 @@ export function waterStreaks(T,scene,name,capacity){
         float age=clock-origin.w;
         gl_Position=vec4(2.,2.,2.,1.);alpha=0.;uvDrop=position.xy;
         if(launch.w<=0.||age<0.||age>2.)return;
-        vec3 tip=path(age),base=path(max(0.,age-water.y));
+        vec3 tip=path(age);
+        #ifdef BOW_DROPLETS
+        if(tip.z<water.x)return;
+        vec3 p=(viewMatrix*vec4(tip,1.)).xyz;
+        float pixel=max(.0001,-p.z/(pixels*projectionMatrix[1][1]));
+        float radius=max(launch.w,pixel*.8);
+        p.xy+=radius*vec2(position.x,2.*position.y-1.);
+        gl_Position=projectionMatrix*vec4(p,1.);
+        alpha=.58*min(1.,launch.w/radius)*exp(-1.4*age);
+        #else
+        vec3 base=path(max(0.,age-water.y));
         if(max(tip.z,base.z)<water.x-.015)return;
         tip.z=max(water.x,tip.z);base.z=max(water.x,base.z);
         vec3 a=(viewMatrix*vec4(base,1.)).xyz,b=(viewMatrix*vec4(tip,1.)).xyz;
@@ -35,12 +45,18 @@ export function waterStreaks(T,scene,name,capacity){
         p.xy+=radius*(position.x*vec2(-axis.y,axis.x)+axis*(2.*position.y-1.));
         gl_Position=projectionMatrix*vec4(p,1.);
         alpha=.74*min(1.,launch.w/radius);
+        #endif
       }`,
     fragmentShader:`
       varying vec2 uvDrop;varying float alpha;
       void main(){
+        #ifdef BOW_DROPLETS
+        float r=length(vec2(uvDrop.x,2.*uvDrop.y-1.));
+        float a=alpha*(1.-smoothstep(.12,1.,r));
+        #else
         float width=mix(.56,1.,uvDrop.y);
         float a=alpha*(1.-smoothstep(.08,width,abs(uvDrop.x)))*smoothstep(0.,.12,uvDrop.y)*(1.-smoothstep(.86,1.,uvDrop.y));
+        #endif
         if(a<.008)discard;
         gl_FragColor=vec4(mix(vec3(.54,.72,.77),vec3(.92,.97,1.),1.-abs(uvDrop.x)),a);
         #include <tonemapping_fragment>
@@ -62,8 +78,8 @@ export function waterStreaks(T,scene,name,capacity){
   return {mesh,emit,draw,clear,dispose(){mesh.removeFromParent();geometry.dispose();material.dispose();}};
 }
 
-export function surfaceSpray(T,scene,name,count,surface){
-  const drops=waterStreaks(T,scene,name,2048),positions=Array.from({length:count},()=>new T.Vector3());
+export function surfaceSpray(T,scene,name,count,surface,{bow=false}={}){
+  const drops=waterStreaks(T,scene,name,bow?768:2048,bow),positions=Array.from({length:count},()=>new T.Vector3());
   const before=positions.map(p=>p.clone()),wetAt=new Float64Array(count).fill(-Infinity);
   const sections=new Float64Array(80),lastArea=new Float64Array(count),carry=new Float64Array(count);
   let previous,model,seed=7561;
@@ -94,18 +110,20 @@ export function surfaceSpray(T,scene,name,count,surface){
       for(let i=0;i<count;i++){
         const p=positions[i],old=before[i],k=i*4,isEdge=i<edgeCount;
         const flux=isEdge?release[k+3]*.23:release[k];
-        carry[i]+=Math.min(250,dt*flux/(isEdge?.0000025:.000011));
+        carry[i]+=Math.min(250,dt*flux/(isEdge?.0000025:bow?.000020:.000011));
         const n=Math.floor(carry[i]);carry[i]-=n;
         for(let j=0;j<n;j++){
-          const f=(j+random())/n,side=(random()<.5?-1:1),swirl=side*(.35+random())*release[k+1];
+          const f=(j+random())/n;
+          const side=bow?(i<2?1:-1):(random()<.5?-1:1);
+          const swirl=side*(.35+random())*release[k+1];
           const vx=(p.x-old.x)/dt,vy=(p.y-old.y)/dt,vz=(p.z-old.z)/dt;
-          const beam=(random()-.5)*(isEdge?.16:.26),travel=(random()-.5)*(isEdge?.04:.45);
+          const beam=bow?side*random()*.07:(random()-.5)*(isEdge?.16:.26),travel=(random()-.5)*(isEdge?.04:.45);
           const x=old.x+f*(p.x-old.x)-s*beam+c*travel,y=old.y+f*(p.y-old.y)+c*beam+s*travel;
-          const z=isEdge?old.z+f*(p.z-old.z):levels[i]+.018;
+          const z=isEdge?old.z+f*(p.z-old.z):levels[i]+(bow?.008:.018);
           if(z<=levels[i])continue;
           const surge=speed*(.18+.20*random()),rise=(.45+random())*release[k+2];
           drops.emit(x,y,z,previous+f*dt,isEdge?vx:c*surge-s*swirl,isEdge?vy:s*surge+c*swirl,
-            isEdge?vz-.18:rise,isEdge?.007+.006*random():.006+.013*random(),levels[i],isEdge?.085:.032);
+            isEdge?vz-.18:rise,isEdge?.007+.006*random():bow?.003+.009*random():.006+.013*random(),levels[i],isEdge?.085:.032);
         }
       }
     }

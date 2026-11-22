@@ -33,6 +33,44 @@ function deckHit(origin,d,range){
   return distance;
 }
 const glslFloat=n=>Number.isInteger(n)?n.toFixed(1):String(n);
+const hullSections=[[-3.74,1.07,.77,-.39],[-3.53,1.19,.78,-.44],[-2.75,1.29,.80,-.52],
+  [-1.55,1.36,.84,-.57],[-.20,1.35,.91,-.61],[1.05,1.24,1.00,-.58],[2.1,1.00,1.11,-.49],
+  [2.93,.67,1.20,-.32],[3.49,.33,1.27,-.06],[3.80,.018,1.32,.25]];
+// Use an inset of the same stations as the render hull to exclude the
+// exterior water surface from the sealed hull and recessed cockpit.
+export const cruiserHullGLSL=`
+ uniform vec2 cruiserTilt[5];uniform int cruiserCount;uniform vec4 cruiserPose[5],cruiserAim[5];
+ vec3 cruiserLocal(vec3 surface,vec4 pose,vec2 tilt){
+   vec2 forward=vec2(cos(pose.w),sin(pose.w)),delta=surface.xy-pose.xy;
+   vec2 horizontal=vec2(dot(delta,forward),dot(delta,vec2(-forward.y,forward.x)));
+   float dz=surface.z-pose.z;
+   float unpitchedZ=sin(tilt.y)*horizontal.x+cos(tilt.y)*dz;
+   return vec3(cos(tilt.y)*horizontal.x-sin(tilt.y)*dz,
+               cos(tilt.x)*horizontal.y+sin(tilt.x)*unpitchedZ,
+               -sin(tilt.x)*horizontal.y+cos(tilt.x)*unpitchedZ);
+ }
+ bool cruiserWaterExcluded(vec3 world){
+   for(int i=0;i<5;i++){
+     if(i>=cruiserCount)break;
+     vec4 pose=cruiserPose[i];
+     vec2 d=world.xy-pose.xy;
+     if(dot(d,d)>18.)continue;
+     vec3 p=cruiserLocal(world,pose,cruiserTilt[i]);
+     if(p.x < -3.64 || p.x > 3.72 || abs(p.y)>1.37 || p.z < -.76 || p.z > 1.36)continue;
+     vec3 section;
+     ${hullSections.slice(1).map(([end,...right],i)=>{
+       const [start,...left]=hullSections[i];
+       return `${i?'else ':''}if(p.x<=${glslFloat(end)})section=mix(vec3(${left.map(glslFloat).join(',')}),vec3(${right.map(glslFloat).join(',')}),clamp((p.x-(${glslFloat(start)}))/${glslFloat(end-start)},0.,1.));`;
+     }).join('\n')}
+     else continue;
+     float keel=section.z-.18*clamp((3.5-p.x)/2.1,0.,1.);
+     if(p.z<=keel || p.z>=section.y+.045)continue;
+     float t=(p.z-keel)/(section.y-keel);
+     float shape=mix(.80,.987,smoothstep(.2,1.,t))*min(1.,t/.31);
+     if(abs(p.y)<section.x*shape-.018)return true;
+   }
+   return false;
+ }`;
 export const cruiserBeamGLSL=`
  bool crossesDeck(vec3 origin,vec3 delta,float base,float slope,vec2 ends,vec2 widths){
    float denom=delta.z-slope*delta.x;
@@ -118,11 +156,8 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   }
   // Keep the deck and chine fixed while deepening the keel below the chine.
   // The forefoot rises into the raked stem. Port and starboard share the keel.
-  const controls=[[-3.74,1.07,.77,-.39],[-3.53,1.19,.78,-.44],[-2.75,1.29,.80,-.52],
-    [-1.55,1.36,.84,-.57],[-.20,1.35,.91,-.61],[1.05,1.24,1.00,-.58],[2.1,1.00,1.11,-.49],
-    [2.93,.67,1.20,-.32],[3.49,.33,1.27,-.06],[3.80,.018,1.32,.25]];
-  const widths=new T.CatmullRomCurve3(controls.map(([x,w,top])=>v3(x,w,top))),
-    keels=new T.CatmullRomCurve3(controls.map(([x,w,top,k])=>v3(x,k,0)));
+  const widths=new T.CatmullRomCurve3(hullSections.map(([x,w,top])=>v3(x,w,top))),
+    keels=new T.CatmullRomCurve3(hullSections.map(([x,w,top,k])=>v3(x,k,0)));
   const sections=[];
   for(let i=0;i<=36;i++){
     const {x,y:w,z:top}=widths.getPoint(i/36),k=keels.getPoint(i/36).y;
@@ -290,7 +325,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   for(const s of [-1,1]){pad(.67,s*.91,2.14,.083,.027,.038,s>0?0x9a2926:0x277e50);}
   rod([-1.30,0,-.4],[-3.10,0,-.76],.043,brass);
   rod([-2.71,0,-.42],[-3.02,0,-.74],.037,brass);
-  const propeller=new T.Group();propeller.position.set(-3.11,0,-.76);group.add(propeller);
+  const propeller=new T.Group();propeller.position.set(-3.11,0,-.76);propeller.userData.physicsJoint={axis:[1,0,0],label:'Propeller shaft'};group.add(propeller);
   const fixed=(geometry,color,parent=group,basic=false)=>{
     const material=basic?new T.MeshBasicMaterial({color}):new T.MeshStandardMaterial({color,roughness:.44});
     const m=new T.Mesh(geometry,material);parent.add(m);return m;
@@ -299,7 +334,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     const blade=fixed(new T.SphereGeometry(1,10,8),brass,propeller),a=2*Math.PI*i/3;
     blade.position.set(0,.14*Math.cos(a),.14*Math.sin(a));blade.scale.set(.040,.169,.078);blade.rotation.set(a,.26,.20,'XYZ');
   }
-  const rudder=fixed(new T.BoxGeometry(.34,.056,.43),brass);rudder.position.set(-3.45,0,-.61);
+  const rudder=fixed(new T.BoxGeometry(.34,.056,.43),brass);rudder.position.set(-3.45,0,-.61);rudder.userData.physicsJoint={axis:[0,0,1],label:'Rudder hinge'};
   // Round, flush-mounted downlights. The lens face, opaque-scene light and
   // optical scattering use the same position and boat-frame negative Z axis.
   const bezel=new T.CylinderGeometry(.081,.081,.025,16);bezel.rotateX(Math.PI/2);
@@ -323,7 +358,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     rod([x-.12*sign,y,base],[x-.08*sign,y,z],.041,steel);
     rod([x-.16*sign,y,z+.066],[x+.066*sign,y,z-.027],.067,trim);
   }
-  const swivel=new T.Group();swivel.name='Roof searchlight';swivel.position.set(.56,0,searchlightHeight);group.add(swivel);
+  const swivel=new T.Group();swivel.name='Roof searchlight';swivel.userData.physicsJoint={axis:[0,0,1],label:'Searchlight swivel'};swivel.position.set(.56,0,searchlightHeight);group.add(swivel);
   rod([.56,0,2.18],[.56,0,searchlightHeight-.035],.043,steel);
   const housing=fixed(new T.CylinderGeometry(.116,.129,.18,18),steel,swivel);
   housing.rotation.z=-Math.PI/2;

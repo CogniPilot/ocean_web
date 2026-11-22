@@ -26,6 +26,7 @@ async function marineAnimal(T,name,length,caustics,tideUniform){
   function joint(name,axis){
     const bone=model.getObjectByName(T.PropertyBinding.sanitizeNodeName(name)),rest=bone.quaternion.clone();
     const local=(axis??new T.Vector3(0,-1,0)).applyQuaternion(bone.getWorldQuaternion(new T.Quaternion()).invert());
+    bone.userData.physicsJoint={axis:local.toArray(),label:name.replace('TopFlipper','Flipper')};
     const swing=new T.Quaternion();return angle=>bone.quaternion.copy(rest).multiply(swing.setFromAxisAngle(local,angle));
   }
   if(name==='whale'){

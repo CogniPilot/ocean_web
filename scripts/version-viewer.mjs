@@ -5,7 +5,7 @@ import {join} from 'node:path';
 
 const root=process.argv[2];
 const scripts=(await readdir(root)).filter(name=>/\.m?js$/.test(name)).sort();
-const files=['index.html',...scripts,'board/boat.mjs','fmi3/instance.mjs'];
+const files=['index.html',...scripts,'board/boat.mjs','board/sail-telltale.mjs','fmi3/instance.mjs'];
 const sources=await Promise.all(files.map(name=>readFile(join(root,name),'utf8')));
 const hash=createHash('sha256');
 for(const source of sources)hash.update(source).update('\0');

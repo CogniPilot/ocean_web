@@ -116,6 +116,8 @@ export function birdMesh(T){
   }
   for(const side of [-1,1]){
     const arm=new T.Group(),hand=new T.Group();arm.position.set(.009,side*.038,.029);group.add(arm);arm.add(hand);
+    arm.userData.physicsJoint={axis:[1,0,0],label:side>0?'Port shoulder':'Starboard shoulder'};
+    hand.userData.physicsJoint={axis:[1,0,0],label:side>0?'Port wrist':'Starboard wrist'};
     hand.position.set(0,side*.303,.033);
     const inner=batch(arm),outer=batch(hand);
     wing(inner,side,[[0,.077,-.149,0,.018],[.09,.088,-.160,.010,.017],[.18,.092,-.151,.025,.014],[.25,.079,-.128,.036,.011],[.304,.062,-.100,.033,.009]],grey);
@@ -130,6 +132,7 @@ export function birdMesh(T){
     }
     inner.finish();outer.finish();wings.push({side,arm,hand});
     const leg=new T.Group();leg.position.set(-.096,side*.042,-.050);group.add(leg);
+    leg.userData.physicsJoint={axis:[0,1,0],label:side>0?'Port leg':'Starboard leg'};
     const foot=batch(leg);
     loft(foot,[[-.082,-.073,.003,.003],[-.058,-.055,.006,.007],[-.030,-.028,.008,.008],
       [0,0,.009,.009],[.009,.006,.001,.001]],()=>0xbd8d83);
@@ -141,7 +144,8 @@ export function birdMesh(T){
   group.name='Herring gull';group.visible=false;
   return {group,draw(row){
     group.visible=true;group.position.fromArray(row);group.rotation.set(-row[11],-(row[14]??Math.atan2(row[5],row[4])),row[3],'ZYX');
-    const wet=row[19]??0,fold=Math.min(1,1.5*wet)*(1-row[7]);
+    const wet=row[19]??0,swimming=row[22]>0,waterPose=swimming?1:wet;
+    const fold=Math.min(1,1.5*waterPose)*(1-row[7]);
     folded.visible=fold>.78;
     for(const {side,arm,hand} of wings){
       arm.visible=!folded.visible;
@@ -150,8 +154,10 @@ export function birdMesh(T){
     }
     const paddle=wet*Math.min(1,Math.abs(row[21]??0)/.55);
     for(const {side,leg} of legs){
-      leg.rotation.y=.54*(1-wet)+side*.46*paddle*Math.sin(row[6]);
-      leg.rotation.z=side*.11;
+      const effort=row[side>0?23:24]??paddle;
+      const stroke=row[6]+(side>0?0:Math.PI);
+      leg.rotation.y=.54*(1-waterPose)+.46*effort*Math.sin(stroke);
+      leg.rotation.z=side*(.11+.12*Math.abs(effort)*(1+Math.cos(stroke)));
     }
   }};
 }

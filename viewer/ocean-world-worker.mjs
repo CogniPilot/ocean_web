@@ -47,7 +47,7 @@ async function handle(request){
     let names=[...request.outputs,...(request.optionalOutputs??[]).filter(name=>variables.has(name))];
     if(request.sampledFields){
       const [waveDt,windDt]=session.read_values(JSON.stringify(['waves.dt','wind.dt']));
-      const schedules=[[waveDt*100,['waves.height','bowSources','bowSpeed'],'wakeSurface'],[waveDt*100,['waves.sourceStrips'],'wakeSource'],[20,['boatWater.tile']],[20,['sensor'],'dvl'],[20,['ping'],'camera'],[windDt*100,['wind.field']]];
+      const schedules=[[waveDt*100,['waves.height','bowSources','bowSpeed'],'wakeSurface'],[waveDt*100,['waves.sourceStrips'],'wakeSource'],[10,['boat.stationGeometry','boat.beamFraction','boat.halfSpacing','boat.sectionVolume','boat.sectionWater','stripEast','stripNorth','stripZ','stripForce','stripVolume'],'physics'],[20,['boatWater.tile']],[20,['sensor'],'dvl'],[20,['ping'],'camera'],[windDt*100,['wind.field']]];
       for(const [interval,candidates,subscription] of schedules){
         if(!Number.isSafeInteger(interval)||interval<1)continue;
         const selected=names.filter(name=>candidates.includes(name));

@@ -23,17 +23,12 @@ export function keyboardSticks(){
   };
 }
 
-// Rumoca's quadrotor SIL maps right-stick Y to roll and inverted X to pitch.
+// Both keyboard arrows and touch controls use horizontal roll and vertical pitch.
 export function pilotSticks(axis){
-  return {
-    throttle:axis('KeyW','KeyS'), yaw:axis('KeyA','KeyD'),
-    roll:axis('ArrowUp','ArrowDown'), pitch:axis('ArrowLeft','ArrowRight')
-  };
-}
-
-export function animalSticks(axis){
   return {
     throttle:axis('KeyW','KeyS'),yaw:axis('KeyA','KeyD'),
     pitch:axis('ArrowUp','ArrowDown'),roll:axis('ArrowRight','ArrowLeft')
   };
 }
+
+export const animalSticks=pilotSticks;

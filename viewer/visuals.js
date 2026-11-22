@@ -21,30 +21,30 @@ function batchScenery(T,group,attributes=[]){
  }
  return group;
 }
-const causticTime={value:0};
+const seabedTime={value:0};
 function seabedMaterials(T,illumination){
  function textured(base,kind){
    const m=new T.MeshStandardMaterial({color:0xffffff,roughness:.86,metalness:kind==='metal'?.22:0});
    m.onBeforeCompile=s=>{
      s.vertexShader='varying vec3 location;\n'+s.vertexShader.replace('#include <worldpos_vertex>','#include <worldpos_vertex>\nlocation=(modelMatrix*vec4(transformed,1.)).xyz;');
-     s.uniforms.causticTime=causticTime;
-     s.fragmentShader='uniform float causticTime;varying vec3 location;\n'+skyNoiseGLSL+s.fragmentShader;
+     s.fragmentShader='varying vec3 location;\n'+skyNoiseGLSL+s.fragmentShader;
      const code=kind==='sand'?`vec2 p=location.xy;float ridge=sin(6.*p.x+2.4*sin(p.y*.81)+cloud(p*.7)*5.); diffuseColor.rgb=vec3(.26,.31,.27)*(.65+.12*ridge+.53*cloud(p*2.));`:
      `vec2 p=vec2(location.x+.34*location.y,location.z+.25*location.y);float oxidation=cloud(p*vec2(.75,.38))+.16*noise2(p*vec2(7.,1.2));vec3 brown=vec3(.35,.125,.046);diffuseColor.rgb=mix(vec3(${base}),brown,smoothstep(.43,.69,oxidation))*(.63+.47*noise2(p*43.));`;
      Object.assign(s.uniforms,illumination);
-     s.fragmentShader='uniform sampler2D wreckFlux,wreckDepth;uniform mat4 wreckProjection;uniform vec3 waterRay;uniform float sunStrength;\n'+s.fragmentShader;
+     s.fragmentShader='uniform sampler2D wreckFlux,wreckDepth;uniform mat4 wreckProjection;uniform vec3 waterRay;uniform vec2 causticShift;uniform float sunStrength;\n'+s.fragmentShader;
      s.fragmentShader=s.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n'+code+`
+       if(sunStrength>.001){
        vec3 shadow=(wreckProjection*vec4(location,1.)).xyz*.5+.5;
        float exposed=1.;
        if(all(greaterThan(shadow,vec3(0.)))&&all(lessThan(shadow,vec3(1.))))
          exposed=step(shadow.z-.00032,texture2D(wreckDepth,shadow.xy).r);
        vec2 floorUV=(location.xy+waterRay.xy*((-13.7-location.z)/min(-.05,waterRay.z))-vec2(16.,0.))/64.+.5;
        if(all(greaterThan(floorUV,vec2(0.)))&&all(lessThan(floorUV,vec2(1.)))){
-         float focus=max(0.,texture2D(wreckFlux,floorUV).r/.13-1.);
+         float focus=max(0.,texture2D(wreckFlux,floorUV*(64./12.)+causticShift).r/.13-1.);
          vec2 margin=min(floorUV,1.-floorUV);
          float coverage=smoothstep(0.,.10,min(margin.x,margin.y));
          diffuseColor.rgb*=1.+coverage*min(focus,3.)*sunStrength*exposed*vec3(.55,.86,.77);
-       }`);
+       }}`);
    };
    m.customProgramCacheKey=()=>kind+base;return m;
  }
@@ -130,9 +130,9 @@ function marineLife(T,scene,webgl2,schoolState){
  kelp.setIndex(bladeFaces);kelp.computeVertexNormals();
  const frond=new T.MeshStandardMaterial({color:0x416047,side:T.DoubleSide,roughness:.74});
  frond.onBeforeCompile=s=>{
-   s.uniforms.causticTime=causticTime;
-   s.vertexShader='attribute float flex;uniform float causticTime;\n'+s.vertexShader.replace('#include <begin_vertex>',
-     '#include <begin_vertex>\ntransformed.xy+=flex*vec2(.15*sin(.83*causticTime+.6*position.y),.09*cos(.6*causticTime+.45*position.x));');
+   s.uniforms.seabedTime=seabedTime;
+   s.vertexShader='attribute float flex;uniform float seabedTime;\n'+s.vertexShader.replace('#include <begin_vertex>',
+     '#include <begin_vertex>\ntransformed.xy+=flex*vec2(.15*sin(.83*seabedTime+.6*position.y),.09*cos(.6*seabedTime+.45*position.x));');
  };
  scene.add(new T.Mesh(kelp,frond));
  const dust=new Float32Array(1500*3);

@@ -23,7 +23,7 @@ function assembleAirframe(T,model,mounts){
     const k=blades.findIndex(({hub})=>Math.sign(hub.x-center.x)===Math.sign(mounts[3*i])&&Math.sign(hub.y-center.y)===Math.sign(mounts[3*i+1]));
     if(k<0)throw Error('Drone propeller positions disagree with the RDD2 motor layout');
     const [{hub,mesh}]=blades.splice(k,1);
-    const pivot=new T.Group();pivot.name='RDD2 rotor '+i;pivot.position.copy(hub).sub(center).multiplyScalar(scale);
+    const pivot=new T.Group();pivot.name='RDD2 rotor '+i;pivot.userData.physicsJoint={axis:[0,0,1],label:'Rotor '+(i+1)};pivot.position.copy(hub).sub(center).multiplyScalar(scale);
     group.add(pivot);pivot.attach(mesh);props.push(pivot);
   }
   return {group,props};
@@ -41,6 +41,10 @@ export async function surveyDrone(T,scene,world){
   ]);
   const {group,props}=assembleAirframe(T,model,flight.get('aircraft.rotorGeometry.positionBodyFlu_m'));
   scene.add(group);
+  const hasNavigation=flight.has('estimatedPosition');
+  const instrumentsFields=['attitude',...(hasNavigation?['estimatedPosition','estimatedVelocity']:['gps','gpsVelocity'])];
+  const compassFields=[...instrumentsFields,'estimatedWindENU','windEstimateValid'];
+  const covarianceFields=['positionCovariance','velocityCovariance','windCovariance'];
   let active=false,manual=true;
   function input(axis,fast=false){
     const stick=pilotSticks(axis),gain=fast?2:1;
@@ -49,11 +53,19 @@ export async function surveyDrone(T,scene,world){
     flight.set('climb',active&&manual?stick.throttle:0);
     flight.set('turn',active&&manual?stick.yaw:0);
   }
-  function instruments(){
-    const [[roll,pitch,yaw],gps,v]=flight.getMany(['attitude','gps','gpsVelocity']);
-    return {roll,pitch,yaw,speed:Math.hypot(v[0],v[1]),level:gps[2],vertical:v[2]};
+  function instruments(compass=false){
+    const [[roll,pitch,yaw],position,velocity,wind,windValid]=flight.getMany(compass&&hasNavigation?compassFields:instrumentsFields);
+    return {roll,pitch,yaw,position,speed:Math.hypot(velocity[0],velocity[1]),level:position[2],
+      vertical:velocity[2],wind:windValid>.5?wind:null};
   }
-  return {group,instruments,get throttle(){return flight.get('throttle');},get rotorAngles(){return flight.get('rotorAngle');},
+  function covariance(){
+    if(!hasNavigation)return null;
+    const [position,velocity,wind]=flight.getMany(covarianceFields);
+    const sigma=v=>Math.sqrt(Math.max(0,v));
+    return {position:position.map(sigma),velocity:velocity.map(sigma),wind:sigma(wind)};
+  }
+  return {group,instruments,hasNavigation,covariance,get throttle(){return flight.get('throttle');},get rotorAngles(){return flight.get('rotorAngle');},
+    get estimatedPosition(){return flight.get(instrumentsFields[1]);},
     set flightMode(value){flight.set('flightMode',value);},get active(){return active;},get position(){return flight.get('position');},
     get drag(){return flight.get('dragBody');},
     get manual(){return manual;},set manual(value){manual=value;flight.set('pilot',Number(value));input(()=>0);},

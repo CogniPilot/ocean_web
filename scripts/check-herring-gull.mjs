@@ -103,6 +103,41 @@ for(const wind of [[0,0],[-4,0],[4,0],[0,8]]){
   console.log('Water landing, turn and takeoff',{wind,draft:.093-landed[2],paddle:motion[2],altitude:airborne[2]});
 }
 
+// Landing with takeoff held must require a release, including in a headwind.
+const parked=await open({wind:[-10,0],startState:[0,0,.062,0,10,-.4,0,.3],pilot:[1,1,0,1]});
+advance(parked,150);
+let surface=parked.get('surfaceMotion');
+assert.equal(surface[3],1);
+assert(parked.get('x')[7]<.005);
+parked.set('pilot',[1,0,0,0]);
+advance(parked,25);
+assert.equal(parked.get('surfaceMotion')[3],2);
+let drySamples=0;
+for(let i=0;i<350;i++){
+  const phase=14*i*dt;
+  parked.set('seaLevel',.14*Math.sin(phase));
+  parked.set('surfaceVerticalSpeed',1.96*Math.cos(phase));
+  parked.advance(dt);
+  surface=parked.get('surfaceMotion');
+  if(surface[0]===0)drySamples++;
+  assert.equal(surface[3],2,'A wave trough must not unlatch swimming');
+  assert(parked.get('x')[7]<.005,'Water motion must not start a wing stroke');
+}
+assert(drySamples>0,'Exercise temporary loss of buoyancy contact');
+parked.set('seaLevel',0);
+parked.set('surfaceVerticalSpeed',0);
+advance(parked,120);
+parked.set('pilot',[1,0,.6,0]);
+advance(parked,100);
+surface=parked.get('surfaceMotion');
+assert(surface[4]<0&&surface[5]>0,'Turn in place with opposite foot strokes');
+assert(Math.abs(surface[2])<.01&&parked.get('x')[3]>.4);
+parked.set('pilot',[1,1,0,1]);
+advance(parked,650);
+assert.equal(parked.get('surfaceMotion')[3],0,'A rearmed takeoff should return to flight');
+assert(parked.get('x')[2]>4);
+console.log('Latched swimming and rearmed takeoff',{drySamples,portPaddle:surface[4],starboardPaddle:surface[5]});
+
 const rider=await open({startState:[0,0,.043,0,0,0,0,0]});
 let heaveError=0;
 for(let i=0;i<500;i++){

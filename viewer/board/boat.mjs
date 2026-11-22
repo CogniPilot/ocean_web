@@ -1,3 +1,4 @@
+import {sailTelltale} from './sail-telltale.mjs';
 import {vehicleShell} from '../vehicle-assets.mjs';
 import {showInLowWaterCapture} from '../render-layers.mjs';
 import {hobieTrampoline,forwardBeam} from './trampoline.mjs';
@@ -41,7 +42,7 @@ export async function loadBoat(read=fetch){
    state=observeBoat(model);
  }};
 }
-function sailMaterial(T,cat,count){
+function sailMaterial(T,cat,count,telltaleRows){
  const c=document.createElement('canvas');c.width=512;c.height=1024;
  let pocketRelief;
  const g=c.getContext('2d');g.fillStyle='#e9edef';g.fillRect(0,0,512,1024);
@@ -60,6 +61,15 @@ function sailMaterial(T,cat,count){
      g.fillStyle=count===4?(classic?['#da2729','#da2729','#fb5d18','#fb5d18','#ffca32'][i]:'#cadb37'):colors[i];
      g.beginPath();g.moveTo(0,1024*(1-lower));g.lineTo(512,1024*(1-tailLow));
      g.lineTo(512,1024*(1-tailHigh));g.lineTo(0,1024*(1-upper));g.fill();
+   }
+   // Small inspection windows sit just aft of their paired ribbons.
+   for(const row of telltaleRows){
+     const x=.20*512,y=(1-(row+.48)/5)*1024;
+     g.beginPath();g.moveTo(x+6,y);g.lineTo(x+55,y-13);g.lineTo(x+55,y+13);g.closePath();
+     g.strokeStyle='#d9d1b6';g.lineWidth=6;g.stroke();
+     g.save();g.clip();g.clearRect(x+4,y-16,54,32);g.restore();
+     g.fillStyle='rgba(186,219,226,.20)';g.fill();
+     g.beginPath();g.arc(x,y,4.2,0,2*Math.PI);g.fillStyle='#dbd9c6';g.fill();
    }
    // The vinyl inspection windows sit below the lowest batten on both sails.
    g.clearRect(110,963,124,34);g.fillStyle='rgba(155,184,185,.28)';g.fillRect(110,963,124,34);
@@ -441,9 +451,15 @@ export function sailboatMesh(T,cat=false,keelX=.06){
      if(row<5&&col<3)idx.push(i,i+1,i+5,i,i+5,i+4);
    }
    geo.setAttribute('position',coords);geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));geo.setIndex(idx);
-   showInLowWaterCapture(mesh(geo,sailMaterial(T,cat,index===0?8:4),pivot)).frustumCulled=false;
+   const telltaleRows=index===0?[1,2,4]:[1,3];
+   showInLowWaterCapture(mesh(geo,sailMaterial(T,cat,index===0?8:4,telltaleRows),pivot)).frustumCulled=false;
    const boomHinge=new T.Group();pivot.add(boomHinge);
-   if(!cat||index===0)rod([0,0,0],[-spec.width,0,0],.012,black,boomHinge);
+   let outhaul;
+   if(cat&&index===0){
+     const end=-spec.width-.13;
+     rod([0,0,-.029],[end,0,-.029],.035,black,boomHinge).scale.z=1.27;
+     outhaul={line:rod([0,0,0],[end,0,0],.0034,paint(0xf1e7c6),boomHinge),end};
+   }else if(!cat)rod([0,0,0],[-spec.width,0,0],.012,black,boomHinge);
    const vang=!cat&&index===0?rod([0,0,-vangDrop],[-vangReach,0,0],.005,black,pivot):null;
    const downhaul=[];
    if(cat && index===0){
@@ -456,13 +472,13 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    }
    const tufts=[];
    if(cat){
-     for(let k=0;k<4;k++){
-       const tuft=streamers[k%2].clone();
-       tuft.scale.set(.52,.55,.6);tuft.name=(index?'Jib':'Main')+' face telltale '+k;
-       pivot.add(tuft);tufts.push(tuft);
+     for(let k=0;k<2*telltaleRows.length;k++){
+       const tuft=sailTelltale(T,k%2===0,k*1.8+index*.7);
+       tuft.mesh.name=(index?'Jib':'Main')+' face telltale '+k;
+       pivot.add(tuft.mesh);tufts.push(tuft);
      }
    }
-   return {pivot,geo,coords,boomHinge,vang,downhaul,tufts};
+   return {pivot,geo,coords,boomHinge,vang,downhaul,outhaul,tufts,telltaleRows};
  });
  const podRadius=cat?.17:.075,podHeight=cat?8.44:3.02,podX=cat?.44:.12;
  const halfLength=cat?.29:podRadius;
@@ -486,8 +502,14 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    podParts.push(lens);cameraPorts.push(lens.position.toArray());
  }
  if(vane)vane.position.z=podHeight+podRadius+.035;
- return {group,cameraPorts,patrolTrim(main,jib){sails[0].pivot.rotation.z=main;sails[1].pivot.rotation.z=jib;},
-   update(s,ballast,cars,rope,tails,faceTails,stayPath){
+ const ribbonGravity=new T.Vector3(),inverse=new T.Quaternion(),anchor=new T.Vector3(),ribbonNormal=new T.Vector3();
+ const inspection={sails,joints:[
+   [sails[0].pivot,[0,0,1],'Main rotation'],[sails[0].boomHinge,[0,1,0],'Boom hinge'],
+   [sails[1].pivot,[cat?-1.82/5.1:-1.04/2.69,0,1],'Jib rotation'],[rudder,[0,0,1],'Rudder hinge'],
+   ...(otherRudder?[[otherRudder,[0,0,1],'']]:[])
+ ]};
+ return {group,cameraPorts,inspection,patrolTrim(main,jib){sails[0].pivot.rotation.z=main;sails[1].pivot.rotation.z=jib;},
+   update(s,ballast,cars,rope,tails,faceTails,stayPath,time){
    if(stayPath){
      for(let i=0;i<3;i++){
        const a=side.fromArray(stayPath,9*i);
@@ -510,7 +532,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    if(otherRudder)otherRudder.rotation.z=-s[7];
    if(carriage && ballast)carriage.position.set(-.425+ballast[0],ballast[1],.52);
    group.position.set(s[0],s[1],s[3]);group.rotation.set(s[4],s[5],s[2],'ZYX');rudder.rotation.z=-s[7];
-   sails.forEach(({pivot,geo,coords,boomHinge,vang,downhaul,tufts},m)=>{
+   sails.forEach(({pivot,geo,coords,boomHinge,vang,downhaul,outhaul,tufts,telltaleRows},m)=>{
      const r=42+2*24*3+m*9;
      sheetMatrix.set(s[r],s[r+1],s[r+2],0,s[r+3],s[r+4],s[r+5],0,s[r+6],s[r+7],s[r+8],0,0,0,0,1);
      pivot.quaternion.setFromRotationMatrix(sheetMatrix);
@@ -534,6 +556,11 @@ export function sailboatMesh(T,cat=false,keelX=.06){
        const offset=42+m*72+i*3;
        coords.setXYZ(i,s[offset],s[offset+1],s[offset+2]);
      }
+     if(outhaul){
+       const clew=Math.hypot(coords.getX(3),coords.getZ(3)-boomHinge.position.z);
+       outhaul.line.position.x=(outhaul.end-clew)/2;
+       outhaul.line.scale.y=Math.max(.001,(-outhaul.end-clew)/(-outhaul.end));
+     }
      if(m===1 && jibHalyard && stayPath){
        const head=side.fromBufferAttribute(coords,20).applyQuaternion(pivot.quaternion).add(pivot.position);
        const tang=binormal.fromArray(stayPath,24);
@@ -545,16 +572,20 @@ export function sailboatMesh(T,cat=false,keelX=.06){
        jibHalyard.quaternion.setFromUnitVectors(stayUp,tangent.normalize());
      }
      coords.needsUpdate=true;geo.computeVertexNormals();
+     if(faceTails){
+       ribbonGravity.set(0,0,-9.81).applyQuaternion(inverse.copy(group.quaternion).invert())
+         .applyQuaternion(inverse.copy(pivot.quaternion).invert());
+     }
      for(let k=0;k<tufts.length;k++){
-       const tuft=tufts[k];tuft.visible=Boolean(faceTails);if(!faceTails)continue;
-       const j=k<2?4:12;
-       const a=new T.Vector3().fromBufferAttribute(coords,j);
-       const chord=new T.Vector3().fromBufferAttribute(coords,j+1).sub(a);
-       const span=new T.Vector3().fromBufferAttribute(coords,j+5).sub(a).sub(chord);
-       const n=new T.Vector3().crossVectors(chord,span).normalize();
-       tuft.position.copy(a).addScaledVector(chord,.7).addScaledVector(span,k%2?.22:.18)
-         .addScaledVector(n,k%2?-.012:.012);
-       tuft.quaternion.setFromUnitVectors(tangent.set(1,0,0),side.fromArray(faceTails,m*12+k*3).normalize());
+       const tuft=tufts[k];
+       if(!faceTails){tuft.mesh.visible=false;continue;}
+       const j=4*telltaleRows[Math.floor(k/2)];
+       anchor.fromBufferAttribute(coords,j);
+       tangent.fromBufferAttribute(coords,j+1).sub(anchor);
+       binormal.fromBufferAttribute(coords,j+5).sub(anchor).sub(tangent);
+       ribbonNormal.crossVectors(tangent,binormal).normalize();
+       anchor.addScaledVector(tangent,.60).addScaledVector(binormal,.48).addScaledVector(ribbonNormal,k%2?-.003:.003);
+       tuft.update(anchor,ribbonNormal,ribbonGravity,side.fromArray(faceTails,m*18+k*3),time);
      }
    });
    if(mastGeometry){

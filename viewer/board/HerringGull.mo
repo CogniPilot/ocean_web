@@ -2,6 +2,7 @@ model HerringGull "Flap-gliding herring gull with paired wing strips and a trimm
   parameter Real mass=.705,span=1.35,area=.200,rho=1.225;
   parameter Real startState[8]={4,-12,8,0,13.4,0,0,0};
   parameter Real startMemory[7]={0,0,.015,0,0,0,1};
+  parameter Real startWaterMode=0 "0 flying, 1 swimming awaiting release, 2 swimming ready";
   parameter Real beatFrequency=3.13,rollInertia=.027,pitchInertia=.0057;
   parameter Real maxMusclePower=35 "Combined positive aerodynamic work limit [W]";
   input Real wind[2],seaLevel,offset,glideOnly;
@@ -17,7 +18,7 @@ model HerringGull "Flap-gliding herring gull with paired wing strips and a trimm
   output Real power "Positive aerodynamic work rate of the two wings [W]";
   output Real moments[2] "Roll and pitch moments about the centre of mass [N m]";
   output Real tailLift "Positive upward tail force in the longitudinal plane [N]";
-  output Real surfaceMotion[3] "Immersion fraction, local airspeed and water-relative forward speed";
+  output Real surfaceMotion[6] "Immersion, local airspeed, water-relative speed, water mode, port and starboard paddle commands";
 protected
   Real bank(start=startMemory[1],fixed=true),rollRate(start=startMemory[2],fixed=true);
   Real pitch(start=startMemory[3],fixed=true),pitchRate(start=startMemory[4],fixed=true);
@@ -30,6 +31,9 @@ protected
   Real courseE,courseN,airSpeed,gustCross,groundSpeed,waterSpeed,waterSide,windSide;
   Real depth,wet,swimCommand,launchCommand,runAssist,wingLift,waterThrust,waterDrag,buoyancy;
   Real wetRoll,wetPitch,wetYaw,yawRate;
+  discrete Real waterMode(start=startWaterMode,fixed=true);
+  Real takeoffRequested;
+  Real waterCoupling,paddleTurn,portPaddle,starboardPaddle;
 equation
   courseE=cos(x[4]);courseN=sin(x[4]);
   airSpeed=max(.25,x[5]-gust[1]*courseE-gust[2]*courseN);
@@ -46,18 +50,33 @@ equation
   wet=min(1,depth/.05);
   buoyancy=max(0,mass*9.81*depth/.05-14*wet*(x[6]-surfaceVerticalSpeed));
   swimCommand=if noEvent(pilot[1]>.5) then min(1,max(0,pilot[4])) else 0;
-  launchCommand=if noEvent(pilot[1]>.5 and pilot[2]>.15 and pilot[4]>.15 and glideOnly<.5)
+  takeoffRequested=if noEvent(pilot[1]>.5 and pilot[2]>.15 and pilot[4]>.15 and glideOnly<.5) then 1 else 0;
+  // An immersed landing latches the swim mode across brief loss of contact
+  // on wave crests. A launch requires a new climb-and-flap gesture.
+  when sample(0,.05) then
+    waterMode=if pre(waterMode)<.5 then (if wet>.45 then 1 else 0)
+      elseif pre(waterMode)<1.5 then (if takeoffRequested>.5 then 1 else 2)
+      elseif takeoffRequested>.5 and x[3]-seaLevel>.35 and x[6]>surfaceVerticalSpeed then 0
+      else 2;
+  end when;
+  launchCommand=if noEvent(takeoffRequested>.5 and (waterMode<.5 or waterMode>1.5))
     then min(1,pilot[2])*swimCommand else 0;
+  waterCoupling=if waterMode>.5 then max(wet,1-launchCommand) else wet;
   // A running launch uses leg strokes first. Low-speed wing thrust and lift
   // then fade into the strip model as flying speed and height increase.
   runAssist=launchCommand*min(1,max(0,(12.5-airSpeed)/4))*min(1,max(0,(7-(x[3]-seaLevel))/4));
   wingLift=mass*runAssist*max(0,12-4*max(0,x[6]))*
     min(1,max(0,(max(waterSpeed,.55*airSpeed)-2.1)/1.8));
-  waterThrust=mass*(2.0*swimCommand+7.5*runAssist);
+  // The feet can stroke in opposite directions, turning the bird in place
+  // with no net forward paddle thrust.
+  paddleTurn=if noEvent(pilot[1]>.5) then pilot[3] else 0;
+  portPaddle=swimCommand-.48*paddleTurn;
+  starboardPaddle=swimCommand+.48*paddleTurn;
+  waterThrust=mass*(portPaddle+starboardPaddle+7.5*runAssist);
   waterDrag=(.65+.95*(1-runAssist))*waterSpeed+(.65-.47*runAssist)*waterSpeed*abs(waterSpeed);
   wetRoll=atan(-waterSlope[1]*courseN+waterSlope[2]*courseE);
   wetPitch=.23+atan(waterSlope[1]*courseE+waterSlope[2]*courseN);
-  wetYaw=if noEvent(pilot[1]>.5) then .85*pilot[3] else 0;
+  wetYaw=.85*(starboardPaddle-portPaddle)/.96;
 
   zTarget=seaLevel+9+2*offset;
   when sample(0,.1) then
@@ -66,9 +85,10 @@ equation
   end when;
   // These input modes are held between communication points. Their changes
   // already arrive at a step boundary, so they need no continuous root search.
-  drive=(1-wet*(1-launchCommand))*(if noEvent(glideOnly>.5 or (pilot[1]>.5 and pilot[4]<-.15)) then 0
+  drive=(1-waterCoupling*(1-launchCommand))*(if noEvent(glideOnly>.5 or (pilot[1]>.5 and pilot[4]<-.15)) then 0
     elseif noEvent(pilot[1]>.5 and pilot[4]>.15) then 1 else flapping);
-  rate=2*3.14159265*beatFrequency;
+  rate=2*3.14159265*(if waterMode>.5 and launchCommand<.15 then
+    .85+1.55*max(abs(portPaddle),abs(starboardPaddle)) else beatFrequency);
   der(x[8])=(drive-x[8])/.32;
   der(x[7])=rate;
   stroke=.095+.64*x[8]*sin(x[7]);
@@ -130,20 +150,20 @@ equation
   moments[1]=scale*sum({side[j]*arm[j]*fz[j] for j in 1:4});
   moments[2]=(-.006-.015*sweep)*scale*sum(fz)-.255*tailLift-.050*pitchRate;
   der(bank)=rollRate;
-  der(rollRate)=(1-wet)*moments[1]/rollInertia+wet*(43*(wetRoll-bank)-10*rollRate);
+  der(rollRate)=(1-waterCoupling)*moments[1]/rollInertia+waterCoupling*(43*(wetRoll-bank)-10*rollRate);
   der(pitch)=pitchRate;
-  der(pitchRate)=(1-wet)*moments[2]/pitchInertia+wet*(52*(wetPitch-pitch)-12*pitchRate);
-  der(x[1])=groundSpeed*courseE-(windSide+wet*(waterSide-windSide))*courseN;
-  der(x[2])=groundSpeed*courseN+(windSide+wet*(waterSide-windSide))*courseE;
+  der(pitchRate)=(1-waterCoupling)*moments[2]/pitchInertia+waterCoupling*(52*(wetPitch-pitch)-12*pitchRate);
+  der(x[1])=groundSpeed*courseE-(windSide+waterCoupling*(waterSide-windSide))*courseN;
+  der(x[2])=groundSpeed*courseN+(windSide+waterCoupling*(waterSide-windSide))*courseE;
   der(x[3])=x[6];
   // Crosswind on the aft tail turns the bill toward the oncoming air.
-  yawRate=(1-wet)*(lift*sin(bank)/(mass*max(2,airSpeed))-
-    .38*gustCross/max(2,airSpeed))+wet*wetYaw;
+  yawRate=(1-waterCoupling)*(lift*sin(bank)/(mass*max(2,airSpeed))-
+    .38*gustCross/max(2,airSpeed))+waterCoupling*wetYaw;
   der(x[4])=yawRate;
-  der(x[5])=((1-wet)*(forward+6*mass*runAssist)+wet*(waterThrust-waterDrag))/mass
-    -wet*windSide*yawRate;
-  der(x[6])=((1-wet)*lift*cos(bank)+buoyancy+wingLift)/mass-9.81;
+  der(x[5])=((1-waterCoupling)*(forward+6*mass*runAssist)+waterCoupling*(waterThrust-waterDrag))/mass
+    -waterCoupling*windSide*yawRate;
+  der(x[6])=((1-waterCoupling)*lift*cos(bank)+buoyancy+wingLift)/mass-9.81;
   wings={stroke,-.40*sweep,.50*sweep,bank};
   memory={bank,rollRate,pitch,pitchRate,differential,tailTrim,flapping};
-  surfaceMotion={wet,airSpeed,waterSpeed};
+  surfaceMotion={wet,airSpeed,waterSpeed,waterMode,waterCoupling*portPaddle,waterCoupling*starboardPaddle};
 end HerringGull;

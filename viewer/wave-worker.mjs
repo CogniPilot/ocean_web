@@ -11,6 +11,6 @@ self.onmessage=async ({data})=>{
     const height=Float32Array.from(model.get('height'));
     const wake=data.omitWake || data.init?.omitWake ? undefined : Float32Array.from(model.get('wakeHeight'));
     self.postMessage({height,wake,origin:[model.get('driftE'),model.get('driftN')],period:model.get('period'),
-      sections:model.get('sectionHeight'),incident:model.get('incident'),load:model.get('waveLoad')},wake?[height.buffer,wake.buffer]:[height.buffer]);
+      strips:wake?model.get('sourceStrips'):undefined,sections:model.get('sectionHeight'),incident:model.get('incident'),load:model.get('waveLoad')},wake?[height.buffer,wake.buffer]:[height.buffer]);
   }catch(error){self.postMessage({error:error.message});}
 };

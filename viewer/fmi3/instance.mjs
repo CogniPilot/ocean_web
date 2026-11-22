@@ -44,5 +44,5 @@ export async function loadInstance(name,inputs,read=fetch){
       return value;
     });
   }
-  return {set,get,getMany,get time(){return time;},advance(dt){check(m._advance(time,dt));time+=dt;}};
+  return {set,get,getMany,has:name=>Object.hasOwn(metadata.variables,name),get time(){return time;},advance(dt){check(m._advance(time,dt));time+=dt;}};
 }

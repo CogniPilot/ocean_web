@@ -2,7 +2,7 @@ import {sonarHalfBearing,sonarMount} from './cruiser-sonar-view.mjs';
 
 // The same terrain profile is used to build the island mesh. Search radially
 // for its land and depth contours at the model's mean water level.
-function contour({center,height},level){
+export function contour({center,height},level){
   return Array.from({length:96},(_,i)=>{
     const angle=2*Math.PI*i/96,x=17*Math.cos(angle),y=11*Math.sin(angle);
     let lo=0,hi=Math.min(29/Math.abs(x),23/Math.abs(y));

@@ -1,9 +1,10 @@
 import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
 // Views share one committed worker snapshot, so every mesh uses the same clock.
 import {boatFields} from './board/boat.mjs';
+import {hullInspectionFields,cruiserInspectionFields} from './physics-view.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
 const sailingOutputs=[
- ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
+ ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail sailLuff mainClewOffset stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
 ];
 const environmentOutputs=[
  ...group('race','countdown stage elapsed lapTime markPose launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
@@ -11,10 +12,12 @@ const environmentOutputs=[
  ...group('waves','height driftE driftN period'),
  ...group('boatWater','tile tide wind'),
 ];
+const hullInspectionOutputs=hullInspectionFields.map(name=>'boat.'+name);
 const flightOutputs=group('drone','position quaternion rotorAngle throttle attitude gps gpsVelocity dragBody aircraft.rotorGeometry.positionBodyFlu_m');
+const flightNavigationOutputs=group('drone','estimatedPosition estimatedVelocity positionCovariance velocityCovariance estimatedWindENU windEstimateValid windCovariance');
 const submarineOutputs=[...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),
  'estimate','sensor','ping'];
-const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',deckManual:'deckManual',
+const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',outhaulInput:'outhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
 export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1){
  const hasBoat=mode==='world'||mode==='sailing'||mode==='sloop',hasSub=mode==='world'||mode==='submarine',hasFlight=mode==='world'||mode==='flight';
@@ -25,7 +28,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  let id=0,error,time=0;
  const pending=new Map();
  const state=new Map();
- const surveyView={camera:false,dvl:false,map:false,wakeSource:false,wakeSurface:!omitWake};
+ const surveyView={camera:false,dvl:false,map:false,wakeSource:false,wakeSurface:!omitWake,physics:false};
  function fail(reason){
    error=reason;
    for(const reply of pending.values())reply.reject(reason);
@@ -47,7 +50,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const initial={windSpeed,windBearing,seaState,epoch:Date.now()/1000};
  const inputs=['seaState'];
  if(hasBoat){
-   Object.assign(initial,{sailingManual:1,vang:.5,downhaul:.5});
+   Object.assign(initial,{sailingManual:1,vang:.5,downhaul:.5,outhaul:.65});
    if(mode!=='sloop')initial.ballastManual=1;
    inputs.push(...Object.values(boatInputs));
  }
@@ -64,8 +67,9 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    ...(mode==='motorboat'?['boatPose','engine']:[]),...(hasSub?submarineOutputs:[]),...(hasFlight?flightOutputs:[])];
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
-   optionalInputs:['animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake'],
-   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed']});
+   optionalInputs:['animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
+   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed',
+     ...(hasBoat?hullInspectionOutputs:[]),...(mode==='motorboat'?cruiserInspectionFields:[]),...(hasFlight?flightNavigationOutputs:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
@@ -122,13 +126,13 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
      if(!state.has(full))throw Error('Unbound world observation '+full);
      return state.get(full);
    };
-   return {get,getMany:names=>names.map(get),set:write,get time(){return time;}};
+   return {get,getMany:names=>names.map(get),has:name=>state.has(prefix+'.'+name),set:write,get time(){return time;}};
  }
  const axes=['forward','left','climb','turn'];
  const flight=view('drone',(n,v)=>{const i=axes.indexOf(n);if(i>=0)controls[offsets.get('flightPilot')+i]=v;
    else if(n==='stationEast'||n==='stationNorth')controls[offsets.get('station')+Number(n==='stationNorth')]=v;
    else set(n==='pilot'?'flightManual':n,v);});
- return {advance,get scheduledSteps(){return outstanding+queued;},setAfterAdvance(callback){afterAdvance=callback;},setWakeSourceRequested(enabled){
+ return {advance,get scheduledSteps(){return outstanding+queued;},setAfterAdvance(callback){afterAdvance=callback;},setPhysicsRequested(enabled){surveyView.physics=enabled;},setWakeSourceRequested(enabled){
    surveyView.wakeSource=enabled;
    if(!enabled)state.delete('waves.sourceStrips');
   },setWakeEnabled(enabled){
@@ -136,5 +140,5 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    if(surveyView.wakeSurface!==enabled)wakeRevision++;
    surveyView.wakeSurface=enabled;
    if(!enabled){state.delete('waves.height');state.delete('bowHeight');}
- },hasAnimalTraffic:offsets.has('animalTraffic'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map,dvl=false){surveyView.dvl=camera||dvl;surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
+ },hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map,dvl=false){surveyView.dvl=camera||dvl;surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

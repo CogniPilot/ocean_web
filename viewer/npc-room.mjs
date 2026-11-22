@@ -20,7 +20,7 @@ export function npcRoom(){
   let habitat=emptyHabitat(),habitatOwner,session=0,lastCall=-Infinity,callRequested=null;
   const finiteRow=(v,n)=>Array.isArray(v)&&v.length===n&&v.every(Number.isFinite);
   function acceptHabitat(h){
-    return h&&finiteRow(h.restock,36)&&Array.isArray(h.gulls)&&h.gulls.length<=maxGulls&&h.gulls.every(r=>[12,19,22].includes(r?.length)&&finiteRow(r,r.length))&&
+    return h&&finiteRow(h.restock,36)&&Array.isArray(h.gulls)&&h.gulls.length<=maxGulls&&h.gulls.every(r=>[12,19,22,25].includes(r?.length)&&finiteRow(r,r.length))&&
       (h.vessels===undefined||(Array.isArray(h.vessels)&&h.vessels.length<=vesselLimit&&h.vessels.every(
         v=>v&&Object.hasOwn(vesselNpcNames,v.kind)&&Number.isFinite(v.started))))&&
       (h.gullSeats===undefined||(Array.isArray(h.gullSeats)&&h.gullSeats.length===h.gulls.length&&
@@ -29,7 +29,7 @@ export function npcRoom(){
       h.sounds.every(s=>Array.isArray(s)&&s.length===7&&['gull','spout','impact'].includes(s[2])&&s.every((v,i)=>i===2||Number.isFinite(v)));
   }
   let animals=new Map(),controls=new Map(),revision=0;
-  const validFrame=f=>Array.isArray(f)&&[65,70,202,203,205].includes(f.length)&&f.every(Number.isFinite);
+  const validFrame=f=>Array.isArray(f)&&[65,70,202,203,205,207].includes(f.length)&&f.every(Number.isFinite);
   const validKind=kind=>kind==='whale'||kind==='shark';
   function release(animal){
     if(animal.player){
@@ -99,11 +99,13 @@ export function npcRoom(){
     for(const [id,m] of members){
       if(target&&id!==target)continue;
       if(m.version===2){
-        const shared=m.gullWater?habitat:m.extendedGulls?{...habitat,gulls:habitat.gulls.map(r=>r.slice(0,19))}:
+        const shared=m.gullSwimMode?habitat:m.gullWater?{...habitat,gulls:habitat.gulls.map(r=>r.slice(0,22))}:
+          m.extendedGulls?{...habitat,gulls:habitat.gulls.map(r=>r.slice(0,19))}:
           {...habitat,gulls:habitat.gulls.slice(0,2).map(r=>r.slice(0,12)),gullSeats:habitat.gullSeats.slice(0,2)};
-        const frame=m.sharkBank?last?.frame:last?.frame?.slice(0,203);
-        const roster=m.sharkBank?items:items.map(a=>a.frame?.length>203?{...a,frame:a.frame.slice(0,203)}:a);
-        send({type:'harbor',version:2,extendedGulls:true,gullWater:true,sharkBank:true,joined,frame,items:roster,habitat:shared},id);
+        const frameSize=m.swimReserve?207:m.sharkBank?205:203;
+        const frame=last?.frame?.length>frameSize?last.frame.slice(0,frameSize):last?.frame;
+        const roster=items.map(a=>a.frame?.length>frameSize?{...a,frame:a.frame.slice(0,frameSize)}:a);
+        send({type:'harbor',version:2,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined,frame,items:roster,habitat:shared},id);
       }else{
         if(last?.frame)send([joined,...last.frame.slice(0,70)],id);
         send({type:'animals',items:items.map(a=>({...a,frame:a.frame?.slice(0,70)}))},id);
@@ -118,7 +120,7 @@ export function npcRoom(){
     owner=viable[0][0];
   }
   function send(data,target){channel?.send(data,target?{target}:undefined).catch(()=>{});}
-  function hello(target){send([joined],target);send({type:'hello',version:2,extendedGulls:true,gullWater:true,sharkBank:true,joined},target);}
+  function hello(target){send([joined],target);send({type:'hello',version:2,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined},target);}
   return {
     connect(action,id){
       channel=action;self=id;habitatOwner=id;session++;animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
@@ -128,7 +130,7 @@ export function npcRoom(){
         let m=members.get(peerId);
         if((data.type==='hello'||data.type==='harbor')&&data.version===2&&Number.isSafeInteger(data.joined)&&data.joined>0){
           if(!m){m={joined:data.joined,samples:[]};members.set(peerId,m);elect();hello(peerId);}
-          m.version=2;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.sharkBank=data.sharkBank===true;
+          m.version=2;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.gullSwimMode=data.gullSwimMode===true;m.sharkBank=data.sharkBank===true;m.swimReserve=data.swimReserve===true;
           if(data.type==='hello'){sync(peerId);return;}
         }
         if(!Array.isArray(data)){

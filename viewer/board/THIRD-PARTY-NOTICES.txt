@@ -1,4 +1,4 @@
-Rumoca 0.10.4 full-web wasm32 normal and build dependency notices. Identifiers correspond to THIRD-PARTY-CRATES.json.
+Retained dependency notices from the Rumoca 0.10.4 full-web wasm32 distribution.
 
 a60eea8175145316
                               Apache License

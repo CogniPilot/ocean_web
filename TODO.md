@@ -158,6 +158,8 @@ A checked item records the specific result described. Open items include partial
 
 ## Submarine, wreck and drone
 
+- [ ] Stop the Piccard lamp from leaking through the side panel. Reproduce and remove the bright edge and band in the onboard optical preview with the lamp on. Check both Orbit and the live camera on the same dive.
+
 - [x] Add a listed three-level wreck, 6-DOF submarine, ballast, drag, buoyancy, spatial currents and structural contact. Add swim/surface controls, rotor animation, RPM-linked bubbles and force display.
 - [x] Wire rendered 3D sonar, DVL, depth, IMU and camera features into the browser navigation pipeline. Compare GPU ranges with the Modelica reference.
 - [x] Qualify the automatic three-level wreck survey. All 12 stations passed with 0.585 m translational RMS error in 112.8 simulated seconds.
@@ -170,6 +172,8 @@ A checked item records the specific result described. Open items include partial
 - [x] Verify RDD2 station holding, manual flight, return to station, drag in reversed crosswinds and motor-cut descent to rest at −13.61 m in the released WASM.
 - [x] Follow the onboard submarine estimate through the full wreck survey with the RDD2. Horizontal tracking error was 0.874 m RMS, altitude error was 0.236 m RMS and peak horizontal separation was 2.28 m.
 - [x] Add fish and the Quaternius shark and whale. Retain asset credits; compare shading, size and animation from the submarine and waterline cameras.
+
+- [ ] Fix gaps in underwater water shading at very shallow viewing angles. Reproduce from whale orbit both just above the seabed and looking up toward the horizon.
 
 ## Vehicle art
 

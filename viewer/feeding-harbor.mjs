@@ -24,6 +24,7 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
       if(!models[i]){
         const slot=models[i]={level:seaLevel};
         loadInstance('HerringGull',{offset:i%3,startState:row.slice(0,8),wind,gust,seaLevel,waterSlope,waterCurrent:current,
+          startWaterMode:row[22]??(row[19]>.45||row[2]<seaLevel+.07?2:0),
           ...(row.length>=19?{startMemory:row.slice(12,19)}:{})})
           .then(m=>{slot.model=m;}).catch(e=>{console.error(e);delete models[i];});
       }
@@ -82,7 +83,7 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
       const next=h.gulls[i];if(!next){birds[i].group.visible=false;continue;}
       const b=birds[i];
       if(next!==b.next){b.old=b.next??next;b.next=next;}
-      b.draw(next.map((x,j)=>(b.old[j]??x)+(x-(b.old[j]??x))*f));
+      b.draw(next.map((x,j)=>j===22?x:(b.old[j]??x)+(x-(b.old[j]??x))*f));
     }
     if(initialSounds!==true||authority!==room.soundOwner){
       lastSequence=h.sequence;authority=room.soundOwner;initialSounds=true;

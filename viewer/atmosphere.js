@@ -25,25 +25,21 @@
  uniform vec2 spectrumDrift;
  uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable,hullSpectrumOnly;
  vec2 spectralUV(vec2 p){return (p-spectrumDrift)/spectrumPeriod+vec2(.5/64.);}
- vec2 elevationEndpoints(highp sampler2D map,vec2 uv){
+ float elevationSample(highp sampler2D map,vec2 uv){
    vec4 pair=texture2D(map,uv);
    vec2 weights=vec2(65280.,255.);
-   return (vec2(dot(pair.rg,weights),dot(pair.ba,weights))-32768.)/8192.;
+   return (mix(dot(pair.rg,weights),dot(pair.ba,weights),spectrumBlend)-32768.)/8192.;
  }
- float elevationSample(highp sampler2D map,vec2 uv){
-   vec2 samples=elevationEndpoints(map,uv);
-   return mix(samples.x,samples.y,spectrumBlend);
- }
- float incidentElevation(vec2 uv){return hullSpectrumOnly>.5?0.:elevationSample(incidentMap,uv);}
- // Match the hull-wave window used for the Modelica water probes.
- float wakeFalloff(vec2 p){return smoothstep(.35,.49,length(p-boat.xy)/spectrumPeriod);}
- float spectralElevation(vec2 p){
-   if(spectrumPeriod<=0.)return 0.;
+ // Keep a separate ambient sample for whitecaps. The full height still
+ // includes hull displacement for rendering and surface probes.
+ vec2 spectralElevations(vec2 p){
+   if(spectrumPeriod<=0.)return vec2(0.);
    vec2 uv=spectralUV(p);
-   float falloff=wakeAvailable>.5?wakeFalloff(p):0.;
-   if(falloff>=1.)return incidentElevation(uv);
-   float z=elevationSample(spectrumMap,uv);
-   return falloff<=0.?z:mix(z,incidentElevation(uv),falloff);
+   if(wakeAvailable<.5)return vec2(elevationSample(spectrumMap,uv));
+   float incident=hullSpectrumOnly>.5?0.:elevationSample(incidentMap,uv);
+   float falloff=smoothstep(.35,.49,length(p-boat.xy)/spectrumPeriod);
+   if(falloff>=1.)return vec2(incident);
+   return vec2(mix(elevationSample(spectrumMap,uv),incident,falloff),incident);
  }
  bool nearBowField(vec2 p,float radius){
    #ifdef DISABLE_BOW_FIELD
@@ -59,11 +55,11 @@
    vec2 local=vec2(dot(r,forward),dot(r,vec2(-forward.y,forward.x)));
    return elevationSample(bowMap,local/8.+vec2(.5/32.));
  }
- float sampledHeightAt(vec2 p){
+ vec2 sampledHeightsAt(vec2 p){
   vec4 data=texture2D(tile,p/64.+vec2(.5/32.));
-  return spectralElevation(p)+mix(dot(data.rg,vec2(255.*256.,255.)),dot(data.ba,vec2(255.*256.,255.)),blend)*16./65535.-8.;
+  return spectralElevations(p)+mix(dot(data.rg,vec2(255.*256.,255.)),dot(data.ba,vec2(255.*256.,255.)),blend)*16./65535.-8.;
  }
- float backgroundHeightAt(vec2 p){return tide+swell.x*sin(swell.y+dot(p-swellCenter,swell.zw))+sampledHeightAt(p);}
+ float backgroundHeightAt(vec2 p){return tide+swell.x*sin(swell.y+dot(p-swellCenter,swell.zw))+sampledHeightsAt(p).x;}
  float heightAt(vec2 p){return backgroundHeightAt(p)+bowElevation(p)+wildlifeWave(p).x;}
  `;
 // A single camera-centred batch. The two vertices of each streak share a seed
@@ -165,7 +161,7 @@ vec4 skyRadiance(vec3 d){
 }
 `;
 // Render white water over the solved surface along the past wet stern sections.
-function hullFoam(scene,uniforms){
+function hullFoam(scene,uniforms,cruiserHullGLSL){
  const count=52,tracks=[[],[]],geometry=new THREE.BufferGeometry();
  const along=new Float32Array(2*count*2*3);
  const foam=new Float32Array(2*count*2*3);
@@ -180,24 +176,25 @@ function hullFoam(scene,uniforms){
    vertexShader:oceanHeightGLSL+`
      attribute vec3 foam;
      varying vec3 vFoam;
-     varying vec2 location;
+     varying vec2 location;varying vec3 foamPoint;
      void main(){
        vec2 p=position.xy+spectrumDrift;
        vFoam=foam;location=position.xy;
-       gl_Position=projectionMatrix*viewMatrix*vec4(p,heightAt(p)+.018,1.);
+       foamPoint=vec3(p,heightAt(p)+.018);
+       gl_Position=projectionMatrix*viewMatrix*vec4(foamPoint,1.);
      }`,
-   fragmentShader:skyNoiseGLSL+`
+   fragmentShader:skyNoiseGLSL+cruiserHullGLSL+`
      uniform float tm,under;
      uniform vec3 sunDir;
      varying vec3 vFoam;
-     varying vec2 location;
+     varying vec2 location;varying vec3 foamPoint;
      void main(){
        float age=max(0.,tm-vFoam.y);
        float grain=noise2(location*19.);
        float edge=1.-smoothstep(.24,.83,abs(vFoam.x)+(grain-.5)*.37);
        float breakup=smoothstep(.24,.64,noise2(location*5.)*.7+grain*.3);
        float alpha=vFoam.z*edge*(.48+.52*breakup)*exp(-age*.43)*(1.-smoothstep(3.6,5.,age));
-       if(under>.5 || alpha<.015)discard;
+       if(under>.5 || alpha<.015 || cruiserWaterExcluded(foamPoint))discard;
        vec3 tint=mix(vec3(.18,.24,.29),vec3(.88,.94,.93),smoothstep(-.12,.22,sunDir.z));
        gl_FragColor=vec4(tint,alpha);
        #include <tonemapping_fragment>
@@ -221,7 +218,10 @@ function hullFoam(scene,uniforms){
      const track=tracks[h],i=18*h;
      if(h===0||cat){
        const aft=strips[i+2],inboard=.42*strips[i+5],wet=aft+inboard;
-       const strength=Math.max(0,Math.min(1,(speed-1.25)/3.1))*Math.min(1,Math.max(0,wet)/.010);
+       const spacing=Math.hypot(strips[i+3]-strips[i],strips[i+4]-strips[i+1]);
+       const area=Math.max(0,wet)/Math.max(.1,spacing);
+       // Normalize the volume of disturbed water per second to opacity.
+       const strength=Math.min(1,area*Math.max(0,speed)/.11);
        const forward=wet>1e-9?inboard/wet:0;
        const east=strips[i]+forward*(strips[i+3]-strips[i]);
        const north=strips[i+1]+forward*(strips[i+4]-strips[i+1]);
@@ -248,7 +248,7 @@ function hullFoam(scene,uniforms){
  }
  return {mesh,clear,sample};
 }
-function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBeamGLSL,searchlightHeight,hullGlowLobes){
+function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
  const U={cruiserTilt:{value:new Float32Array(10)},cruiserCount:{value:0},cruiserPose:{value:new Float32Array(20)},cruiserAim:{value:new Float32Array(20)},cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  const swimmerWater=makeSwimmerWater(THREE,U);
  const skyTarget=new THREE.WebGLRenderTarget(512,192,{type:THREE.HalfFloatType});
@@ -329,7 +329,6 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  bowTexture.wrapS=bowTexture.wrapT=THREE.RepeatWrapping;
  bowTexture.minFilter=bowTexture.magFilter=THREE.LinearFilter;
  U.bowMap={value:bowTexture};U.bowAvailable={value:0};
- U.forebodyPort={value:new THREE.Vector3()};U.forebodyStarboard={value:new THREE.Vector3()};
  let spray;
  function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=0;trails.clear();}
  function displayedHeight(data,k,blend){
@@ -371,20 +370,21 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  tile.wrapS=tile.wrapT=THREE.RepeatWrapping;tile.minFilter=tile.magFilter=THREE.LinearFilter;tile.needsUpdate=true;
  Object.assign(U,{tile:{value:tile},blend:{value:1},tide:{value:0},wind:{value:11},bearing:{value:.45},boat:{value:new THREE.Vector4()},reflection:{value:null},transmission:{value:null},mirrorMatrix:{value:new THREE.Matrix4()},viewport:{value:new THREE.Vector2(1,1)}});
  const field=oceanHeightGLSL+`
- vec2 surfaceSlope(vec2 p,out vec2 bowSlope){
-   vec2 slope=vec2(sampledHeightAt(p+vec2(.48,0))-sampledHeightAt(p-vec2(.48,0)),
-     sampledHeightAt(p+vec2(0,.48))-sampledHeightAt(p-vec2(0,.48)))/.96;
-   // The central difference of the analytic swell factors into a single
-   // cosine evaluation and a wavevector-dependent scale.
-   slope+=swell.x*cos(swell.y+dot(p-swellCenter,swell.zw))*sin(.48*swell.zw)/.48;
-   bowSlope=vec2(0.);
+ vec2 surfaceSlope(vec2 p,out vec2 incidentSlope){
+   vec2 dx=(sampledHeightsAt(p+vec2(.48,0))-sampledHeightsAt(p-vec2(.48,0)))/.96;
+   vec2 dy=(sampledHeightsAt(p+vec2(0,.48))-sampledHeightsAt(p-vec2(0,.48)))/.96;
+   // Factor the analytic swell's central difference into one cosine.
+   vec2 swellSlope=swell.x*cos(swell.y+dot(p-swellCenter,swell.zw))*sin(.48*swell.zw)/.48;
+   incidentSlope=vec2(dx.y,dy.y)+swellSlope;
+   vec2 slope=vec2(dx.x,dy.x)+swellSlope;
    if(nearBowField(p,4.25))
-     bowSlope=vec2(bowElevation(p+vec2(.24,0))-bowElevation(p-vec2(.24,0)),
+     slope+=vec2(bowElevation(p+vec2(.24,0))-bowElevation(p-vec2(.24,0)),
        bowElevation(p+vec2(0,.24))-bowElevation(p-vec2(0,.24)))/.48;
-   return slope+bowSlope;
+   return slope;
  }
+ varying float windCrest;
  #ifdef VERTEX_SLOPE
- varying vec2 resolvedSlope;
+ varying vec2 resolvedSlope,resolvedIncidentSlope;
  #endif
  `;
  function waterMesh(segments){
@@ -405,31 +405,28 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  }
  const water=new THREE.Mesh(waterMesh(144),new THREE.ShaderMaterial({uniforms:U,side:THREE.DoubleSide,
  vertexShader:field+`varying vec3 wp;
- void main(){wp=(modelMatrix*vec4(position,1.)).xyz;wp.z=heightAt(wp.xy);
+ void main(){
+ wp=(modelMatrix*vec4(position,1.)).xyz;
+ vec2 sampled=sampledHeightsAt(wp.xy);
+ windCrest=sampled.y;
+ wp.z=tide+swell.x*sin(swell.y+dot(wp.xy-swellCenter,swell.zw))+sampled.x+bowElevation(wp.xy)+wildlifeWave(wp.xy).x;
  #ifdef VERTEX_SLOPE
- vec2 unusedBowSlope;resolvedSlope=surfaceSlope(wp.xy,unusedBowSlope);
+ resolvedSlope=surfaceSlope(wp.xy,resolvedIncidentSlope);
  #endif
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
  uniform sampler2D windMap; uniform float windFieldActive,windBlend,referenceWind,windPeriod;
  uniform highp sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
- uniform vec3 forebodyPort,forebodyStarboard;
- uniform vec2 cruiserTilt[5];uniform int cruiserCount;uniform vec4 cruiserPose[5],cruiserAim[5];
+ ${cruiserHullGLSL}
  ${cruiserBeamGLSL}
  vec3 lampScatter(vec3 surface,float daylight){
    vec3 lit=vec3(0.);
    for(int i=0;i<5;i++){
      if(i>=cruiserCount)break;
      vec4 pose=cruiserPose[i],aim=cruiserAim[i];vec2 delta=surface.xy-pose.xy;
-     if(dot(delta,delta)>45.*45.)continue;
-     vec2 forward=vec2(cos(pose.w),sin(pose.w));
-     vec2 horizontal=vec2(dot(delta,forward),dot(delta,vec2(-forward.y,forward.x)));
-     vec2 tilt=cruiserTilt[i];float dz=surface.z-pose.z;
-     float unpitchedZ=sin(tilt.y)*horizontal.x+cos(tilt.y)*dz;
-     vec3 body=vec3(cos(tilt.y)*horizontal.x-sin(tilt.y)*dz,
-                    cos(tilt.x)*horizontal.y+sin(tilt.x)*unpitchedZ,
-                    -sin(tilt.x)*horizontal.y+cos(tilt.x)*unpitchedZ);
-     if(aim.w>.5&&dot(horizontal,horizontal)<120.){
+     if((aim.z<.5&&aim.w<.5)||dot(delta,delta)>45.*45.)continue;
+     vec3 body=cruiserLocal(surface,pose,cruiserTilt[i]);
+     if(aim.w>.5&&dot(delta,delta)<120.){
        float scatter=0.;
        ${hullGlowLobes.map(({center,radius,weight})=>`{
          vec3 q=(body-vec3(${center.map(x=>x.toFixed(3)).join(',')}))/vec3(${radius.join(',')});
@@ -453,13 +450,6 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  uniform highp sampler2D transmissionDepth;uniform mat4 throughMatrix;uniform vec3 throughEye;uniform vec2 cameraRange;
  uniform vec2 transmissionSize;
 
- float nearWetBow(vec3 source,vec2 point,vec2 forward){
-   vec2 relative=point-source.xy;
-   float nose=dot(relative,forward);
-   float across=abs(dot(relative,vec2(-forward.y,forward.x)));
-   return source.z*(1.-smoothstep(.28,1.42,across))
-     *smoothstep(-1.35,-.35,nose)*(1.-smoothstep(.45,1.62,nose));
- }
  float viewDepth(float z){return cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}
  // Reconstruct color after the waterline test and attenuation of each texel.
  // Interpolating a hull depth with the distant seabed invents water between them.
@@ -501,6 +491,7 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
    return total;
  }
  void main(){
+   if(cruiserWaterExcluded(wp))discard;
    vec3 eye=normalize(cameraPosition-wp);
    vec4 air=texture2D(windMap,wp.xy/windPeriod+.5/48.);
    vec2 baseDir=vec2(cos(bearing),sin(bearing));
@@ -515,14 +506,14 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,length(wp-cameraPosition));
    #ifdef VERTEX_SLOPE
-   vec2 d=resolvedSlope,bowSlope=vec2(0.);
+   vec2 d=resolvedSlope,incidentSlope=resolvedIncidentSlope;
    #else
-   vec2 bowSlope;
-   vec2 d=surfaceSlope(wp.xy,bowSlope);
+   vec2 incidentSlope;
+   vec2 d=surfaceSlope(wp.xy,incidentSlope);
    #endif
    vec4 swimmer=wildlifeWave(wp.xy);
    d+=swimmer.zw;
-   float gravitySlope=length(d);
+   float gravitySlope=length(incidentSlope);
    d+=fade*rippleSlope(wp.xy,tm,baseDir,rippleWind)*(.80+.50*puff-.23*lull);
    // Resolve fine wind rows nearby; their aggregate roughness stays visible farther out.
    float ripplePhase=12.*p.x+1.9*p.y-11.*tm+.8*sin(1.6*p.y+.5*tm);
@@ -591,7 +582,6 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      color=mix(waterColor+visible*transmitted.rgb,reflected,fres);
      #endif
      color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
-     float windCrest=wp.z-tide-swell.x*sin(swell.y+dot(wp.xy-swellCenter,swell.zw));
      waterColor=mix(waterColor,vec3(.012,.037,.043),storm*.85);
      vec2 foamUV=p*vec2(1.8,3.8)+vec2(-.9*tm,0.);
      #ifdef SIMPLE_SURFACE
@@ -606,32 +596,6 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
      float breaking=smoothstep(.085,.32,windCrest)*smoothstep(.045,.17,gravitySlope);
      float foam=breaking*smoothstep(densityCutoff-.08,densityCutoff+.06,scum);
      if(swimmer.y>0.)foam=max(foam,min(1.,swimmer.y)*(.40+.60*smoothstep(.22,.75,noise2(wp.xy*12.+.28*tm))));
-     float edge=wakeAvailable>.5?1.-wakeFalloff(wp.xy):0.;
-     if(edge>0.){
-       vec2 uvWake=spectralUV(wp.xy);
-       vec2 crests=elevationEndpoints(spectrumMap,uvWake);
-       if(hullSpectrumOnly<.5)crests-=elevationEndpoints(incidentMap,uvWake);
-       crests+=vec2(bowElevation(wp.xy));
-       // Crossfade the coverage of the two solved crests. Thresholding the
-       // blended height erases thin foam lines when a crest moves between cells.
-       vec2 cover=smoothstep(vec2(.012),vec2(.062),crests);
-       float coverage=mix(cover.x,cover.y,spectrumBlend)*edge;
-       if(coverage>0.){
-         // Use small drifting patches to break up the visible foam on the crest.
-         float bubbles=noise2((wp.xy-spectrumDrift)*6.);
-         vec2 forward=vec2(cos(boat.z),sin(boat.z));
-         float bow=max(nearWetBow(forebodyPort,wp.xy,forward),nearWetBow(forebodyStarboard,wp.xy,forward));
-         // Clear water climbs the stem. Only the steeper leading shoulder
-         // gets localized aeration; the gentler pressure hump stays reflective.
-         float face=max(0.,-dot(bowSlope,forward));
-         float breakingFace=smoothstep(.08,.32,length(bowSlope))*smoothstep(.018,.14,face);
-         float foamStreak=noise2(vec2(dot(wp.xy-spectrumDrift,forward)*5.-tm,
-                                    dot(wp.xy-spectrumDrift,vec2(-forward.y,forward.x))*19.));
-         float scattered=.20+.80*smoothstep(.27,.72,foamStreak);
-         float trail=coverage*(1.-bow)*(.20+.64*smoothstep(.24,.73,bubbles));
-         foam=max(foam,max(trail,bow*breakingFace*scattered*coverage));
-       }
-     }
      float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
      foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum)*smoothstep(.01,.16,abs(windCrest)));
 
@@ -652,33 +616,30 @@ function atmosphere(scene,waterCaptureLayer,makeSwimmerWater,makeSpray,cruiserBe
  }`}));
  scene.add(water);
 
- const trails=hullFoam(scene,U);
+ const trails=hullFoam(scene,U,cruiserHullGLSL),bowSprayArea=new Float64Array(4);
  function updateHullFoam(strips,time,speed,cat,cruiser=false){
    if(!strips)return;
    trails.sample(strips,time,speed,cat||cruiser,cruiser);
    if(cat){
-     spray??=makeSpray(THREE,scene,'Bow spray',2,sampleSurface);
-     const area=[0,0];
-     let heading=0;
-     for(let h=0;h<2;h++){
-       const start=h*18;
-       let k=start+15;
-       while(k>start+3&&strips[k+2]<.0007)k-=3;
+     spray??=makeSpray(THREE,scene,'Bow spray',4,sampleSurface,{bow:true});
+     const area=bowSprayArea;
+     const heading=Math.atan2(strips[16]-strips[1],strips[15]-strips[0]);
+     const c=Math.cos(heading),s=Math.sin(heading);
+     for(let h=0;h<2;h++)for(let i=0;i<2;i++){
+       const k=h*18+12+3*i,index=2*h+i;
        const dx=strips[k]-strips[k-3],dy=strips[k+1]-strips[k-2];
-       heading=Math.atan2(dy,dx);
-       const x=strips[k]-.24*dx,y=strips[k+1]-.24*dy;
-       spray.positions[h].set(x,y,sampleSurface(x,y));
-       area[h]=(strips[k+2]+.42*strips[k-1])/Math.max(.1,Math.hypot(dx,dy));
+       const spacing=Math.max(.1,Math.hypot(dx,dy));
+       const wet=Math.max(0,strips[k+2]);
+       // Meter the water intercepted by the two forward sections. Place
+       // each source outside its hull instead of launching across the deck.
+       const width=(h===0?1:-1)*(i===0?.16:.095);
+       const x=strips[k]-s*width,y=strips[k+1]+c*width;
+       spray.positions[index].set(x,y,0);
+       area[index]=wet/spacing;
      }
-     spray.sample(time,area,speed,heading);
+     for(let h=0;h<2;h++)area[2*h]=Math.max(0,area[2*h]-area[2*h+1]);
+     spray.sample(time,area,Math.max(0,speed),heading);
    }
-   const strength=Math.max(0,Math.min(1,(speed-1.25)/2.8));
-   function crestSource(target,index,active){
-     const immersion=active?Math.min(1,(strips[index+2]+.45*strips[index-1])/.014):0;
-     target.value.set(strips[index],strips[index+1],strength*immersion);
-   }
-   crestSource(U.forebodyPort,15,true);
-   crestSource(U.forebodyStarboard,33,cat||cruiser);
  }
  const encodeHeight=h=>Math.round(65535*Math.max(0,Math.min(1,(h+8)/16)));
  let firstTile=true;

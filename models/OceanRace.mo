@@ -8,7 +8,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   input Real peerWake[4,38](each start=0);
   input Real windAnchor[5](each start=0);
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
-  input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),deckManual,mainCar,jibCar,jibSheet;
+  input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),outhaul(start=.65),deckManual,mainCar,jibCar,jibSheet;
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
   Real sailLandingWrench[6],committeeLandingWrench[6],windProbe[2];
   input Real swimmerWater[15](each start=0) "Local swimmer-wave elevations at twelve hull panels, centre elevation, forward and port slopes";
@@ -30,7 +30,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     foilY=if hobie then {1.02,1.02,-1.02,-1.02} else zeros(4),
     foilArea=if hobie then {.62,.11,.62,.11} else {.115,.044,0,0},
     aspect=if hobie then {.65,3.4,.65,3.4} else {3.5,2.6,1,1},
-    raceGoal={1,race.pilotTarget[1],race.pilotTarget[2]},manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,
+    raceGoal={1,race.pilotTarget[1],race.pilotTarget[2]},manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,outhaulInput=outhaul,
     deckManual=deckManual,mainCarInput=mainCar,jibCarInput=jibCar,jibTrimInput=jibSheet,reachTrial=0,
     ballastManual=ballastManual,ballastCmdX=ballastX,ballastCmdY=ballastY,traffic=traffic,
     windEast=wind.localEast,windNorth=wind.localNorth,currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],
