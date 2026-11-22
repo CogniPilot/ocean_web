@@ -162,12 +162,11 @@ export function physicsView(T,canvas,status){
   }
 
   function drawWater(ocean,x,y){
-    const {spectrumPeriod,spectrumDrift,wakeAvailable,bowAvailable}=ocean.U;
+    const {spectrumPeriod,wakeAvailable,bowAvailable}=ocean.U;
     const wake=wakeAvailable.value>.5;
     const spacing=wake?spectrumPeriod.value/64:2;
-    const drift=wake?spectrumDrift.value:{x:0,y:0};
-    const startX=Math.floor((x-drift.x)/spacing)*spacing+drift.x-8*spacing;
-    const startY=Math.floor((y-drift.y)/spacing)*spacing+drift.y-8*spacing;
+    // Follow the inspected body while interpolating the world-space field.
+    const startX=x-8*spacing,startY=y-8*spacing;
     const size=17;
     ink.strokeStyle=colors.wave;ink.lineWidth=1;ink.globalAlpha=.52;ink.beginPath();
     for(let j=0;j<size;j++)for(let i=0;i<size;i++){
@@ -177,7 +176,7 @@ export function physicsView(T,canvas,status){
       if(j)segment(waterPoints[k-size],point);
     }
     ink.stroke();ink.globalAlpha=1;
-    status.textContent=(wake?'64×64 hull FFT · '+spacing.toFixed(2)+' m cells · ':'')+
+    status.textContent='Boat-centered samples · '+(wake?'64×64 hull FFT · '+spacing.toFixed(2)+' m cells · ':'')+
       '32×32 wind-sea grid · analytic swell'+(bowAvailable.value>.5?' · 32×32 bow field':'');
   }
 

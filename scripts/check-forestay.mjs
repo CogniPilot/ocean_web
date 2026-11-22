@@ -27,6 +27,7 @@ console.log({worst,maxSwing});
 // The catamaran's jib head attaches partway along the moving upper forestay.
 const cat = await loadInstance('Hobie16', {manualHelm:1, windNorth:8},
   async url => new Response(await readFile(url)));
+const jibTack = [cat.get('footX')[1],0,cat.get('footZ')[1]];
 let shortestStrop = Infinity;
 for (let i=0; i<400; i++) {
   cat.advance(.01);
@@ -34,7 +35,7 @@ for (let i=0; i<400; i++) {
   const head = vertices.slice(132,135);
   const rotation = rotations.slice(9);
   const station = stations[5];
-  const worldHead = [2.26,0,.75].map((origin,j) =>
+  const worldHead = jibTack.map((origin,j) =>
     origin + head.reduce((v,x,k) => v+rotation[3*j+k]*x,0));
   const midway = paths.slice(21,24), tang = paths.slice(24,27);
   for (let axis=0; axis<3; axis++) {
@@ -43,5 +44,5 @@ for (let i=0; i<400; i++) {
   }
   shortestStrop = Math.min(shortestStrop, Math.hypot(...tang.map((x,j)=>x-worldHead[j])));
 }
-assert(shortestStrop>.45 && shortestStrop<.7);
+assert(shortestStrop>.38 && shortestStrop<.55);
 console.log({shortestStrop});

@@ -118,12 +118,120 @@ export function courseScene(T,scene,race){
     ctx.fillStyle='#ffbe52';ctx.font='bold 43px monospace';ctx.fillText(label,256,151);texture.needsUpdate=true;
   };
 }
+export function sailFlapRate(){
+  const sampleRate=32,windowSize=96,firstFrequency=.5,frequencyStep=.25,binCount=47;
+  const main=new Float64Array(windowSize),jib=new Float64Array(windowSize);
+  const weightedMain=new Float64Array(windowSize),weightedJib=new Float64Array(windowSize);
+  const taper=Float64Array.from(main,(_,i)=>.5-.5*Math.cos(2*Math.PI*i/(windowSize-1)));
+  const middle=(windowSize-1)/2,taperSum=taper.reduce((sum,w)=>sum+w,0);
+  const slopeScale=taper.reduce((sum,w,i)=>sum+w*(i-middle)**2,0);
+  const bins=Float64Array.from({length:binCount},(_,i)=>2*Math.cos(2*Math.PI*(firstFrequency+frequencyStep*i)/sampleRate));
+  const powers=new Float64Array(binCount);
+  let count=0,write=0,lastTime,nextSample,lastWall,lastMain,lastJib,analysisTime,frameInterval;
+  let clockTime,clockWall,wallRate,dominant;
+
+  function reset(){
+    count=0;write=0;lastTime=undefined;dominant=undefined;
+  }
+  function prepare(samples,weighted){
+    // Remove the changing mean camber and trim before looking for a flap.
+    let sum=0,moment=0;
+    for(let i=0;i<windowSize;i++){
+      const value=taper[i]*samples[(write+i)%windowSize];
+      sum+=value;moment+=value*(i-middle);
+    }
+    const mean=sum/taperSum,slope=moment/slopeScale;
+    let energy=0;
+    for(let i=0;i<windowSize;i++){
+      const y=(samples[(write+i)%windowSize]-mean-slope*(i-middle))*taper[i];
+      weighted[i]=y;energy+=y*y;
+    }
+    return energy;
+  }
+  function powerAt(samples,coefficient){
+    let previous=0,previous2=0;
+    for(const value of samples){
+      const next=value+coefficient*previous-previous2;
+      previous2=previous;previous=next;
+    }
+    return Math.max(0,previous*previous+previous2*previous2-coefficient*previous*previous2);
+  }
+  function analyze(mainLuff,jibLuff){
+    const energy=mainLuff*prepare(main,weightedMain)+jibLuff*prepare(jib,weightedJib);
+    // Use only bands the incoming snapshots can resolve. Interpolation aligns
+    // the samples for analysis and cannot recover above their Nyquist limit.
+    const limit=Math.min(binCount-1,Math.floor((.40/frameInterval-firstFrequency)/frequencyStep));
+    if(energy<.001||limit<1)return undefined;
+    let peak=0;
+    for(let i=0;i<=limit;i++){
+      powers[i]=mainLuff*powerAt(weightedMain,bins[i])+jibLuff*powerAt(weightedJib,bins[i]);
+      if(powers[i]>powers[peak])peak=i;
+    }
+    if(powers[peak]<.10*windowSize*energy)return undefined;
+    let offset=0;
+    if(peak>0&&peak<limit){
+      const left=powers[peak-1],right=powers[peak+1],top=powers[peak];
+      const curvature=2*(2*top-left-right);
+      if(curvature>1e-9)offset=(right-left)/curvature;
+    }
+    return firstFrequency+(peak+offset)*frequencyStep;
+  }
+  function append(mainY,jibY){
+    main[write]=mainY;jib[write]=jibY;
+    write=(write+1)%windowSize;count=Math.min(count+1,windowSize);
+  }
+  function sample(time,wall,mainY,jibY,mainLuff,jibLuff,playbackRate){
+    if(time===lastTime)return wall-lastWall<.35;
+    if(!Number.isFinite(mainY)||!Number.isFinite(jibY)){reset();return false;}
+    const dt=time-lastTime;
+    if(!(dt>0)||dt>.20||wall-lastWall>.4){
+      reset();
+      clockTime=time;clockWall=wall;wallRate=playbackRate;
+      frameInterval=1/sampleRate;analysisTime=time;
+      nextSample=time+1/sampleRate;
+      append(mainY,jibY);
+    }else{
+      frameInterval=Math.max(dt,.90*frameInterval+.10*dt);
+      while(nextSample<=time+1e-8){
+        const fraction=Math.min(1,(nextSample-lastTime)/dt);
+        append(lastMain+fraction*(mainY-lastMain),lastJib+fraction*(jibY-lastJib));
+        nextSample+=1/sampleRate;
+      }
+      if(wall-clockWall>=.5){
+        const rate=(time-clockTime)/(wall-clockWall);
+        wallRate+=.5*(Math.min(playbackRate*1.25,rate)-wallRate);
+        clockTime=time;clockWall=wall;
+      }
+      if(count===windowSize&&time-analysisTime>=.25){
+        const measured=analyze(mainLuff,jibLuff);
+        dominant=measured===undefined||dominant===undefined?measured:dominant+.55*(measured-dominant);
+        analysisTime=time;
+      }
+    }
+    lastTime=time;lastWall=wall;lastMain=mainY;lastJib=jibY;
+    return true;
+  }
+  return {sample,reset,get dominant(){return dominant;},
+    get audibleHz(){return (dominant??1.8)*(wallRate??1);}};
+}
+
+// The 6-by-4 mesh is expressed in the boom frame, starting at the tack.
+// Compare the trailing and anchored leading nodes at two middle rows.
+function leechDeflection(state,offset){
+  return .65*(state[offset+34]-state[offset+25])+.35*(state[offset+46]-state[offset+37]);
+}
+
 export function raceAudio(){
   let engines,audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
-  let submerged,surface,effects,luffGain,level=.15;
+  let submerged,surface,effects,luffGain,flapOscillator,flapRate,level=.15;
+  function silenceLuff(){
+    flapRate?.reset();
+    if(luffGain)luffGain.gain.setTargetAtTime(0,audio.currentTime,.06);
+  }
   function setVolume(value){
     level=value;
     if(effects)effects.gain.setTargetAtTime(level,audio.currentTime,.025);
+    if(!level)silenceLuff();
   }
   const loading=new Set();
   function startAmbience(file,destination){
@@ -171,36 +279,53 @@ export function raceAudio(){
       rainfall.connect(rainFilter).connect(rain).connect(weather).connect(effects);rainfall.start();
       blower.connect(filter).connect(wind).connect(effects);blower.start();
     }
-    if(on)await audio.resume();else await audio.suspend();
+    if(on)await audio.resume();
+    else{
+      silenceLuff();
+      await audio.suspend();
+    }
     enabled=audio.state==='running';return enabled;
   }
-  function luffing(amount,exposure){
-    if(!luffGain&&amount>0&&exposure>0){
-      const seconds=3.2,flap=audio.createBuffer(1,Math.round(seconds*audio.sampleRate),audio.sampleRate);
-      const data=flap.getChannelData(0);
-      let body=0,crackle=0;
-      for(let i=0;i<data.length;i++){
-        const phase=i/data.length*2*Math.PI;
-        const hit=Math.max(0,Math.sin(19*phase+.75*Math.sin(4*phase)))**7;
-        const flutter=.25+.75*(.5+.5*Math.sin(11*phase+Math.sin(3*phase)))**2;
-        const white=2*Math.random()-1;
-        body+=.074*(white-body);crackle+=.32*(white-crackle);
-        data[i]=(body*2.8+.7*(white-crackle))*hit*flutter;
-      }
-      const source=audio.createBufferSource();
-      source.buffer=flap;source.loop=true;
-      const band=audio.createBiquadFilter();band.type='highpass';band.frequency.value=105;
-      luffGain=audio.createGain();luffGain.gain.value=0;
-      source.connect(band).connect(luffGain).connect(effects);
-      source.start();
-    }
-    luffGain?.gain.setTargetAtTime(.82*exposure*amount,audio.currentTime,.10);
+  function startLuff(){
+    const source=audio.createBufferSource(),low=audio.createBiquadFilter(),high=audio.createBiquadFilter();
+    const flutter=audio.createGain(),envelope=audio.createWaveShaper();
+    source.buffer=noise;source.loop=true;
+    low.type='lowpass';low.frequency.value=380;low.Q.value=.6;
+    high.type='highpass';high.frequency.value=72;high.Q.value=.55;
+    envelope.curve=Float32Array.from({length:129},(_,i)=>.035+.965*(i/128)**2.5);
+    flapOscillator=audio.createOscillator();flapOscillator.frequency.value=1.8;
+    flutter.gain.value=0;
+    luffGain=audio.createGain();luffGain.gain.value=0;
+    source.connect(high).connect(low).connect(flutter).connect(luffGain).connect(effects);
+    // The oscillator shapes the gain of the cloth noise. Its signal never
+    // reaches the output as a tone.
+    flapOscillator.connect(envelope).connect(flutter.gain);
+    source.start();flapOscillator.start();
   }
-  function update(speed,storm,height,seaState,luff=0){
-    if(!enabled || audio.currentTime-lastMix<.05)return;
-    lastMix=audio.currentTime;
+  function update(speed,storm,height,seaState,sailLuff,state,time,playbackRate){
+    if(!enabled||!level)return;
+    const wall=audio.currentTime;
     const exposure=Math.max(0,Math.min(1,(height+.35)/.7));
-    luffing(luff,exposure);
+    let luff=0;
+    if(sailLuff&&state&&exposure>0){
+      const main=.74*sailLuff[0],jib=.45*sailLuff[1];
+      luff=Math.min(1,main+jib);
+      if(luff>.015||flapRate){
+        flapRate??=sailFlapRate();
+        // Hull, load and instrument fields occupy the first 42 entries.
+        const vertices=42,verticesPerSail=72;
+        if(!flapRate.sample(time,wall,leechDeflection(state,vertices),
+          leechDeflection(state,vertices+verticesPerSail),main,jib,playbackRate))luff=0;
+      }
+    }else flapRate?.reset();
+    if(wall-lastMix<.05)return;
+    lastMix=wall;
+    if(!luffGain&&luff>.015)startLuff();
+    if(luffGain){
+      const rate=Math.max(.35,Math.min(16,flapRate.audibleHz));
+      flapOscillator.frequency.setTargetAtTime(rate,wall,.15);
+      luffGain.gain.setTargetAtTime(1.1*exposure*luff,wall,.09);
+    }
     if(exposure<1)startAmbience('deep_rumble.mp3',submerged);
     const calm=1-Math.min(1,seaState/1.1);
     const surfaceLevel=storm?0:.44*exposure*calm/(1+Math.max(0,height)/16);
@@ -261,5 +386,6 @@ export function raceAudio(){
     engines??=inboardMixer(audio,effects,noise);
     engines(local,peers,camera,underwater,running);
   }
-  return {get enabled(){return enabled;},setEnabled,update,signal,thunder,setVolume,wildlife,imagingHit,motorSound};
+  return {get enabled(){return enabled;},get audible(){return enabled&&level>0;},
+    setEnabled,update,signal,thunder,setVolume,wildlife,imagingHit,motorSound};
 }

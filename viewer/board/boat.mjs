@@ -224,6 +224,7 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  let vane,drum,rudder,otherRudder,carriage,crossTiller;
  let jibHalyard;
  const deckCars=[],sheets=[],sheetBlocks=[],podParts=[],streamers=[],staySegments=[[],[],[]];
+ const jibTackZ=.87,jibTackX=2.26-(jibTackZ-.75)*1.82/5.1;
  let mastGeometry,mastRest,mastWeights;
  const braids=new Map();
  function braidedCover(color){
@@ -364,8 +365,8 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    lower.name='Mainsheet lower triple block';upper.name='Mainsheet upper triple block';
    const cleat=deckHardware(T,true);cleat.scale.setScalar(.52);cleat.position.set(.027,.006,.021);lower.add(cleat);
    group.add(lower,upper);sheetBlocks.push(lower,upper);
-   rod([2.29,0,.65],[2.26,0,.75],.009,pin);
-   installStay(2,[2.26,0,.75]);
+   rod([2.29,0,.65],[jibTackX,0,jibTackZ],.009,pin);
+   installStay(2,[jibTackX,0,jibTackZ]);
    jibHalyard=rod([0,0,0],[0,1,0],.004,paint(0xe7c85c));
    jibHalyard.name="Jib head halyard";
    crossTiller=rod([-1.655,-1.02,.47],[-1.655,1.02,.47],.021,black);
@@ -409,7 +410,8 @@ export function sailboatMesh(T,cat=false,keelX=.06){
  }
  const sheetMatrix=new T.Matrix4();
  const vangReach=.42,vangDrop=.115;
- const sails=(cat?[{width:2.78,z:.97},{width:1.98,z:.75}]:[{width:1.28,z:.19},{width:.60,z:.19}]).map((spec,index)=>{
+ const mainBail=new T.Vector3(-1.84,0,-.085);
+ const sails=(cat?[{width:2.78,z:.97},{width:1.98,z:jibTackZ}]:[{width:1.28,z:.19},{width:.60,z:.19}]).map((spec,index)=>{
    const pivot=new T.Group();pivot.position.z=spec.z;group.add(pivot);
    const geo=new T.BufferGeometry();
    const coords=new T.Float32BufferAttribute(new Float32Array(24*3),3);
@@ -427,6 +429,9 @@ export function sailboatMesh(T,cat=false,keelX=.06){
    if(cat&&index===0){
      const end=-spec.width-.13;
      rod([0,0,-.029],[end,0,-.029],.035,black,boomHinge).scale.z=1.27;
+     const bail=mesh(new T.TorusGeometry(.016,.004,6,16).rotateX(Math.PI/2),paint(0xa7afb2),boomHinge);
+     bail.name='Mainsheet boom bail';
+     bail.position.copy(mainBail);bail.position.z+=.016;
      outhaul={line:rod([0,0,0],[end,0,0],.0034,paint(0xf1e7c6),boomHinge),end};
    }else if(!cat)rod([0,0,0],[-spec.width,0,0],.012,black,boomHinge);
    const vang=!cat&&index===0?rod([0,0,-vangDrop],[-vangReach,0,0],.005,black,pivot):null;
@@ -580,7 +585,9 @@ export function sailboatMesh(T,cat=false,keelX=.06){
        deckCars[i].position.set(beam.x,y,beam.z+.067);
      }
      // Attachment positions in the hull frame. The front clew follows the actual cloth.
-     const top=new T.Vector3(-1.84*Math.cos(s[206]),0,1.84*Math.sin(s[206])+sails[0].boomHinge.position.z).applyQuaternion(sails[0].pivot.quaternion).add(sails[0].pivot.position);
+     const {boomHinge,pivot}=sails[0];
+     const top=mainBail.clone().applyQuaternion(boomHinge.quaternion).add(boomHinge.position)
+       .applyQuaternion(pivot.quaternion).add(pivot.position);
      const lowerBlock=deckCars[0].position.clone();lowerBlock.z+=.04;
      const axis=new T.Vector3().subVectors(top,lowerBlock).normalize();
      sheetBlocks.forEach((block,i)=>{

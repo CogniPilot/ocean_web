@@ -44,6 +44,34 @@ for (const side of [-1,1]) {
 }
 assert.equal(recovered[0], -recovered[1]);
 
+for (const tack of [-1,1]) for (const enabled of [0,1]) {
+  const boat=await loadInstance('Hobie16',{
+    launchEast:-700,launchNorth:-700,launchSpeed:4.5,launchHeading:tack*.55,
+    windEast:-9,windNorth:0,currentEast:0,currentNorth:0,manualHelm:1,manualJibAssist:enabled,
+    ballastManual:1,ballastCmdY:0
+  },read);
+  let backed=0,held=0,lastHeld;
+  for(let tick=0;tick<1000;tick++){
+    const [heading,yaw]=boat.getMany(['heading','yawRate']);
+    const error=-tack*.8-heading;
+    const rudder=Math.max(-1,Math.min(1,(1.35*Math.atan2(Math.sin(error),Math.cos(error))-.45*yaw)/.54));
+    boat.set('rudderInput',rudder);
+    boat.advance(.01);
+    const [side,working,vane,helm]=boat.getMany(['jibAssistSide','jibWorkingSide','vane','helmTarget']);
+    assert(Math.abs(helm-.54*rudder)<1e-9,'Jib tack assist must leave the helm under manual control');
+    if(side){
+      assert.equal(side,tack,'Hold the old working sheet');
+      assert.equal(working,side);
+      held++;
+      if(tack*vane>0)backed++;
+    }
+    lastHeld=side;
+  }
+  if(enabled)assert(backed>3&&held<=465&&lastHeld===0,'Backwind through the crossing and release');
+  else assert.equal(held,0);
+  console.log({tack,enabled,backedSeconds:backed*.01});
+}
+
 // Run the unassisted scored triangle in steady wind with the two shipped Wasm plants.
 if (process.argv.includes('--race')) {
   const boat = await loadInstance('Hobie16', {...sailingStart(true),windEast:windSpeed*Math.cos(windBearing),

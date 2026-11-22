@@ -1,6 +1,6 @@
 model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   constant Integer cols=4,rows=6,n=cols*rows;
-  parameter Real roach=0,cutAngle=0 "Foot angle in the unstrained sail pattern";
+  parameter Real cutAngle=0 "Foot angle in the unstrained sail pattern";
   parameter Integer battenCount=0;
   parameter Real battenEI(unit="N.m2")=.8 "Effective chordwise fiberglass flexural rigidity";
   parameter Real battenLinearMass(unit="kg/m")=.045;
@@ -15,7 +15,8 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     for b in 1:battenCount) for c in 1:cols,r in 1:rows};
   parameter Real span=2.6,foot=1.12,rake=0,stepSize=.01,arealMass=.17;
   parameter Boolean attachedAirflow=false "Resolve attached-flow lift in addition to post-stall pressure";
-  final parameter Real aspectRatio=span^2/(.5*span*foot+2*span*roach/3);
+  // Trapezoidal integral of the six chord fractions below.
+  final parameter Real aspectRatio=span/(foot*(if footInTrack then (.5+.945+.855+.746+.53+.0075)/5 else .5075));
   final parameter Real inducedDragFactor=1/(Modelica.Constants.pi*.85*aspectRatio);
   final parameter Real liftSlope=if attachedAirflow then 2*Modelica.Constants.pi/(1+2/(.85*aspectRatio)) else 1.4;
   parameter Integer telltaleCount=2;
@@ -40,8 +41,12 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   input Real air[3], water[3], omega[3], gravity[3], waterPlane[4] "Signed immersion = plane[4]+plane[1:3]*p";
   // Rows run from the tack toward the head. The luff is attached to the stay.
   // The clew at the other end of the foot is attached to the boom.
+  // Approximate girths from the Hobie side elevation for the tracked main.
   final parameter Real mesh[n,3]={
-    {-rake*div(i-1,cols)/(rows-1)-(foot*(1-.985*div(i-1,cols)/(rows-1))+roach*4*div(i-1,cols)/(rows-1)*(1-div(i-1,cols)/(rows-1)))*mod(i-1,cols)/(cols-1),
+    {-rake*div(i-1,cols)/(rows-1)-foot*(if footInTrack then
+       (if i<=cols then 1 elseif i<=2*cols then .945 elseif i<=3*cols then .855
+        elseif i<=4*cols then .746 elseif i<=5*cols then .53 else .015)
+       else 1-.985*div(i-1,cols)/(rows-1))*mod(i-1,cols)/(cols-1),
      -.025*sin(3.14159*mod(i-1,cols)/(cols-1))*(1-div(i-1,cols)/(rows-1)),
      span*div(i-1,cols)/(rows-1)+foot*sin(cutAngle)*(1-div(i-1,cols)/(rows-1))*mod(i-1,cols)/(cols-1)} for i in 1:n};
   discrete output Real vertex[n,3](start=mesh,each fixed=true);
@@ -95,7 +100,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   protected
     Real invMass[n],boomArm[n],mass[n],nodal[n,3],normal[3],a[3],b[3],c[3],center[3],dv[3],q[3],load[3],relative[3];
     Real implicitFactor,gust,pressureSlope,stall,attached,normalWind,liftCoefficient,d[3],low,mid,high,wet,area,u,vn,dist,reference,extension,wa,wb,correction,restArea;
-    Real spacing,stiffness,wCenter,relaxation;
+    Real spacing,stiffness,wCenter,relaxation,warpAllowance,biasAllowance;
     Real upper[rows],rhs[rows],leftK,rightK,pivot;
     Real panelWind[3],wire[3],wireStart[3],offset[3],denom,along,edge,penetration,loadY,totalInv,direction;
     Integer left,j,k,c1,c2,c3,backRow;
@@ -189,8 +194,12 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
         clewForce:=clewForce+boomArm[i]*(nodal[i,:]+mass[i]*gravity);
       end if;
     end for;
-    // Position-based cloth: tension-only warp, weft and bias links. A small
-    // sewing allowance permits wrinkling and collapse when pressure falls.
+    // The bolt-rope foot and luff are both held in tracks on the Hobie main.
+    // Use less unstrained length across those panels so tack travel loads
+    // the cloth instead of mostly taking up slack. The bias has more give.
+    warpAllowance:=if trackedFoot then .003 else .012;
+    biasAllowance:=if trackedFoot then .009 else .025;
+    // Tension-only warp, weft and bias links can still collapse when unloaded.
     for pass in 1:6 loop
       for index in 1:n loop
         j:=if mod(pass,2)==0 then n+1-index else index;
@@ -198,7 +207,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
           k:=if link==1 then j+1 elseif link==2 then j+cols elseif link==3 then j+cols+1 else j+cols-1;
           if k<=n and (link==2 or (link==4 and mod(j-1,cols)>0) or (link<>4 and mod(j,cols)<>0)) then
             q:=p[k,:]-p[j,:];dist:=sqrt(q*q);dv:=rest[k,:]-rest[j,:];
-            reference:=sqrt(dv*dv)*(if link<3 then 1.012 else 1.025);
+            reference:=sqrt(dv*dv)*(1+(if link==1 then .012 elseif link==2 then warpAllowance else biasAllowance));
             // Fiberglass carries axial compression as well as tension. Preserve the
             // segment length while allowing the pocket to curve through its joints.
             if link==1 and battenRows[div(j-1,cols)+1,mod(j-1,cols)+1]>0 then

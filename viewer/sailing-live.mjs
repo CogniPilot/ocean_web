@@ -498,6 +498,13 @@ async function run(){
       boat.setBallastVisible(marker.checked);
       try{localStorage.setItem('ocean-ballast-marker',marker.checked?'on':'off');}catch{}
     };
+    const tackAssist=$('jibTackAssist');
+    try{tackAssist.checked=localStorage.getItem('ocean-jib-tack-assist')!=='off';}catch{}
+    model.set('manualJibAssist',Number(tackAssist.checked));
+    tackAssist.onchange=()=>{
+      model.set('manualJibAssist',Number(tackAssist.checked));
+      try{localStorage.setItem('ocean-jib-tack-assist',tackAssist.checked?'on':'off');}catch{}
+    };
     const trim=()=>{
       const auto=$('autoTrim').checked;
       $('ballX').disabled=$('ballY').disabled=auto;
@@ -1742,9 +1749,11 @@ async function run(){
       rain.visible=storm && eyeHeight>=-surfaceBand;
       if(rain.visible)rain.material.uniforms.rainWind.value.set(...wind);
       audio.motorSound(motor,remote.cruisers,camera,eyeHeight<0,running);
-      const sailLuff=audio.enabled&&running&&cat&&targetSelect.value==='boat'?model?.get('sailLuff'):null;
-      const luff=sailLuff?Math.min(1,.74*sailLuff[0]+.45*sailLuff[1]):0;
-      audio.update(model?.get('cupSpeed')??Math.hypot(...wind),storm,camera.position.z-ocean.U.tide.value,Number($('seaState').value),luff);
+      if(audio.audible){
+        const sailLuff=running&&cat&&s&&targetSelect.value==='boat'?model.get('sailLuff'):null;
+        audio.update(model?.get('cupSpeed')??Math.hypot(...wind),storm,camera.position.z-ocean.U.tide.value,
+          Number($('seaState').value),sailLuff,s,t,playbackRate);
+      }
       if(Math.abs(eyeHeight)<=surfaceBand){split(renderer,scene,camera,ocean,underwaterFog,renderBelow);}
       else{
         const submerged=eyeHeight<0;

@@ -154,9 +154,10 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real vangLength,vangTension,vangArm,clewTorque;
   parameter Real vangAttachment=.42,vangDrop=.115;
   input Real downhaulInput "Catamaran luff adjustment, 0 eased to 1 hauled";
-  parameter Real downhaulTravel(unit="m")=.10 "Available shortening at the tack";
+  parameter Real downhaulTravel(unit="m")=if catamaran then .14 else .10 "Available shortening at the tack";
   parameter Real luffRigidity(unit="N")=45000, downhaulStiffness(unit="N/m")=40000;
   input Real outhaulInput(start=.65) "Main clew adjustment, zero eased and one tight";
+  input Real manualJibAssist(start=1) "Back the jib briefly during a hand-steered tack";
   output Real mainClewOffset(start=0,fixed=true) "Aft travel of the main clew from neutral [m]";
   final parameter Real outhaulTravel=.18;
   Real clewArm;
@@ -172,8 +173,10 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real fairlead[3,3],attachment[2,3],tipLocal[2,3],tipVel[2,3],leadVel[3,3];
   Real sheetForce[3,3],lineDirection[3,3],ropeTorque[3,3],lineSpan[3],lineRate[3],lineTension[3],lineTarget[3];
   parameter Real travelerRiser(unit="m")=.05 "Traveler pin height above the rail datum";
-  final parameter Real mainInitialSpan=sqrt((attachRadius[1]*(1-cos(.04)*cos(.17)))^2+
-    (attachRadius[1]*cos(.04)*sin(.17))^2+(.50-travelerRiser+attachRadius[1]*sin(.04))^2);
+  final parameter Real mainBailDrop=if catamaran then .085 else 0 "Mainsheet attachment below the boom track [m]";
+  final parameter Real initialBailReach=attachRadius[1]*cos(.04)+mainBailDrop*sin(.04);
+  final parameter Real mainInitialSpan=sqrt((attachRadius[1]-initialBailReach*cos(.17))^2+
+    (initialBailReach*sin(.17))^2+(.50-travelerRiser+attachRadius[1]*sin(.04)-mainBailDrop*cos(.04))^2);
   Real linePaid[3](start={if catamaran then mainInitialSpan else .32,.32,.32},each fixed=true),trimRate[2](each start=0,each fixed=true),hingeLoad[2],sheetYaw[3],sheetLift;
   parameter Real mastEI(unit="N.m2")=27000 "Estimated fore-aft spar bending rigidity";
   parameter Real mastModalMass(unit="kg")=6, mastDampingRatio=.22;
@@ -190,7 +193,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real blockStack(unit="m")=.12 "Combined closed height between tackle attachments";
   output Real mainBlockClearance "Free distance between the mainsheet block cheeks [m]";
   // Reference sail cut with the two blocks together and the traveler centered.
-  final parameter Real footCut=if catamaran then asin((blockStack-.50+travelerRiser)/attachRadius[1]) else 0;
+  final parameter Real footCut=if catamaran then atan(mainBailDrop/attachRadius[1])+
+    asin((blockStack-.50+travelerRiser)/sqrt(attachRadius[1]^2+mainBailDrop^2)) else 0;
   parameter Real leechEA(unit="N")=90000 "Estimated axial rigidity of the reinforced mainsail leech";
   final parameter Real leechRest=sqrt((spans[1]-feet[1]*sin(footCut))^2+(feet[1]*cos(footCut)-(if catamaran then .14 else 0))^2)+.012;
   Real leechDelta[3],leechDirection[3],leechLength,leechLoad,leechLift;
@@ -198,7 +202,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real jibTrimTarget;
   output Real exposedSheetSag[3] "Free-span deflection with excess line retained on deck";
   parameter Real stayEA(unit="N")=520000,shroudPreload(unit="N")=220;
-  final parameter Real stayAnchors[3,3]=[-.52,1.02,.34;-.52,-1.02,.34;2.26,0,.75];
+  final parameter Real stayAnchors[3,3]=[-.52,1.02,.34;-.52,-1.02,.34;footX[2],0,footZ[2]];
   final parameter Real tang[3]={.44,0,5.85};
   final parameter Real jibStation[6]={(row-1)/5*spans[2]/(tang[3]-stayAnchors[3,3]) for row in 1:6};
   discrete output Real stayPath[3,3,3],stayTension[3],stayStiffness[3];
@@ -241,7 +245,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real bodyLoad[4,3],foilLoad[4,3],foilTorque[4,3],foilCL[4],foilOrbital[4,3],foilPhase[4];
   Real impact[2,3],deckWet[2],impactTorque[2];
   output Real deckImmersion,contactLoad;
-  parameter Real spans[2]={2.6,2.12},feet[2]={1.28,.60},footZ[2]={.19,.19},mainRoach=0;
+  parameter Real spans[2]={2.6,2.12},feet[2]={1.28,.60};
+  parameter Real footZ[2]=if catamaran then {.97,.87} else {.19,.19};
   parameter Real yawInertia=19,rollInertia=28,pitchInertia=12, halfSpacing=0;
   parameter Real ballastMass=0;
   input Real ballastManual,ballastCmdX,ballastCmdY;
@@ -267,14 +272,17 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   discrete output Integer tackRecovery(start=0,fixed=true) "0 tracking, 1 waiting for sternway, 2 backing, 3 sailing off";
   discrete Real stallDuration(start=0,fixed=true), phaseSince(start=0,fixed=true);
   discrete Integer recoveryTurn(start=1,fixed=true);
+  discrete output Integer jibAssistSide(start=0,fixed=true) "Working side held during a manual tack, zero when idle";
+  discrete Real jibAssistUntil(start=0,fixed=true);
   discrete Boolean reverseHelm(start=false,fixed=true);
   Real tackBand,raceCourse,raceError,windOffBow,jibWorkingSide,helmTarget;
   parameter Real forestaySlope=(1.16-.12)/(2.78-.09) "Aft rake per metre of rise";
-  parameter Real footX[2]={.12,1.16-(.19-.09)*forestaySlope};
+  parameter Real footX[2]=if catamaran then {.44,2.26-(footZ[2]-.75)*forestaySlope}
+    else {.12,1.16-(footZ[2]-.09)*forestaySlope};
   parameter Real axisX[2]={0,-forestaySlope/sqrt(1+forestaySlope^2)},axisZ[2]={1,1/sqrt(1+forestaySlope^2)};
   output Real sheetRotation[2,3,3] "Sail frame to hull frame";
   SailMembrane cloth[2](each attachedAirflow=catamaran,telltaleCount={if catamaran then 3 else 2,2},
-    telltaleRows={{2,3,5},{2,4,5}},cutAngle={footCut,0},footInTrack={catamaran,false},each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={0,spans[2]*forestaySlope},roach={mainRoach,0});
+    telltaleRows={{2,3,5},{2,4,5}},cutAngle={footCut,0},footInTrack={catamaran,false},each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={0,spans[2]*forestaySlope});
   Real rotation[3,3],rig[2,3,3],trim[2](each start=.17,each fixed=true), waterRelative[3],spin[3],origin[2,3];
   Real pitchRate(start=launchPitchRate,fixed=true),rigMoment[2,3],rigForce[2,3],surfaceNormal[3];
   output Real sailVertex[2,24,3],wettedArea[2],leechSpeed[2],sailMoment[3];
@@ -481,6 +489,20 @@ equation
     reverseHelm=if manualHelm>.5 or tackRecovery==0 or signedLogSpeed>.09 then false
       elseif tackRecovery==2 or (tackRecovery==3 and signedLogSpeed<-.22) then true else pre(reverseHelm);
   end when;
+  when sample(0,.1) then
+    // Hold the old working sheet through the head-to-wind crossing. The
+    // helm stays under manual control and the other sheet stays free.
+    jibAssistSide=if not catamaran or manualHelm<=.5 or manualJibAssist<=.5 then 0
+      elseif pre(jibAssistSide)<>0 then
+        (if time>=pre(jibAssistUntil) or pre(jibAssistSide)*vane>.42 or
+          pre(jibAssistSide)*vane<-.8 then 0 else pre(jibAssistSide))
+      elseif time>=pre(jibAssistUntil) and abs(vane)<.52 and
+        abs(vane)>.085 and vane*gyro>.028 and cupSpeed>2 and abs(rudderInput)>.18 and signedLogSpeed>.30 then
+        (if windSide>0 then 1 else -1)
+      else 0;
+    jibAssistUntil=if pre(jibAssistSide)==0 and jibAssistSide<>0 then time+4.5
+      elseif pre(jibAssistSide)<>0 and jibAssistSide==0 then time+.9 else pre(jibAssistUntil);
+  end when;
   course=if tackRecovery==3 then upwind+recoveryTurn*(noGo+.22) else raceCourse;
   error=atan2(sin(course-courseEstimate),cos(course-courseEstimate));
   ve=cos(heading)*surge-sin(heading)*sway+currentEast;
@@ -519,19 +541,21 @@ equation
     else 2*sheetArm*sin(abs(sheetTarget)/2);
   der(mainCar)=if catamaran then max(-.40,min(.40,(min(.9,max(-.9,mainCarTarget))-mainCar)/.38)) else 0;
   der(jibCar)=if catamaran then max(-.40,min(.40,(min(.88,max(.18,jibCarTarget))-jibCar)/.38)) else 0;
-  jibTrimTarget=if (tackRecovery==1 or tackRecovery==2) and deckManual<.5 then .07 elseif manualHelm>.5 then min(1,max(0,(payout-.012)/.578+
+  jibTrimTarget=if jibAssistSide<>0 or ((tackRecovery==1 or tackRecovery==2) and deckManual<.5) then .07 elseif manualHelm>.5 then min(1,max(0,(payout-.012)/.578+
     (if deckManual>.5 then jibTrimInput-.35 else 0))) elseif deckManual>.5 then jibTrimInput else (1-poweredReach)*min(1,abs(sheetTarget)/1.5)+.21*poweredReach;
   der(jibSheet)=if catamaran then max(-.7,min(.7,(jibTrimTarget-jibSheet)/.5)) else 0;
   sheet=trim[1];
   fairlead[1,:]={-attachRadius[1],if catamaran then mainCar else 0,if catamaran then travelerRiser-.50 else -.105};
-  fairlead[2,:]={if catamaran then -1.71 else -feet[2],if catamaran then jibCar else 0,if catamaran then -.32 else -.105};
+  fairlead[2,:]={if catamaran then .55-footX[2] else -feet[2],if catamaran then jibCar else 0,
+    if catamaran then .43-footZ[2] else -.105};
   fairlead[3,:]={fairlead[2,1],-fairlead[2,2],fairlead[2,3]};
   leadVel[1,:]={0,der(mainCar),0};
   leadVel[2,:]={0,der(jibCar),0};
   leadVel[3,:]=-leadVel[2,:];
   lineTarget[1]=if catamaran then blockStack-.010+attachRadius[1]*max(0,payout-.012)/sheetArm else sqrt(fairlead[1,3]^2+(attachRadius[1]*payout/sheetArm)^2);
   // Hold the jib's working sheet through the eye to push the bow onto the new tack.
-  jibWorkingSide=if (tackRecovery==1 or tackRecovery==2) and deckManual<.5 then -recoveryTurn else windSide;
+  jibWorkingSide=if jibAssistSide<>0 then jibAssistSide
+    elseif (tackRecovery==1 or tackRecovery==2) and deckManual<.5 then -recoveryTurn else windSide;
   for j in 2:3 loop
     lineTarget[j]=if catamaran then (if (j==2 and jibWorkingSide<0) or (j==3 and jibWorkingSide>0) then lineSpan[j]+.035
       else .47+2.1*jibSheet) else sqrt(fairlead[2,3]^2+(.88*feet[2]*payout/sheetArm)^2);
@@ -639,7 +663,8 @@ equation
       1.225+(1025-1.225)*tailImmersion[side]) else zeros(3);
   end for;
   for m in 1:2 loop
-    tipLocal[m,:]=if m==1 then {-attachRadius[m]*cos(boomElevation),0,attachRadius[m]*sin(boomElevation)}
+    tipLocal[m,:]=if m==1 then {-attachRadius[m]*cos(boomElevation)-mainBailDrop*sin(boomElevation),0,
+      attachRadius[m]*sin(boomElevation)-mainBailDrop*cos(boomElevation)}
       else {-attachRadius[m],0,0};
     attachment[m,:]=sheetRotation[m,:,:]*tipLocal[m,:]-(if m==1 then {0,0,tackDrop} else zeros(3));
     tipVel[m,:]=cross(trimRate[m]*{axisX[m],0,axisZ[m]},attachment[m,:])+

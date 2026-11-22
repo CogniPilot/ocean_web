@@ -21,7 +21,7 @@ function interpolate(field,x,y){
   return (1-b)*((1-a)*at(0,0)+a*at(1,0))+b*((1-a)*at(0,1)+a*at(1,1));
 }
 
-for(const launchSpeed of [3,6,8]){
+for(const launchSpeed of [3,6,8,13]){
   const parameters={'boat.launchSpeed':launchSpeed,'boat.launchEast':-130,'boat.launchNorth':-90,
     'boat.launchHeading':0,prevailingBearing:Math.PI/2};
   const fmu=await openFmuSession({index,base,fetch:fileFetch,parameters});
@@ -34,12 +34,19 @@ for(const launchSpeed of [3,6,8]){
     const frame=observe('bowFrame',[4]),sources=observe('bowSources',[14,6]),speed=observe('bowSpeed',[2]);
     const wake=observe('waves.wakeHeight',[64,64]);
     const motion=fmu.bind_outputs(JSON.stringify(['boat.surge','waves.driftE','waves.driftN']));
-    let peakCoarse=0,peakOverlay=0,peakCombined=0,peakAll=0,meanSpeed=0;
+    let peakCoarse=0,peakOverlay=0,peakCombined=0,meanSpeed=0;
+    let sternPeak=0,sternSlope=0;
     const samples=24;
     for(let sample=0;sample<samples;sample++){
       for(let j=0;j<10;j++)fmu.step(.01);
       const [east,north,c,s]=frame(),[surge,de,dn]=fmu.read_bound(motion);
-      field.set('sources',sources());
+      const rows=sources();
+      for(let hull=0;hull<2;hull++){
+        let flux=0;
+        for(let row=0;row<7;row++)flux+=rows[(7*hull+row)*6+2];
+        assert(Math.abs(flux)<1e-9,'Wetted-area sources conserve flux on each hull');
+      }
+      field.set('sources',rows);
       field.set('relativeSpeed',speed());
       field.advance(.01);
       const fine=field.get('height'),coarse=wake();
@@ -49,8 +56,12 @@ for(const launchSpeed of [3,6,8]){
       for(let j=-16;j<16;j++)for(let i=-16;i<16;i++){
         const z=datum(fine,i,j,size),x=i*spacing,y=j*spacing;
         if(Math.hypot(x,y)>=3.8)assert.equal(Math.abs(z),0,'The bow field must reach zero before the texture seam');
-        peakAll=Math.max(peakAll,Math.abs(z));
         const hullEdge=Math.abs(Math.abs(y)-1.02);
+        if(x<=-1.95&&hullEdge<.60){
+          sternPeak=Math.max(sternPeak,z);
+          sternSlope=Math.max(sternSlope,Math.abs(z-datum(fine,i-1,j,size))/spacing,
+            Math.abs(z-datum(fine,i,j-1,size))/spacing);
+        }
         if(x<1.75||x>3.25||hullEdge<.25||hullEdge>1.25)continue;
         const base=interpolate(coarse,east-de+c*x-s*y,north-dn+s*x+c*y);
         peakCoarse=Math.max(peakCoarse,base);
@@ -58,8 +69,9 @@ for(const launchSpeed of [3,6,8]){
         peakCombined=Math.max(peakCombined,base+z);
       }
     }
-    console.log({launchSpeed,meanSpeed,peakCoarse,peakOverlay,peakCombined,peakAll});
+    console.log({launchSpeed,meanSpeed,peakCoarse,peakOverlay,peakCombined,sternPeak,sternSlope});
     if(launchSpeed>=6)assert(peakOverlay>.025&&peakCombined>peakCoarse+.01,'Expected a visible near-field crest outside the bows');
+    assert(sternPeak<.25&&sternSlope<.45,'A ventilating transom must shed a broad wake without a steep local crest');
     fmu.set_inputs(JSON.stringify([['omitWake',1]]));
     for(let i=0;i<11;i++)fmu.step(.01);
     assert(sources().every(x=>x===0)&&frame().every(x=>x===0),'Low must skip the near-field calculation');

@@ -46,9 +46,10 @@ model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source dis
 
   function hullSources
     input Real velocity[2],strips[12,3],stations[7],beam[7];
+    input Boolean separatedStern=false "Model a ventilating transom in ahead flow";
     output Real sources[14,6];
   protected
-    Real area[8],draft,width,side,x,xLow,xHigh;
+    Real area[8],draft,width,side,x,xLow,xHigh,core2,sternDraft,ventilation,recovery;
     Integer index,back,front,low,high;
   algorithm
     sources:=zeros(14,6);
@@ -58,6 +59,12 @@ model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source dis
         index:=6*(hull-1)+i;
         area[i+1]:=strips[index,3]/(stations[i+1]-stations[i]);
       end for;
+      sternDraft:=max(.045,.5*area[2]/max(.12,beam[1]+beam[2]));
+      ventilation:=if separatedStern then min(1,max(0,velocity[1]/sqrt(9.80665*sternDraft)-2)) else 0;
+      // At high draft Froude number the water separates at the transom.
+      // Recover the same flux over the distance it travels while falling one
+      // draft, with the two aft kernels widening into the separated wake.
+      recovery:=ventilation^2*(3-2*ventilation)*velocity[1]*sqrt(2*sternDraft/9.80665);
       for i in 1:7 loop
         back:=6*(hull-1)+max(1,i-1);
         front:=6*(hull-1)+min(6,i);
@@ -67,10 +74,10 @@ model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source dis
         side:=.5*(strips[back,2]+strips[front,2]);
         x:=stations[i]+.5*(strips[back,1]-.5*(stations[max(1,i-1)]+stations[max(1,i-1)+1])
                             +strips[front,1]-.5*(stations[min(6,i)]+stations[min(6,i)+1]));
-        xLow:=if i==1 then x else min(x-.05,strips[back,1]);
+        xLow:=if i==1 then x-recovery else min(x-.05,strips[back,1]);
         xHigh:=if i==7 then x else max(x+.05,strips[front,1]);
-        sources[7*(hull-1)+i,:]:={xLow,side,velocity[1]*(area[i]-area[i+1]),
-                                  draft^2+max(.075,.75*width)^2,xHigh,.49};
+        core2:=draft^2+max(.075,.75*width)^2+(if i<=2 then sternDraft*recovery else 0);
+        sources[7*(hull-1)+i,:]:={xLow,side,velocity[1]*(area[i]-area[i+1]),core2,xHigh,.49};
       end for;
     end for;
   end hullSources;

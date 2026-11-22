@@ -9,6 +9,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   input Real windAnchor[5](each start=0);
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
   input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),outhaul(start=.65),deckManual,mainCar,jibCar,jibSheet;
+  input Real manualJibAssist(start=1);
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
   Real sailLandingWrench[6],committeeLandingWrench[6],windProbe[2];
   input Real swimmerWater[15](each start=0) "Local swimmer-wave elevations at twelve hull panels, centre elevation, forward and port slopes";
@@ -22,16 +23,15 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     stationX=if hobie then {-2.520,-1.9,-.9,.15,1.12,1.95,2.520} else {-1.1,-.82,-.3,.18,.63,.98,1.22},
     beamHalf=if hobie then {.09,.156,.185,.184,.155,.093,.009} else {.22,.29,.335,.32,.235,.12,.01},
     spans=if hobie then {7.15,4.56} else {2.6,2.12},feet=if hobie then {2.78,1.98} else {1.28,.60},
-    mainRoach=if hobie then .82 else 0,forestaySlope=if hobie then 1.82/5.1 else 1.04/2.69,
-    footX=if hobie then {.44,2.26} else {.12,1.16-.10*1.04/2.69},
-    footZ=if hobie then {.97,.75} else {.19,.19},yawInertia=if hobie then 315 else 19,
+    forestaySlope=if hobie then 1.82/5.1 else 1.04/2.69,
+    yawInertia=if hobie then 315 else 19,
     rollInertia=if hobie then 520 else 28,pitchInertia=if hobie then 625 else 12,
     foilX=if hobie then {.15,-2.42,.15,-2.42} else {.06,-.93,0,0},
     foilY=if hobie then {1.02,1.02,-1.02,-1.02} else zeros(4),
     foilArea=if hobie then {.62,.11,.62,.11} else {.115,.044,0,0},
     aspect=if hobie then {.65,3.4,.65,3.4} else {3.5,2.6,1,1},
     raceGoal={1,race.pilotTarget[1],race.pilotTarget[2]},manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,outhaulInput=outhaul,
-    deckManual=deckManual,mainCarInput=mainCar,jibCarInput=jibCar,jibTrimInput=jibSheet,reachTrial=0,
+    deckManual=deckManual,mainCarInput=mainCar,jibCarInput=jibCar,jibTrimInput=jibSheet,manualJibAssist=manualJibAssist,reachTrial=0,
     ballastManual=ballastManual,ballastCmdX=ballastX,ballastCmdY=ballastY,traffic=traffic,
     windEast=wind.localEast,windNorth=wind.localNorth,currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],
     orbitalEast=boatWater.velocity[1]-boatWater.meanFlow[1],orbitalNorth=boatWater.velocity[2]-boatWater.meanFlow[2],orbitalUp=boatWater.velocity[3],
@@ -76,7 +76,7 @@ equation
       {bowFrame[3]*(boat.ve-waves.currentEast)+bowFrame[4]*(boat.vn-waves.currentNorth),
        bowFrame[3]*(boat.vn-waves.currentNorth)-bowFrame[4]*(boat.ve-waves.currentEast)} else zeros(2);
     bowSources=if hobie and omitWake<.5 then BowWavePatch.hullSources(
-      bowSpeed,BowWavePatch.localStrips(waves.sourceStrips,bowFrame),boat.stationX,boat.beamHalf) else zeros(14,6);
+      bowSpeed,BowWavePatch.localStrips(waves.sourceStrips,bowFrame),boat.stationX,boat.beamHalf,separatedStern=true) else zeros(14,6);
     for hull in 1:2 loop
       for panel in 1:6 loop
         surfaceSections[hull,panel]=swimmerWater[(hull-1)*6+panel]+waves.sectionHeight[hull,panel]+boatWater.tide+

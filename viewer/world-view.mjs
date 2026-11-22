@@ -18,7 +18,8 @@ const flightNavigationOutputs=group('drone','estimatedPosition estimatedVelocity
 const submarineOutputs=[...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),
  'estimate','sensor','ping'];
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',outhaulInput:'outhaul',deckManual:'deckManual',
- mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
+ mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',manualJibAssist:'manualJibAssist',
+ ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
 export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1){
  const hasBoat=mode==='world'||mode==='sailing'||mode==='sloop',hasSub=mode==='world'||mode==='submarine',hasFlight=mode==='world'||mode==='flight';
  const workerUrl=new URL('./'+mode+'/ocean-world-worker.mjs',import.meta.url);
@@ -50,7 +51,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const initial={windSpeed,windBearing,seaState,epoch:Date.now()/1000};
  const inputs=['seaState'];
  if(hasBoat){
-   Object.assign(initial,{sailingManual:1,vang:.5,downhaul:.5,outhaul:.65});
+   Object.assign(initial,{sailingManual:1,vang:.5,downhaul:.5,outhaul:.65,manualJibAssist:1});
    if(mode!=='sloop')initial.ballastManual=1;
    inputs.push(...Object.values(boatInputs));
  }
