@@ -20,6 +20,7 @@ export class PeerTimeline {
     if (latest && sent <= latest.sent) return false;
     if (latest && arrival - latest.arrival > 2500) {
       this.samples.length = 0;
+      this.clockOffset = Infinity;
     }
     // The smallest observed transit delay maps sender time onto the local clock.
     this.clockOffset = Math.min(this.clockOffset, arrival - sent);

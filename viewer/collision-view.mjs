@@ -166,12 +166,13 @@ const discs=[
   [[-2.85,.91],[-2.18,1.13],[-1.14,1.26],[0,1.22],[1.02,1.12],[2.05,.87],[3.02,.45]],
   [[-2.28,.72],[-1.79,.90],[-1.03,1.04],[0,1.02],[.88,.96],[1.73,.73],[2.57,.39]]
 ];
-export function pontoonWires(vertices,faces){
+export function hullWires(vertices,faces,offsets=[0]){
   const output=[];
-  for(const side of [-1.02,1.02]){
+  const count=vertices.length/3;
+  for(const side of offsets){
     const drawn=new Set();
     for(let i=0;i<faces.length;i+=3)for(let j=0;j<3;j++){
-      const a=faces[i+j]-1,b=faces[i+(j+1)%3]-1,key=Math.min(a,b)*96+Math.max(a,b);
+      const a=faces[i+j]-1,b=faces[i+(j+1)%3]-1,key=Math.min(a,b)*count+Math.max(a,b);
       if(drawn.has(key))continue;
       drawn.add(key);
       for(const v of [a,b])output.push(vertices[3*v],vertices[3*v+1]+side,vertices[3*v+2]);
@@ -179,7 +180,8 @@ export function pontoonWires(vertices,faces){
   }
   return output;
 }
-export function drawVesselContacts(T,painter,group,kind,peers,peerTilts,patrols,patrolTilts,committee,pontoons){
+export const pontoonWires=(vertices,faces)=>hullWires(vertices,faces,[-1.02,1.02]);
+export function drawVesselContacts(T,painter,group,kind,peers,peerTilts,patrols,patrolTilts,committee,pontoons,cruiser){
   const frame=new T.Object3D();
   function rings(east,north,height,yaw,kind){
     const points=[],c=Math.cos(yaw),s=Math.sin(yaw);
@@ -194,6 +196,7 @@ export function drawVesselContacts(T,painter,group,kind,peers,peerTilts,patrols,
   }
   function body(group,kind){
     if(kind===1){if(pontoons)painter.lines(group,pontoons,'#69e2bb');}
+    else if(kind===2&&cruiser)painter.lines(group,cruiser,'#69e2bb');
     else rings(group.position.x,group.position.y,group.position.z,group.rotation.z,kind);
   }
   if(group)body(group,kind);

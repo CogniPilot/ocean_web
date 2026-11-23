@@ -9,13 +9,21 @@ export const cruiserInertiaFields=['rollInertia','pitchInertia','floatX'];
 const zero=[0,0,0];
 const axisColors=['#ffad7a','#a5ef92','#89c9ff'];
 
-export function sailingInertia(model){
+export function sailingInertia(model,catamaran=false){
   if(!boatInertiaFields.every(name=>model.has(name)))return;
   const [mass,roll,pitch,yaw,cx,crew,x,y,z,crewRoll,crewPitch,crewYaw,pod,podZ,[footX]]=model.getMany(boatInertiaFields);
   const stations=model.has('mastStations')?model.get('mastStations'):null;
   const [px,py,pz]=stations?Array.from(stations).slice(-3):[footX,0,podZ];
   const total=mass+pod;
-  return {mass:total,center:[(mass*cx+crew*x+pod*px)/total,(crew*y+pod*py)/total,(crew*z+pod*pz)/total],
+  const center=[(mass*cx+crew*x+pod*px)/total,(crew*y+pod*py)/total,(crew*z+pod*pz)/total];
+  if(catamaran&&['stationX','beamHalf','halfSpacing','deckZ'].every(name=>model.has(name))){
+    const [stationX,beamHalf,halfSpacing,deckZ]=model.getMany(['stationX','beamHalf','halfSpacing','deckZ']);
+    // The plant uses effective whole-boat moments. Draw the hull section
+    // envelopes and the independently moving masses in their own locations.
+    return {mass:total,center,catamaran:{stationX,beamHalf,halfSpacing,deckZ,stations,
+      crew:crew>0?[x,y,z]:null,float:pod>0?[px,py,pz]:null}};
+  }
+  return {mass:total,center,
     moments:[roll+crewRoll+pod*podZ**2,pitch+crewPitch+pod*(podZ**2+footX**2),yaw+crewYaw]};
 }
 
@@ -82,7 +90,27 @@ export function inertiaOverlay(T){
     group.updateWorldMatrix(true,false);
     shape(group,properties);
   }
-  function shape(frame,{mass,center=zero,moments,tensor,ringCenters}){
+  function drawCatamaran(frame,{stationX,beamHalf,halfSpacing,deckZ,stations,crew,float}){
+    const hull=[];
+    for(const side of [-1,1])for(const edge of [-1,1]){
+      for(let i=1;i<stationX.length;i++){
+        for(const j of [i-1,i])hull.push(stationX[j],side*halfSpacing+edge*beamHalf[j],deckZ-.20);
+      }
+    }
+    painter.lines(frame,hull,cyan);
+    if(stations){
+      const lines=[];
+      for(let i=3;i<stations.length;i+=3)lines.push(...stations.slice(i-3,i+3));
+      painter.lines(frame,lines,'#ffc98c');
+    }
+    if(crew){
+      painter.sphere(frame,crew,.14,'#a5ef92');
+      painter.points(frame,crew,'#a5ef92');
+    }
+    if(float)painter.points(frame,float,'#ffc98c');
+  }
+  function shape(frame,{mass,center=zero,moments,tensor,ringCenters,catamaran}){
+    if(catamaran){drawCatamaran(frame,catamaran);painter.points(frame,center,massMarker);return;}
     let aligned=frame,origin=center;
     if(tensor){
       const principalData=principalAxes(tensor);

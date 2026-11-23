@@ -45,7 +45,7 @@ function drawGhost(T,scene,peer,kind,template,offset,p,d,f){
 }
 export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,chat){
   let remoteAirframe,loadingAirframe,remoteSub,loadingSub,retrySubAt=0;
-  let selfId,room,action,lastSend=-Infinity,participants=new Set();
+  let selfId,room,action,poseSend,lastSend=-Infinity,participants=new Set();
   const npc=npcRoom();
   const peers=new Map(),lamps=[],cruisers=[],drones=[],lampStates=new Map();
   let starterChannel,engineChannel,encounterChannel,encounter,lastEncounterSend=-Infinity;
@@ -206,7 +206,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(peer.kind==='boat'||peer.kind==='motorboat'){boatCount--;trafficChanged=true;}
       peers.delete(id);}
   }
-  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
+  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;poseSend=undefined;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
   function join(transport,name=roomName){
     if(room)return;
     if(name!==roomName)retainedOffset=0;
@@ -218,8 +218,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     encounterChannel=room.makeAction('shark-scene');
     encounterChannel.onMessage=(rows,{peerId})=>{
       if(room!==active||npc.host||peerId!==npc.owner||!participants.has(peerId))return;
-      const sizes=[10,8,6,30,18,48,3];
-      if(!Array.isArray(rows)||rows.length!==sizes.length||!rows.every((row,i)=>
+      const sizes=[10,8,6,30,18,48,3,10];
+      if(!Array.isArray(rows)||(rows.length!==7&&rows.length!==8)||!rows.every((row,i)=>
         Array.isArray(row)&&row.length===sizes[i]&&row.every(Number.isFinite)))return;
       encounter={owner:peerId,at:performance.now(),rows};
     };
@@ -392,7 +392,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       sentLamp=lampOn;
       lampChannel.send(lampOn).catch(()=>{if(room && sentLamp===lampOn)sentLamp=undefined;});
     }
-    if(now-lastSend>=100 && participants.size){
+    if(!poseSend&&now-lastSend>=100 && participants.size){
       lastSend=now;
       let packet;
       if(kind==='boat'){
@@ -408,7 +408,11 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
         if(vehicle)packet=posePacket(kind,now,vehicle);
       }
       if(kind==='drone' && aircraft)rotorChannel.send([now/1000,...aircraft.rotorAngles]).catch(()=>{});
-      if(packet)action.send(new Uint8Array(packet.buffer)).catch(()=>{});
+      if(packet){
+        const send=action.send(new Uint8Array(packet.buffer)).catch(()=>{});
+        poseSend=send;
+        void send.then(()=>{if(poseSend===send)poseSend=undefined;});
+      }
     }
     for(const peer of peers.values()){
       const fresh=peer.timeline.age(now)<2500;
@@ -455,10 +459,14 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
         if(vessel){peer.label.position.copy(vessel.position);peer.label.position.z+=.8;}
       }
       if(!peer.mesh)continue;
-      const state=peer.state;state.set(d.subarray(0,207));
+      if(peer.rigFrame!==d){
+        peer.mesh.update(d,d.subarray(208,210),peer.cat?d.subarray(210,212):null,null);
+        peer.rigFrame=d;
+      }
+      const state=peer.state;
       for(const i of [0,1,3,4,5])state[i]=p[i]+(d[i]-p[i])*f;
       state[2]=p[2]+Math.atan2(Math.sin(d[2]-p[2]),Math.cos(d[2]-p[2]))*f;
-      peer.mesh.update(state,d.subarray(208,210),peer.cat?d.subarray(210,212):null,null);
+      peer.mesh.setPose(state);
       if(peer.label){peer.label.position.copy(peer.mesh.group.position);peer.label.position.z+=2.4;}
     }
   }

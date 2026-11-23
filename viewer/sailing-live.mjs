@@ -1,6 +1,6 @@
 import {harborMap} from './harbor-map.mjs';
 import {physicsView,hullInspectionFields,refinedHullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
-import {collisionOverlay,drawAnimalCollision,drawVesselContacts,pontoonWires} from './collision-view.mjs';
+import {collisionOverlay,drawAnimalCollision,drawVesselContacts,hullWires,pontoonWires} from './collision-view.mjs';
 import {cruiserInertia,inertiaOverlay,sailingInertia,subInertia} from './inertia-view.mjs';
 import {surfaceCollisionShapes} from './surface-collision-view.mjs';
 import {subCollisionShapes} from './sub-collision-view.mjs';
@@ -165,6 +165,9 @@ async function run(saved=readReset(),carried){
   const sailingMode=requestedHull==='Sailboat'?'sloop':'sailing';
   const modes={boat:sailingMode,motorboat:'motorboat',drone:'flight',sub:'submarine',whale:'habitat',shark:'habitat',gull:'habitat'};
   const mode=selectedRole==='motorboat'?'motorboat':fullWorld?'world':packaged?modes[selectedRole]:url.searchParams.get('runtime')==='sailing'?sailingMode:null;
+  const cruiserRuntime=carried?.cruiserRuntime??(mode==='motorboat'?{lifetime:new AbortController()}:null);
+  let preserveCruiser=false;
+  if(cruiserRuntime)cleanup(()=>{if(!preserveCruiser)cruiserRuntime.lifetime.abort();});
   const hasBoat=!mode||mode==='world'||mode===sailingMode;
   const hasSub=fullWorld||mode==='submarine'||(!packaged&&!mode);
   const cat=hasBoat&&(mode==='world'||mode==='sailing'||requestedHull==='Hobie16');
@@ -178,7 +181,10 @@ async function run(saved=readReset(),carried){
   if(saved?.spawn)Object.assign(start,saved.spawn);
   const inputs={...start,launchHeight:cat ? .20 : .069,launchSeaState:Number($('seaState').value),windEast:initialWind*Math.cos(weatherBearing),windNorth:initialWind*Math.sin(weatherBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const simulationReady=Promise.all([
-    mode?import('./world-view.mjs').then(module=>module.openWorld(mode,Number($('seaState').value),omitWake,mobile&&mode==='sailing'?2:1,{start,weatherBearing,wind:initialWind,motorStart:saved?.spawn,signal})):loadInstance(vessel,inputs),
+    mode==='motorboat'&&cruiserRuntime.world?cruiserRuntime.world:
+      mode?import('./world-view.mjs').then(module=>module.openWorld(mode,Number($('seaState').value),omitWake,mobile&&mode==='sailing'?2:1,{
+        start,weatherBearing,wind:initialWind,motorStart:saved?.spawn,signal:mode==='motorboat'?cruiserRuntime.lifetime.signal:signal
+      })):loadInstance(vessel,inputs),
     hasBoat?loadVehicleShell(cat?'hobie-hulls':'sloop-hull'):null,
     hasSub?Promise.all([import('./submarine.mjs?hud=2'),loadVehicleShell('survey-pressure-housing')]):null
   ]);
@@ -191,6 +197,8 @@ async function run(saved=readReset(),carried){
   island.traverse(showInLowWaterCapture);
   const [simulation,,subAssets]=await simulationReady;
   const world=mode?simulation:null;
+  if(mode==='motorboat')cruiserRuntime.world=world;
+  const backgroundCruiserWorld=mode==='motorboat'?null:cruiserRuntime?.world;
   speedSelect.closest('label').hidden=!world;
   const worldReadyAt=performance.now();
   let prev=worldReadyAt,physicsWall=worldReadyAt,acc=0;
@@ -283,7 +291,7 @@ async function run(saved=readReset(),carried){
     physicsVisibility();
   };
   const cruiserViews={
-    motorCabin:[[1.28,0,.54],[2.48,.10,.70]],
+    motorCabin:[[1.28,0,.65],[2.48,.10,.72]],
     motorHelm:[[-.92,-.49,1.82],[3.1,-.47,.80]],
     motorCockpit:[[-2.98,.42,1.94],[1.00,-.14,1.22]],
     motorBow:[[2.77,-.38,-.77],[9,-.38,-3.22]],
@@ -293,6 +301,10 @@ async function run(saved=readReset(),carried){
   };
 
   const motor=mode==='motorboat'?cabinCruiser(T,$('cruiserSonarCanvas'),$('cruiserChartCanvas')):null;
+  const backgroundCruiser=backgroundCruiserWorld?cabinCruiser(T):null;
+  if(backgroundCruiser)scene.add(backgroundCruiser.group);
+  let remoteEncounterCruiser;
+  cleanup(()=>{motor?.dispose();backgroundCruiser?.dispose();remoteEncounterCruiser?.dispose();});
   if(motor){
     scene.add(motor.group);
     for(const [title,id] of [['Helm','motorHelm'],['Cabin','motorCabin'],['Aft cockpit','motorCockpit'],['Underwater bow camera','motorBow'],['Underwater stern camera','motorStern'],['Underwater port camera','motorPort'],['Underwater starboard camera','motorStarboard']])$('cameraDepth').add(new Option(title,id));
@@ -326,8 +338,8 @@ async function run(saved=readReset(),carried){
   if(!world){
     for(const [input,field] of [['hullStations','stationX'],['hullWidths','beamHalf'],['hullOffset','halfSpacing']])race.set(input,model.get(field));
   }
-  const course=courseScene(T,scene,race),audio=raceAudio(T);
-  cleanup(audio.dispose);
+  const course=courseScene(T,scene,race),audio=cruiserRuntime?.audio??raceAudio(T);
+  cleanup(()=>{if(!preserveCruiser)audio.dispose();});
   let lastCountdown=null,raceTick=0;
   const lastLaps=new Map();
   const normalizeRoom=value=>value.trim().slice(0,64)||'regatta';
@@ -413,16 +425,20 @@ async function run(saved=readReset(),carried){
   };
   const remote=carried?.remote??fleet(T,scene,roomName,$('online'),weather,$('crew'),laps,playImagingHit,chat);
   const goBelow=$('goBelow'),anchorSwitch=$('anchorSwitch'),anchorReadout=$('anchorReadout'),wiperSwitch=$('wiperSwitch');
-  let anchorLowered=false;
+  let anchorLowered=cruiserRuntime?.anchorLowered??false;
   const cabinView=$('cabinControls'),cabinLight=$('cabinLight'),cabinRadio=$('cabinRadio'),integrityDisplay=$('cruiserIntegrity');
   const cabinLook={yaw:0,pitch:0};
   const radioLocation=new URL('./assets/audio/spanish-ladies-radio.mp3',import.meta.url);
+  const cruiserLampControls=['searchLamp','keelLamp','cameraKeelLamp'].map($);
   const encounterVariables=['encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage'];
   const targetData=new Float64Array(24*7),targetIds=Array(24).fill(null);
-  let radio,placeRadio,cabinLit=false,encounterStarted=false,encounterSession,encounterFrame,lastImpact=0,lastHostCruiser;
+  let radio=cruiserRuntime?.radio,placeRadio=cruiserRuntime?.placeRadio,cabinLit=cruiserRuntime?.cabinLit??false;
+  let cruiserPowerLost=false,encounterStarted=cruiserRuntime?.started??false,encounterSession=cruiserRuntime?.session;
+  let encounterFrame,lastImpact=cruiserRuntime?.lastImpact??0,lastHostCruiser;
+  const cruiserSunk=(shark,damage)=>damage?.[2]>=2||shark?.[0]===4;
+  const controlsEncounter=()=>multiplayerButton.getAttribute('aria-pressed')!=='true'||remote.connected&&remote.npc.host;
   function mayStartEncounter(){
-    if(!motor||!world.hasEncounter)return false;
-    return multiplayerButton.getAttribute('aria-pressed')!=='true'||remote.connected&&remote.npc.host;
+    return Boolean(motor&&world.hasEncounter&&controlsEncounter());
   }
   function isEncounterNight(){
     const setting=$('sky').value;
@@ -442,11 +458,16 @@ async function run(saved=readReset(),carried){
     anchorSwitch.setAttribute('aria-pressed',String(anchorLowered));
     anchorSwitch.textContent=anchorLowered?'Raise anchor':'Lower anchor';
   }
+  if(backgroundCruiser){
+    backgroundCruiser.setCabinLight(cabinLit);
+    backgroundCruiser.setRadio(Boolean(radio&&!radio.paused));
+  }
   anchorSwitch.onclick=toggleAnchor;
   $('wiperControl').hidden=!motor||!world.hasWiper;
   wiperSwitch.onchange=()=>{if(motor&&world.hasWiper)world.set('wiperSwitch',Number(wiperSwitch.checked));};
   if(motor)wiperSwitch.onchange();
   function toggleCabinLight(){
+    if(cruiserPowerLost)return;
     cabinLit=!cabinLit;
     motor.setCabinLight(cabinLit);
     cabinLight.setAttribute('aria-pressed',String(cabinLit));
@@ -455,17 +476,21 @@ async function run(saved=readReset(),carried){
     motor.setRadio(on);
     cabinRadio.setAttribute('aria-pressed',String(on));
   }
+  function prepareCabinRadio(){
+    if(radio)return;
+    radio=new Audio();
+    radio.preload='auto';
+    radio.loop=true;
+    radio.src=radioLocation.href;
+  }
   function toggleRadio(){
-    if(!mayStartEncounter()||cameraMenu.value!=='motorCabin')return;
+    if(!motor||cruiserPowerLost||cameraMenu.value!=='motorCabin')return;
     if(radio&&!radio.paused){radio.pause();setRadioIndicator(false);return;}
     if(!audio.enabled)enableSound();
-    if(!radio){
-      radio=new Audio(radioLocation.href);
-      radio.loop=true;
-      placeRadio=audio.connectCabinRadio(radio,motor.cabinObjects.get('radio'));
-    }
-    placeRadio(camera);
-    if(!encounterStarted&&isEncounterNight()){
+    prepareCabinRadio();
+    placeRadio??=audio.connectCabinRadio(radio);
+    placeRadio(motor.cabinObjects.get('radio'),camera);
+    if(!encounterStarted&&mayStartEncounter()&&isEncounterNight()){
       encounterStarted=true;
       encounterSession=remote.connected?remote.npc.session:null;
     }
@@ -479,27 +504,54 @@ async function run(saved=readReset(),carried){
   cabinRadio.onclick=toggleRadio;
   cleanup(()=>{
     cabinLight.onclick=cabinRadio.onclick=null;
-    if(radio){radio.pause();setRadioIndicator(false);}
+    if(!preserveCruiser&&radio){radio.pause();if(motor)setRadioIndicator(false);}
   });
+  if(motor){
+    motor.setCabinLight(cabinLit);
+    cabinLight.setAttribute('aria-pressed',String(cabinLit));
+    setRadioIndicator(Boolean(radio&&!radio.paused));
+    anchorSwitch.setAttribute('aria-pressed',String(anchorLowered));
+    anchorSwitch.textContent=anchorLowered?'Raise anchor':'Lower anchor';
+  }
   function refreshCabinControls(){
     cabinView.hidden=!motor||Boolean(animalId)||cameraMenu.value!=='motorCabin';
-    cabinRadio.disabled=!mayStartEncounter();
-    cabinRadio.title=!mayStartEncounter()?'The room host controls the encounter':
+    if(!cabinView.hidden&&!cruiserPowerLost)prepareCabinRadio();
+    cabinLight.disabled=cruiserPowerLost;
+    cabinRadio.disabled=cruiserPowerLost;
+    cabinRadio.title=cruiserPowerLost?'Cruiser power lost':!mayStartEncounter()?'The room host can start the night encounter':
       isEncounterNight()?'Cabin radio':'Switch to Moonlit for the night encounter';
+    for(const field of cruiserLampControls)field.disabled=cruiserPowerLost;
     goBelow.hidden=!motor||Boolean(animalId);
     goBelow.textContent=cameraMenu.value==='motorCabin'?'Back to helm':'Go below';
     anchorSwitch.hidden=!motor||!world.hasAnchor||Boolean(animalId);
     anchorReadout.hidden=anchorSwitch.hidden;
+  }
+  function checkCruiserPower(simulation,cruiser){
+    if(cruiserPowerLost||!cruiserSunk(simulation.get('encounterShark'),simulation.get('boatDamage')))return;
+    cruiserPowerLost=true;cabinLit=false;
+    cruiser.setElectricalPower(false);
+    cabinLight.setAttribute('aria-pressed','false');
+    radio?.pause();
+    if(motor)setRadioIndicator(false);
+    refreshCabinControls();
   }
   function encounterId(id){
     let hash=2166136261;
     for(let i=0;i<id.length;i++)hash=Math.imul(hash^id.charCodeAt(i),16777619);
     return (hash>>>0)||1;
   }
-  function updateEncounterTargets(now){
+  function updateEncounterTargets(simulation,now){
     const rows=new Map();
     function record(id,type,x,y,z,radius,mass){
       if([x,y,z].every(Number.isFinite))rows.set(id,[encounterId(id),type,x,y,z,radius,mass]);
+    }
+    if(backgroundCruiser){
+      const id=remote.npc.self??'local';
+      if(model&&!animalId&&!drone?.active&&!sub?.active){
+        const [x,y,z]=model.getMany(['east','north','heave']);
+        record(id,1,x,y,z,2.2,cat?205:1900);
+      }else if(drone?.active)record(id,3,...drone.position,.6,4);
+      else if(sub?.active)record(id,4,...sub.mesh.position.toArray(),2,3300);
     }
     for(const {id,kind,x,y,z,hull} of remote.vessels(now)){
       record(id,hull?1:kind==='sub'?4:3,x,y,z,hull===3?2.5:hull?2.2:kind==='sub'?2:.6,
@@ -531,24 +583,67 @@ async function run(saved=readReset(),carried){
     }
     targetData.fill(0);
     for(const [i,id] of targetIds.entries())if(id!==null)targetData.set(rows.get(id),i*7);
-    world.set('encounterTargets',targetData);
+    simulation.set('encounterTargets',targetData);
   }
   const damagePoint=new T.Vector3();
+  const backgroundCruiserPose=new Float64Array(10);
+  let lastCruiserTick=performance.now(),cruiserStepDebt=0;
   function updateEncounter(now,t,roomTime,running){
-    if(motor&&world.hasEncounter){
-      const ownsEncounter=encounterStarted&&mayStartEncounter()&&
+    const simulation=motor?world:backgroundCruiserWorld,localCruiser=motor??backgroundCruiser;
+    if(localCruiser&&simulation.hasEncounter){
+      const ownsEncounter=encounterStarted&&controlsEncounter()&&
         (remote.connected?encounterSession===remote.npc.session:encounterSession===null);
-      world.set('startEncounter',Number(ownsEncounter));
-      if(ownsEncounter)updateEncounterTargets(now);
-      const rows=encounterVariables.map(world.get);
-      motor.updateDamage(rows[2],rows[3],rows[4],t);
+      simulation.set('startEncounter',Number(ownsEncounter));
+      if(ownsEncounter)updateEncounterTargets(simulation,now);
+      const rows=encounterVariables.map(simulation.get);
+      localCruiser.updateDamage(rows[2],rows[3],rows[4],simulation.time);
+      if(backgroundCruiser){
+        const elapsed=Math.min(.25,Math.max(0,(now-lastCruiserTick)*.001));
+        lastCruiserTick=now;
+        backgroundCruiser.group.visible=ownsEncounter;
+        if(ownsEncounter){
+          checkCruiserPower(simulation,backgroundCruiser);
+          const pose=simulation.get('boatPose'),engine=simulation.get('engine');
+          const lamps=cruiserRuntime.lamps.slice();
+          if(cruiserPowerLost)lamps[0]=lamps[1]=0;
+          backgroundCruiser.group.position.fromArray(pose);
+          backgroundCruiser.group.rotation.set(pose[3],pose[4],pose[5],'ZYX');
+          backgroundCruiser.update(simulation.time,engine[0],engine[3],lamps,roomTime);
+          backgroundCruiser.setAnchor(simulation.get('anchorState'));
+          backgroundCruiserPose.set(pose);
+          backgroundCruiserPose.set(lamps,6);
+          rows.push(backgroundCruiserPose);
+          if(running){
+            simulation.set('windSpeed',ocean.U.wind.value);
+            simulation.set('windBearing',ocean.U.bearing.value);
+            simulation.set('seaState',Number($('seaState').value));
+            if(simulation.hasSeaClock)simulation.set('seaClockOffset',roomTime-simulation.time);
+            cruiserStepDebt=Math.min(.25,cruiserStepDebt+elapsed*playbackRate);
+            cruiserStepDebt=Math.max(0,cruiserStepDebt-.01*simulation.advance(Math.floor(cruiserStepDebt/.01)));
+          }else{
+            cruiserStepDebt=0;
+            simulation.clearQueued();
+          }
+        }
+      }
       if(ownsEncounter&&rows[0][0])remote.sendEncounter(now,rows);
       encounterFrame=ownsEncounter&&rows[0][0]?rows:remote.receiveEncounter(now);
     }else{
       encounterFrame=remote.receiveEncounter(now);
     }
-    const hostCruiser=remote.hostCruiser();
-    if(hostCruiser&&encounterFrame)hostCruiser.updateDamage(encounterFrame[2],encounterFrame[3],encounterFrame[4],roomTime);
+    const parkedPose=remote.npc.host?undefined:encounterFrame?.[7];
+    if(parkedPose){
+      if(!remoteEncounterCruiser){remoteEncounterCruiser=cabinCruiser(T);scene.add(remoteEncounterCruiser.group);}
+      remoteEncounterCruiser.group.visible=true;
+      remoteEncounterCruiser.group.position.fromArray(parkedPose);
+      remoteEncounterCruiser.group.rotation.set(parkedPose[3],parkedPose[4],parkedPose[5],'ZYX');
+      remoteEncounterCruiser.update(t,0,0,parkedPose.slice(6),roomTime);
+    }else if(remoteEncounterCruiser)remoteEncounterCruiser.group.visible=false;
+    const hostCruiser=parkedPose?remoteEncounterCruiser:remote.hostCruiser();
+    if(hostCruiser&&encounterFrame){
+      hostCruiser.updateDamage(encounterFrame[2],encounterFrame[3],encounterFrame[4],roomTime);
+      hostCruiser.setElectricalPower(!cruiserSunk(encounterFrame[0],encounterFrame[6]));
+    }
     if(lastHostCruiser&&(lastHostCruiser!==hostCruiser||!encounterFrame)){
       lastHostCruiser.updateDamage([100,100,100,100,100,100],new Float64Array(30),new Float64Array(18),t);
     }
@@ -557,7 +652,7 @@ async function run(saved=readReset(),carried){
     const damage=motor&&world.hasEncounter?world.get('boatDamage'):undefined;
     integrityDisplay.hidden=!damage||damage[0]>=100;
     if(!integrityDisplay.hidden)integrityDisplay.textContent=
-      `Hull ${Math.round(damage[0])}% · ${Math.round(damage[1])} kg aboard${damage[2]>=2?' · Submerged':''}`;
+      `Hull ${Math.round(damage[0])}% · ${Math.round(damage[1])} kg aboard${cruiserPowerLost?' · Submerged · Power lost':''}`;
     let rate=0,distance=Infinity;
     if(encounterFrame){
       const [,impact,,flood]=encounterFrame;
@@ -568,7 +663,7 @@ async function run(saved=readReset(),carried){
         audio.structureImpact(impact[2],range,pan,camera.position.z<ocean.U.tide.value);
       }
       lastImpact=impact[0];
-      const cruiser=hostCruiser??motor;
+      const cruiser=hostCruiser??localCruiser;
       if(cruiser)distance=camera.position.distanceTo(cruiser.group.position);
       if(running)for(let i=1;i<flood.length;i+=5)rate+=Math.max(0,flood[i]);
     }else lastImpact=0;
@@ -749,7 +844,7 @@ async function run(saved=readReset(),carried){
   showInLowWaterCapture(bottom);
   const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);let life;
   const defaultContactHull={cat},contactHullFields=['stationX','beamHalf','halfSpacing'];
-  let collisionPainter,shoreContacts,structureContacts,peerCollisionSamples,contactHull,pontoonWire,pontoonLoad;
+  let collisionPainter,shoreContacts,structureContacts,peerCollisionSamples,contactHull,pontoonWire,pontoonLoad,cruiserWire;
   function drawCollisions(){
     if(!collisionPainter){
       collisionPainter=collisionOverlay(T);
@@ -763,7 +858,12 @@ async function run(saved=readReset(),carried){
       const [stations,widths,spacing]=model.getMany(contactHullFields);
       contactHull={cat,stations,widths,spacing};
     }
-    shoreContacts.draw(collisionPainter,boat?.group,contactHull??defaultContactHull,motor?.group,drone?.group);
+    if(!cruiserWire){
+      const cruiserWorld=motor?world:backgroundCruiserWorld;
+      const vertices=cruiserWorld?.get('cruiserContactVertices'),faces=cruiserWorld?.get('cruiserContactFaces');
+      if(vertices&&faces)cruiserWire=hullWires(vertices,faces);
+    }
+    shoreContacts.draw(collisionPainter,boat?.group,contactHull??defaultContactHull,motor?.group,drone?.group,cruiserWire);
     structureContacts.draw(collisionPainter,sub?.mesh.visible?sub.mesh:null);
     const vessel=boat?.group??motor?.group;
     const fields=['pontoonContactVertices','pontoonContactFaces'];
@@ -773,7 +873,8 @@ async function run(saved=readReset(),carried){
         .catch(error=>console.warn('Pontoon collision mesh unavailable',error));
     }
     drawVesselContacts(T,collisionPainter,vessel,motor?2:Number(cat),peerCollisionSamples,remote.contactTilts,
-      npcTraffic?.contacts,npcTraffic?.tilts,course.committee,pontoonWire);
+      npcTraffic?.contacts,npcTraffic?.tilts,course.committee,pontoonWire,cruiserWire);
+    if(backgroundCruiser?.group.visible&&cruiserWire)collisionPainter.lines(backgroundCruiser.group,cruiserWire,'#69e2bb');
     for(const animal of remote.npc.animals.values()){
       const frame=visitors.cameraSubject(animal.id);
       if(frame)drawAnimalCollision(collisionPainter,frame,animal.kind);
@@ -790,7 +891,7 @@ async function run(saved=readReset(),carried){
   function drawInertia(){
     inertiaPainter??=inertiaOverlay(T);
     inertiaPainter.begin();
-    if(boat?.group.visible)inertiaPainter.draw(boat.group,sailingInertia(model));
+    if(boat?.group.visible)inertiaPainter.draw(boat.group,sailingInertia(model,cat));
     if(motor?.group.visible)inertiaPainter.draw(motor.group,cruiserInertia(world.get));
     if(drone?.group.visible)inertiaPainter.draw(drone.group,drone.inertia());
     if(sub?.mesh.visible){
@@ -809,7 +910,7 @@ async function run(saved=readReset(),carried){
   function imagingDisplay(){return $('cruiserSonarPanel').open||$('cameraDepth').value==='motorHelm';}
   function imagingActive(){
     const nightWatch=ocean.U.sunDir.value.z<0&&(remote.hasPeers||$('sound').getAttribute('aria-pressed')==='true');
-    return !animalId&&running&&(imagingDisplay()||nightWatch);
+    return !cruiserPowerLost&&!animalId&&running&&(imagingDisplay()||nightWatch);
   }
   let lastImagingBeep=-Infinity;
   const chart=motor?cruiserChart($('cruiserChartCanvas'),$('cruiserChartFit'),island.userData.chartTerrain):null;
@@ -1054,6 +1155,8 @@ async function run(saved=readReset(),carried){
     eye.getWorldDirection(viewDirection);
     if(sub?.mesh.visible&&lamp)collectLight(lamp,eye);
     if(motor)addHullLights(motor,eye);
+    if(backgroundCruiser?.group.visible)addHullLights(backgroundCruiser,eye);
+    if(remoteEncounterCruiser?.group.visible)addHullLights(remoteEncounterCruiser,eye);
     for(const light of remote.lamps)collectLight(light,eye);
     for(const cruiser of remote.cruisers)addHullLights(cruiser,eye);
     if(submergedLights.length>5)submergedLights.sort((a,b)=>lampScores.get(b)-lampScores.get(a));
@@ -1489,8 +1592,22 @@ async function run(saved=readReset(),carried){
     // Camera defaults follow the newly selected model.
     state.view=undefined;state.orbit=undefined;
     if(animalId)remote.npc.release(animalId);
-    remote.resumeClock(remote.seaTime(world?.time??model.time,performance.now()));
-    const carry={remote,npcTraffic,online,chatMessages:[...chatLog.children].map(row=>row.cloneNode(true))};
+    const phase=remote.seaTime(world?.time??model.time,performance.now());
+    preserveCruiser=Boolean(cruiserRuntime&&encounterStarted&&controlsEncounter());
+    if(preserveCruiser){
+      const simulation=cruiserRuntime.world;
+      simulation.setAfterAdvance(null);simulation.clearQueued();
+      simulation.set('throttleLever',0);simulation.set('helmLever',0);
+      Object.assign(cruiserRuntime,{started:encounterStarted,session:encounterSession,cabinLit,anchorLowered,
+        radio,placeRadio,audio,lastImpact});
+      if(motor){
+        const degrees=Math.PI/180;
+        cruiserRuntime.lamps=[Number(cruiserLampControls[0].checked),Number(cruiserLampControls[1].checked),
+          degrees*$('lampYaw').value,-degrees*$('lampTilt').value];
+      }
+    }
+    const carry={remote,npcTraffic,online,phase,cruiserRuntime:preserveCruiser?cruiserRuntime:null,
+      chatMessages:[...chatLog.children].map(row=>row.cloneNode(true))};
     remote.detachView();
     lifetime.abort();
     history.replaceState(history.state,'',link);
@@ -1981,6 +2098,7 @@ async function run(saved=readReset(),carried){
   }
   restoreCamera();
   if(carried){
+    remote.resumeClock(carried.phase-(world?.time??model.time));
     remote.attachView({scene,status:$('online'),weather,crew:$('crew'),laps,onImagingHit:playImagingHit,chat});
     chatLog.append(...carried.chatMessages);
     npcTraffic?.attachView({scene,surface:npcSurface,windAt:ocean.sampleWind,race,incidentSea:npcIncidentSea,onError:npcError,onFinish:laps.observeNpc});
@@ -2315,6 +2433,7 @@ async function run(saved=readReset(),carried){
       }
       let motorState;
       if(motor){
+        checkCruiserPower(world,motor);
         const pose=world.get('boatPose'),engine=world.get('engine'),rad=Math.PI/180;
         motor.starterRemaining=Math.max(0,world.get('starterRemaining'));
         const idle=world.get('engineIdleTime'),idleLimit=world.get('engineOffAfter');
@@ -2322,7 +2441,7 @@ async function run(saved=readReset(),carried){
           idle<idleLimit-1e-7&&motor.starterRemaining<1e-6:undefined;
         $('yawDegrees').value=$('lampYaw').value+'°';$('tiltDegrees').value=$('lampTilt').value+'°';
         motor.group.position.fromArray(pose);motor.group.rotation.set(pose[3],pose[4],pose[5],'ZYX');
-        motorState=[engine[0],engine[3],Number($('searchLamp').checked),Number($('keelLamp').checked),rad*$('lampYaw').value,-rad*$('lampTilt').value,motor.starterRemaining,motor.engineRunning];
+        motorState=[engine[0],engine[3],Number(!cruiserPowerLost&&$('searchLamp').checked),Number(!cruiserPowerLost&&$('keelLamp').checked),rad*$('lampYaw').value,-rad*$('lampTilt').value,motor.starterRemaining,motor.engineRunning];
         motor.update(t,...motorState.slice(0,2),motorState.slice(2,6),roomTime);
         motor.setWiper(world.get('wiperAngle')??0);
         motor.setHelmSwitch('search',Boolean(motorState[2]));
@@ -2340,7 +2459,9 @@ async function run(saved=readReset(),carried){
       updateEncounter(now,t,roomTime,running);
       reportFleet(now);
       if(motor)motorDisplay.apply(motor.group,t,now,running);
-      const litBoats=remote.cruisers,lighting=ocean.U;
+      const litBoats=[...remote.cruisers],lighting=ocean.U;
+      if(backgroundCruiser?.group.visible)litBoats.push(backgroundCruiser);
+      if(remoteEncounterCruiser?.group.visible)litBoats.push(remoteEncounterCruiser);
       let litCount=0;
       for(let i=motor?-1:0;i<litBoats.length&&litCount<5;i++){
         const cruiser=i<0?motor:litBoats[i],lamp=cruiser.searchlight,downlights=cruiser.underwaterLamps[0].visible;
@@ -2610,8 +2731,10 @@ async function run(saved=readReset(),carried){
       }else lastReflection=-Infinity;
       rain.visible=storm && eyeHeight>=-surfaceBand;
       if(rain.visible)rain.material.uniforms.rainWind.value.set(...wind);
-      if(radio&&!radio.paused)placeRadio(camera);
-      audio.motorSound(motor,npcTraffic?.cruisers.length?[...remote.cruisers,...npcTraffic.cruisers]:remote.cruisers,camera,eyeHeight<0,running,shaftCommand,playbackRate);
+      const radioCruiser=motor??backgroundCruiser;
+      if(radio&&!radio.paused&&radioCruiser?.group.visible)placeRadio(radioCruiser.cabinObjects.get('radio'),camera);
+      const engineBoats=npcTraffic?.cruisers.length?[...litBoats,...npcTraffic.cruisers]:litBoats;
+      audio.motorSound(motor,engineBoats,camera,eyeHeight<0,running,shaftCommand,playbackRate);
       audio.droneSound(drone,remote.drones,camera,eyeHeight<0,running);
       if(audio.enabled){
         const singer=eyeHeight<0&&running&&audio.audible?visitors.nearestHumpback(camera.position,70):undefined;

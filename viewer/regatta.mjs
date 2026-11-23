@@ -415,7 +415,7 @@ export function raceAudio(T){
     if(effects)effects.gain.setTargetAtTime(level,audio.currentTime,.025);
     if(!level){silenceLuff();silenceWaves();}
   }
-  function connectCabinRadio(media,emitter){
+  function connectCabinRadio(media){
     const speaker=audio.createPanner(),gain=audio.createGain();
     speaker.panningModel='HRTF';
     speaker.distanceModel='exponential';
@@ -430,7 +430,7 @@ export function raceAudio(T){
       y.value=vector.y;
       z.value=vector.z;
     }
-    return camera=>{
+    return (emitter,camera)=>{
       emitter.getWorldPosition(position);
       coordinates(speaker.positionX,speaker.positionY,speaker.positionZ,position);
       camera.getWorldDirection(direction);

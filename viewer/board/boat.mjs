@@ -661,7 +661,11 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    [sails[1].pivot,[cat?-1.82/5.1:-1.04/2.69,0,1],'Jib rotation'],[rudder,[0,0,1],'Rudder hinge'],
    ...(otherRudder?[[otherRudder,[0,0,1],'']]:[])
  ]};
- return {group,cameraPorts,inspection,ballastPosition:carriage?.position,setBallastVisible(visible){if(carriage)carriage.visible=visible;},
+ function setPose(s){
+   group.position.set(s[0],s[1],s[3]);
+   group.rotation.set(s[4],s[5],s[2],'ZYX');
+ }
+ return {group,cameraPorts,inspection,setPose,ballastPosition:carriage?.position,setBallastVisible(visible){if(carriage)carriage.visible=visible;},
    update(s,ballast,cars,rope,tails,faceTails,stayPath,time,geometry){
    const [mastStations,gooseneck,blockPins]=geometry?.rig??[];
    inspection.mastStations=mastStations;
@@ -693,7 +697,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
        drawRope(rightingLine,rightingLead,rightingGrip,.012);
      }
    }
-   group.position.set(s[0],s[1],s[3]);group.rotation.set(s[4],s[5],s[2],'ZYX');rudder.rotation.z=-s[7];
+   setPose(s);rudder.rotation.z=-s[7];
    sails.forEach(({pivot,geo,coords,boomHinge,bail,vang,downhaul,downhaulBase,outhaul,tufts,telltaleRows},m)=>{
      const r=42+2*24*3+m*9;
      sheetMatrix.set(s[r],s[r+1],s[r+2],0,s[r+3],s[r+4],s[r+5],0,s[r+6],s[r+7],s[r+8],0,0,0,0,1);

@@ -109,7 +109,7 @@ export function surfaceCollisionShapes(T,island,committeeGroup,markGroups){
   island.updateWorldMatrix(true,true);
   const sand=sandWire(island.userData.chartTerrain.height),rocks=rockWires(T,island);
   const sailProbes=new WeakMap();
-  return {draw(painter,boatGroup,hull,motorGroup,droneGroup){
+  return {draw(painter,boatGroup,hull,motorGroup,droneGroup,cruiserMesh){
     painter.lines(island,sand,colors.sand);
     for(const {frame,lines} of rocks)painter.lines(frame,lines,colors.rocks);
     for(const mark of markGroups??[]){
@@ -132,7 +132,7 @@ export function surfaceCollisionShapes(T,island,committeeGroup,markGroups){
       }
       painter.points(boatGroup,probes.points,colors.probes);
     }
-    if(motorGroup){
+    if(motorGroup&&!cruiserMesh){
       motorGroup.updateWorldMatrix(true,false);
       painter.points(motorGroup,cruiserProbes,colors.probes);
     }
