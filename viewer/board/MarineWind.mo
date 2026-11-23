@@ -14,15 +14,15 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
   output Real droneWind[3];
   output Real localEast,localNorth;
   function gustCell "Wind vector and roughness for one independent grid cell"
-    input Real east,north,previous,speed,direction,c,s,meanShift,cx[8],cy[8],width[8],lengths[8],turn[8],gain[8],period,t,rise,fall;
+    input Real eastOffset[8],northOffset[8],previous,speed,direction,c,s,meanShift,width[8],lengths[8],turn[8],gain[8],t,rise,fall;
     output Real cell[3];
   protected
     Real amplitude,shift,ex,ny,along,across,w,theta,u,relax;
   algorithm
     amplitude:=.975;shift:=meanShift;
     for g in 1:8 loop
-      ex:=mod(east-cx[g]+period/2,period)-period/2;
-      ny:=mod(north-cy[g]+period/2,period)-period/2;
+      ex:=eastOffset[g];
+      ny:=northOffset[g];
       along:=ex*c+ny*s;across:=-ex*s+ny*c;
       // Compact smooth footprint, with zero slope at the perimeter.
       w:=max(0,1-(along/lengths[g])^2-(across/width[g])^2)^3;
@@ -37,13 +37,13 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
     input Real prev[n,n,3],baseE,baseN,travelE,travelN,t,seed,period,dt;
     output Real tile[n,n,3];
   protected
-    Real speed,direction,meanShift,c,s,anchorE,anchorN,along,across,hand;
+    Real speed,direction,meanShift,c,s,anchorE,anchorN,along,across,hand,coordinate;
     Integer member,groupIndex;
     // A broad gust, two offset lobes and a trailing lull travel together.
     constant Real alongOffset[4]={0,-.108,.105,-.18},crossOffset[4]={0,.031,.018,-.09};
     constant Real halfLength[4]={.235,.145,.123,.195},halfWidth[4]={.117,.076,.093,.124};
     constant Real peak[4]={.27,.20,.17,-.23};
-    Real cx[8],cy[8],turn[8],gain[8],width[8],lengths[8];
+    Real cx[8],cy[8],turn[8],gain[8],width[8],lengths[8],eastOffsets[n,8],northOffsets[n,8],rise,fall;
   algorithm
     speed:=sqrt(baseE^2+baseN^2);direction:=atan2(baseN,baseE);
     c:=cos(direction);s:=sin(direction);
@@ -60,8 +60,18 @@ model MarineWind "Advected gusts, directional shifts and short-wave response on 
       turn[g]:=.17*hand*cos(.7*member+seed);
       gain[g]:=peak[member]*(.9+.1*sin(t/34+g+seed));
     end for;
-    tile:={gustCell((i-1)*period/n,(j-1)*period/n,prev[j,i,3],speed,direction,c,s,
-      meanShift,cx,cy,width,lengths,turn,gain,period,t,1-exp(-dt/1.4),1-exp(-dt/3.5)) for i in 1:n, j in 1:n};
+    // A periodic displacement along either axis is independent of the other.
+    for i in 1:n loop
+      coordinate:=(i-1)*period/n;
+      for g in 1:8 loop
+        eastOffsets[i,g]:=mod(coordinate-cx[g]+period/2,period)-period/2;
+        northOffsets[i,g]:=mod(coordinate-cy[g]+period/2,period)-period/2;
+      end for;
+    end for;
+    rise:=1-exp(-dt/1.4);
+    fall:=1-exp(-dt/3.5);
+    tile:={gustCell(eastOffsets[i,:],northOffsets[j,:],prev[j,i,3],speed,direction,c,s,
+      meanShift,width,lengths,turn,gain,t,rise,fall) for i in 1:n, j in 1:n};
   end fieldStep;
   function sampleWind
     input Real grid[n,n,3],east,north,period;

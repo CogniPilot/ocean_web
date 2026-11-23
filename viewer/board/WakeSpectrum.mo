@@ -17,6 +17,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
   discrete Real modesR[n,n](each start=0,each fixed=true),modesI[n,n](each start=0,each fixed=true);
   discrete Real peerModesR[n,n](each start=0,each fixed=true),peerModesI[n,n](each start=0,each fixed=true);
   discrete Boolean peerWakeActive(start=false,fixed=true),receivedPeer(start=false,fixed=true);
+  discrete Boolean radiationActive(start=false,fixed=true) "A local or incoming disturbance can be present in the modes";
   discrete Real peerForcingR[n,n](each start=0,each fixed=true);
   discrete Real peerForcingI[n,n](each start=0,each fixed=true);
   discrete Real displacementR[n,n](each start=0,each fixed=true),displacementI[n,n](each start=0,each fixed=true);
@@ -372,11 +373,14 @@ equation
     // Both responses use the same forward transform of the received sources.
     (peerForcingR,peerForcingI,receivedPeer)=peerForcing(peers,pre(priorPeers),driftE,driftN,
       pre(priorDrift),east,north,period,wakeActive);
+    // A vehicle without a hull has zero radiation until a peer deposits a wake.
+    // Keep evolving incoming waves after the peer has left until wakes are reset.
+    radiationActive=wakeActive and (localHull or receivedPeer or pre(radiationActive));
     (modesR,modesI,displacementR,displacementI,height,incident,waveLoad,wakeHeight)=step(
       pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,
       east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,
       period,depth,dt,decay,time+seaClockOffset,time<dt/2 or not pre(wakeActive),
-      peerForcingR,peerForcingI,wakeActive,localHull);
+      peerForcingR,peerForcingI,radiationActive,localHull);
     // Retain the total radiation for rendering and wave pressure. Only the
     // independently incident peer response is fed back into local buoyancy.
     (peerModesR,peerModesI,peerHeight,peerWakeActive)=peerResponse(pre(peerModesR),pre(peerModesI),
