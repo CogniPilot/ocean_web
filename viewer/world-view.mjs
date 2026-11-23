@@ -22,7 +22,7 @@ const submarineOutputs=[...group('sub','surveyTelemetry position orientation pro
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',outhaulInput:'outhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',manualJibAssist:'manualJibAssist',
  jibHalyardInput:'jibHalyardInput',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic',trafficTilt:'trafficTilt'};
-export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1,options={}){
+export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1,options={}){
  const hasBoat=mode==='world'||mode==='sailing'||mode==='sloop',hasSub=mode==='world'||mode==='submarine',hasFlight=mode==='world'||mode==='flight';
  const workerUrl=new URL('./'+mode+'/ocean-world-worker.mjs',import.meta.url);
  workerUrl.search=new URL(import.meta.url).search;

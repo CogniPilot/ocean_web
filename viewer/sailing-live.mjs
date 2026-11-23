@@ -326,7 +326,7 @@ async function run(saved=readReset(),carried){
   if(!world){
     for(const [input,field] of [['hullStations','stationX'],['hullWidths','beamHalf'],['hullOffset','halfSpacing']])race.set(input,model.get(field));
   }
-  const course=courseScene(T,scene,race),audio=raceAudio();
+  const course=courseScene(T,scene,race),audio=raceAudio(T);
   cleanup(audio.dispose);
   let lastCountdown=null,raceTick=0;
   const lastLaps=new Map();
@@ -419,7 +419,7 @@ async function run(saved=readReset(),carried){
   const radioLocation=new URL('./assets/audio/spanish-ladies-radio.mp3',import.meta.url);
   const encounterVariables=['encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage'];
   const targetData=new Float64Array(24*7),targetIds=Array(24).fill(null);
-  let radio,cabinLit=false,encounterStarted=false,encounterSession,encounterFrame,lastImpact=0,lastHostCruiser;
+  let radio,placeRadio,cabinLit=false,encounterStarted=false,encounterSession,encounterFrame,lastImpact=0,lastHostCruiser;
   function mayStartEncounter(){
     if(!motor||!world.hasEncounter)return false;
     return multiplayerButton.getAttribute('aria-pressed')!=='true'||remote.connected&&remote.npc.host;
@@ -458,18 +458,29 @@ async function run(saved=readReset(),carried){
   function toggleRadio(){
     if(!mayStartEncounter()||cameraMenu.value!=='motorCabin')return;
     if(radio&&!radio.paused){radio.pause();setRadioIndicator(false);return;}
-    radio??=new Audio(radioLocation.href);
-    radio.loop=true;radio.volume=Math.min(.7,.6*Number($('effectsVolume').value)/100);
-    if(!audio.enabled)$('sound').click();
+    if(!audio.enabled)enableSound();
+    if(!radio){
+      radio=new Audio(radioLocation.href);
+      radio.loop=true;
+      placeRadio=audio.connectCabinRadio(radio,motor.cabinObjects.get('radio'));
+    }
+    placeRadio(camera);
     if(!encounterStarted&&isEncounterNight()){
       encounterStarted=true;
       encounterSession=remote.connected?remote.npc.session:null;
     }
-    radio.play().then(()=>setRadioIndicator(!radio.paused)).catch(error=>console.warn('Cabin radio playback unavailable',error));
+    radio.play().then(()=>{
+      if(!signal.aborted)setRadioIndicator(!radio.paused);
+    }).catch(error=>{
+      if(!signal.aborted&&error.name!=='AbortError')console.warn('Cabin radio playback unavailable',error);
+    });
   }
   cabinLight.onclick=()=>{if(motor)toggleCabinLight();};
   cabinRadio.onclick=toggleRadio;
-  cleanup(()=>{cabinLight.onclick=cabinRadio.onclick=null;radio?.pause();});
+  cleanup(()=>{
+    cabinLight.onclick=cabinRadio.onclick=null;
+    if(radio){radio.pause();setRadioIndicator(false);}
+  });
   function refreshCabinControls(){
     cabinView.hidden=!motor||Boolean(animalId)||cameraMenu.value!=='motorCabin';
     cabinRadio.disabled=!mayStartEncounter();
@@ -665,6 +676,9 @@ async function run(saved=readReset(),carried){
     }
     on(document,'visibilitychange',()=>{if(selected)void sync();});
     show();
+    return ()=>{
+      selected=true;show();void sync();
+    };
   }
   audioToggle('music',async on=>{
     if(!on){theme.pause();if(musicContext)await musicContext.suspend();return;}
@@ -675,7 +689,7 @@ async function run(saved=readReset(),carried){
     }
     await Promise.all([musicContext.resume(),theme.play()]);
   },on=>{music.title=(on?'Mute':'Play')+' music by Olivier Bérubé';});
-  audioToggle('sound',audio.setEnabled,on=>{
+  const enableSound=audioToggle('sound',audio.setEnabled,on=>{
     $('sound').title=on?'Mute sound effects':'Turn sound effects on';
     $('sound').firstElementChild.textContent=on?'🔊':'🔇';
   });
@@ -2596,6 +2610,7 @@ async function run(saved=readReset(),carried){
       }else lastReflection=-Infinity;
       rain.visible=storm && eyeHeight>=-surfaceBand;
       if(rain.visible)rain.material.uniforms.rainWind.value.set(...wind);
+      if(radio&&!radio.paused)placeRadio(camera);
       audio.motorSound(motor,npcTraffic?.cruisers.length?[...remote.cruisers,...npcTraffic.cruisers]:remote.cruisers,camera,eyeHeight<0,running,shaftCommand,playbackRate);
       audio.droneSound(drone,remote.drones,camera,eyeHeight<0,running);
       if(audio.enabled){

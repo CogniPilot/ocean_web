@@ -5,7 +5,7 @@ import {openWorld} from '../viewer/world-view.mjs';
 
 let worker;
 globalThis.document={hidden:false};
-globalThis.addEventListener=()=>{};
+globalThis.window={addEventListener(){}};
 globalThis.Worker=class {
   requests=[];
   time=0;
@@ -24,6 +24,7 @@ globalThis.Worker=class {
   }
 };
 const opening=openWorld('sailing');
+assert.equal(worker.requests[0].initial.seaState,.45);
 const seaIndex=worker.requests[0].inputs.indexOf('seaState');
 await worker.reply();
 const world=await opening;
