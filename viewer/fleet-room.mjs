@@ -1,18 +1,21 @@
-// Keep the fleet session intact while an isolated WebRTC room rediscovers peers.
+// Keep existing peer links while the WebRTC room rediscovers other sailors.
 export function joinFleetRoom(transport,config,name,callbacks){
   let bus;
   try{bus=new BroadcastChannel('ocean-web/'+config.appId+'/'+name);}catch{}
   const self=transport.selfId,local=new Map(),online=new Map(),actions=new Map();
-  let closed=false,network,recovery;
+  let closed=false,recovery;
+  const network=transport.joinRoom(config,name,{
+    onJoinError(error){if(!closed)callbacks?.onJoinError?.(error);}
+  });
   const room={
     makeAction(name,{latest=false}={}){
-      const pending=new Map();
+      const pending=new Set();
+      const remote=network.makeAction(name);
       const action={
         async send(data,{target}={}){
           if(closed)return;
           if(bus&&(!target?local.size:local.has(target)))post('data',target,name,data);
-          const remote=entry.remote;
-          if(!remote||local.has(target))return;
+          if(local.has(target))return;
           if(!latest){
             if(target)await remote.send(data,{target});
             else if(!local.size)await remote.send(data);
@@ -22,29 +25,24 @@ export function joinFleetRoom(transport,config,name,callbacks){
           // Avoid queuing stale positions or letting a slow peer stall the rest.
           const targets=target?[target]:online.keys();
           await Promise.all([...targets].map(async id=>{
-            if(local.has(id)||pending.get(id)===remote)return;
-            pending.set(id,remote);
+            if(local.has(id)||pending.has(id))return;
+            pending.add(id);
             try{await remote.send(data,{target:id});}
-            finally{if(pending.get(id)===remote)pending.delete(id);}
+            finally{pending.delete(id);}
           }));
         }
       };
-      const entry={action,remote:null};
-      actions.set(name,entry);
-      if(network)bindAction(network,name,entry);
+      remote.onMessage=(data,meta)=>{if(!closed)action.onMessage?.(data,meta);};
+      actions.set(name,action);
       return action;
     },
     recover(delay=800){
-      if(closed||!network||online.size||navigator.onLine===false)return;
+      if(closed||navigator.onLine===false)return;
       clearTimeout(recovery);
-      recovery=setTimeout(async()=>{
-        if(closed||!network||online.size||navigator.onLine===false)return;
-        const old=network;
-        network=null;
-        for(const entry of actions.values())entry.remote=null;
+      recovery=setTimeout(()=>{
+        if(closed||navigator.onLine===false)return;
         room.onRecover?.();
-        try{await old.leave();}
-        finally{if(!closed)openNetwork();}
+        network.reannounce();
       },delay+Math.random()*800);
     },
     leave(){
@@ -53,36 +51,22 @@ export function joinFleetRoom(transport,config,name,callbacks){
       clearTimeout(recovery);
       clearInterval(heartbeat);
       if(bus){post('bye');bus.close();}
-      return network?.leave();
+      return network.leave();
     }
   };
-  function bindAction(active,name,entry){
-    const remote=active.makeAction(name);
-    entry.remote=remote;
-    remote.onMessage=(data,meta)=>{if(!closed&&network===active)entry.action.onMessage?.(data,meta);};
-  }
-  function openNetwork(){
-    let active;
-    active=network=transport.joinRoom(config,name,{
-      onJoinError(error){if(!closed&&network===active)callbacks?.onJoinError?.(error);}
-    });
-    active.onPeerJoin=id=>{
-      if(closed||network!==active||online.has(id))return;
-      clearTimeout(recovery);
-      online.set(id,active.getPeers()[id]);
-      if(!local.has(id))room.onPeerJoin?.(id);
-    };
-    active.onPeerLeave=id=>{
-      if(closed||network!==active||!online.has(id))return;
-      const connection=online.get(id);
-      online.delete(id);
-      // Close the old link at both ends before announcing a replacement.
-      connection?.close();
-      if(!local.has(id))room.onPeerLeave?.(id);
-      if(!online.size)room.recover(2400);
-    };
-    for(const [name,entry] of actions)bindAction(active,name,entry);
-  }
+  network.onPeerJoin=id=>{
+    if(closed||online.has(id))return;
+    online.set(id,network.getPeers()[id]);
+    if(!local.has(id))room.onPeerJoin?.(id);
+  };
+  network.onPeerLeave=id=>{
+    if(closed||!online.has(id))return;
+    const connection=online.get(id);
+    online.delete(id);
+    connection?.close();
+    if(!local.has(id))room.onPeerLeave?.(id);
+    room.recover();
+  };
   function post(type,target,action,data){bus.postMessage({type,from:self,target,action,data});}
   function forgetLocal(id){if(local.delete(id)&&!online.has(id))room.onPeerLeave?.(id);}
   let heartbeat;
@@ -105,6 +89,5 @@ export function joinFleetRoom(transport,config,name,callbacks){
     },2500);
     post('hello');
   }
-  openNetwork();
   return room;
 }

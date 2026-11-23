@@ -176,7 +176,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   }
   async function sendChat(message){
     const active=chatChannel;
-    if(!active)return false;
+    if(!active||!participants.size)return false;
     try{
       await active.send(message);
     }catch{return false;}
@@ -655,7 +655,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     if(seaClock)seaClock.offset=phase;
     lastWakeStamp=-Infinity;
   }
-  return {join,leave,recover:()=>room?.recover(),frame,sendChat,sendEncounter,receiveEncounter,recordFinish,fleetNumber,playerName,npcName,raceWinner:finishes.get,hostCruiser:()=>peers.get(npc.owner)?.cruiser,detachView,attachView,resumeClock,get connected(){return Boolean(room);},setPenalty(turns){
+  return {join,leave,recover:()=>room?.recover(),frame,sendChat,sendEncounter,receiveEncounter,recordFinish,fleetNumber,playerName,npcName,raceWinner:finishes.get,hostCruiser:()=>peers.get(npc.owner)?.cruiser,detachView,attachView,resumeClock,get connected(){return Boolean(room);},get peerCount(){return participants.size;},setPenalty(turns){
     if(ourPenalty!==turns){ourPenalty=turns;lastPenaltySend=-Infinity;}
   },lamps,cruisers,drones,imagingHit,contacts,nearbyDeck,npc,vessels,players,contactPeers,contactTilts,get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
 }

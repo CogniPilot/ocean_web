@@ -1942,7 +1942,7 @@ async function run(saved=readReset(),carried){
       $('chatStatus').value='';
     }else if(chatScope===room){
       if(!chatInput.value)chatInput.value=draft;
-      $('chatStatus').value='Message could not be sent.';
+      $('chatStatus').value=remote.peerCount?'Message could not be sent.':'Waiting for a peer to connect.';
     }
   };
   on(window,'keydown',e=>{
