@@ -226,6 +226,13 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     Real armAlong[12],armAcross[12],stripLength[12],stripWidth[12],stripDraft[12];
     Real re[n,n],im[n,n],packedR[n,n],packedI[n,n],unused[n,n];
   algorithm
+    // OceanRace supplies incident waves separately. With wake radiation off
+    // and no wind here, every spectral mode and the inverse transform are zero.
+    if not active and ue==0 and un==0 then
+      wr:=zeros(n,n);wi:=zeros(n,n);displacedR:=zeros(n,n);displacedI:=zeros(n,n);
+      tile:=zeros(n,n);probe:=zeros(3);load:=zeros(3);wake:=zeros(n,n);
+      return;
+    end if;
     windSpeed:=sqrt(ue*ue+un*un);peak:=max(.19,1.4/max(2,windSpeed));
     dx:=L/n;probe:=zeros(3);load:=zeros(3);forceScale:=1025*9.80665*dx^2/n^2;
     // Fourier transform of six immersed strips on each hull. Separable phase

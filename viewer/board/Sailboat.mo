@@ -208,63 +208,83 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     end for;
   end againstHull;
 
-  function contactWrench "Horizontal compliant vessel contact at sampled waterline sections"
+  function contactHeightRange "Conservative vertical bounds of the contact geometry in world axes"
+    input Real kind,tilt[2];
+    output Real bounds[2];
+  protected
+    Real extents[4],vertical,side;
+  algorithm
+    // The longitudinal/lateral bounds cover the whole hull, including both
+    // pontoons on the Hobie. Committee and sloop witnesses include their radius.
+    extents:=if kind>2.5 then {3.62,1.05,-1.12,.98}
+      elseif kind>1.5 then {3.83,1.40,-.83,1.35}
+      elseif kind>.5 then {2.55,1.25,-.41,.27}
+      else {1.46,.34,-.41,.27};
+    vertical:=cos(tilt[1])*cos(tilt[2]);
+    side:=extents[1]*abs(sin(tilt[2]))+extents[2]*abs(sin(tilt[1])*cos(tilt[2]));
+    bounds:={min(extents[3]*vertical,extents[4]*vertical)-side,
+      max(extents[3]*vertical,extents[4]*vertical)+side};
+  end contactHeightRange;
+
+  function contactWrench "Horizontal compliant vessel contact at sampled hull surfaces"
     input Real pose[7],traffic[:,9],kind;
     input Real tilt[2]=zeros(2),trafficTilt[size(traffic,1),2]=zeros(size(traffic,1),2);
     output Real wrench[3],contact[size(traffic,1)];
   protected
     Real otherPose[7],fa[2],fb[2],ma,mb,qa,qb,pa,pb;
-    Real sliceA[3],sliceB[3],x,y,u,v,dx,dy,d,r,rate,f,armX,armY,otherX,otherY,mass,otherMass,scale,localDraft,peerDraft;
+    Real sliceA[3],sliceB[3],x,y,u,v,dx,dy,d,r,rate,f,armX,armY,otherX,otherY,mass,otherMass,scale;
+    Real localHeight[2],peerHeight[2];
   algorithm
     wrench:=zeros(3);contact:=zeros(size(traffic,1));
     mass:=if kind>1.5 then 3250 elseif kind>.5 then 206 else 64;
-    localDraft:=if kind>1.5 then .62 else .325;
+    localHeight:=contactHeightRange(kind,tilt)+fill(pose[7],2);
     for p in 1:size(traffic,1) loop
-      peerDraft:=if traffic[p,9]>2.5 then .60 elseif traffic[p,9]>1.5 then .62 else .325;
-      if traffic[p,1]>.5 and abs(pose[7]-traffic[p,8])<localDraft+peerDraft
-        and (pose[1]-traffic[p,2])^2+(pose[2]-traffic[p,3])^2<100 then
-        otherMass:=if traffic[p,9]>2.5 then 1e8 elseif traffic[p,9]>1.5 then 3250 elseif traffic[p,9]>.5 then 206 else 64;
-        scale:=max(1,mass*otherMass/((mass+otherMass)*103));
-        otherPose:=traffic[p,2:8];
-        if kind>.5 and kind<2.5 then
-          (fa,ma,qa,pa):=againstHull(pose,tilt,kind,otherPose,trafficTilt[p,:],traffic[p,9],scale);
-          if traffic[p,9]>.5 and traffic[p,9]<2.5 then
+      if traffic[p,1]>.5 and (pose[1]-traffic[p,2])^2+(pose[2]-traffic[p,3])^2<100 then
+        peerHeight:=contactHeightRange(traffic[p,9],trafficTilt[p,:])+fill(traffic[p,8],2);
+        if min(localHeight[2],peerHeight[2])>=max(localHeight[1],peerHeight[1]) then
+          otherMass:=if traffic[p,9]>2.5 then 1e8 elseif traffic[p,9]>1.5 then 3250 elseif traffic[p,9]>.5 then 206 else 64;
+          scale:=max(1,mass*otherMass/((mass+otherMass)*103));
+          otherPose:=traffic[p,2:8];
+          if kind>.5 and kind<2.5 then
+            (fa,ma,qa,pa):=againstHull(pose,tilt,kind,otherPose,trafficTilt[p,:],traffic[p,9],scale);
+            if traffic[p,9]>.5 and traffic[p,9]<2.5 then
+              (fb,mb,qb,pb):=againstHull(otherPose,trafficTilt[p,:],traffic[p,9],pose,tilt,kind,scale);
+              wrench:=wrench+.5*cat(1,fa-fb,{ma+qb});
+              contact[p]:=max(pa,pb);
+            else
+              wrench:=wrench+cat(1,fa,{ma});
+              contact[p]:=pa;
+            end if;
+          elseif traffic[p,9]>.5 and traffic[p,9]<2.5 then
             (fb,mb,qb,pb):=againstHull(otherPose,trafficTilt[p,:],traffic[p,9],pose,tilt,kind,scale);
-            wrench:=wrench+.5*cat(1,fa-fb,{ma+qb});
-            contact[p]:=max(pa,pb);
+            wrench:=wrench+cat(1,-fb,{qb});
+            contact[p]:=pb;
           else
-            wrench:=wrench+cat(1,fa,{ma});
-            contact[p]:=pa;
-          end if;
-        elseif traffic[p,9]>.5 and traffic[p,9]<2.5 then
-          (fb,mb,qb,pb):=againstHull(otherPose,trafficTilt[p,:],traffic[p,9],pose,tilt,kind,scale);
-          wrench:=wrench+cat(1,-fb,{qb});
-          contact[p]:=pb;
-        else
-          for i in 1:1 loop
-            for j in 1:1 loop
-              for k in 1:7 loop
-                sliceA:=contactSection(kind,i,k);
-                armX:=sliceA[1]*cos(pose[3])-sliceA[2]*sin(pose[3]);
-                armY:=sliceA[1]*sin(pose[3])+sliceA[2]*cos(pose[3]);
-                for l in 1:7 loop
-                  sliceB:=contactSection(traffic[p,9],j,l);
-                  otherX:=sliceB[1]*cos(traffic[p,4])-sliceB[2]*sin(traffic[p,4]);
-                  otherY:=sliceB[1]*sin(traffic[p,4])+sliceB[2]*cos(traffic[p,4]);
-                  dx:=pose[1]+armX-traffic[p,2]-otherX;dy:=pose[2]+armY-traffic[p,3]-otherY;
-                  d:=sqrt(dx*dx+dy*dy);r:=sliceA[3]+sliceB[3];
-                  if d<r and d>.0001 then
-                    x:=dx/d;y:=dy/d;
-                    u:=pose[4]-pose[6]*armY-traffic[p,5]+traffic[p,7]*otherY;
-                    v:=pose[5]+pose[6]*armX-traffic[p,6]-traffic[p,7]*otherX;
-                    rate:=u*x+v*y;f:=scale*max(0,850*(r-d)-55*rate);
-                    wrench:=wrench+f*{x,y,armX*y-armY*x};
-                    contact[p]:=max(contact[p],f);
-                  end if;
+            for i in 1:1 loop
+              for j in 1:1 loop
+                for k in 1:7 loop
+                  sliceA:=contactSection(kind,i,k);
+                  armX:=sliceA[1]*cos(pose[3])-sliceA[2]*sin(pose[3]);
+                  armY:=sliceA[1]*sin(pose[3])+sliceA[2]*cos(pose[3]);
+                  for l in 1:7 loop
+                    sliceB:=contactSection(traffic[p,9],j,l);
+                    otherX:=sliceB[1]*cos(traffic[p,4])-sliceB[2]*sin(traffic[p,4]);
+                    otherY:=sliceB[1]*sin(traffic[p,4])+sliceB[2]*cos(traffic[p,4]);
+                    dx:=pose[1]+armX-traffic[p,2]-otherX;dy:=pose[2]+armY-traffic[p,3]-otherY;
+                    d:=sqrt(dx*dx+dy*dy);r:=sliceA[3]+sliceB[3];
+                    if d<r and d>.0001 then
+                      x:=dx/d;y:=dy/d;
+                      u:=pose[4]-pose[6]*armY-traffic[p,5]+traffic[p,7]*otherY;
+                      v:=pose[5]+pose[6]*armX-traffic[p,6]-traffic[p,7]*otherX;
+                      rate:=u*x+v*y;f:=scale*max(0,850*(r-d)-55*rate);
+                      wrench:=wrench+f*{x,y,armX*y-armY*x};
+                      contact[p]:=max(contact[p],f);
+                    end if;
+                  end for;
                 end for;
               end for;
             end for;
-          end for;
+          end if;
         end if;
       end if;
     end for;
