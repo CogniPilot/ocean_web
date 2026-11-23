@@ -167,21 +167,41 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   // Hull, pilothouse and fittings are fixed relative to one another. Bake them
   // by surface finish so a distant peer's grab rails take a single draw call.
   const batches=new Map(),v3=(x,y,z)=>new T.Vector3(x,y,z);
+  function collectPart(geometry,color,matrix,material,collection){
+    geometry.applyMatrix4(matrix);
+    let batch=collection.get(material);
+    if(!batch){
+      batch={attributes:{position:[],normal:[],color:[]},indices:[]};
+      if(material.map)batch.attributes.uv=[];
+      collection.set(material,batch);
+    }
+    const positions=geometry.attributes.position,offset=batch.attributes.position.length/3;
+    const rgb=new T.Color(color);
+    for(const [name,data] of Object.entries(batch.attributes)){
+      if(name==='color'){
+        for(let i=0;i<positions.count;i++)data.push(rgb.r,rgb.g,rgb.b);
+      }else{
+        const source=geometry.attributes[name];
+        for(let i=0;i<source.array.length;i++)data.push(source.array[i]);
+      }
+    }
+    const index=geometry.index;
+    for(let i=0;i<(index?.count??positions.count);i++)batch.indices.push(offset+(index?index.getX(i):i));
+    geometry.dispose();
+  }
   function part(geometry,color,pos,rot,scale,material=solid){
     const matrix=new T.Matrix4().compose(v3(...(pos??[0,0,0])),
       new T.Quaternion().setFromEuler(rot??new T.Euler()),v3(...(scale??[1,1,1])));
-    geometry.applyMatrix4(matrix);
-    const posAttr=geometry.attributes.position,norm=geometry.attributes.normal;
-    let batch=batches.get(material);
-    if(!batch){batch={p:[],n:[],c:[],ix:[]};batches.set(material,batch);}
-    const offset=batch.p.length/3,c=new T.Color(color);
-    for(let i=0;i<posAttr.count;i++){
-      batch.p.push(posAttr.getX(i),posAttr.getY(i),posAttr.getZ(i));
-      batch.n.push(norm.getX(i),norm.getY(i),norm.getZ(i));batch.c.push(c.r,c.g,c.b);
-    }
-    const index=geometry.index;
-    for(let i=0;i<(index?.count??posAttr.count);i++)batch.ix.push(offset+(index?index.getX(i):i));
-    geometry.dispose();
+    collectPart(geometry,color,matrix,material,batches);
+  }
+  function addBatch(parent,material,batch){
+    const geometry=new T.BufferGeometry();
+    for(const [name,data] of Object.entries(batch.attributes))
+      geometry.setAttribute(name,new T.Float32BufferAttribute(data,name==='uv'?2:3));
+    geometry.setIndex(batch.indices);
+    const mesh=new T.Mesh(geometry,material);
+    parent.add(mesh);
+    return mesh;
   }
   function box(x,y,z,l,w,h,color,rotation){
     part(new T.BoxGeometry(l,w,h),color,[x,y,z],rotation);
@@ -619,6 +639,24 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
       part.material.map=woodGrain;
     }
   });
+  // Furniture and lining share finishes. Keep the transparent ports and
+  // interactive fixtures as separate objects for sorting and picking.
+  const cabinFinishes=new Map(),cabinBatches=new Map();
+  for(const piece of [...cabin.children]){
+    const material=piece.material;
+    if(!material?.isMeshStandardMaterial||material.transparent||piece.name==='Cabin outer port rim')continue;
+    const finish=[material.side,material.roughness,material.metalness,material.map?.uuid].join('/');
+    let shared=cabinFinishes.get(finish);
+    if(!shared){
+      shared=material.clone();
+      shared.color.set(0xffffff);shared.vertexColors=true;
+      cabinFinishes.set(finish,shared);
+    }
+    piece.updateMatrix();
+    collectPart(piece.geometry,material.color,piece.matrix,shared,cabinBatches);
+    cabin.remove(piece);material.dispose();
+  }
+  for(const [material,batch] of cabinBatches)addBatch(cabin,material,batch);
   const cabinWaterSegments=24;
   const cabinWater=cabinPart(new T.PlaneGeometry(1,2,cabinWaterSegments,1),0x4d9eac,[0,0,0],group);
   cabinWater.name='Cabin flood surface';
@@ -741,10 +779,8 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
        gl_FragColor=vec4(1.,.91,.72,.10*pow(v.y,2.));
      }`}));swivel.add(beam);
   beam.geometry.rotateZ(Math.PI/2);beam.scale.set(15,2.6,2.6);beam.position.x=7.61;
-  for(const [material,b] of batches){
-    const g=new T.BufferGeometry();
-    for(const [attribute,data] of [['position',b.p],['normal',b.n],['color',b.c]])g.setAttribute(attribute,new T.Float32BufferAttribute(data,3));
-    g.setIndex(b.ix);const m=new T.Mesh(g,material);group.add(m);
+  for(const [material,batch] of batches){
+    const m=addBatch(group,material,batch);
     const panel=panelMaterials.indexOf(material);if(panel>=0)panelMeshes[panel]=m;
   }
   // Fit the sonar view and chart to the local helm. The display faces aft and
