@@ -191,8 +191,9 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
     ({scene,surface,windAt,race,incidentSea,onError,onFinish}=bindings);
     for(const entry of craft.values())if(entry.visual)scene.add(entry.visual.group);
   }
-  return {contacts,tilts,cruisers,attachView,draw(rows,time,utc,displayUtc,nearby){
-    contacts.fill(0);tilts.fill(0);cruisers.length=0;
+  const droneWakes=[];
+  return {contacts,tilts,cruisers,droneWakes,attachView,draw(rows,time,utc,displayUtc,nearby){
+    contacts.fill(0);tilts.fill(0);cruisers.length=0;droneWakes.length=0;
     for(const [id,entry] of craft){
       const row=rows[Number(id.slice(4))-1];
       if(!row||row.started!==entry.started||row.kind!==entry.kind||row.raceId!==entry.raceId)remove(id,entry);
@@ -279,6 +280,10 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       if(visual.cruiser)cruisers.push(visual.cruiser);
       visual.group.position.set(east,north,z);
       visual.group.rotation.set(roll,pitch,heading,'ZYX');
+      if(row.kind==='drone'){
+        const {w,x,y,z:up}=visual.group.quaternion;
+        droneWakes.push([2,east,north,z,w,x,y,up,0,0,0,0]);
+      }
       visual.animate?.(time,speed,heading);
       visual.group.userData.orbitDistance=orbit;
     }

@@ -1,12 +1,98 @@
 model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
   input Real windENU[3] "Wind velocity at the aircraft [m/s]";
+  input Real rotorWakeTraffic[4,12]=zeros(4,12)
+    "Source type (0 empty, 1 measured rotors, 2 scripted patrol), ENU position, WXYZ quaternion, four speeds [rad/s]";
+  parameter Real propellerRadius=.125 "Effective RDD2 rotor disk radius [m]";
+  parameter Real washThrustSensitivity=.035 "Fractional thrust loss per m/s of incident axial wash";
+  output Real rotorWakeWind[3] "Added air velocity at the vehicle center [m/s]";
+  output Real rotorWakeWrench[6] "Rotor thrust correction, then moment, in ENU [N, N.m]";
+  function rotorWake "Momentum-based Gaussian rotor jets sampled at the frame and each receiving rotor"
+    input Real position[3],orientation[4],omega[4],wind[3],sources[4,12],hub[4,3];
+    input Real thrustCoefficient,hoverOmega,maxOmega,radius,thrustSensitivity;
+    output Real centerWind[3],wrench[6];
+  protected
+    constant Real airDensity=1.225;
+    Real receiveRotation[3,3],sourceRotation[3,3],arm[4,3],point[5,3],wakeVelocity[5,3];
+    Real up[3],down[3],drift[3],center[3],relative[3],radial[3],force[3];
+    Real induced[4],sourcePower[5], axial,radial2,width,peak,onset,loss,maxInduced;
+    Boolean receiving;
+  algorithm
+    centerWind:=zeros(3);
+    wrench:=zeros(6);
+    receiving:=false;
+    for i in 1:4 loop
+      relative:=position-sources[i,2:4];
+      receiving:=receiving or (sources[i,1]>.5 and relative*relative<144);
+    end for;
+    if receiving then
+      receiveRotation:=transpose(MultiBodyLie.Math.quaternionToT(orientation));
+      up:=receiveRotation[:,3];
+      point[1,:]:=position;
+      for j in 1:4 loop
+        arm[j,:]:=receiveRotation*hub[j,:];
+        point[j+1,:]:=position+arm[j,:];
+      end for;
+      wakeVelocity:=zeros(5,3);
+      for i in 1:4 loop
+        relative:=position-sources[i,2:4];
+        if sources[i,1]>.5 and relative*relative<144 then
+          for k in 1:4 loop
+            // Actuator-disk induced velocity at the source rotor.
+            induced[k]:=sqrt(thrustCoefficient/(2*airDensity*Modelica.Constants.pi*radius^2))*
+              (if sources[i,1]>1.5 then hoverOmega else min(maxOmega,max(0,sources[i,k+8])));
+          end for;
+          maxInduced:=max(induced);
+          if maxInduced>.01 then
+            sourceRotation:=transpose(MultiBodyLie.Math.quaternionToT(sources[i,5:8]));
+            down:=-sourceRotation[:,3];
+            drift:=wind-(wind*down)*down;
+            drift:=drift/max(2*maxInduced,sqrt(drift*drift));
+            sourcePower:=zeros(5);
+            for k in 1:4 loop
+              center:=sources[i,2:4]+sourceRotation*hub[k,:];
+              for j in 1:5 loop
+                relative:=point[j,:]-center;
+                axial:=relative*down;
+                if axial>0 and axial<12 then
+                  radial:=relative-axial*(down+drift);
+                  radial2:=radial*radial;
+                  width:=.72*radius+.20*axial;
+                  if radial2<20*width^2 then
+                    // The integral of rho*V^2 over a circular Gaussian jet is
+                    // rho*pi*width^2*peak^2. Rotor momentum adds where jets overlap.
+                    peak:=sqrt(2)*induced[k]*radius/width;
+                    onset:=min(1,axial/radius);
+                    sourcePower[j]:=sourcePower[j]+peak^2*exp(-radial2/width^2)*
+                      (onset^2*(3-2*onset))^2*(1-(axial/12)^2)^2;
+                  end if;
+                end if;
+              end for;
+            end for;
+            for j in 1:5 loop
+              wakeVelocity[j,:]:=wakeVelocity[j,:]+sqrt(sourcePower[j])*down;
+            end for;
+          end if;
+        end if;
+      end for;
+      centerWind:=wakeVelocity[1,:];
+      for j in 1:4 loop
+        // First-order change in thrust coefficient with axial inflow at fixed RPM.
+        loss:=thrustCoefficient*omega[j]^2*min(.75,thrustSensitivity*max(0,-(wakeVelocity[j+1,:]*up)));
+        force:=-loss*up;
+        wrench[1:3]:=wrench[1:3]+force;
+        wrench[4:6]:=wrench[4:6]+cross(arm[j,:],force);
+      end for;
+    end if;
+  end rotorWake;
   parameter Real bedHeight=-13.71, displacedVolume=.0012 "Flooded vehicle displacement [m3]";
   parameter Real waterDragArea=.075,bodyHeight=.16;
   input Real motorCut,waterLevel,currentENU[3];
   output Real immersed;
   Real waterSlip[3],waterLoad[3];
   Vehicles.Rdd2.Plant aircraft(initialGroundClearance_m=4.9-bedHeight,groundAltitude=bedHeight,
-    windWorld=windENU,exposedFraction=1-immersed,fluidForceWorld=waterLoad+deckWrench[1:3]+sailWrench[1:3],contactMomentWorld=deckWrench[4:6]+sailWrench[4:6]);
+    windWorld=windENU+rotorWakeWind,exposedFraction=1-immersed,
+    fluidForceWorld=waterLoad+deckWrench[1:3]+sailWrench[1:3]+(1-immersed)*rotorWakeWrench[1:3],
+    contactMomentWorld=deckWrench[4:6]+sailWrench[4:6]+(1-immersed)*rotorWakeWrench[4:6]);
 
   input Real deckEnabled,deckState[12];
   input Real sailDeckEnabled,sailDeckState[12],isCatamaran;
@@ -208,6 +294,9 @@ equation
   waterSlip=currentENU-aircraft.truth.velocityWorldEnu_m_s;
   waterLoad=immersed*1025*({0,0,9.80665*displacedVolume}+.5*waterDragArea*sqrt(waterSlip*waterSlip+1e-12)*waterSlip);
   rotorSpeed=aircraft.motorOmega_rad_s;
+  (rotorWakeWind,rotorWakeWrench)=rotorWake(position,quaternion,rotorSpeed,windENU,rotorWakeTraffic,
+    aircraft.rotorGeometry.positionBodyFlu_m,aircraft.thrustCoefficient_N_s2,aircraft.hoverRotorSpeed_rad_s,
+    aircraft.omegaMax,propellerRadius,washThrustSensitivity);
   der(rotorAngle)={1,-1,1,-1}.*rotorSpeed;
   when sample(0,.02) then
     estimator=updateEstimator(pre(estimator),time,if time<navigationStep/2 then 0 else navigationStep,

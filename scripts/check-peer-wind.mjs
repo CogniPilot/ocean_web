@@ -7,8 +7,8 @@ const read=async url=>new Response(await readFile(url));
 for(const hull of ['Hobie16','Sailboat']){
   const model=await loadInstance(hull,{windEast:10,windNorth:0,launchEast:0,launchNorth:0},read);
   const traffic=new Float64Array(36);
-  function wind(x,y,vx=0,vy=0,twin=1){
-    traffic.set([1,x,y,0,vx,vy,0,0,twin]);
+  function wind(x,y,vx=0,vy=0,twin=1,heading=0){
+    traffic.set([1,x,y,heading,vx,vy,0,0,twin]);
     model.set('traffic',traffic);
     return Array.from(model.get('sailWind'));
   }
@@ -16,15 +16,25 @@ for(const hull of ['Hobie16','Sailboat']){
   assert.deepEqual(wind(8,0),[10,0]);
   assert.deepEqual(wind(-60,0),[10,0]);
   const [lee]=wind(-8,0);
-  assert(lee<9 && lee>6);
+  assert(lee<9.5 && lee>7);
   assert(wind(-16,0)[0]>lee);
-  assert(wind(-8,5)[0]>lee);
+  assert(wind(-8,5)[0]>9.9);
   assert(wind(-8,0,0,0,0)[0]>lee);
+  assert.deepEqual(wind(-8,0,0,0,2),[10,0]);
+  assert(wind(-8,0,0,0,1,Math.PI/4)[1]<-.2);
+  assert(wind(-8,0,0,0,1,-Math.PI/4)[1]>.2);
   assert.deepEqual(wind(-8,0,10,0),[10,0]);
   const shifted=wind(-8,4,0,5);
-  assert(shifted[0]<9 && shifted[1]>0);
+  assert(shifted[0]<9.5 && shifted[1]>0);
   traffic.fill(0);model.set('traffic',traffic);
   assert.deepEqual(Array.from(model.get('sailWind')),[10,0]);
+  const npcTraffic=new Float64Array(54);
+  npcTraffic.set([1,-8,0,0,0,0,0,0,1],4*9);
+  model.set('sceneTraffic',npcTraffic);
+  const [main,,jib]=model.get('rigWind');
+  assert.equal(main,lee);
+  assert(Math.abs(main-jib)>.05);
+  model.set('sceneTraffic',new Float64Array(54));
   const clear=await loadInstance(hull,{windEast:10,windNorth:0,launchEast:0,launchNorth:0},read);
   let forceDifference=0;
   for(let i=0;i<100;i++){

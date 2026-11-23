@@ -2342,6 +2342,7 @@ async function run(saved=readReset(),carried){
           const sources=remote.wakeSources(now,shareWake?strips:null,waterStamp());
           if(!omitWake)world.set('peerWake',visitors.wakes(sources));
         }
+        if(drone?.hasRotorWake)drone.wakeSources(remote.rotorWakes(drone.position,now,npcTraffic?.droneWakes));
         if(mode==='flight'&&drone){
           const [east,north]=drone.position;
           world.set('peerDeck',remote.nearbyDeck(east,north,now));
@@ -2398,6 +2399,7 @@ async function run(saved=readReset(),carried){
       // Keep complete 10 ms solver steps but yield between them for input and rendering.
       const deadline=performance.now()+8;
       if(!world)acc=Math.min(acc,.1);
+      if(!world&&drone?.hasRotorWake)drone.wakeSources(remote.rotorWakes(drone.position,now,npcTraffic?.droneWakes));
       while(running&&!world&&acc>=.01&&performance.now()<deadline){
         // One in-flight step. A slower device can display and accept controls
         // while the worker finishes, without dropping or reordering hull samples.
@@ -2513,8 +2515,9 @@ async function run(saved=readReset(),carried){
             const flow=sub?.active&&subFrame?subFrame.flow:[model?.get('currentEast')??0,model?.get('currentNorth')??0];
             const apparent=Boolean(s&&!sub?.active&&compassWind.value==='apparent');
             const heading=sub?.active&&subFrame?subFrame.estimate[3]:s?.[2]??0;
-            const speed=apparent?model.get('cupSpeed'):Math.hypot(...wind);
-            const bearing=apparent?heading+s[30]+Math.PI:Math.atan2(wind[1],wind[0]);
+            const measuredWind=s&&!apparent&&!sub?.active&&model.has('sailWind')?model.get('sailWind'):wind;
+            const speed=apparent?model.get('cupSpeed'):Math.hypot(...measuredWind);
+            const bearing=apparent?heading+s[30]+Math.PI:Math.atan2(measuredWind[1],measuredWind[0]);
             let noGoBearing=speed>.01?bearing:null;
             if(apparent){
               // Same wind estimate as the sailing pilot. Convert the measured
@@ -3012,7 +3015,17 @@ async function run(saved=readReset(),carried){
       updateRunStats(now,t);
       if(frameTest)measureFrame(now,t);
       document.body.dataset.eyeDepth=camera.position.z.toFixed(2);
-      if(drone?.active){const [e,n,z]=drone.position;$('readout').textContent='E '+e.toFixed(1)+' m · N '+n.toFixed(1)+' m · Altitude '+z.toFixed(2)+' m · Drag '+Math.hypot(...drone.drag).toFixed(2)+' N'+(drone.manual && flightControl.value!=='0'?' · Throttle '+Math.round(100*drone.throttle)+'%':'');}
+      if(drone?.active){
+        const [e,n,z]=drone.position;
+        const telemetry=['E '+e.toFixed(1)+' m','N '+n.toFixed(1)+' m','Altitude '+z.toFixed(2)+' m','Drag '+Math.hypot(...drone.drag).toFixed(2)+' N'];
+        if(drone.manual&&flightControl.value!=='0')telemetry.push('Throttle '+Math.round(100*drone.throttle)+'%');
+        const wash=physicsEnabled?drone.wakeLoad():null;
+        if(wash){
+          const [wind,wrench]=wash;
+          telemetry.push('Rotor wake '+Math.hypot(...wind).toFixed(1)+' m/s','Thrust loss '+Math.hypot(...wrench.slice(0,3)).toFixed(1)+' N');
+        }
+        $('readout').textContent=telemetry.join(' · ');
+      }
       if(sub?.active){
         const f=sub.frame;
         if(sub.error || !f?.estimate){

@@ -97,30 +97,47 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     speed:=(waterVelocity-panelVelocity)*normal;
     force:=0.5*1025*1.2*wet*area*speed*abs(speed)*normal;
   end waterStrip;
-  function shadowWind "Reduced-order sail wake convected by wind relative to each passing boat"
-    input Real east,north,windEast,windNorth,traffic[4,9];
+  function shadowWind "Wind sampled over three span stations on one sail"
+    input Real east,north,tackHeight,projectedSpan,windEast,windNorth,traffic[:,9];
     output Real localWind[2];
   protected
-    Real dx,dy,u,v,speed,along,across,height,width,fraction,total,loss[2];
+    constant Real spanStation[3]={.16,.43,.73},spanWeight[3]={.45,.35,.20};
+    Real dx,dy,dist2,u,v,speed,along,across,height,area,centerHeight;
+    Real lateralWidth,verticalWidth,angle,dragArea,sideForceRatio,amplitude,overlap,cutoff;
+    Real fraction,total,loss[2];
   algorithm
     total:=0;
     loss:=zeros(2);
-    for p in 1:4 loop
-      if traffic[p,1]>.5 then
-        dx:=east-traffic[p,2]; dy:=north-traffic[p,3];
-        height:=if traffic[p,9]>1.5 then 2.25 elseif traffic[p,9]>.5 then 7.36 else 2.6;
-        if dx*dx+dy*dy<(8*height)^2 then
+    for p in 1:size(traffic,1) loop
+      if traffic[p,1]>.5 and traffic[p,9]<1.5 then
+        dx:=east-traffic[p,2]; dy:=north-traffic[p,3]; dist2:=dx*dx+dy*dy;
+        height:=if traffic[p,9]>.5 then 7.36 else 2.6;
+        area:=if traffic[p,9]>.5 then 20 else 2.3;
+        if dist2<(8*height)^2 then
           u:=windEast-traffic[p,5]; v:=windNorth-traffic[p,6];
           speed:=sqrt(u*u+v*v);
           if speed>.1 then
             along:=(dx*u+dy*v)/speed;
-            across:=(dy*u-dx*v)/speed;
             if along>0 then
-              // A spreading Gaussian deficit recovers with distance behind the rig.
-              width:=.23*height+.14*along;
-              fraction:=.40*(1-exp(-along/(.20*height)))*exp(-along/(2*height)-.5*(across/width)^2)
-                *max(0,1-(dx*dx+dy*dy)/(8*height)^2)^2;
-              loss:=loss+fraction*{u,v}; total:=total+fraction;
+              angle:=atan2(u*sin(traffic[p,4])-v*cos(traffic[p,4]),
+                -u*cos(traffic[p,4])-v*sin(traffic[p,4]));
+              // Estimate source drag and side force from its apparent wind angle.
+              dragArea:=area*(.04+.19*sin(angle)^2+.34*max(0,-cos(angle))^2);
+              sideForceRatio:=.45*sin(2*angle);
+              across:=(dy*u-dx*v)/speed-sideForceRatio*.18*along;
+              lateralWidth:=.13*height+.105*along;
+              verticalWidth:=.25*height+.055*along;
+              // Gaussian momentum deficit: D = rho*U^2*pi*sy*sz*(2a-a^2).
+              amplitude:=1-sqrt(max(.12,1-dragArea/(2*Modelica.Constants.pi*lateralWidth*verticalWidth)));
+              centerHeight:=traffic[p,8]+.47*height;
+              overlap:=0;
+              for k in 1:3 loop
+                overlap:=overlap+spanWeight[k]*exp(-.5*((tackHeight+projectedSpan*spanStation[k]-centerHeight)/verticalWidth)^2);
+              end for;
+              cutoff:=max(0,1-dist2/(8*height)^2)^2*(1-exp(-(along/(.12*height))^2));
+              fraction:=amplitude*overlap*cutoff*exp(-.5*(across/lateralWidth)^2);
+              loss:=loss+fraction*({u,v}-sideForceRatio*{-v,u});
+              total:=total+fraction;
             end if;
           end if;
         end if;
@@ -624,7 +641,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real pitchRate(start=launchPitchRate,fixed=true),rigMoment[2,3],rigForce[2,3],surfaceNormal[3];
   output Real sailVertex[2,24,3],wettedArea[2],leechSpeed[2],sailMoment[3];
   Real ve,vn,awx,awy,beta,fx,fy;
-  Real sailWind[2] "Local air velocity after peer sail shadows, east/north [m/s]";
+  output Real sailWind[2] "Mainsail local wind, east/north [m/s]";
+  output Real rigWind[2,2] "Main and jib local wind, east/north [m/s]";
   Real foilAlpha[4],foilLift[4],foilDrag[4],foilSide[4],foilAxial[4],inflow[4],forward[4],angle[4],wetFoil[4];
   parameter Real foilX[4]={0.06,-0.93,0,0},foilY[4]={0,0,0,0},foilArea[4]={0.115,0.044,0,0},aspect[4]={3.5,2.6,1,1};
   output Real sailForward[2], sailPort[2], buoyancy;
@@ -953,7 +971,7 @@ equation
   vn=sin(heading)*surge+cos(heading)*sway+currentNorth;
   landingDeck={east,north,heave,heading,heel,-pitch,ve,vn,vertical,cos(heading)*spin[1]-sin(heading)*spin[2],sin(heading)*spin[1]+cos(heading)*spin[2],spin[3]};
   der(east)=ve; der(north)=vn;
-  sailWind=shadowWind(east,north,windEast,windNorth,traffic);
+  sailWind=rigWind[1,:];
   awx=(sailWind[1]-ve)*cos(heading)+(sailWind[2]-vn)*sin(heading);
   awy=-(sailWind[1]-ve)*sin(heading)+(sailWind[2]-vn)*cos(heading);
   beta=atan2(-awy,-awx);
@@ -1228,7 +1246,11 @@ equation
     cloth[m].shroudHead=if catamaran then transpose(sheetRotation[m,:,:])*(stayPath[1,3,:]-{footX[m],0,footZ[m]}) else transpose(sheetRotation[m,:,:])*{
       (if catamaran then .44 else .12)-footX[m],0,
       (if catamaran then 5.85 else 2.78)-footZ[m]};
-    cloth[m].air=transpose(rig[m,:,:])*({awx,awy,-vertical}-cross(spin,origin[m,:]));
+    rigWind[m,:]=shadowWind(east+cos(heading)*(origin[m,1]-.25*feet[m])-sin(heading)*origin[m,2],
+      north+sin(heading)*(origin[m,1]-.25*feet[m])+cos(heading)*origin[m,2],
+      heave+origin[m,3],rotation[3,3]*spans[m],windEast,windNorth,cat(1,traffic,sceneTraffic));
+    cloth[m].air=transpose(rig[m,:,:])*({(rigWind[m,1]-ve)*cos(heading)+(rigWind[m,2]-vn)*sin(heading),
+      -(rigWind[m,1]-ve)*sin(heading)+(rigWind[m,2]-vn)*cos(heading),-vertical}-cross(spin,origin[m,:]));
     cloth[m].water=transpose(rig[m,:,:])*(waterRelative-cross(spin,origin[m,:]));
     cloth[m].omega=transpose(rig[m,:,:])*spin+der(trim[m])*{axisX[m],0,axisZ[m]};
     cloth[m].gravity=transpose(rig[m,:,:])*{0,0,-9.80665};
