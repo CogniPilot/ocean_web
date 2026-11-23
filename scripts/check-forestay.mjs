@@ -24,7 +24,7 @@ for (let i = 0; i < 800; i++) {
 assert(worst < 1e-9 && maxSwing > .4, JSON.stringify({worst,maxSwing}));
 console.log({worst,maxSwing});
 
-// The catamaran's jib head attaches partway along the moving upper forestay.
+// The catamaran's jib head follows its independent luff wire.
 const cat = await loadInstance('Hobie16', {manualHelm:1, windNorth:8},
   async url => new Response(await readFile(url)));
 const jibTack = [cat.get('footX')[1],0,cat.get('footZ')[1]];
@@ -40,7 +40,7 @@ for (let i=0; i<400; i++) {
   const midway = paths.slice(21,24), tang = paths.slice(24,27);
   for (let axis=0; axis<3; axis++) {
     const expected = midway[axis]+(2*station-1)*(tang[axis]-midway[axis]);
-    assert(Math.abs(expected-worldHead[axis])<1e-6, 'jib head drifted off forestay');
+    assert(Math.abs(expected-worldHead[axis])<1e-6, 'jib head drifted off the luff wire');
   }
   shortestStrop = Math.min(shortestStrop, Math.hypot(...tang.map((x,j)=>x-worldHead[j])));
 }
@@ -54,19 +54,26 @@ const headToWind = await loadInstance('Hobie16', {
 function standingLoads(halyard, ticks) {
   headToWind.set('jibHalyardInput', halyard);
   for (let i=0; i<ticks; i++) headToWind.advance(.01);
-  const [forestay,jib,rake,path] = headToWind.getMany([
-    'forestayTension','jibHalyardTension','mastRake','forestayPath'
+  const [forestay,jib,rake,path,stays] = headToWind.getMany([
+    'forestayTension','jibHalyardTension','mastRake','forestayPath','stayPath'
   ]);
   const sag = Math.hypot(...path.slice(3,6).map((v,i) => v-(path[i]+path[i+6])/2));
-  return {forestay,jib,rake,sag};
+  const plate = path.slice(0,3).map((x,i) => x-stays[18+i]);
+  const wire = path.slice(3,6).map((x,i) => x-path[i]);
+  const length = Math.hypot(...plate);
+  const alignment = plate.reduce((dot,x,i) => dot+x*wire[i],0)/(length*Math.hypot(...wire));
+  assert(Math.abs(length-.20)<1e-8, 'The pivoting adjuster stays rigid');
+  return {forestay,jib,rake,sag,alignment};
 }
 const sailingRig = standingLoads(.55, 300);
 const easedHalyard = standingLoads(0, 600);
 const hauledHalyard = standingLoads(.9, 400);
-assert(sailingRig.jib > sailingRig.forestay && sailingRig.sag > .2);
+assert(sailingRig.jib > sailingRig.forestay && sailingRig.sag < .18);
+assert(sailingRig.alignment < Math.cos(Math.PI/6), 'The cord folds the adjuster forward under light load');
 assert(easedHalyard.forestay > 25 && easedHalyard.forestay > easedHalyard.jib);
 assert(easedHalyard.sag < .08 && easedHalyard.rake > sailingRig.rake);
-assert(hauledHalyard.jib > 100 && hauledHalyard.forestay < 8 && hauledHalyard.rake < sailingRig.rake);
+assert(easedHalyard.alignment > Math.cos(Math.PI/36), 'The plate aligns with the loaded stay');
+assert(hauledHalyard.jib > 100 && hauledHalyard.forestay < 16 && hauledHalyard.rake < sailingRig.rake);
 console.log({sailingRig,easedHalyard,hauledHalyard});
 
 // The boom can swing with the spar against either of the mast-step stops.

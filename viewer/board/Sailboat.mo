@@ -289,12 +289,53 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       end if;
     end for;
   end contactWrench;
+  function forestayAdjusterPin "Quasistatic pin position of the second forestay adjuster"
+    input Real tack[3],head[3],cordAnchor[3],plateLength,wireLength,EA,wireLoad[3];
+    output Real pin[3];
+  protected
+    constant Real cordRest(unit="m")=.24;
+    constant Real cordStiffness(unit="N/m")=85;
+    Real axis[3],lead[3],fold[3],plate[3],turn[3],cord[3],wire[3],transverse[3],chord,cordLength;
+    Real span,lo,hi,s,c,cordTorque,axial,tension,straightLength;
+  algorithm
+    axis:=head-tack;
+    span:=sqrt(axis*axis);
+    axis:=axis/span;
+    lead:=cordAnchor-tack;
+    fold:=lead-axis*(lead*axis);
+    fold:=fold/max(1e-8,sqrt(fold*fold));
+    // The cord pulls the hinged plate toward the bow. At each trial angle
+    // the wire's axial force balances the cord and half the midpoint load.
+    // The implied cable stretch and sag give the supported chord length.
+    lo:=0;hi:=1;
+    for iteration in 1:14 loop
+      s:=(lo+hi)/2;c:=sqrt(1-s*s);
+      plate:=c*axis+s*fold;
+      turn:=-s*axis+c*fold;
+      cord:=lead-plateLength*plate;
+      cordLength:=sqrt(cord*cord);
+      cordTorque:=cordStiffness*max(0,1-cordRest/cordLength)*(lead*turn);
+      wire:=span*axis-plateLength*plate;
+      chord:=sqrt(wire*wire);
+      wire:=wire/chord;
+      transverse:=wireLoad-wire*(wireLoad*wire);
+      axial:=max(1e-6,(cordTorque+.5*(transverse*turn))*chord/(span*s));
+      tension:=sqrt(axial^2+.25*(transverse*transverse));
+      straightLength:=wireLength*(1+tension/EA)*axial/tension;
+      if chord>straightLength then hi:=s;else lo:=s;end if;
+    end for;
+    s:=(lo+hi)/2;
+    pin:=tack+plateLength*(sqrt(1-s*s)*axis+s*fold);
+  end forestayAdjusterPin;
+
   function standingRig "One moving midpoint per elastic cable, mast step fixed"
     input Real anchors[3,3],tang[3],previous[2],rate[2],sailMomentBody[3],jibLoad[3],clothReaction[2,3],gravityBody[3];
     input Real dt,EA,preload,entrainedMass,previousSag[4,3],previousSagRate[4,3],apparentAir[3],halyard;
-    input Real rigGravityMoment[3];
+    input Real rigGravityMoment[3],cordAnchor[3];
+    input Boolean catamaran;
     output Real lean[2],velocity[2],path[4,3,3],tension[4],lateralK[4],midSag[4,3],sagRate[4,3];
   protected
+    constant Real adjusterLength(unit="m")=.20;
     Real direction[3],head[3],force[3],q[3],weight[3],crossAir[3],base[3],drive[2],dragK,rest,L,L0,P,lo,hi,sag,halfSpan,Tline,wireMass;
   algorithm
     // Boom/mast share the overturning moment. The headsail load below is
@@ -317,6 +358,11 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       crossAir:=apparentAir-direction*(apparentAir*direction);
       wireMass:=if i<>3 then .5*.045*L0 else 0;
       force:=force+(if i<>3 then .25*1.225*1.15*.006*L0*sqrt(crossAir*crossAir)*crossAir else zeros(3));
+      if catamaran and i==4 then
+        rest:=rest-adjusterLength;
+        base:=forestayAdjusterPin(base,head,cordAnchor,adjusterLength,rest,EA,force);
+        direction:=head-base;L:=sqrt(direction*direction);direction:=direction/L;
+      end if;
       dragK:=((if i<>3 then 1.85 else 8)+(wireMass+entrainedMass)/dt)/dt;
       force:=force+dragK*previousSag[i,:]+wireMass/dt*previousSagRate[i,:];
       force:=force-direction*(force*direction);
@@ -461,6 +507,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real stayEA(unit="N")=520000,shroudPreload(unit="N")=220;
   final parameter Real sideStayX=-.30;
   final parameter Real stayAnchors[3,3]=[sideStayX,1.02,.34;sideStayX,-1.02,.34;footX[2],0,footZ[2]];
+  final parameter Real forestayCordAnchor[3]={2.345,0,.65} "Forward eye on the bridle shackle";
   final parameter Real tang[3]={mastStep[1]-(5.85-mastStep[3])*mainMastSlope,0,5.85};
   Real jibStation[6];
   input Real jibHalyardInput=.55 "Halyard adjustment from eased zero to hauled one";
@@ -1067,7 +1114,7 @@ equation
     (tangLean,tangRate,standingPaths,standingTension,standingStiffness,midSag,midSagRate)=standingRig(stayAnchors,tang,
       pre(tangLean),pre(tangRate),if catamaran then pre(mainMomentBody) else zeros(3),
       if catamaran then pre(jibWireLoad) else zeros(3),pre(contactBody),transpose(rotation)*{0,0,-9.80665},.01,stayEA,shroudPreload,.5*sum(pre(rigWaterMass)),pre(midSag),pre(midSagRate),
-      transpose(rotation)*{awx,awy,-vertical},halyardSetting,pre(rigGravityMoment));
+      transpose(rotation)*{awx,awy,-vertical},halyardSetting,pre(rigGravityMoment),forestayCordAnchor,catamaran);
   end when;
   mastStations[1,:]=mastStep;
   jibStation=cloth[2].rowLuff*spans[2]/(tang[3]-stayAnchors[3,3]);
