@@ -58,13 +58,14 @@ for model in CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot Rdd2Survey Air
   fi
   if [[ $model == HullWildlife ]]; then extra=(--source-root "$root/viewer/board/SwimmerCollision.mo" --source-root "$root/viewer/board/WildlifeContact.mo"); fi
   if [[ $model == HarborTraffic ]]; then extra=(--source-root "$root/viewer/board/SwimmerCollision.mo" --source-root "$root/viewer/board/WildlifeContact.mo" --source-root "$root/viewer/board/WildlifeGuidance.mo" --source-root "$root/viewer/board/SwimmerSections.mo" --source-root "$root/viewer/board/GreatWhite.mo" --source-root "$root/viewer/board/Humpback.mo" --source-root "$root/viewer/board/Shore.mo"); fi
-  if [[ $model == Regatta ]]; then extra=(--source-root "$root/viewer/board/BowWavePatch.mo"); fi
+  if [[ $model == Regatta ]]; then extra=(--source-root "$root/viewer/board/BowWavePatch.mo" --source-root "$root/viewer/board/Shore.mo"); fi
   if [[ $model == HullWildlife || $model == HerringGull || $model == FeedingGround || $model == SwimmerWake || $model == SurfaceSpray || $model == WhaleSpray || $model == BowWavePatch || $model == WakeSpectrum || $model == HullWake || $model == MarineWind || $model == Regatta || $model == HarborTraffic || $model == Rdd2Survey ]]; then source="viewer/board/$model.mo"; fi
   if [[ $model == CruiserImagingSonar ]]; then source=viewer/board/CruiserImagingSonar.mo; extra=(--source-root "$root/viewer/board/Shore.mo"); fi
   if [[ $model == Sailboat ]]; then source=viewer/board/Sailboat.mo; extra=(--source-root "$root/viewer/board/Shore.mo" --source-root "$root/viewer/board/SailMembrane.mo" --source-root "$root/viewer/board/SailingTactics.mo"); fi
+  if [[ $model == Rdd2Survey ]]; then extra=(--source-root "$root/viewer/board/Shore.mo"); fi
   if [[ $model == AirflowProbe ]]; then
     source=viewer/board/AirflowProbe.mo
-    extra=(--source-root "$root/viewer/board/Sailboat.mo" --source-root "$root/viewer/board/Rdd2Survey.mo")
+    extra=(--source-root "$root/viewer/board/Sailboat.mo" --source-root "$root/viewer/board/Rdd2Survey.mo" --source-root "$root/viewer/board/Shore.mo")
   fi
   "$compiler" compile "$source" -m "$model" "${roots[@]}" "${extra[@]}" --target fmi3 -o "build/fmi3/$model" || status=1
 done

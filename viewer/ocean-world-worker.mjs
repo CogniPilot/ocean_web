@@ -51,6 +51,8 @@ async function handle(request){
       const battenFields=[1,2].flatMap(sail=>
         ['battenCount','battenLuff','battenLeech','mesh'].map(name=>`boat.cloth[${sail}].${name}`));
       const schedules=[
+        [Number.MAX_SAFE_INTEGER,['race.committeeContactVertices','race.committeeContactFaces','race.committeeFittingVertices',
+          'race.fittingContactFaces','drone.droneContactParts','drone.droneContactFaces']],
         [waveDt*100,['waves.height','waves.driftE','waves.driftN','bowSources','bowSpeed','bowFrame'],'wakeSurface'],
         [waveDt*100,['waves.sourceStrips'],'wakeSource'],
         [waveDt*100,['boat.stationGeometry','boat.beamFraction','boat.halfSpacing','boat.sectionVolume','boat.sectionWater','boat.stationX','boat.beamHalf',

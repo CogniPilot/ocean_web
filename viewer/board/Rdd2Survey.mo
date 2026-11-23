@@ -98,34 +98,102 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
   input Real sailDeckEnabled,sailDeckState[12],isCatamaran;
   output Real sailWrench[12] "Contact on aircraft then sailboat in ENU";
   output Real deckWrench[12] "World force and torque on drone then launch";
-  function landingContact
-    input Real enabled,deck[12],p[3],quat[4],v[3],bodyRate[3];
+  final parameter Real droneContactParts[9,8,3]=Shore.droneParts();
+  final parameter Integer droneContactFaces[12,3]=Shore.boxFaces();
+
+  function pointBoxGap "Exact signed gap to the faces of a triangulated box"
+    input Real p[3],lo[3],hi[3];
+    output Real gap[4];
+  protected
+    Real d[3],outside,clearance[6];
+    Integer face;
+    constant Real normals[6,3]=[-1,0,0;0,-1,0;0,0,-1;1,0,0;0,1,0;0,0,1];
+  algorithm
+    d:={p[i]-min(hi[i],max(lo[i],p[i])) for i in 1:3};
+    outside:=sqrt(d*d);
+    if outside>0 then
+      gap:=cat(1,{outside},d/outside);
+    else
+      clearance:=cat(1,p-lo,hi-p);
+      face:=1;
+      for i in 2:6 loop
+        if clearance[i]<clearance[face] then
+          face:=i;
+        end if;
+      end for;
+      gap:=cat(1,{-clearance[face]},normals[face,:]);
+    end if;
+  end pointBoxGap;
+
+  function landingContact "Vertex-to-face contact from the drone's convex mesh components"
+    input Real enabled,deck[12],p[3],quat[4],v[3],bodyRate[3],parts[9,8,3];
     input Real surfaceKind "0 committee launch, 1 trampoline, 2 sloop hatch";
     output Real result[12];
   protected
+    final parameter Real launch[42,3]=Shore.committeeVertices(),fittings[3,8,3]=Shore.committeeFittings();
+    final parameter Integer launchFaces[80,3]=Shore.committeeFaces();
     Real A[3,3],B[3,3],r[3],delta[3],w[3],f[3],m[3],fb[3],mb[3],y,a,b;
-    constant Real centers[3]={-1.98,1.54,2.42},lengths[3]={.98,.55,.34},widths[3]={.86,.67,.32};
-    MultiBodyLie.Collision.Material rubber(k=2600,d=5,mu=.9,eps=.0003,v_eps=.08);
+    Real local[3],gap[4],other[4],deckBox[8,3];
+    Boolean aboveDeck;
+    MultiBodyLie.Collision.Material rubber(k=650,d=5,mu=.9,eps=.0003,v_eps=.08);
     MultiBodyLie.Collision.ContactPoint pt;
   algorithm
     result:=zeros(12);delta:=p-deck[1:3];
-    if enabled>.5 and delta*delta<16 then
-      A:=MultiBodyLie.Math.quaternionToT(quat);
-      w:=transpose(A)*bodyRate;
+    if enabled>.5 and delta*delta<17 then
       y:=deck[4];a:=deck[5];b:=-deck[6];
       B[1,:]:={cos(y)*cos(b),sin(y)*cos(b),-sin(b)};
       B[2,:]:={cos(y)*sin(b)*sin(a)-sin(y)*cos(a),sin(y)*sin(b)*sin(a)+cos(y)*cos(a),cos(b)*sin(a)};
       B[3,:]:=cross(B[1,:],B[2,:]);
-      for foot in 1:4 loop
-        r:=transpose(A)*{if foot<=2 then .17 else -.17,if mod(foot,2)==0 then .17 else -.17,-.085};
-        for section in 1:(if surfaceKind<.5 then 3 else 1) loop
-          pt:=MultiBodyLie.Collision.sphereBox(p,r,.015,deck[1:3],transpose(B)*(if surfaceKind<.5 then {centers[section],0,.66} elseif surfaceKind<1.5 then {-.425,0,.40} else {-.27,0,.154}),B,if surfaceKind<.5 then {lengths[section],widths[section],.12} elseif surfaceKind<1.5 then {.975,.97,.014} else {.37,.20,.0045});
-          if pt.gap<.004 then
-            (f,m,fb,mb):=MultiBodyLie.Collision.pairWrenches(pt,v,w,deck[7:9],deck[10:12],rubber);
-            result:=result+cat(1,f,m,fb,mb);
-          end if;
+      local:=B*delta;
+      if (surfaceKind<.5 and local[3]<2.68 and local[3]>-.6 and abs(local[2])<1.45) or
+         (surfaceKind>=.5 and abs(local[3]-(if surfaceKind<1.5 then .40 else .154))<.39) then
+        A:=transpose(MultiBodyLie.Math.quaternionToT(quat));
+        w:=A*bodyRate;
+        deckBox:=if surfaceKind<1.5 then Shore.boxVertices({-.425,0,.40},{.975,.97,.014})
+          else Shore.boxVertices({-.27,0,.154},{.37,.20,.0045});
+        aboveDeck:=local[3]>deckBox[8,3];
+        for part in 1:9 loop
+          for i in 1:8 loop
+            r:=A*parts[part,i,:];
+            local:=B*(delta+r);
+            if surfaceKind<.5 then
+              if local[1]>=-2.6 and local[1]<=.9 and abs(local[2])<=.70 and local[3]>=.70 and local[3]<=1.0 then
+                // In the interior of the flat deck, its triangle plane is
+                // the closest hull feature. The edges are farther away.
+                gap:={local[3]-.78,0,0,1};
+              else
+                gap:=Shore.committeeGap(local,launch,.004,launchFaces);
+              end if;
+              if abs(local[2])<.74 then
+                for fitting in 1:3 loop
+                  if local[1]>=fittings[fitting,1,1]-.004 and local[1]<=fittings[fitting,8,1]+.004 and
+                     local[3]>=fittings[fitting,1,3]-.004 and local[3]<=fittings[fitting,8,3]+.004 then
+                    other:=pointBoxGap(local,fittings[fitting,1,:],fittings[fitting,8,:]);
+                    if other[1]<gap[1] then
+                      gap:=other;
+                    end if;
+                  end if;
+                end for;
+              end if;
+            else
+              // Use the upper triangle while descending onto a thin deck.
+              // Its underside must not reverse the landing force after overlap.
+              gap:=if aboveDeck and local[1]>=deckBox[1,1] and local[1]<=deckBox[8,1] and
+                local[2]>=deckBox[1,2] and local[2]<=deckBox[8,2] then {local[3]-deckBox[8,3],0,0,1}
+                else pointBoxGap(local,deckBox[1,:],deckBox[8,:]);
+            end if;
+            if gap[1]<.0024 then
+              // Four corners of a landing foot share its original support stiffness.
+              pt.gap:=gap[1];
+              pt.armA:=r;
+              pt.n:=transpose(B)*gap[2:4];
+              pt.armB:=delta+r-pt.gap*pt.n;
+              (f,m,fb,mb):=MultiBodyLie.Collision.pairWrenches(pt,v,w,deck[7:9],deck[10:12],rubber);
+              result:=result+cat(1,f,m,fb,mb);
+            end if;
+          end for;
         end for;
-      end for;
+      end if;
     end if;
   end landingContact;
 
@@ -286,8 +354,8 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
   Real desired[3],acceleration[3],rollTarget,pitchTarget,collective,torque[3],motorThrust[4];
 
 equation
-  deckWrench=landingContact(deckEnabled,deckState,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,0);
-  sailWrench=landingContact(sailDeckEnabled,sailDeckState,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,if isCatamaran>.5 then 1 else 2);
+  deckWrench=landingContact(deckEnabled,deckState,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts,0);
+  sailWrench=landingContact(sailDeckEnabled,sailDeckState,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts,if isCatamaran>.5 then 1 else 2);
   position=aircraft.truth.positionWorldEnu_m+{origin[1],origin[2],0};
   quaternion=aircraft.truth.quaternionWorldBody;
   immersed=min(1,max(0,.5+(waterLevel-position[3])/bodyHeight));

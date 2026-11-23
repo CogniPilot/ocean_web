@@ -4,14 +4,8 @@ const colors={
 };
 
 // Rdd2Survey.landingContact, in each vehicle's forward/port/up frame.
-const launchBoxes=[
-  [[-1.98,0,.66],[.98,.86,.12]],
-  [[1.54,0,.66],[.55,.67,.12]],
-  [[2.42,0,.66],[.34,.32,.12]]
-];
 const hobieDeck=[[-.425,0,.40],[.975,.97,.014]];
 const sloopDeck=[[-.27,0,.154],[.37,.20,.0045]];
-const feet=[[.17,-.17,-.085],[.17,.17,-.085],[-.17,-.17,-.085],[-.17,.17,-.085]];
 
 // Vertices at the intersections of Regatta.pyramidFace's four planes.
 const tip=[0,0,1.65],radius=.85,halfBase=radius*Math.sqrt(3)/2;
@@ -109,7 +103,7 @@ export function surfaceCollisionShapes(T,island,committeeGroup,markGroups){
   island.updateWorldMatrix(true,true);
   const sand=sandWire(island.userData.chartTerrain.height),rocks=rockWires(T,island);
   const sailProbes=new WeakMap(),prepared=new WeakSet();
-  return {draw(painter,boatGroup,hull,motorGroup,droneGroup,cruiserMesh){
+  return {draw(painter,boatGroup,hull,motorGroup,droneGroup,cruiserMesh,committeeMesh,droneMesh){
     if(!prepared.has(painter)){
       painter.staticLines(island,sand,colors.sand);
       for(const {frame,lines} of rocks)painter.staticLines(frame,lines,colors.rocks);
@@ -119,9 +113,9 @@ export function surfaceCollisionShapes(T,island,committeeGroup,markGroups){
       mark.updateWorldMatrix(true,false);
       painter.lines(mark,buoyWire,colors.marks);
     }
-    if(committeeGroup){
+    if(committeeGroup&&committeeMesh){
       committeeGroup.updateWorldMatrix(true,false);
-      for(const [center,half] of launchBoxes)painter.box(committeeGroup,center,half,colors.decks);
+      painter.lines(committeeGroup,committeeMesh,colors.decks);
     }
     if(boatGroup){
       boatGroup.updateWorldMatrix(true,false);
@@ -139,9 +133,9 @@ export function surfaceCollisionShapes(T,island,committeeGroup,markGroups){
       motorGroup.updateWorldMatrix(true,false);
       painter.points(motorGroup,cruiserProbes,colors.probes);
     }
-    if(droneGroup){
+    if(droneGroup&&droneMesh){
       droneGroup.updateWorldMatrix(true,false);
-      for(const foot of feet)painter.sphere(droneGroup,foot,.015,colors.feet);
+      painter.lines(droneGroup,droneMesh,colors.feet);
     }
   }};
 }

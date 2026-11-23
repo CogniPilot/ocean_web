@@ -1,6 +1,6 @@
 import {harborMap} from './harbor-map.mjs';
 import {physicsView,sampleAirflow,hullInspectionFields,refinedHullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
-import {collisionOverlay,drawAnimalCollision,drawVesselContacts,hullWires,pontoonWires} from './collision-view.mjs';
+import {collisionOverlay,drawAnimalCollision,drawVesselContacts,hullWires,pontoonWires,compoundHullWires} from './collision-view.mjs';
 import {cruiserInertia,inertiaOverlay,sailingInertia,subInertia} from './inertia-view.mjs';
 import {surfaceCollisionShapes} from './surface-collision-view.mjs';
 import {subCollisionShapes} from './sub-collision-view.mjs';
@@ -914,7 +914,13 @@ async function run(saved=readReset(),carried){
   showInLowWaterCapture(bottom);
   const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);let life;
   const defaultContactHull={cat},contactHullFields=['stationX','beamHalf','halfSpacing'];
+  const committeeFields=['committeeContactVertices','committeeContactFaces','committeeFittingVertices','fittingContactFaces'];
   let collisionPainter,shoreContacts,structureContacts,peerCollisionSamples,contactHull,pontoonWire,pontoonLoad,cruiserWire,cruiserWireLoad,cabinWire;
+  let committeeWire,committeeLoad,droneWire;
+  function setCommitteeWire(plant){
+    const [vertices,faces,fittings,fittingFaces]=plant.getMany(committeeFields);
+    committeeWire=[...hullWires(vertices,faces),...compoundHullWires(fittings,fittingFaces)];
+  }
   function drawCollisions(){
     if(!collisionPainter){
       collisionPainter=collisionOverlay(T);
@@ -949,7 +955,16 @@ async function run(saved=readReset(),carried){
           .catch(error=>{if(!signal.aborted)console.warn('Cruiser collision mesh unavailable',error);});
       }
     }
-    shoreContacts.draw(collisionPainter,boat?.group,contactHull??defaultContactHull,motor?.group,drone?.group,cruiserWire);
+    if(!committeeWire&&!committeeLoad){
+      if(committeeFields.every(name=>race.has(name)))setCommitteeWire(race);
+      else committeeLoad=loadInstance('Regatta',{}).then(setCommitteeWire)
+        .catch(error=>console.warn('Committee collision mesh unavailable',error));
+    }
+    if(!droneWire&&drone){
+      const geometry=drone.contactGeometry();
+      if(geometry)droneWire=compoundHullWires(...geometry);
+    }
+    shoreContacts.draw(collisionPainter,boat?.group,contactHull??defaultContactHull,motor?.group,drone?.group,cruiserWire,committeeWire,droneWire);
     structureContacts.draw(collisionPainter,sub?.mesh.visible?sub.mesh:null);
     const vessel=boat?.group??motor?.group;
     const fields=['pontoonContactVertices','pontoonContactFaces'];
@@ -959,7 +974,7 @@ async function run(saved=readReset(),carried){
         .catch(error=>console.warn('Pontoon collision mesh unavailable',error));
     }
     drawVesselContacts(T,collisionPainter,vessel,motor?2:Number(cat),peerCollisionSamples,remote.contactTilts,
-      npcTraffic?.contacts,npcTraffic?.tilts,course.committee,pontoonWire,cruiserWire,cabinWire);
+      npcTraffic?.contacts,npcTraffic?.tilts,pontoonWire,cruiserWire,cabinWire);
     if(cat&&model?.has('rigCollision'))collisionPainter.rigCapsules(boat.group,model.get('rigCollision'));
     if(backgroundCruiser?.group.visible&&cruiserWire){
       collisionPainter.lines(backgroundCruiser.group,cruiserWire,'#69e2bb');

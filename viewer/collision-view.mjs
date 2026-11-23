@@ -188,8 +188,7 @@ export function drawAnimalCollision(painter,frame,kind){
 const discs=[
   [[-.93,.18],[-.68,.26],[-.31,.335],[.12,.321],[.52,.258],[.83,.19],[1.10,.11]],
   [[-1.9,.49],[-.95,.49],[0,.49],[.95,.49],[1.9,.49]],
-  [[-2.85,.91],[-2.18,1.13],[-1.14,1.26],[0,1.22],[1.02,1.12],[2.05,.87],[3.02,.45]],
-  [[-2.28,.72],[-1.79,.90],[-1.03,1.04],[0,1.02],[.88,.96],[1.73,.73],[2.57,.39]]
+  [[-2.85,.91],[-2.18,1.13],[-1.14,1.26],[0,1.22],[1.02,1.12],[2.05,.87],[3.02,.45]]
 ];
 export function hullWires(vertices,faces,offsets=[0]){
   const output=[];
@@ -206,7 +205,12 @@ export function hullWires(vertices,faces,offsets=[0]){
   return output;
 }
 export const pontoonWires=(vertices,faces)=>hullWires(vertices,faces,[-1.02,1.02]);
-export function drawVesselContacts(T,painter,group,kind,peers,peerTilts,patrols,patrolTilts,committee,pontoons,cruiser,cabin){
+export function compoundHullWires(vertices,faces){
+  const count=Math.max(...faces)*3,lines=[];
+  for(let i=0;i<vertices.length;i+=count)lines.push(...hullWires(vertices.slice(i,i+count),faces));
+  return lines;
+}
+export function drawVesselContacts(T,painter,group,kind,peers,peerTilts,patrols,patrolTilts,pontoons,cruiser,cabin){
   const frame=new T.Object3D();
   function rings(east,north,height,yaw,kind){
     const points=[],c=Math.cos(yaw),s=Math.sin(yaw);
@@ -228,7 +232,6 @@ export function drawVesselContacts(T,painter,group,kind,peers,peerTilts,patrols,
     else rings(group.position.x,group.position.y,group.position.z,group.rotation.z,kind);
   }
   if(group)body(group,kind);
-  if(committee)body(committee,3);
   for(const [boats,tilts] of [[peers,peerTilts],[patrols,patrolTilts]]){
     for(let i=0;boats&&i*9<boats.length;i++){
       const k=i*9;

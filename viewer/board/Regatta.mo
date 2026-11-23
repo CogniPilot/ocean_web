@@ -20,6 +20,10 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   parameter Real launchMass=1150,waterplaneArea=7.2,rollInertia=650,pitchInertia=3100;
   final parameter Real stationX[4]={1.65,1.65,-1.65,-1.65},stationY[4]={.65,-.65,.65,-.65};
   final parameter Real draft=launchMass/(1025*waterplaneArea);
+  final parameter Real committeeContactVertices[42,3]=Shore.committeeVertices();
+  final parameter Integer committeeContactFaces[80,3]=Shore.committeeFaces();
+  final parameter Real committeeFittingVertices[3,8,3]=Shore.committeeFittings();
+  final parameter Integer fittingContactFaces[12,3]=Shore.boxFaces();
   output Real launchPose[3] "Elevation, roll and bow-up pitch of anchored launch [m,rad,rad]";
   Real heave(start=0,fixed=true),roll(start=0,fixed=true),pitch(start=0,fixed=true);
   Real heaveRate(start=0,fixed=true),rollRate(start=0,fixed=true),pitchRate(start=0,fixed=true);

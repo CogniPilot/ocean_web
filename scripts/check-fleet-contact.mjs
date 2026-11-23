@@ -62,3 +62,17 @@ const heeled=await loadInstance('Hobie16',{...inputs,launchHeel:.82},read);
 assert(heeled.get('sceneContact')[0]>100,'The player and NPC hulls overlap below their origins');
 const upright=await loadInstance('Hobie16',inputs,read);
 assert.equal(upright.get('sceneContact')[0],0,'Separated hulls receive no force');
+
+// The launch tapers to a narrow bow. Its hull can be missed, hit at
+// the bow, or hit along the flank using the same Modelica facets.
+async function launchContact(x,y,z,yaw){
+  const sceneTraffic=new Float64Array(54);
+  sceneTraffic.set([1,x,y,yaw,0,0,0,z,3],45);
+  const boat=await loadInstance('Hobie16',{...inputs,launchEast:0,launchNorth:0,launchHeight:.2,
+    launchSpeed:1,sceneTraffic},read);
+  return boat.get('sceneForce');
+}
+assert.deepEqual(await launchContact(5.8,1.02,0,Math.PI),[0,0,0]);
+assert((await launchContact(5.35,1.02,0,Math.PI))[0]<-100);
+assert((await launchContact(-.5,2.10,0,0))[1]<-100);
+assert.deepEqual(await launchContact(4.9,1.02,2,Math.PI),[0,0,0]);

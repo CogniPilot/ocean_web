@@ -71,6 +71,10 @@ export async function surveyDrone(T,scene,world){
     return {position:position.map(sigma),velocity:velocity.map(sigma),wind:sigma(wind)};
   }
   return {group,instruments,hasNavigation,covariance,bladeCount,hasRotorWake,wakeGeometry,
+    contactGeometry(){
+      const names=['droneContactParts','droneContactFaces'];
+      return names.every(name=>flight.has(name))?flight.getMany(names):null;
+    },
     wakeSources(rows){if(hasRotorWake)flight.set('rotorWakeTraffic',rows);},
     wakeLoad(){return flight.has('rotorWakeWrench')?flight.getMany(['rotorWakeWind','rotorWakeWrench']):null;},
     wakeSource(){

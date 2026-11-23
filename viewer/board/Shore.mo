@@ -241,6 +241,104 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     faces:={pontoonFace(index) for index in 1:188};
   end pontoonFaces;
 
+  function committeeVertices "Committee launch hull in its forward, port and up frame"
+    output Real vertices[42,3];
+  protected
+    constant Real stations[6,2]=[-3,.88;-2.7,1.02;-.7,1.10;1,1.01;2.1,.72;3.2,.025];
+    constant Real section[7,2]=[1,.78;.91,.24;.58,-.13;0,-.30;-.58,-.13;-.91,.24;-1,.78];
+  algorithm
+    for i in 1:6 loop
+      for j in 1:7 loop
+        vertices[7*(i-1)+j,:]:={stations[i,1],stations[i,2]*section[j,1],section[j,2]+.12*max(0,stations[i,1]-1)};
+      end for;
+    end for;
+  end committeeVertices;
+
+  function committeeFaces "Outward-facing triangles closing the deck, hull, and transoms"
+    output Integer faces[80,3];
+  protected
+    Integer a,b,k;
+  algorithm
+    faces:=fill(0,80,3);
+    for i in 1:5 loop
+      for j in 1:7 loop
+        a:=7*(i-1)+j;
+        b:=7*(i-1)+1+mod(j,7);
+        k:=14*(i-1)+2*(j-1)+1;
+        faces[k,:]:={a,b+7,b};
+        faces[k+1,:]:={a,a+7,b+7};
+      end for;
+    end for;
+    for i in 1:5 loop
+      faces[70+i,:]:={1,i+1,i+2};
+      faces[75+i,:]:={36,37+i,36+i};
+    end for;
+  end committeeFaces;
+
+  function boxVertices
+    input Real center[3],half[3];
+    output Real vertices[8,3];
+  algorithm
+    for i in 1:8 loop
+      vertices[i,:]:=center+{
+        (2*mod(i-1,2)-1)*half[1],(2*mod(div(i-1,2),2)-1)*half[2],(2*div(i-1,4)-1)*half[3]};
+    end for;
+  end boxVertices;
+
+  function boxFaces
+    output Integer faces[12,3];
+  algorithm
+    faces:=[1,3,2;2,3,4;5,6,7;6,8,7;1,2,5;2,6,5;3,7,4;4,7,8;1,5,3;3,5,7;2,4,6;4,8,6];
+  end boxFaces;
+
+  function committeeFittings "Solid shelter roof, console and motor housing"
+    output Real vertices[3,8,3];
+  algorithm
+    vertices[1,:,:]:=boxVertices({0,0,1.16},{.475,.38,.43});
+    vertices[2,:,:]:=boxVertices({0,0,2.32},{.925,.725,.04});
+    vertices[3,:,:]:=boxVertices({-3.13,0,.58},{.26,.24,.34});
+  end committeeFittings;
+
+  function committeeGap
+    input Real p[3],vertices[42,3],margin;
+    input Integer faces[80,3];
+    output Real result[4];
+  algorithm
+    result:={1e3,0,0,0};
+    if abs(p[2])>1.10+margin or p[1]< -3-margin or p[1]>3.2+margin or p[3]< -.30-margin or p[3]>1.044+margin then
+      return;
+    end if;
+    result:=hullMeshGap(p,vertices,faces);
+    if result[1]<0 and not insideHull(p,vertices,faces) then
+      result:=-result;
+    end if;
+  end committeeGap;
+
+  function droneParts "Low-poly convex airframe, arms, and landing struts in RDD2 body FLU"
+    output Real vertices[9,8,3];
+  protected
+    Real sx,sy,along,across;
+  algorithm
+    vertices:=zeros(9,8,3);
+    vertices[1,:,:]:=boxVertices({.026,0,-.037},{.149,.085,.048});
+    for i in 1:8 loop
+      if i<=4 then
+        vertices[1,i,2]:=.85*vertices[1,i,2];
+      else
+        vertices[1,i,1]:=.94*vertices[1,i,1];
+      end if;
+    end for;
+    for k in 1:4 loop
+      sx:=if k<=2 then 1 else -1;
+      sy:=if mod(k,2)==0 then 1 else -1;
+      for i in 1:8 loop
+        along:=mod(i-1,2);
+        across:=(2*mod(div(i-1,2),2)-1)*.017;
+        vertices[1+k,i,:]:={sx*(.054+.111*along)-sy*across,sy*(.066+.128*along)+sx*across,-.066+.018*along+.026*div(i-1,4)};
+      end for;
+      vertices[5+k,:,:]:=boxVertices({.156*sx,.195*sy,-.052},{.023,.024,.052});
+    end for;
+  end droneParts;
   function closestEdge
     input Real p[3],a[3],b[3];
     output Real closest[3];
@@ -281,15 +379,15 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
   end cruiserGap;
 
   function insideHull "Ray parity through a watertight hull, with a submicrometre edge offset"
-    input Real p[3],vertices[96,3];
-    input Integer faces[188,3];
+    input Real p[3],vertices[:,3];
+    input Integer faces[:,3];
     output Boolean inside;
   protected
     Real a[3],b[3],c[3],y,z,det,u,v;
   algorithm
     inside:=false;
     y:=p[2]+1e-8;z:=p[3]+1.4142e-8;
-    for i in 1:188 loop
+    for i in 1:size(faces,1) loop
       a:=vertices[faces[i,1],:];b:=vertices[faces[i,2],:];c:=vertices[faces[i,3],:];
       if max(a[1],max(b[1],c[1]))>p[1] and y>=min(a[2],min(b[2],c[2])) and y<=max(a[2],max(b[2],c[2]))
         and z>=min(a[3],min(b[3],c[3])) and z<=max(a[3],max(b[3],c[3])) then
