@@ -51,6 +51,8 @@ console.log({shortestStrop});
 const headToWind = await loadInstance('Hobie16', {
   launchEast:-500, launchNorth:-500, launchHeading:0, launchSpeed:0, windEast:-5, manualHelm:1
 }, async url => new Response(await readFile(url)));
+assert.deepEqual(headToWind.get('forestayCordAnchor'), [2.29,0,.65],
+  'The shock cord terminates at the bridle pin of the lower adjuster');
 function standingLoads(halyard, ticks) {
   headToWind.set('jibHalyardInput', halyard);
   for (let i=0; i<ticks; i++) headToWind.advance(.01);

@@ -25,7 +25,7 @@ export function npcRoom(){
   const maxGulls=npcGullLimit;
   const gullSeed=i=>[4+i*2,-12+i*2,8+i*.6,.6*i,13.4,0,2*i,0,.1,0,0,0];
   const emptyHabitat=()=>({restock:Array(fishCount).fill(0),gulls:[],gullSeats:[],vessels:[],sounds:[],sequence:0,time:0,raceStart:0});
-  let habitat=emptyHabitat(),habitatOwner,session=0,lastCall=-Infinity,callRequested=null;
+  let habitat=emptyHabitat(),habitatOwner,receivedHabitat=false,session=0,lastCall=-Infinity,callRequested=null;
   const finiteRow=(v,n)=>Array.isArray(v)&&v.length===n&&v.every(Number.isFinite);
   const validStart=time=>Number.isSafeInteger(time)&&time>0;
   function acceptHabitat(h){
@@ -166,7 +166,7 @@ export function npcRoom(){
       if(members.size)send({type:'vessel-frames',frames});
     },
     connect(action,id){
-      channel=action;self=id;appointed=undefined;hostRevision=0;habitatOwner=id;session++;vesselFrames.clear();vesselForestays.clear();vesselMastRotations.clear();animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
+      channel=action;self=id;appointed=undefined;hostRevision=0;habitatOwner=id;receivedHabitat=false;session++;vesselFrames.clear();vesselForestays.clear();vesselMastRotations.clear();animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
       if(!action)return;
       action.onMessage=(data,{peerId})=>{
         if(action!==channel||!data)return;
@@ -208,7 +208,7 @@ export function npcRoom(){
             if(data.type==='harbor'&&acceptHabitat(data.habitat)){
               const {gulls,gullSeats=gulls.map(()=>null),vessels=[],restock}=data.habitat;
               if(gullSeats.length!==habitat.gullSeats.length||gullSeats.some((seat,index)=>seat!==habitat.gullSeats[index]))revision++;
-              habitat={...data.habitat,gullSeats,vessels,restock:Array.from({length:fishCount},(_,i)=>restock[i]??0)};habitatOwner=peerId;
+              habitat={...data.habitat,gullSeats,vessels,restock:Array.from({length:fishCount},(_,i)=>restock[i]??0)};habitatOwner=peerId;receivedHabitat=true;
             }
             if(data.type==='harbor')last=data.frame?{frame:data.frame,owner}:undefined;
             return;
@@ -310,6 +310,7 @@ export function npcRoom(){
       const result={axes:fresh?c.axes:[0,0,0],bank:fresh?(c.bank??0):0,breach:c.breach};
       c.breach=false;return result;
     },
+    get synchronized(){return owner===self?members.size>0:receivedHabitat&&habitatOwner===owner;},
     get habitat(){return habitat;},get session(){return session;},get soundOwner(){return owner===self?self:habitatOwner;},
     get hasWildlife(){return animals.size>0||habitat.gulls.length>0;},
     get clock(){return animals.size?last?.frame[0]:habitat.gulls.length?habitat.time:undefined;},

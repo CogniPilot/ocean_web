@@ -83,7 +83,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    ...(mode==='motorboat'?cruiserInertiaFields:[])].filter(name=>!outputs.includes(name));
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
-   breakingBows:hasBoat&&mode!=='sloop',
+   breakingBows:hasBoat&&mode!=='sloop',warmSolver:options.warmSolver,
    optionalInputs:[...(hasBoat&&mode!=='sloop'?['jibHalyardInput']:[]),...(mode==='motorboat'?['startEncounter','encounterTargets','wiperSwitch','lowerAnchor']:[]),...(hasFlight?['rotorWakeTraffic','droneTraffic']:[]),'animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
    optionalOutputs:['swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame',...inertiaOutputs,
      ...launchContactOutputs,

@@ -427,7 +427,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
  function rod(a,b,r,mat,parent=group){a=new T.Vector3(...a);b=new T.Vector3(...b);const d=b.clone().sub(a);const m=mesh(new T.CylinderGeometry(r,r,d.length(),10),mat,parent);m.position.copy(a).lerp(b,.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return m;}
  let vane,drum,rudder,otherRudder,carriage,crossTiller,rightingLine;
  let jibHalyard,stayEyes,staySleeves,lowerBowAdjuster,upperBowAdjuster,forestayShockCord;
- const deckCars=[],sheets=[],sheetBlocks=[],jibBlocks=[],travelerRopes=[],jibTails=[],podParts=[],streamers=[];
+ const deckCars=[],sheets=[],sheetBlocks=[],jibBlocks=[],travelerRopes=[],jibTails=[],streamers=[];
  const [travelerCleat,travelerForward,travelerAft,travelerDeadeye]=[0,3,6,9].map(i=>new T.Vector3().fromArray(travelerMounts,i));
  const travelerExit=new T.Vector3(),mainOutlet=new T.Vector3();
  const jibEyes=[new T.Vector3(),new T.Vector3()],jibExits=[new T.Vector3(),new T.Vector3()];
@@ -436,7 +436,6 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
  const stayCables=[],chainplates=[];
  const jibTackZ=.87,jibTackX=2.26-(jibTackZ-.75)*1.82/5.1;
  const bridlePin=new T.Vector3(2.29,0,.65),jibTackPin=new T.Vector3(jibTackX,0,jibTackZ);
- const shockCordEye=new T.Vector3(2.345,0,.65);
  let mastGeometry,mastRest,mastRestNormal,mastWeights,mastHeel,gooseneckSlider;
  const mastAxis=new T.Vector3(-Math.sin(.112),0,Math.cos(.112));
  const mastQuaternion=new T.Quaternion();
@@ -520,8 +519,8 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
    upperBowAdjuster.visible=forestayShockCord.visible=hasTakeup;
    if(hasTakeup){
      positionAdjuster(upperBowAdjuster,tack,forestayPin);
-     connectorAxis.subVectors(forestayPin,shockCordEye);
-     forestayShockCord.position.copy(shockCordEye).lerp(forestayPin,.5);
+     connectorAxis.subVectors(forestayPin,bridlePin);
+     forestayShockCord.position.copy(bridlePin).lerp(forestayPin,.5);
      forestayShockCord.scale.y=connectorAxis.length();
      forestayShockCord.quaternion.setFromUnitVectors(stayUp,connectorAxis.normalize());
    }
@@ -762,8 +761,6 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
    group.add(lower,upper);sheetBlocks.push(lower,upper);
    lowerBowAdjuster=bowAdjuster('Jib tack adjuster',bridlePin.distanceTo(jibTackPin));
    upperBowAdjuster=bowAdjuster('Pivoting forestay adjuster',.20);
-   const shackle=rod(bridlePin.toArray(),shockCordEye.toArray(),.0045,stainless);
-   shackle.name='Forward bridle shackle eye';
    forestayShockCord=rod([0,0,0],[0,1,0],.0033,
      new T.MeshStandardMaterial({name:'Braided rubber shock cord',color:0x373331,roughness:.91}));
    forestayShockCord.name='Forestay take-up shock cord';
@@ -949,6 +946,9 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
  const podRadius=cat?.17:.075,podHeight=cat?8.44:3.02,podX=cat?.44:.12;
  const halfLength=cat?.29:podRadius;
  const sideRadius=cat?Math.sqrt(podRadius**3/halfLength):podRadius;
+ const masthead=new T.Group();
+ masthead.position.set(podX,0,podHeight);
+ group.add(masthead);
  let shell;
  if(cat){
    const profile=Array.from({length:33},(_,i)=>{
@@ -956,16 +956,17 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
      return new T.Vector2(sideRadius*(1+u)*Math.sqrt(1-u),halfLength*u);
    });
    shell=new T.LatheGeometry(profile,32);shell.rotateZ(-Math.PI/2);
-   const bracket=mesh(new T.BoxGeometry(.095,.06,.115),paint(0x76838b));
-   podParts.push(bracket);bracket.position.set(podX,0,podHeight-sideRadius-.022);
+   const bracket=mesh(new T.BoxGeometry(.095,.06,.115),paint(0x76838b),masthead);
+   bracket.position.z=-sideRadius-.022;
  }else shell=new T.SphereGeometry(podRadius,24,16);
- const pod=mesh(shell,cat?white:paint(0xffd14c));if(cat)pod.name='Masthead float';podParts.push(pod);pod.position.set(podX,0,podHeight);
+ const pod=mesh(shell,cat?white:paint(0xffd14c),masthead);
+ if(cat)pod.name='Masthead float';
  const cameraPorts=[];
  for(let i=0;!cat&&i<4;i++){
    const a=i*Math.PI/2,r=i%2?sideRadius:halfLength;
-   const lens=mesh(new T.SphereGeometry(podRadius*.24,12,8),paint(0x18262e));
-   lens.position.set(podX+r*Math.cos(a),r*Math.sin(a),podHeight);
-   podParts.push(lens);cameraPorts.push(lens.position.toArray());
+   const lens=mesh(new T.SphereGeometry(podRadius*.24,12,8),paint(0x18262e),masthead);
+   lens.position.set(r*Math.cos(a),r*Math.sin(a),0);
+   cameraPorts.push([podX+lens.position.x,lens.position.y,podHeight]);
  }
  if(vane)vane.position.z=podHeight+podRadius+.035;
  const ribbonGravity=new T.Vector3(),inverse=new T.Quaternion(),anchor=new T.Vector3(),ribbonNormal=new T.Vector3();
@@ -1132,9 +1133,8 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
        normal.setXYZ(i,mastSection.x,mastSection.y,mastSection.z);
      }
      position.needsUpdate=normal.needsUpdate=true;
-     const dx=headX-pod.position.x,dy=headY-pod.position.y,dz=headZ-pod.position.z;
-     for(const part of podParts){part.position.x+=dx;part.position.y+=dy;part.position.z+=dz;}
-     for(const port of cameraPorts){port[0]+=dx;port[1]+=dy;port[2]+=dz;}
+     masthead.position.set(headX,headY,headZ);
+     masthead.quaternion.copy(rotation);
    }
    if(cars){
      crossTiller.position.set(-2.545+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.47);

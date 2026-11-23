@@ -552,7 +552,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real stayEA(unit="N")=520000,shroudPreload(unit="N")=220;
   final parameter Real sideStayX=-.30;
   final parameter Real stayAnchors[3,3]=[sideStayX,1.02,.34;sideStayX,-1.02,.34;footX[2],0,footZ[2]];
-  final parameter Real forestayCordAnchor[3]={2.345,0,.65} "Forward eye on the bridle shackle";
+  final parameter Real forestayCordAnchor[3]={2.29,0,.65} "Bottom pin of the lower jib tack adjuster";
   final parameter Real tang[3]={mastStep[1]-(5.85-mastStep[3])*mainMastSlope,0,5.85};
   Real jibStation[6];
   input Real jibHalyardInput=.55 "Halyard adjustment from eased zero to hauled one";

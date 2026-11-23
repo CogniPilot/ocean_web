@@ -44,7 +44,17 @@ async function handle(request){
     if(variables.has('omitWake')&&request.omitWake!==undefined)initial.omitWake=request.omitWake;
     const initialInputs=Object.entries({...initial,...request.initial}).flatMap(([name,value])=>
       Array.isArray(value)?scalarNames(name,variables.get(name).dimensions).map((key,i)=>[key,value[i]]):[[name,value]]);
-    session.set_inputs(JSON.stringify(initialInputs));
+    const startupInputs=JSON.stringify(initialInputs);
+    session.set_inputs(startupInputs);
+    if(request.warmSolver){
+      // Exercise the solver before publishing a world. Reset before issuing
+      // bindings so the first snapshot still comes from FMI initialization.
+      const deadline=performance.now()+1200;
+      for(let ticks=0;ticks<50&&performance.now()<deadline;ticks+=stepTicks)
+        session.step(.01*stepTicks);
+      session.reset();
+      session.set_inputs(startupInputs);
+    }
     let names=[...request.outputs,...(request.optionalOutputs??[]).filter(name=>variables.has(name))];
     if(request.sampledFields){
       const [waveDt,windDt]=session.read_values(JSON.stringify(['waves.dt','wind.dt']));

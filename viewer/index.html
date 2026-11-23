@@ -162,7 +162,16 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 }
 @media(max-width:650px){#roomChat{width:min(270px,55vw)}#chatMessage{padding:5px}#chatLog{min-height:28px;max-height:min(16dvh,105px)}}
 @media(pointer:coarse){#roomChat button,#chatMessage{min-height:36px}#chatMessage{font-size:16px}}
-</style></head><body><canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas><canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-label="Cabin radio" aria-pressed="false">Radio <span id="cabinRadioState" aria-hidden="true">Off</span></button><output id="cabinRadioStatus" aria-live="polite"></output></div><details id="roomChat" hidden>
+#startupScreen{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:20px;background:radial-gradient(ellipse at 50% 65%,#123c48,#081f2c 75%);text-align:center}
+#startupScreen h2{margin:0;font:normal clamp(26px,6vw,38px) Georgia,serif}
+#startupScreen progress{display:block;width:min(100%,220px);height:5px;margin:18px auto 0;accent-color:#91d8ca}
+#startupScreen button{margin-top:16px}
+</style></head><body><section id="startupScreen" aria-labelledby="startupTitle">
+  <div><h2 id="startupTitle">Preparing simulator</h2><p id="startupStatus" role="status">Loading model and scene</p>
+    <progress id="startupProgress" aria-label="Loading simulator"></progress>
+    <button id="startupRetry" type="button" hidden>Reload simulator</button>
+  </div>
+</section><canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas><canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-label="Cabin radio" aria-pressed="false">Radio <span id="cabinRadioState" aria-hidden="true">Off</span></button><output id="cabinRadioStatus" aria-live="polite"></output></div><details id="roomChat" hidden>
 <summary id="roomChatTitle">Room chat</summary>
 <ol id="chatLog" role="log" aria-label="Messages" aria-live="polite"></ol>
 <form id="chatSend" class="chat-compose">
