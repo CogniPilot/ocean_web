@@ -1,0 +1,94 @@
+--- a/crates/rumoca-ir-solve/src/fmi/scalar_events.rs
++++ b/crates/rumoca-ir-solve/src/fmi/scalar_events.rs
+@@ -33,6 +33,9 @@
+     /// The pre bindings (indices into `pre_bindings`) an event pass advances
+     /// and whose settlement ends the iteration.
+     iteration_lanes: Vec<usize>,
++    /// Parameter-backed pre reads that alias a destination require the
++    /// pre-commit snapshot to preserve simultaneous history assignment.
++    pre_commit_needs_snapshot: bool,
+     /// Per discrete output: its parameter target.
+     discrete_targets: Vec<usize>,
+     /// Per discrete output: whether it is a condition memory, the rows
+@@ -177,6 +180,11 @@
+             },
+         })
+         .collect::<Vec<_>>();
++    let pre_destinations: std::collections::HashSet<_> =
++        pre_bindings.iter().map(|lane| lane.dest).collect();
++    let pre_commit_needs_snapshot = pre_bindings
++        .iter()
++        .any(|lane| lane.column == "p" && pre_destinations.contains(&lane.source));
+     let mut iteration_lanes = Vec::new();
+     for run in &discrete.event_iteration_plan.runs {
+         // A clock-owned run advances its history on its tick when the event
+@@ -199,6 +207,7 @@
+         has_quotient_memory: discrete.row_roles.iter().any(|role| matches!(role, DiscreteRowRole::QuotientMemory { .. })),
+         roots,
+         pre_bindings,
++        pre_commit_needs_snapshot,
+         iteration_lanes,
+         condition_memory_rows: discrete
+             .row_roles
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_events.jinja
+@@ -666,7 +666,14 @@
+     s->width = (size_t)Y_LEN + (size_t)P_LEN;
+     size_t window = (size_t)RMC_SURFACE_WINDOW;
+     if (window && s->width > SIZE_MAX/window) return false;
++{%- if prefix == "fmi3" %}
++    /* Each history slot is written in full before its count is published.
++       FMI 3 owns this scratch storage and can leave unused slots untouched. */
++    if (window && window * s->width > SIZE_MAX / sizeof(double)) return false;
++    s->data = window ? malloc(window * s->width * sizeof(double)) : NULL;
++{%- else %}
+     s->data = window ? rmc_instance_allocate(m, window * s->width, sizeof(double)) : NULL;
++{%- endif %}
+     return !window || s->data != NULL;
+ }
+ static void rmc_surface_close(RmcSurface* s) { if (s->data) rmc_instance_free(s->owner, s->data); s->data = NULL; }
+@@ -860,11 +867,12 @@
+ {%- endif %}
+     /* pre_params.rs commit_pre_params_after_event_at. */
+     bool history = false;
+-{%- if ev.pre_bindings|length > 0 %}
++{%- if ev.pre_commit_needs_snapshot %}
+     double committed_p[P_LEN];
+     memcpy(committed_p, m->p, sizeof(m->p));
+ {%- endif %}
+-{{- copy_history(solve.solve_layout.pre_param_bindings, "m->p", "m->y", "committed_p", true) }}
++{{- copy_history(solve.solve_layout.pre_param_bindings, "m->p", "m->y",
++    "committed_p" if ev.pre_commit_needs_snapshot else "m->p", true) }}
+     if (!canonicalize || !history) return {{ prefix }}OK;
+     /* component.rs canonicalize_committed_event_view. */
+     for (size_t round = 0; round < {{ schedule.fixed_point_cap }}; ++round) {
+--- a/crates/rumoca-ir-solve/src/fmi/scalar_events/tests.rs
++++ b/crates/rumoca-ir-solve/src/fmi/scalar_events/tests.rs
+@@ -134,3 +134,27 @@
+     assert_eq!(json["discrete_input_runs"]["scalar_count"], 0);
+     assert_eq!(json["discrete_input_runs"]["runs"], serde_json::json!([]));
+ }
++
++#[test]
++fn event_commit_snapshots_only_aliasing_parameter_history() {
++    use crate::{PreParamBinding, PreParamSource};
++
++    let mut model = crate::SolveModel::default();
++    model.problem.layout = VarLayout::from_parts(Default::default(), 8, 8);
++    model.problem.solve_layout.pre_param_bindings = vec![
++        PreParamBinding {
++            dest_p_index: 4,
++            source: PreParamSource::P { index: 1 },
++            clock_schedule: None,
++        },
++        PreParamBinding {
++            dest_p_index: 5,
++            source: PreParamSource::Y { index: 4 },
++            clock_schedule: None,
++        },
++    ];
++    assert!(!super::validate(&model).unwrap().pre_commit_needs_snapshot);
++
++    model.problem.solve_layout.pre_param_bindings[1].source = PreParamSource::P { index: 4 };
++    assert!(super::validate(&model).unwrap().pre_commit_needs_snapshot);
++}
