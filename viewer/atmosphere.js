@@ -378,6 +378,140 @@ function makeFoamTexture(T){
  texture.generateMipmaps=true;texture.needsUpdate=true;
  return texture;
 }
+// Short, directionally spread gravity waves close the unresolved end of
+// the wind-wave spectrum. Their deformation seeds foam, which then advects
+// and decays in a world-space atlas independently of the breaking crest.
+function whitecapField(T,U){
+ const span=160;
+ let size=320;
+ const targets=Array.from({length:2},()=>new T.WebGLRenderTarget(size,size,{
+   depthBuffer:false,stencilBuffer:false,magFilter:T.LinearFilter,minFilter:T.LinearMipmapLinearFilter,
+   generateMipmaps:true
+ }));
+ const modes=[
+   [1.12,.11,.102,2.3],[1.38,-.24,.084,5.2],[1.72,.02,.089,.7],[1.98,.29,.076,4.2],
+   [2.26,-.13,.070,1.5],[2.61,.41,.065,5.8],[2.94,-.36,.057,3.3],[3.31,.18,.054,.2],
+   [3.64,-.52,.047,2.9],[3.92,.51,.042,5.4],[4.29,-.31,.039,1.1],[4.61,.36,.034,4.5]
+ ];
+ const sigma=Math.sqrt(modes.reduce((sum,[,,steepness])=>sum+.5*steepness**2,0));
+ const waveTerms=modes.map(([k,angle,steepness,phase])=>{
+   const x=Math.cos(angle).toFixed(7),y=Math.sin(angle).toFixed(7);
+   const angularSpeed=Math.sqrt(9.80665*k).toFixed(7);
+   return `{
+     const vec2 direction=vec2(${x},${y});
+     float angle=${k}*dot(local,direction)-${angularSpeed}*tm+${phase};
+     float compression=${steepness}*cos(angle);
+     strain+=compression*vec3(direction.x*direction.x,direction.y*direction.y,direction.x*direction.y);
+     gradient-=${steepness}*sin(angle)*direction;
+     orbital+=compression*${(Math.sqrt(9.80665*k)/k).toFixed(7)}*direction;
+   }`;
+ }).join('');
+ // Use the same phases on the mesh and in the foam atlas so the spilling
+ // lip follows its own crest. The mesh resolves the longer modes nearby.
+ const resolvedModes=modes.slice(0,6);
+ const crestVariance=resolvedModes.reduce((sum,[k,,steepness])=>sum+.5*(steepness/k)**2,0);
+ const crestHeight=resolvedModes.map(([k,angle,steepness,phase])=>{
+   const x=(k*Math.cos(angle)).toFixed(7),y=(k*Math.sin(angle)).toFixed(7);
+   const speed=Math.sqrt(9.80665*k).toFixed(7);
+   return `${(steepness/k).toFixed(7)}*cos(dot(local,vec2(${x},${y}))-${speed}*tm+${phase})`;
+ }).join('+');
+ const bounds={value:new T.Vector4(0,0,0,0)};
+ const map={value:targets[0].texture};
+ const controls={
+   ...U,history:{value:targets[1].texture},patchCenter:{value:new T.Vector2()},
+   previousCenter:{value:new T.Vector2()},surfaceCurrent:{value:new T.Vector2()},
+   elapsed:{value:0},hasHistory:{value:0}
+ };
+ const quad=new T.PlaneGeometry(2,2),scene=new T.Scene();
+ const camera=new T.OrthographicCamera(-1,1,1,-1,0,1);
+ const material=new T.ShaderMaterial({uniforms:controls,depthTest:false,depthWrite:false,blending:T.NoBlending,
+   vertexShader:'varying vec2 uvPatch;void main(){uvPatch=uv;gl_Position=vec4(position.xy,0.,1.);}',
+   fragmentShader:oceanHeightGLSL+`
+     uniform sampler2D windMap,history;
+     uniform float elapsed,hasHistory,windBlend,windPeriod,windFieldActive,referenceWind,bearing,tm;
+     uniform vec2 patchCenter,previousCenter,surfaceCurrent;
+     varying vec2 uvPatch;
+     void main(){
+       const float span=${span}.;
+       vec2 world=patchCenter+span*(uvPatch-.5);
+       vec2 downwind=vec2(cos(bearing),sin(bearing)),across=vec2(-downwind.y,downwind.x);
+       vec4 air=texture2D(windMap,world/windPeriod+.5/48.);
+       float wind10=mix(referenceWind,64.*mix(air.r,air.g,windBlend),.72*windFieldActive);
+       // Schwendeman & Thomson (2015), Table 2. Use the measured ensemble
+       // coverage to select the rare compressive crests within the spectrum.
+       float totalCoverage=2.81e-5*pow(max(0.,wind10-3.87),2.76);
+       vec2 local=vec2(dot(world,downwind),dot(world,across));
+       vec3 strain=vec3(0.);
+       vec2 gradient=vec2(0.),orbital=vec2(0.);
+       ${waveTerms}
+       float incident=sampledHeightsAt(world).y;
+       vec2 spacing=2.*downwind;
+       float crestCurvature=(2.*incident-sampledHeightsAt(world-spacing).y
+                          -sampledHeightsAt(world+spacing).y)*.25;
+       // det(I - strain) is the compression of the horizontal orbital map.
+       // The resolved wind sea influences the onset, with swell and hull
+       // wakes excluded from the short-wave compression test.
+       float jacobian=(1.-strain.x)*(1.-strain.y)-strain.z*strain.z;
+       float severity=(1.-jacobian)/${sigma.toFixed(8)}+clamp(1.1*crestCurvature,-.26,.26);
+       // Gaussian upper-tail quantile. The active breaking stage occupies
+       // a fraction of the measured area, the rest is drifting foam.
+       float x=sqrt(-2.*log(clamp(.81*totalCoverage,1e-6,.08)));
+       float onset=x-(2.515517+x*(.802853+.010328*x))/(1.+x*(1.432788+x*(.189269+.001308*x)));
+       float spilling=smoothstep(onset-.12,onset+.22,severity);
+       float front=smoothstep(-.028,.15,-gradient.x);
+       float source=smoothstep(3.87,6.,wind10)*spilling*(.26+.74*front);
+       // Semi-Lagrangian advection. Foam moves with the water and wind
+       // drift while the dispersive crest moves away at phase speed.
+       vec2 drift=surfaceCurrent+(.025*wind10+.46*orbital.x)*downwind+.46*orbital.y*across;
+       vec2 back=(world-elapsed*drift-previousCenter)/span+.5;
+       float residual=0.;
+       if(hasHistory>.5&&all(greaterThan(back,vec2(0.)))&&all(lessThan(back,vec2(1.)))){
+         float foam=texture2D(history,back).g;
+         // Callaghan et al. (2012) model the decay of foam area exponentially.
+         float lifetime=mix(1.8,3.8,smoothstep(7.,15.,wind10));
+         residual=foam*exp(-elapsed/lifetime);
+       }
+       residual=1.-(1.-residual)*exp(-1.75*elapsed*source);
+       // Unbiased rounding preserves the decay of thin foam in an 8-bit map.
+       float rounding=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))
+                             +.61803399*floor(tm*28.)));
+       residual=floor(255.*residual+rounding)/255.;
+       // Cox & Munk's measured slope variance rises with wind speed.
+       float roughness=sqrt(clamp((wind10-2.)/11.,0.,1.2));
+       gradient=(gradient.x*downwind+gradient.y*across)*roughness;
+       gl_FragColor=vec4(source,residual,clamp(128./255.+.8*gradient,0.,1.));
+     }
+   `});
+ scene.add(new T.Mesh(quad,material));
+ let slot=0,lastTime=-Infinity,lastWall=-Infinity;
+ function update(renderer,wall,east,north,currentEast,currentNorth){
+   const cell=span/size,time=U.tm.value,cx=Math.round(east/cell)*cell,cy=Math.round(north/cell)*cell;
+   const old=controls.patchCenter.value,dt=time-lastTime;
+   const moved=(cx-old.x)**2+(cy-old.y)**2>4;
+   if(!moved&&(dt===0||wall-lastWall<1000/28))return;
+   controls.hasHistory.value=Number(dt>=0&&dt<.65&&bounds.value.z>0);
+   controls.elapsed.value=dt>0&&dt<.65?dt:0;
+   controls.previousCenter.value.copy(old);old.set(cx,cy);
+   controls.surfaceCurrent.value.set(currentEast,currentNorth);
+   controls.history.value=targets[slot].texture;
+   slot=1-slot;
+   const previous=renderer.getRenderTarget();
+   renderer.setRenderTarget(targets[slot]);renderer.render(scene,camera);renderer.setRenderTarget(previous);
+   map.value=targets[slot].texture;
+   bounds.value.set(cx,cy,span,1/span);
+   lastTime=time;lastWall=wall;
+ }
+ function setResolution(resolution){
+   if(resolution===size)return;
+   size=resolution;
+   for(const target of targets)target.setSize(size,size);
+   bounds.value.z=0;lastTime=lastWall=-Infinity;
+ }
+ return {update,bounds,map,crestHeight,crestVariance,setResolution,dispose(){
+   for(const target of targets)target.dispose();
+   quad.dispose();material.dispose();
+ }};
+}
 function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowRefinement,fineBowGrid,islandBed},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
  const U={cruiserTilt:{value:new Float32Array(10)},cruiserCount:{value:0},cruiserPose:{value:new Float32Array(20)},cruiserAim:{value:new Float32Array(20)},cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  U.islandBedMap={value:islandBed.texture};U.islandBedBounds={value:islandBed.bounds};
@@ -386,8 +520,11 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  skyTarget.texture.wrapS=THREE.RepeatWrapping;
  U.skyMap={value:skyTarget.texture};
  const lookup=`uniform sampler2D skyMap;uniform vec3 sunDir,moonDir;uniform float tm,storm;
+ vec4 sampleSky(vec3 d){
+   return texture2D(skyMap,vec2(atan(d.y,d.x)/6.2831853+.5,asin(clamp(d.z,-1.,1.))/3.14159265+.5));
+ }
  vec3 skyColor(vec3 d){
-   vec4 sky=texture2D(skyMap,vec2(atan(d.y,d.x)/6.2831853+.5,asin(clamp(d.z,-1.,1.))/3.14159265+.5));
+   vec4 sky=sampleSky(d);
    float separation=length(d-sunDir);
    float edge=max(.00005,.5*fwidth(separation));
    float disc=1.-smoothstep(.00465-edge,.00465+edge,separation);
@@ -539,14 +676,15 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  const pixels=new Uint8Array(32*32*4),tile=new THREE.DataTexture(pixels,32,32);
  tile.wrapS=tile.wrapT=THREE.RepeatWrapping;tile.minFilter=tile.magFilter=THREE.LinearFilter;tile.needsUpdate=true;
  Object.assign(U,{tile:{value:tile},blend:{value:1},tide:{value:0},wind:{value:11},bearing:{value:.45},boat:{value:new THREE.Vector4()},reflection:{value:null},transmission:{value:null},mirrorMatrix:{value:new THREE.Matrix4()},viewport:{value:new THREE.Vector2(1,1)}});
+ const whitecaps=whitecapField(THREE,U);
+ U.whitecapMap=whitecaps.map;U.whitecapBounds=whitecaps.bounds;
  const field=oceanHeightGLSL+`
- vec2 surfaceSlope(vec2 p,out vec2 incidentSlope){
-   vec2 dx=(sampledHeightsAt(p+vec2(.48,0))-sampledHeightsAt(p-vec2(.48,0)))/.96;
-   vec2 dy=(sampledHeightsAt(p+vec2(0,.48))-sampledHeightsAt(p-vec2(0,.48)))/.96;
+ vec2 surfaceSlope(vec2 p){
+   float dx=(sampledHeightsAt(p+vec2(.48,0)).x-sampledHeightsAt(p-vec2(.48,0)).x)/.96;
+   float dy=(sampledHeightsAt(p+vec2(0,.48)).x-sampledHeightsAt(p-vec2(0,.48)).x)/.96;
    // Factor the analytic swell's central difference into one cosine.
    vec2 swellSlope=swell.x*cos(swell.y+dot(p-swellCenter,swell.zw))*sin(.48*swell.zw)/.48;
-   incidentSlope=vec2(dx.y,dy.y)+swellSlope;
-   vec2 slope=vec2(dx.x,dy.x)+swellSlope;
+   vec2 slope=vec2(dx,dy)+swellSlope;
    if(nearBowField(p,4.25)){
      float spacing=mix(.24,bowFineSpacing,bowFineWeight(bowLocal(p)));
      slope+=vec2(bowElevation(p+vec2(spacing,0))-bowElevation(p-vec2(spacing,0)),
@@ -554,9 +692,8 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
    }
    return slope;
  }
- varying float windCrest;
  #ifdef VERTEX_SLOPE
- varying vec2 resolvedSlope,resolvedIncidentSlope;
+ varying vec2 resolvedSlope;
  #endif
  `;
  function waterMesh(segments){
@@ -580,25 +717,37 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  U.foamTexture={value:makeFoamTexture(THREE)};
  const water=new THREE.Mesh(waterMesh(144),new THREE.ShaderMaterial({uniforms:U,side:THREE.DoubleSide,
  vertexShader:field+`varying vec3 wp;
+ uniform float tm,bearing,referenceWind;
  void main(){
  wp=(modelMatrix*vec4(position,1.)).xyz;
  float detail=1.-smoothstep(420.,550.,max(abs(position.x),abs(position.y)));
- wp.z=tide;windCrest=0.;
+ wp.z=tide;
  #ifdef VERTEX_SLOPE
- resolvedSlope=vec2(0.);resolvedIncidentSlope=vec2(0.);
+ resolvedSlope=vec2(0.);
  #endif
  if(detail>0.){
-   vec2 sampled=sampledHeightsAt(wp.xy);
-   windCrest=detail*sampled.y;
-   wp.z+=detail*(swell.x*sin(swell.y+dot(wp.xy-swellCenter,swell.zw))+sampled.x+bowElevation(wp.xy)+wildlifeWave(wp.xy).x);
+   wp.z+=detail*(swell.x*sin(swell.y+dot(wp.xy-swellCenter,swell.zw))+sampledHeightsAt(wp.xy).x+bowElevation(wp.xy)+wildlifeWave(wp.xy).x);
    #ifdef VERTEX_SLOPE
-   resolvedSlope=surfaceSlope(wp.xy,resolvedIncidentSlope)*detail;
-   resolvedIncidentSlope*=detail;
+   float shortWaveDetail=1.-smoothstep(4.,10.,max(abs(position.x),abs(position.y)));
+   #else
+   float shortWaveDetail=1.-smoothstep(9.,21.,max(abs(position.x),abs(position.y)));
+   #endif
+   // Taper where the mesh undersamples the waves and at the vessel's waterline.
+   if(referenceWind>2.&&shortWaveDetail>0.){
+     vec2 along=vec2(cos(bearing),sin(bearing));
+     vec2 local=vec2(dot(wp.xy,along),dot(wp.xy,vec2(-along.y,along.x)));
+     float crest=${whitecaps.crestHeight};
+     float strength=sqrt(clamp((referenceWind-2.)/11.,0.,1.2));
+     shortWaveDetail*=smoothstep(2.8,5.,distance(wp.xy,boat.xy));
+     wp.z+=strength*shortWaveDetail*(crest+.46*(crest*crest-${whitecaps.crestVariance.toFixed(7)}));
+   }
+   #ifdef VERTEX_SLOPE
+   resolvedSlope=surfaceSlope(wp.xy)*detail;
    #endif
  }
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
- uniform sampler2D windMap,foamTexture; uniform float windFieldActive,windBlend,referenceWind,windPeriod,rippleScale;
+ uniform sampler2D windMap,foamTexture,whitecapMap; uniform vec4 whitecapBounds; uniform float windFieldActive,windBlend,referenceWind,windPeriod,rippleScale;
  uniform highp sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
  #ifndef DISABLE_STERN_FOAM
  uniform sampler2D sternFoamMap;
@@ -649,31 +798,57 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  uniform vec2 transmissionSize;
  uniform sampler2D islandBedMap;uniform vec4 islandBedBounds;
 
+ const float waterIOR=1.333;
+ const vec3 waterExtinction=vec3(.22,.085,.055);
+ float dielectricFresnel(float cosine,float eta){
+   float transmitted=1.-(1.-cosine*cosine)/(eta*eta);
+   if(transmitted<=0.)return 1.;
+   float t=sqrt(transmitted);
+   float s=(cosine-eta*t)/(cosine+eta*t);
+   float p=(eta*cosine-t)/(eta*cosine+t);
+   return .5*(s*s+p*p);
+ }
+ // GGX distribution with height-correlated Smith visibility. The
+ // unresolved slopes contribute to the lobe instead of flickering.
+ float sunReflection(vec3 n,vec3 eye,float slopeVariance){
+   float nl=dot(n,sunDir),nv=dot(n,eye);
+   if(nl<=0.||nv<=0.||sunDir.z<=0.)return 0.;
+   vec3 h=normalize(sunDir+eye);
+   float nh=max(0.,dot(n,h)),vh=clamp(dot(eye,h),0.,1.);
+   float f=dielectricFresnel(vh,waterIOR);
+   float q=1.+(slopeVariance-1.)*nh*nh;
+   float d=slopeVariance/(3.14159265*q*q);
+   float v=.5/(nl*sqrt(slopeVariance+(1.-slopeVariance)*nv*nv)
+                   +nv*sqrt(slopeVariance+(1.-slopeVariance)*nl*nl));
+   return f*d*v*nl;
+ }
  float viewDepth(float z){return cameraRange.x*cameraRange.y/(cameraRange.y-z*(cameraRange.y-cameraRange.x));}
  // Reconstruct color after the waterline test and attenuation of each texel.
  // Interpolating a hull depth with the distant seabed invents water between them.
- vec4 throughSample(vec2 uv,float surface,float rayScale,float edgeWidth,vec3 waterColor){
+ vec4 throughSample(vec2 uv,float surface,float rayScale,float edgeWidth,vec3 waterColor,vec2 bubbleLayer){
    float dz=viewDepth(texture2D(transmissionDepth,uv).r)-surface;
    if(dz<=-edgeWidth)return vec4(0.);
    float behind=smoothstep(-edgeWidth,edgeWidth,dz);
    float path=max(0.,dz*rayScale);
    if(path>=32.)return vec4(0.,0.,0.,behind);
-   vec3 attenuation=exp(-vec3(.22,.085,.055)*path)*(1.-smoothstep(9.,32.,path));
+   // A thin layer of breaking-wave bubbles extinguishes transmitted detail.
+   float opticalDepth=bubbleLayer.x*min(path,bubbleLayer.y);
+   vec3 attenuation=exp(-waterExtinction*path-opticalDepth)*(1.-smoothstep(16.,32.,path));
    return vec4(behind*attenuation*(texture2D(transmission,uv).rgb-waterColor),behind);
  }
- vec4 filteredThrough(vec2 uv,float surface,float rayScale,float edgeWidth,vec3 waterColor){
+ vec4 filteredThrough(vec2 uv,float surface,float rayScale,float edgeWidth,vec3 waterColor,vec2 bubbleLayer){
    vec2 pixel=uv*transmissionSize-.5,f=fract(pixel),texel=1./transmissionSize;
    vec2 lo=(floor(pixel)+.5)*texel;
-   vec4 a=throughSample(lo,surface,rayScale,edgeWidth,waterColor);
-   vec4 b=throughSample(lo+vec2(texel.x,0.),surface,rayScale,edgeWidth,waterColor);
-   vec4 c=throughSample(lo+vec2(0.,texel.y),surface,rayScale,edgeWidth,waterColor);
-   vec4 d=throughSample(lo+texel,surface,rayScale,edgeWidth,waterColor);
+   vec4 a=throughSample(lo,surface,rayScale,edgeWidth,waterColor,bubbleLayer);
+   vec4 b=throughSample(lo+vec2(texel.x,0.),surface,rayScale,edgeWidth,waterColor,bubbleLayer);
+   vec4 c=throughSample(lo+vec2(0.,texel.y),surface,rayScale,edgeWidth,waterColor,bubbleLayer);
+   vec4 d=throughSample(lo+texel,surface,rayScale,edgeWidth,waterColor,bubbleLayer);
    return mix(mix(a,b,f.x),mix(c,d,f.x),f.y);
  }
  // At long range a submerged fin can occupy only a few capture texels.
  // A quadratic B-spline averages their depth-tested contributions without
  // creating intermediate depths or bleeding a dry silhouette into the water.
- vec4 distantThrough(vec2 uv,float surface,float rayScale,float edgeWidth,vec3 waterColor,float strength){
+ vec4 distantThrough(vec2 uv,float surface,float rayScale,float edgeWidth,vec3 waterColor,vec2 bubbleLayer,float strength){
    vec2 pixel=uv*transmissionSize-.5;
    vec2 centre=floor(pixel+.5),d=pixel-centre;
    vec2 lo=mix(max(vec2(0.),-d),.5*(.5-d)*(.5-d),strength);
@@ -684,7 +859,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
      float wy=j<0?lo.y:j>0?hi.y:mid.y;
      for(int i=-1;i<=1;i++){
        float wx=i<0?lo.x:i>0?hi.x:mid.x;
-       total+=wx*wy*throughSample((centre+vec2(float(i),float(j))+.5)*texel,surface,rayScale,edgeWidth,waterColor);
+       total+=wx*wy*throughSample((centre+vec2(float(i),float(j))+.5)*texel,surface,rayScale,edgeWidth,waterColor,bubbleLayer);
      }
    }
    return total;
@@ -705,10 +880,9 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,eyeDistance);
    #ifdef VERTEX_SLOPE
-   vec2 d=resolvedSlope,incidentSlope=resolvedIncidentSlope;
+   vec2 d=resolvedSlope;
    #else
-   vec2 incidentSlope;
-   vec2 d=surfaceSlope(wp.xy,incidentSlope);
+   vec2 d=surfaceSlope(wp.xy);
    #endif
    vec4 swimmer=wildlifeWave(wp.xy);
    d+=swimmer.zw;
@@ -718,47 +892,67 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
    float resolved=1.-smoothstep(1.,3.,fwidth(ripplePhase));
    d+=baseDir*(.029*rippleScale*puff*resolved*fade*cos(ripplePhase));
    float breakingWind=mix(wind,localSpeed,windFieldActive);
-   float roughSea=smoothstep(4.5,13.,breakingWind);
-   vec3 flecks=texture2D(foamTexture,(p-vec2(.72*tm,0.))*vec2(.057,.112)).rgb;
+   float roughSea=smoothstep(3.,13.,breakingWind);
+   vec3 flecks=texture2D(foamTexture,(wp.xy-.022*breakingWind*tm*baseDir)*vec2(.39,.48)).rgb;
    float scum=dot(flecks,vec3(.60,.29,.11));
-   // Sub-grid wind waves ride over the resolved swell. Their forward faces
-   // shape both the reflection and the breaking crest, even on the Fast mesh.
-   float windWavePhase=2.34*p.x-4.79*tm+1.6*sin(.43*p.y+.21*p.x-.34*tm)+2.7*(flecks.r-.5);
-   float windWave=cos(windWavePhase);
-   float shortWaveDetail=1.-smoothstep(1.,3.6,fwidth(windWavePhase));
-   d-=baseDir*(.049*roughSea*shortWaveDetail*(.32+.68*flecks.r)*sin(windWavePhase)
-                     *(.64+.36*windWave));
+   vec2 atlas=(wp.xy-whitecapBounds.xy)*whitecapBounds.w;
+   float atlasWeight=1.-smoothstep(.36,.49,length(atlas));
+   vec2 whitecap=vec2(0.);
+   if(under<.5&&whitecapBounds.z>0.&&atlasWeight>0.){
+     vec4 seaFoam=texture2D(whitecapMap,atlas+.5);
+     whitecap=seaFoam.rg*atlasWeight;
+     d+=atlasWeight*(seaFoam.ba-vec2(128./255.));
+   }
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    if(under>.5){
      vec3 ray=normalize(wp-cameraPosition);
      // Trace the underwater viewing ray across the water/air interface.
-     vec3 skyRay=refract(ray,-n,1.333);
+     vec3 skyRay=refract(ray,-n,waterIOR);
      float incidence=clamp(dot(ray,n),0.,1.);
-     float transmissionGate=smoothstep(.653,.672,incidence);
+     float transmissionGate=1.-dielectricFresnel(incidence,1./waterIOR);
      vec3 through=skyColor(normalize(skyRay+vec3(0.,0.,.0001)));
      vec3 underside=mix(vec3(.006,.040,.061),vec3(.015,.14,.17),incidence)*(.24+.76*day);
-     color=mix(underside,through,transmissionGate*(1.-pow(1.-incidence,5.)));
+     color=mix(underside,through,transmissionGate);
      color=mix(color,vec3(.48,.66,.67)*(.24+.76*day),.78*swimmer.y);
      vec3 attenuation=exp(-vec3(.18,.057,.032)*eyeDistance);
      color=mix(vec3(.013,.105,.145)*(.22+.78*day),color,attenuation);
    }else{
-     float fres=.021+.979*pow(1.-clamp(abs(dot(n,eye)),0.,1.),5.);
-     // At a shallow viewing angle a rough surface obscures more of the
-     // glossy faces that would otherwise reflect the bright horizon.
-     fres*=1.-.46*roughSea*day*(1.-.52*abs(eye.z));
+     float fres=dielectricFresnel(clamp(abs(dot(n,eye)),0.,1.),waterIOR);
      float back=pow(max(0.,dot(-eye,sunDir)),3.)*smoothstep(-.45,.9,wp.z-tide);
      vec3 waterColor=mix(vec3(.001,.008,.019),vec3(.004,.061,.093)+back*vec3(.012,.13,.10),day);
+     waterColor=mix(waterColor,vec3(.009,.026,.036),storm*.80);
+     float subpixel=max(smoothstep(.11,.85,length(fwidth(wp.xy))),1.-atlasWeight);
+     // Integrate over unresolved facets at grazing angles. Reflected rays
+     // below the local horizon see neighbouring water instead of bright sky.
+     float slopeVariance=.00512*max(0.,breakingWind);
+     float spread=sqrt(slopeVariance)*(.55+.65*subpixel);
+     float skyVisibility=mix(1.,smoothstep(-spread,.8*spread+.001,ref.z),roughSea);
+     vec3 skyDirection=normalize(vec3(ref.xy,max(0.,ref.z)+.55*spread*roughSea));
+     vec3 reflectedSky=mix(.65*waterColor,sampleSky(skyDirection).rgb,skyVisibility);
+     // Only aerated patches add extinction to the water's surface layer.
+     vec2 bubbleLayer=vec2(2.1*whitecap.x+1.25*whitecap.y,.55/max(.22,abs(dot(eye,n))));
      vec2 islandUv=(wp.xy-islandBedBounds.xy)/islandBedBounds.zw;
+     float shoreFoam=0.;
      if(all(greaterThan(islandUv,vec2(0.)))&&all(lessThan(islandUv,vec2(1.)))){
        vec2 sampleUv=(islandUv*vec2(74.,62.)+.5)/vec2(75.,63.);
        float bottom=-13.7+18.*texture2D(islandBedMap,sampleUv).r;
        float depth=max(0.,wp.z-bottom);
-       float bottomLight=exp(-.56*depth/max(.58,abs(eye.z)))*(1.-smoothstep(5.,10.,depth));
-       // Light returned by the shallow sandy bottom, attenuated through water.
-       waterColor=mix(waterColor,vec3(.042,.44,.31),day*bottomLight*.89);
+       // Approximate the two-way light path even where the seabed falls
+       // outside the transmission capture.
+       float downCos=sqrt(1.-(1.-sunDir.z*sunDir.z)/(waterIOR*waterIOR));
+       float upCos=sqrt(1.-(1.-eye.z*eye.z)/(waterIOR*waterIOR));
+       float viewPath=depth/upCos;
+       vec3 bottomLight=exp(-waterExtinction*(depth/downCos+viewPath)-bubbleLayer.x*min(viewPath,bubbleLayer.y));
+       vec3 sand=vec3(.30,.39,.29);
+       waterColor=mix(waterColor,sand,day*(1.-.72*storm)*bottomLight*(1.-smoothstep(3.5,10.,depth)));
+       // Shallow crests break when their height is a significant fraction
+       // of the local depth. Keep the foam on those crests.
+       float crest=wp.z-tide;
+       shoreFoam=smoothstep(.05,.29,crest)*smoothstep(.05,.22,crest-.39*depth)
+          *smoothstep(.29,.68,scum)*smoothstep(.025,.14,depth);
      }
      #ifdef SIMPLE_SURFACE
-     vec3 reflected=skyColor(ref);
+     vec3 reflected=reflectedSky;
      color=mix(waterColor,reflected,fres);
      #else
      vec3 levelNormal=vec3(0.,0.,1.);
@@ -773,19 +967,22 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
      vec2 uv=mirrorRay.xy/max(.001,mirrorRay.w)*.5+.5;
      vec2 mirrorMargin=min(uv,1.-uv);
      float mirrorVisible=step(.001,mirrorRay.w)*smoothstep(0.,.018,min(mirrorMargin.x,mirrorMargin.y));
-     vec4 objects=texture2D(reflection,clamp(uv,.001,.999),.65)*mirrorVisible;
-     vec3 reflected=skyColor(ref)*(1.-objects.a)+objects.rgb;
+     // Broaden reflected detail where the pixel spans several short ripples.
+     vec4 objects=texture2D(reflection,clamp(uv,.001,.999),.65+1.4*roughSea*subpixel)*mirrorVisible;
+     vec3 reflected=reflectedSky*(1.-objects.a)+objects.rgb;
      // Compare both depths in the camera that captured the seabed.
      vec4 captureClip=throughMatrix*vec4(wp,1.);
      vec2 screen=captureClip.xy/max(.001,captureClip.w)*.5+.5;
-     vec3 bentRay=refract(-eye,n,1./1.333),levelRay=refract(-eye,levelNormal,1./1.333);
-     vec4 refractedClip=captureClip+throughMatrix*vec4(.085*eyeDistance*(bentRay-levelRay),0.);
-     vec2 refrUV=clamp(refractedClip.xy/max(.001,refractedClip.w)*.5+.5,.001,.999);
+     vec3 bentRay=refract(-eye,n,1./waterIOR),levelRay=refract(-eye,levelNormal,1./waterIOR);
      float surfaceDepth=captureClip.w;
      float rayScale=length(throughEye-wp)/max(.01,surfaceDepth);
+     float straightDepth=viewDepth(texture2D(transmissionDepth,clamp(screen,.001,.999)).r);
+     float opticalPath=clamp((straightDepth-surfaceDepth)*rayScale,0.,5.);
+     vec4 refractedClip=captureClip+throughMatrix*vec4(.60*opticalPath*(bentRay-levelRay),0.);
+     vec2 refrUV=clamp(refractedClip.xy/max(.001,refractedClip.w)*.5+.5,.001,.999);
      float edgeWidth=max(.008,.5*fwidth(surfaceDepth));
      #ifdef MOBILE_WATER
-     vec4 transmitted=filteredThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor);
+     vec4 transmitted=filteredThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor,bubbleLayer);
      #else
      vec2 samplePixel=refrUV*transmissionSize;
      float footprint=max(length(dFdx(samplePixel)),length(dFdy(samplePixel)));
@@ -793,36 +990,32 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
      float blur=clamp(smoothstep(14.,38.,eyeDistance)*smoothstep(.6,3.,centrePath)
                       +.35*smoothstep(.75,2.,footprint),0.,1.);
      vec4 transmitted=blur>.025
-       ?distantThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor,blur)
-       :filteredThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor);
+       ?distantThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor,bubbleLayer,blur)
+       :filteredThrough(refrUV,surfaceDepth,rayScale,edgeWidth,waterColor,bubbleLayer);
      #endif
      // A bent ray can land on the dry hull. Refill uncovered samples using
      // the straight ray, preserving the water path of each underlying texel.
      if(transmitted.a<.995){
-       vec4 straight=filteredThrough(screen,surfaceDepth,rayScale,edgeWidth,waterColor);
+       vec4 straight=filteredThrough(screen,surfaceDepth,rayScale,edgeWidth,waterColor,bubbleLayer);
        transmitted.rgb+=straight.rgb*max(0.,straight.a-transmitted.a)/max(.001,straight.a);
      }
      vec2 frameMargin=min(screen,1.-screen);
      float visible=smoothstep(0.,.025,min(frameMargin.x,frameMargin.y))*step(.001,surfaceDepth);
      color=mix(waterColor+visible*transmitted.rgb,reflected,fres);
      #endif
-     color+=vec3(3.5,2.7,1.65)*pow(max(dot(ref,sunDir),0.),240.)+vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
-     waterColor=mix(waterColor,vec3(.012,.037,.043),storm*.85);
-     // Monahan and O'Muircheartaigh's wind-dependent coverage controls how
-     // many short wind-wave crests break. Independent long swell modulates
-     // the onset without laying sheets of foam across the swell ridges.
-     float windCoverage=3.84e-6*pow(max(0.,breakingWind),3.41);
-     float densityCutoff=clamp(.89-27.*windCoverage,.60,.89);
-     float waveFront=windWave-.23*sin(windWavePhase);
-     float windwardFace=clamp(-dot(incidentSlope,baseDir),-.26,.26);
-     float crest=waveFront+(.21*windwardFace+.16*windCrest)*shortWaveDetail;
-     float activity=smoothstep(4.7,7.8,breakingWind);
-     float intermittency=smoothstep(densityCutoff-.035,densityCutoff+.035,scum);
-     float head=activity*intermittency*smoothstep(.88,1.02,crest+(.19*flecks.g-.094))*smoothstep(.23,.60,flecks.b);
-     // The crest leaves a softer, narrowing trail on the upwind side.
-     float trailing=activity*intermittency*smoothstep(.42,.96,crest)
-                    *smoothstep(-.28,.40,sin(windWavePhase))*flecks.b*.34;
-     float foam=mix(.016*roughSea,head+trailing,shortWaveDetail);
+     float specular=sunReflection(n,eye,.0018+slopeVariance*(.04+.56*subpixel));
+     if(specular>.00015)color+=vec3(4.4,3.8,2.8)*sampleSky(sunDir).a*specular;
+     color+=vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
+     float bubbleNoise=.31*flecks.g+.69*flecks.b;
+     float bubbles=smoothstep(.29,.70,bubbleNoise);
+     float fresh=whitecap.x;
+     float crisp=1.-smoothstep(.18,.70,length(fwidth(wp.xy)));
+     // Preserve the small holes in a nearby spilling front while retaining
+     // the atlas's area average when that front falls below a pixel.
+     float lip=smoothstep(.14+.17*bubbleNoise,.67,whitecap.x)*(.73+.27*bubbles);
+     fresh=mix(fresh,lip,crisp);
+     float residue=whitecap.y*(.37+.63*bubbles);
+     float foam=max(fresh,.53*residue);
      if(bowFoamAvailable>.5&&nearBowField(wp.xy,4.)){
        vec2 local=bowLocal(wp.xy);
        vec2 flow=local+vec2(tm*clamp(.45*abs(boat.w),.4,2.8),0.);
@@ -842,17 +1035,11 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
        }
      }
      if(swimmer.y>0.)foam=max(foam,min(1.,swimmer.y)*(.40+.60*smoothstep(.22,.75,noise2(wp.xy*12.+.28*tm))));
-     float shore=length((wp.xy-vec2(36.,40.))/vec2(17.,11.));
-     foam=max(foam,exp(-abs(shore-.93)*23.)*smoothstep(.32,.65,scum)*smoothstep(.01,.16,abs(windCrest)));
+     foam=max(foam,shoreFoam);
 
-     color=mix(color,vec3(.018,.048,.051)+reflected*.22,storm*(.48+.20*(1.-fres)));
-     // The ripple normals disappear below a pixel before the puff itself does.
-     // Keep a footprint in the unresolved reflected sky as well as in nearby water.
-     color*=1.-puff*(.17+.25*fres);
-     color=mix(color,color*vec3(.61,.70,.80),roughSea*(.70-.35*fres));
-     color*=1.+puff*resolved*(scum-.5)*.28;
-     color+=.045*lull*reflected*fres;
-     vec3 foamColor=mix(vec3(.06,.10,.14),vec3(.88,.93,.94),day);
+     float foamLight=day*(1.-.51*storm);
+     vec3 foamColor=mix(vec3(.06,.10,.14),vec3(.88,.93,.94),foamLight);
+     foamColor*=.80+.20*max(0.,dot(n,sunDir));
      color=mix(color,foamColor,foam*.86);
      #ifndef DISABLE_STERN_FOAM
      float stern=sternFoam(wp.xy);
@@ -1027,6 +1214,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
    if(water.geometry.parameters.widthSegments!==profile.mesh){
      water.geometry.dispose();water.geometry=waterMesh(profile.mesh);
    }
+   whitecaps.setResolution(vertexSlope||mobileWater||profile.skipCaptures?320:512);
    simpleCapture=vertexSlope;
    water.material.defines=vertexSlope?{VERTEX_SLOPE:1,DISABLE_BOW_FIELD:1}:{};
    if(mobileWater)water.material.defines.MOBILE_WATER=1;
@@ -1046,7 +1234,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
    const throughWidth=Math.max(320,width),throughHeight=Math.max(200,height);
    throughRT.setSize(throughWidth,throughHeight);U.transmissionSize.value.set(throughWidth,throughHeight);
  }
- return {U,dome,water,dispose(){U.foamTexture.value.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
+ return {U,dome,water,updateWhitecaps:whitecaps.update,dispose(){whitecaps.dispose();U.foamTexture.value.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
 }
 
 // Low maritime cloud banks in world coordinates. Soft particles scatter light

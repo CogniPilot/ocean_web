@@ -22,7 +22,7 @@ function batchScenery(T,group,attributes=[]){
  return group;
 }
 const seabedTime={value:0};
-function seabedMaterials(T,illumination,terrainTextures){
+function seabedMaterials(T,illumination,terrainTextures,tide){
  function textured(base,kind){
    const shore=kind==='shore';
    const m=new T.MeshStandardMaterial({color:0xffffff,roughness:.86,metalness:kind==='metal'?.22:0,vertexColors:shore});
@@ -31,8 +31,8 @@ function seabedMaterials(T,illumination,terrainTextures){
      s.fragmentShader='varying vec3 location;\n'+skyNoiseGLSL+s.fragmentShader;
      if(shore){
        const {sand,height,ready}=terrainTextures;
-       Object.assign(s.uniforms,{sandMap:{value:sand},sandHeightMap:{value:height},sandMapsReady:ready});
-       s.fragmentShader='uniform sampler2D sandMap,sandHeightMap;uniform float sandMapsReady;\n'+s.fragmentShader;
+       Object.assign(s.uniforms,{sandMap:{value:sand},sandHeightMap:{value:height},sandMapsReady:ready,seaLevel:tide});
+       s.fragmentShader='uniform sampler2D sandMap,sandHeightMap;uniform float sandMapsReady,seaLevel;\n'+s.fragmentShader;
        s.fragmentShader=s.fragmentShader
          .replace('#include <roughnessmap_fragment>',`#include <roughnessmap_fragment>
            roughnessFactor=mix(roughnessFactor,.64+.29*drySand,shoreWeight*sandMapsReady);`)
@@ -66,6 +66,16 @@ function seabedMaterials(T,illumination,terrainTextures){
      s.fragmentShader='uniform sampler2D wreckFlux,wreckDepth;uniform mat4 wreckProjection;uniform vec3 waterRay;uniform vec2 causticShift;uniform float sunStrength;\n'+s.fragmentShader;
      s.fragmentShader=s.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n'+code+`
        if(sunStrength>.001){
+       ${shore?`
+       float depth=seaLevel-location.z;
+       if(depth>0.&&depth<6.){
+         vec2 entry=location.xy-waterRay.xy*(depth/max(.05,-waterRay.z));
+         vec2 causticUV=.34*entry+causticShift;
+         float focus=clamp(texture2D(wreckFlux,causticUV).r/.13-1.,-.40,2.3);
+         float contrast=smoothstep(.03,.35,depth)*(1.-smoothstep(2.,6.,depth));
+         diffuseColor.rgb*=1.+sunStrength*contrast*focus*vec3(.52,.84,.79);
+       }
+       `:`
        vec3 shadow=(wreckProjection*vec4(location,1.)).xyz*.5+.5;
        float exposed=1.;
        if(all(greaterThan(shadow,vec3(0.)))&&all(lessThan(shadow,vec3(1.))))
@@ -76,7 +86,8 @@ function seabedMaterials(T,illumination,terrainTextures){
          vec2 margin=min(floorUV,1.-floorUV);
          float coverage=smoothstep(0.,.10,min(margin.x,margin.y));
          diffuseColor.rgb*=1.+coverage*min(focus,3.)*sunStrength*exposed*vec3(.55,.86,.77);
-       }}`);
+       }`}
+       }`);
    };
    m.customProgramCacheKey=()=>kind+base;return m;
  }

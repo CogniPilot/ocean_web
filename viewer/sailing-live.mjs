@@ -905,7 +905,7 @@ async function run(saved=readReset(),carried){
   },caustics,ocean.U.tide,gullEnvironment,signal);
   // These objects are wholly below mean sea level, including their animation ranges.
   const submergedScenery=new T.Group();scene.add(submergedScenery);
-  const materials=seabedMaterials(T,caustics.uniforms,island.userData.terrainTextures);
+  const materials=seabedMaterials(T,caustics.uniforms,island.userData.terrainTextures,ocean.U.tide);
   island.userData.sand.material.dispose();island.userData.sand.material=materials.shore;
   const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;submergedScenery.add(bottom);
   showInLowWaterCapture(bottom);
@@ -2857,6 +2857,8 @@ async function run(saved=readReset(),carried){
       const nearHull=hullDistance<5;
       const surfaceBand=nearHull?.92:.60;
       const eyeHeight=camera.position.z-ocean.sampleSurface(eyeX,eyeY,true);
+      if(eyeHeight>=-surfaceBand)ocean.updateWhitecaps(renderer,now,eyeX,eyeY,
+        model?.get('currentEast')??.2,model?.get('currentNorth')??.04);
       caustics.update(opticalTime,!omitWake);
       const storm=$('storm').checked;
       const cloudFog=clouds(ocean.U.cloudTravel.value,camera.position,storm,ocean.U);

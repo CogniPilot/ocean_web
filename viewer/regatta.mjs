@@ -397,7 +397,7 @@ export function raceAudio(T){
   let engines,audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
   let submerged,effects,luffGain,flapOscillator,flapRate,level=.15;
   let waves,waveGains,lastWaveMix=-Infinity,lastWaveTime,waveTimeWall,wavesActive=false;
-  let waveEvents,nextBubble=-Infinity;
+  let hullWash;
   function silenceLuff(){
     flapRate?.reset();
     if(luffGain)luffGain.gain.setTargetAtTime(0,audio.currentTime,.06);
@@ -406,8 +406,7 @@ export function raceAudio(T){
     if(!wavesActive)return;
     wavesActive=false;
     waves?.reset();
-    nextBubble=-Infinity;
-    waveEvents?.gain.setTargetAtTime(0,audio.currentTime,.09);
+    hullWash?.gain.setTargetAtTime(0,audio.currentTime,.20);
     for(const gain of waveGains??[])gain.gain.setTargetAtTime(0,audio.currentTime,.15);
   }
   function setVolume(value){
@@ -583,32 +582,6 @@ export function raceAudio(T){
     source.start();
     return gains;
   }
-  function eventOutput(){
-    if(!waveEvents){
-      waveEvents=audio.createGain();
-      waveEvents.connect(effects);
-    }
-    return waveEvents;
-  }
-  function bubbleBurst(strength,wall){
-    const source=audio.createBufferSource(),bubble=audio.createBiquadFilter(),gain=audio.createGain();
-    source.buffer=noise;bubble.type='bandpass';bubble.Q.value=3.2;
-    let next=wall;
-    gain.gain.setValueAtTime(0,wall);
-    for(let i=0;i<3;i++){
-      const pitch=220+260*Math.random(),length=.055+.050*Math.random();
-      bubble.frequency.setValueAtTime(pitch,next);
-      bubble.frequency.exponentialRampToValueAtTime(pitch*1.42,next+length);
-      gain.gain.setValueAtTime(0,next);
-      gain.gain.linearRampToValueAtTime(strength*(1.7-.25*i),next+.018);
-      gain.gain.setTargetAtTime(0,next+.028,.015);
-      next+=length+.012+.035*Math.random();
-    }
-    const duration=next-wall+.035;
-    source.connect(bubble).connect(gain).connect(eventOutput());
-    source.onended=()=>{source.disconnect();bubble.disconnect();gain.disconnect();};
-    source.start(wall,Math.random()*(noise.duration-duration),duration);
-  }
   function water(surface,time,east,north,tide,height,includeWake,hullSpeed,hullDistance=Infinity){
     if(!enabled||!level)return;
     if(!surface||height<=-.35){silenceWaves();return;}
@@ -617,7 +590,6 @@ export function raceAudio(T){
     else if(wall-waveTimeWall>.3){silenceWaves();return;}
     if(wall-lastWaveMix<.07)return;
     lastWaveMix=wall;
-    if(!wavesActive)waveEvents?.gain.setTargetAtTime(1,wall,.06);
     wavesActive=true;
     waves??=waveAmbience();
     const {swell,crest,wake}=waves.sample(surface,time,east,north,tide,includeWake);
@@ -628,11 +600,14 @@ export function raceAudio(T){
       waveGains[1].gain.setTargetAtTime(.32*crest*exposure,wall,.09);
       waveGains[2].gain.setTargetAtTime(.66*wake*exposure,wall,.12);
     }
-    const gurgle=hullGurgle(hullSpeed,swell,wake)*exposure/(1+(hullDistance/15)**2);
-    if(gurgle>.024&&time>=nextBubble){
-      bubbleBurst(gurgle,wall);
-      nextBubble=time+(.65+.85*Math.random())/(1+.35*Math.abs(hullSpeed));
+    const wash=hullGurgle(hullSpeed,swell,wake)*exposure/(1+(hullDistance/15)**2);
+    if(!hullWash&&wash>.015){
+      hullWash=audio.createGain();
+      hullWash.gain.value=0;
+      hullWash.connect(effects);
+      startAmbience('hull-wash.mp3',hullWash);
     }
+    hullWash?.gain.setTargetAtTime(.86*wash,wall,.24);
   }
   function signal(){
     if(!enabled)return;
