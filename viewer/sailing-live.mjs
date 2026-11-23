@@ -28,7 +28,7 @@ import {cabinCruiser,hullLamps,hullGlowLobes,cruiserBeamGLSL,cruiserHullGLSL,sea
 import {fishFinder} from './fish-finder.mjs';
 import {harborTraffic} from './harbor-traffic.mjs';
 import {gullIndex,vesselNpcNames} from './npc-room.mjs';
-import {fleet} from "./fleet.mjs";
+import {fleet,loadFleetTurn} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
 const renderInterval=1000/30,knotsPerMetrePerSecond=3600/1852;
 const objectDrawRange=5500,longSwell='1.5';
@@ -739,9 +739,10 @@ async function run(saved=readReset(),carried){
     if(!on){remote.leave();return;}
     $('online').textContent='Joining…';
     try{
-      const transport=await import('./vendor/trystero.mjs');
+      const endpoint=document.querySelector('meta[name="ocean-turn-endpoint"]')?.content;
+      const [transport,turn]=await Promise.all([import('./vendor/trystero.mjs'),loadFleetTurn(endpoint)]);
       if(signal.aborted||attempt!==joinAttempt)return;
-      remote.join(transport,roomName);
+      remote.join(transport,roomName,turn);
       restoreNpcRoster();
       $('invite').hidden=false;
     }catch(error){
@@ -1429,6 +1430,11 @@ async function run(saved=readReset(),carried){
   const animalLabel=a=>(a.kind==='whale'?'Humpback whale':'Great white shark')+(a.id===a.kind?'':' '+a.id.split('-')[1]);
   const fleetRoster=$('fleetRoster'),fleetEntries=$('fleetEntries'),fleetCount=$('fleetCount');
   const fleetModels={...vesselNpcNames,gull:'Herring gull',whale:'Humpback whale',shark:'Great white shark'};
+  function fleetModel(kind,id){
+    const label=fleetModels[kind]??'—';
+    const number=kind==='hobie'?remote.sailNumber(id):0;
+    return number?label+' #'+number:label;
+  }
   const racePanel=$('racePanel'),raceSidebar=racePanel.parentElement;
   const npcStage=['Prestart','Crossing start','Mark 1','Mark 2','Heading to finish','Finished'];
   const hostControls=$('roomHostControls'),hostTarget=$('hostTarget'),transferHost=$('transferHost');
@@ -1472,12 +1478,12 @@ async function run(saved=readReset(),carried){
         hostTarget.onchange();
       }
     }
-    const players=[[name?name+' (you)':'You',fleetModels[localModel]??'—',penaltyTurns?'Flag · '+turnCount(penaltyTurns):hpFor(self),Boolean(name&&owner===self)]];
-    for(const peer of peers)players.push([peer.name,fleetModels[occupied.get(peer.id)??peer.model]??'—',peer.penalty?'Flag · '+turnCount(peer.penalty):hpFor(peer.id),owner===peer.id]);
+    const players=[[name?name+' (you)':'You',fleetModel(localModel),penaltyTurns?'Flag · '+turnCount(penaltyTurns):hpFor(self),Boolean(name&&owner===self)]];
+    for(const peer of peers)players.push([peer.name,fleetModel(occupied.get(peer.id)??peer.model,peer.id),peer.penalty?'Flag · '+turnCount(peer.penalty):hpFor(peer.id),owner===peer.id]);
     for(const [i,row] of habitat.vessels.entries()){
-      const status=npcTraffic?.raceStatus?.('npc-'+(i+1));
+      const id='npc-'+(i+1),status=npcTraffic?.raceStatus?.(id);
       const progress=status?.penalty?'Flag · '+turnCount(status.penalty)+(status.turnDegrees?' · '+Math.round(status.turnDegrees)+'°':''):status?.stage===5?`Finished ${lapClock(Math.round(status.lapTime*10))}`:npcStage[status?.stage];
-      npcs.push(['NPC '+(i+1),fleetModels[row.kind],hpFor('npc-'+(i+1))??progress]);
+      npcs.push(['NPC '+(i+1),fleetModel(row.kind,id),hpFor(id)??progress]);
     }
     const rows=[...players,...npcs],signature=JSON.stringify(rows);
     if(signature===fleetSignature)return;

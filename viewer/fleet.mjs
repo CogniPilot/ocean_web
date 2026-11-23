@@ -14,6 +14,26 @@ const relays=['wss://relay.primal.net','wss://relay.ditto.pub','wss://relay.nost
 const channels=4;
 const sailFloats=216;
 const packetFloats=sailFloats+16; // two presence flags and two xyz/xyzw poses
+
+export async function loadFleetTurn(endpoint){
+  if(!endpoint)return {};
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),4000);
+  try{
+    const response=await fetch(endpoint,{signal:controller.signal,cache:'no-store',credentials:'omit'});
+    if(!response.ok)return {unavailable:true};
+    const payload=await response.json(),iceServers=payload?.iceServers??payload;
+    if(!Array.isArray(iceServers))return {unavailable:true};
+    const servers=iceServers.flatMap(server=>{
+      if(typeof server?.username!=='string'||!server.username||
+        typeof server.credential!=='string'||!server.credential)return [];
+      const urls=[].concat(server.urls).filter(url=>typeof url==='string'&&/^turns?:[^\s]+$/i.test(url));
+      return urls.length?[{urls,username:server.username,credential:server.credential}]:[];
+    });
+    return servers.length?{servers}:{unavailable:true};
+  }catch{return {unavailable:true};}
+  finally{clearTimeout(timer);}
+}
+
 // Sailboats keep the full rig snapshot format. A rigid vehicle needs only
 // its kind, sender time, position and orientation.
 function posePacket(kind,now,object){
@@ -49,6 +69,7 @@ function drawGhost(T,scene,peer,kind,template,offset,p,d,f){
 export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,chat,onFinish){
   let remoteAirframe,loadingAirframe,remoteSub,loadingSub,retrySubAt=0;
   let selfId,room,action,poseSend,lastSend=-Infinity,participants=new Set();
+  let connectionIssue='';
   const npc=npcRoom();
   const offlineNumbers=hobieNumbers(String(Math.random()),['you']);
   let numbers=offlineNumbers;
@@ -164,7 +185,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     numbers=room?hobieNumbers(roomName,[selfId,...participants]):offlineNumbers;
     for(const peer of peers.values())if(peer.cat)peer.mesh?.setSailNumber(sailNumber(peer.id));
     if(!status)return;
-    status.textContent=room?roomName+' · '+roster.get(selfId)+' · '+roster.size+' online'+(npc.host?' · Host':'')+(roster.size===1?' · Waiting for peers':''):'Offline';
+    status.textContent=room?roomName+' · '+roster.get(selfId)+' · '+roster.size+' online'+(npc.host?' · Host':'')+
+      (roster.size===1?' · '+(connectionIssue||'Waiting for peers'):''):'Offline';
     for(const id of ['wind','sky','storm','seaState']){
       const el=document.getElementById(id);
       el.disabled=Boolean(room&&!npc.host);
@@ -231,14 +253,24 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       peers.delete(id);}
   }
   function leave(){finishes.clear();finishChannel=null;if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;poseSend=undefined;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
-  function join(transport,name=roomName){
+  function join(transport,name=roomName,turn={}){
     if(room)return;
     finishes.clear();
     if(name!==roomName)retainedOffset=0;
     roomName=name;
     selfId=transport.selfId;
-    room=joinFleetRoom(transport,{appId:'pelagic-sailing-v1',relayConfig:{urls:relays}},roomName);
-    const active=room;
+    connectionIssue=turn.unavailable?'TURN relay unavailable · Waiting for peers':'';
+    const config={appId:'pelagic-sailing-v1',relayConfig:{urls:relays}};
+    if(turn.servers)config.turnConfig=turn.servers;
+    let active;
+    active=room=joinFleetRoom(transport,config,roomName,{
+      onJoinError({error,peerId}){
+        if(!active||room!==active||participants.has(peerId)||!error.includes('after exchanging SDP'))return;
+        connectionIssue=turn.unavailable?'Peer found · TURN relay unavailable':
+          turn.servers?'Peer found · WebRTC connection failed':'Peer found · Direct connection failed';
+        report();
+      }
+    });
     npc.connect(room.makeAction('harbor-npcs'),selfId);
     encounterChannel=room.makeAction('shark-scene');
     encounterChannel.onMessage=(rows,{peerId})=>{
@@ -359,6 +391,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     action=room.makeAction('sail-pose');
     room.onPeerJoin=id=>{
       if(room!==active)return;
+      connectionIssue='';
       participants.add(id);npc.join(id);
       laps?.send(id);
       if(npc.host)for(const {heat,at,name} of finishes.history())

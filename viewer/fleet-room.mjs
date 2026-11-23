@@ -1,6 +1,6 @@
 // Use a single participant identity across same-browser tabs and WebRTC peers.
-export function joinFleetRoom(transport,config,name){
-  const network=transport.joinRoom(config,name);
+export function joinFleetRoom(transport,config,name,callbacks){
+  const network=transport.joinRoom(config,name,callbacks);
   let bus;
   try{bus=new BroadcastChannel('ocean-web/'+config.appId+'/'+name);}
   catch{return network;}

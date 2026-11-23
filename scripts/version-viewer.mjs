@@ -7,6 +7,14 @@ const root=process.argv[2];
 const scripts=(await readdir(root)).filter(name=>/\.m?js$/.test(name)).sort();
 const files=['index.html',...scripts,'board/boat.mjs','board/sail-battens.mjs','board/sail-telltale.mjs','fmi3/instance.mjs'];
 const sources=await Promise.all(files.map(name=>readFile(join(root,name),'utf8')));
+if(process.env.OCEAN_TURN_ENDPOINT){
+  const endpoint=new URL(process.env.OCEAN_TURN_ENDPOINT);
+  if(endpoint.protocol!=='https:'||endpoint.username||endpoint.password||endpoint.search||endpoint.hash)
+    throw Error('OCEAN_TURN_ENDPOINT must be an HTTPS credential endpoint with no token in the URL');
+  const address=endpoint.href.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  sources[0]=sources[0].replace('<meta name="ocean-turn-endpoint" content="">',
+    `<meta name="ocean-turn-endpoint" content="${address}">`);
+}
 const hash=createHash('sha256');
 for(const source of sources)hash.update(source).update('\0');
 for(const asset of ['hobie-hulls','whale','shark'])hash.update(await readFile(join(root,'assets',asset+'.glb')));
