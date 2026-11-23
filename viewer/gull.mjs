@@ -161,3 +161,35 @@ export function birdMesh(T){
     }
   }};
 }
+
+
+// Presentation time stays monotonic between updates, including irregular
+// network arrivals. The model and the camera both use this same pose.
+export class GullTrack {
+  constructor(){
+    this.samples=[];
+    this.shown=new Float64Array(25);
+  }
+  clear(){this.samples.length=0;}
+  receive(row,now){
+    const previous=this.samples.at(-1);
+    if(previous?.row===row)return;
+    if(previous&&now-previous.at>1000)this.clear();
+    this.samples.push({row,at:now});
+    if(this.samples.length>10)this.samples.shift();
+  }
+  at(now,buffer){
+    const target=now-buffer;
+    while(this.samples.length>2&&this.samples[1].at<target)this.samples.shift();
+    const [left,right=left]=this.samples;
+    const span=right.at-left.at,f=span>0?Math.max(0,Math.min(1,(target-left.at)/span)):0;
+    // Earlier room clients send shorter rows. Preserve those fallbacks.
+    const shown=this.shown.subarray(0,right.row.length);
+    for(let i=0;i<shown.length;i++){
+      const b=right.row[i],a=left.row[i]??b;
+      const delta=i===3?Math.atan2(Math.sin(b-a),Math.cos(b-a)):b-a;
+      shown[i]=i===22?(f<.5?a:b):a+delta*f;
+    }
+    return shown;
+  }
+}

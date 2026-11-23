@@ -200,6 +200,7 @@ async function run(saved=readReset(),carried){
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,objectDrawRange);camera.up.set(0,0,1);
   const clouds=harborClouds(T,scene);
   const island=coast(T,scene,renderer.capabilities.isWebGL2 || renderer.extensions.has('ANGLE_instanced_arrays'));
+  cleanup(()=>island.userData.terrainTextures.dispose());
   island.traverse(showInLowWaterCapture);
   const [simulation,,subAssets]=await simulationReady;
   const world=mode?simulation:null;
@@ -893,7 +894,7 @@ async function run(saved=readReset(),carried){
   },caustics,ocean.U.tide,gullEnvironment,signal);
   // These objects are wholly below mean sea level, including their animation ranges.
   const submergedScenery=new T.Group();scene.add(submergedScenery);
-  const materials=seabedMaterials(T,caustics.uniforms);
+  const materials=seabedMaterials(T,caustics.uniforms,island.userData.terrainTextures);
   island.userData.sand.material.dispose();island.userData.sand.material=materials.shore;
   const bottom=new T.Mesh(new T.PlaneGeometry(500,500),materials.sand);bottom.position.z=-13.71;submergedScenery.add(bottom);
   showInLowWaterCapture(bottom);
@@ -1012,7 +1013,8 @@ async function run(saved=readReset(),carried){
   const wildlifeOrbits={gull:{angle:-1,tilt:.36,distance:3.3},whale:{angle:-1.15,tilt:.20,distance:14},shark:{angle:-1.15,tilt:.12,distance:6}};
   const wildlifeOrbit=()=>wildlifeOrbits[cameraMenu.value.split('-')[0]];
   const cameraZoom=new Map(),cameraPan=new Map();
-  const panRight=new T.Vector3(),panUp=new T.Vector3();
+  const panRight=new T.Vector3(),panUp=new T.Vector3(),gullCameraTarget=new T.Vector3();
+  let followedGull;
   let panDistance=distance;
   function panView(dx,dy){
     const view=cameraMenu.value;
@@ -1592,6 +1594,8 @@ async function run(saved=readReset(),carried){
     if(sub?.active)$('subKeys').textContent=sub.mode===0?'W/S rise/dive · A/D yaw · ↑/↓ forward/back · ←/→ strafe':
       'W/S heave thrust · A/D yaw · ↑/↓ pitch · ←/→ roll'+(sub.mode===2?' · Release to stop rotating':'');
     $('animalPilot').hidden=!swimming;$('gullKeys').hidden=!gull;
+    if(swimming)$('swimKeys').textContent='W/S swim effort · A/D turn · '+
+      (animalKind()==='shark'?'↓ rise · ↑ dive':'↑ rise · ↓ dive')+' · ←/→ roll · Space to breach';
     $('helm').hidden=Boolean(animalId||motor);$('motorPanel').hidden=!motor||!!animalId;
     document.querySelectorAll('[data-boat]').forEach(el=>el.hidden=!boatActive);
     physicsVisibility();
@@ -2634,9 +2638,9 @@ async function run(saved=readReset(),carried){
         const a=remote.npc.animals.get(animalId),own=ownsAnimal();
         const seat=remote.npc.seat(animalId);
         if(!seat&&now-lastClaim>=900){remote.npc.select(animalId);lastClaim=now;}
-        if(own&&now-lastInput>=100){
-          const stick=animalSticks(axis);
-          remote.npc.steer(animalId,[stick.yaw,flyingGull()?-stick.pitch:stick.pitch,stick.throttle],stick.roll);lastInput=now;
+        if(own&&now-lastInput>=(flyingGull()?(remote.npc.host?30:60):100)){
+          const stick=animalSticks(axis,animalKind());
+          remote.npc.steer(animalId,[stick.yaw,stick.pitch,stick.throttle],stick.roll);lastInput=now;
         }
         const state=visitors.frame(animalId);
         if(flyingGull()){
@@ -2803,15 +2807,26 @@ async function run(saved=readReset(),carried){
       const view=$('cameraDepth').value;
       const npcSubject=npcTraffic?.subject(view);
       const subject=npcSubject??visitors.cameraSubject(!flyingGull()&&animalId&&view===animalKind()?animalId:view);
+      const gullSubject=gullIndex(view)>=0?subject:null;
+      if(gullSubject){
+        const {x,y,z}=gullSubject.position;
+        if(followedGull!==gullSubject||!running)gullCameraTarget.set(x,y,z);
+        else {
+          const steady=gullCameraTarget.z+(z-gullCameraTarget.z)*(1-Math.exp(-frameSeconds/.16));
+          gullCameraTarget.set(x,y,T.MathUtils.clamp(steady,z-.26,z+.26));
+        }
+      }
+      followedGull=gullSubject;
       if(subject){
+        const target=gullSubject?gullCameraTarget:subject.position;
         const orbit=npcSubject?{angle,tilt:Math.max(.16,tilt),distance:npcSubject.userData.orbitDistance*(cameraZoom.get(view)??1)}:wildlifeOrbit();
         const range=orbit.distance*Math.cos(orbit.tilt);
-        camera.position.copy(subject.position);
+        camera.position.copy(target);
         camera.position.x+=range*Math.cos(orbit.angle);
         camera.position.y+=range*Math.sin(orbit.angle);
-        camera.position.z=Math.max(-13.1,subject.position.z+orbit.distance*Math.sin(orbit.tilt));
+        camera.position.z=Math.max(-13.1,target.z+orbit.distance*Math.sin(orbit.tilt));
         camera.up.set(0,0,1);
-        camera.lookAt(subject.position);
+        camera.lookAt(target);
       }
       const panPivot=subject?.position??(drone?.active?drone.group.position:sub?.active?sub.mesh.position:orbitCenter);
       panDistance=fixedView(view)?3.5:Math.max(2,camera.position.distanceTo(panPivot));

@@ -1,4 +1,4 @@
-import {birdMesh} from './gull.mjs';
+import {birdMesh,GullTrack} from './gull.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
 
 export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
@@ -13,11 +13,15 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
     school.set('pose',[row[i],row[i+1],row[i+2],row[i+3],row[whale?21:67]??0,whale?row[35]:0]);
     school.set('feedAge',a.feedAt==null?-1:time-a.feedAt);
   }
-  function step(t,row,previous,steps,current){
-    const h=room.habitat,priorTime=h.time??t;
-    const animalTime=row?.[0]??t;
-    h.time=t;
-    if(hostSession!==room.session){hostModels=undefined;lastAnimalFrames.clear();hostSession=room.session;}
+  function resetHostModels(){
+    if(hostSession===room.session)return;
+    hostModels=undefined;
+    lastAnimalFrames.clear();
+    hostSession=room.session;
+  }
+  function stepGulls(steps,current){
+    resetHostModels();
+    const h=room.habitat;
     const models=hostModels??=[];
     h.gulls.forEach((row,i)=>{
       const {wind,gust,seaLevel,waterSlope}=gullEnvironment(row[0],row[1],row[2]);
@@ -45,6 +49,11 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
       slot.level=seaLevel;
       h.gulls[i]=m.getMany(['x','wings','memory','surfaceMotion']).flat();
     });
+  }
+  function step(t,row,previous){
+    resetHostModels();
+    const h=room.habitat,priorTime=h.time??t,animalTime=row?.[0]??t;
+    h.time=t;
     const called=room.takeCall(),index=called??Math.floor(t/26)%Math.max(1,h.gulls.length);
     if(h.gulls[index]&&(called!=null||Math.floor(priorTime/26)<Math.floor(t/26)))
       room.sound('gull',t,h.gulls[index].slice(0,3),called!=null?1:.8);
@@ -73,17 +82,17 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
     }
   }
   const lastAnimalFrames=new Map();
-  function draw(time,f){
+  function draw(time,now){
     if(!room.host){hostModels=undefined;lastAnimalFrames.clear();}
     const h=room.habitat;
     while(birds.length<h.gulls.length){
-      const bird=birdMesh(T);birds.push(bird);scene.add(bird.group);
+      const bird=birdMesh(T);bird.track=new GullTrack();birds.push(bird);scene.add(bird.group);
     }
     for(let i=0;i<birds.length;i++){
-      const next=h.gulls[i];if(!next){birds[i].group.visible=false;continue;}
-      const b=birds[i];
-      if(next!==b.next){b.old=b.next??next;b.next=next;}
-      b.draw(next.map((x,j)=>j===22?x:(b.old[j]??x)+(x-(b.old[j]??x))*f));
+      const b=birds[i],next=h.gulls[i];
+      if(!next){b.group.visible=false;b.track.clear();continue;}
+      b.track.receive(next,now);
+      b.draw(b.track.at(now,room.host?42:150));
     }
     if(initialSounds!==true||authority!==room.soundOwner){
       lastSequence=h.sequence;authority=room.soundOwner;initialSounds=true;
@@ -103,5 +112,5 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
     observer(a,frame,time);
     return school.get('returns');
   }
-  return {step,draw,fish,ping,gull(index){return birds[index]?.group;}};
+  return {step,stepGulls,draw,fish,ping,gull(index){return birds[index]?.group;}};
 }

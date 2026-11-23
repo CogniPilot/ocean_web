@@ -210,7 +210,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button type="button" id="goBelow" hidden>Go below</button>
 <button type="button" id="anchorSwitch" aria-pressed="false" hidden>Lower anchor</button>
 <output id="anchorReadout" hidden></output>
-</div><section class="control-row" id="animalPilot" hidden><button type="button" id="animalFeed">Feed (F)</button> <button id="animalBreach" type="button">Breach</button> <span>W/S swim effort · A/D turn · ← climb · → dive · ↑/↓ whale roll starboard/port · Space to breach</span></section></div>
+</div><section class="control-row" id="animalPilot" hidden><button type="button" id="animalFeed">Feed (F)</button> <button id="animalBreach" type="button">Breach</button> <span id="swimKeys"></span></section></div>
 <div id="setup" class="control-settings" aria-label="Settings" hidden>
 <details class="control-pane" data-boat><summary>Sail trim</summary>
 <div class="control-fields">
@@ -373,7 +373,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 </div>
 </footer><div id="sticks" hidden></div>
 <dialog id="vehiclePicker" aria-labelledby="vehiclePickerTitle"><h2 id="vehiclePickerTitle">Choose a model</h2><form method="dialog"><button value="hobie">Hobie 16</button><button value="motorboat">Inboard cabin cruiser</button><button value="sloop">Pilothouse sloop</button><button value="drone">RDD2 drone</button><button value="sub">Piccard Sub</button><button value="whale">Humpback whale</button><button value="shark">Great white shark</button><button value="gull">Herring gull</button></form></dialog>
-<script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="vehicle.js?viewport=2"></script><script src="wreck.js"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
+<script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="vehicle.js?viewport=2"></script><script src="wreck.js"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="island-landscape.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
 <canvas id="harborMapCanvas" width="680" height="420" aria-label="North-up chart showing the race course, island, players and NPCs"></canvas>
 <div id="harborMapLegend"><span style="--point:#e97618">You</span><span style="--point:#a03731">Race course</span></div><output id="harborMapRoster" aria-label="Your coordinates"></output></dialog>
 <script type="module" src="sailing-live.mjs?hud=2"></script></body></html>

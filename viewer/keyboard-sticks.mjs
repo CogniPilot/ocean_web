@@ -31,4 +31,8 @@ export function pilotSticks(axis){
   };
 }
 
-export const animalSticks=pilotSticks;
+export function animalSticks(axis,kind){
+  const stick=pilotSticks(axis);
+  if(kind==='gull'||kind==='shark')stick.pitch=-stick.pitch;
+  return stick;
+}

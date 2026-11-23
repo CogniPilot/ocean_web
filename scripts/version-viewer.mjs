@@ -19,6 +19,8 @@ const hash=createHash('sha256');
 for(const source of sources)hash.update(source).update('\0');
 hash.update(await readFile(join(root,'vendor/trystero.mjs'))).update('\0');
 for(const asset of ['hobie-hulls','whale','shark'])hash.update(await readFile(join(root,'assets',asset+'.glb')));
+for(const asset of (await readdir(join(root,'assets','island'))).sort())
+  hash.update(await readFile(join(root,'assets','island',asset)));
 const version=hash.digest('hex').slice(0,16);
 for(const [index,name] of files.entries()){
   const source=sources[index];

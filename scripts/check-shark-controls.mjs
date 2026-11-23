@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
+import {animalSticks} from '../viewer/keyboard-sticks.mjs';
 
 const read=async url=>new Response(await readFile(url));
 const start={
@@ -21,11 +22,14 @@ for(const sign of [-1,1]){
   assert(Math.abs(model.get('sharkBankState')[0])<.04,'Shark must return to level');
 }
 
-for(const sign of [-1,1]){
-  const model=await loadInstance('HarborTraffic',{...start,sharkPilot:[1,sign*.45,.65,-1]},read);
+for(const [key,sign] of [['ArrowUp',-1],['ArrowDown',1]]){
+  const axis=(positive,negative)=>Number(positive===key)-Number(negative===key);
+  const pitch=animalSticks(axis,'shark').pitch;
+  assert.equal(pitch,sign);
+  const model=await loadInstance('HarborTraffic',{...start,sharkPilot:[1,pitch*.45,.65,-1]},read);
   advance(model,100);
   const [fish,bank]=model.getMany(['fish','sharkBankState']);
-  assert(sign*fish[2]>.09,'Pitch must follow the right-stick command');
+  assert(sign*fish[2]>.09,key+' must move the shark in the requested direction');
   assert(Math.abs(bank[0])<1e-10,'Pitch alone must preserve level roll');
 }
 console.log('Shark pitch, mirrored roll, neutral recovery and restored bank passed');

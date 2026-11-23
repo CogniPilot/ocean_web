@@ -93,8 +93,8 @@ async function marineAnimal(T,name,length,caustics,tideUniform){
 export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tideUniform,gullEnvironment,signal){
   const room=fleet.npc,feeding=feedingHarbor(T,scene,room,playSound,gullEnvironment);
   const visuals=new Map(),started=new Set();
-  let worker,pending,session,lastTime,lastEnvironment,acc=0;
-  let current,lastPacket,lastGullTime,arrival=0,interval=100;
+  let worker,pending,session,lastTime,lastEnvironment,acc=0,gullDebt=0;
+  let current,lastPacket,arrival=0,interval=100;
   let localActor,localVessel,breakwater,loadingBreakwater,breakwaterState;
   const breakwaterRig=new Float64Array(203);
   function showBreakwater(row,time){
@@ -198,7 +198,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     owned.onmessage=({data})=>{
       if(worker!==owned||room.session!==sourceSession||!room.host||!room.animals.size||!pending)return;
       if(data.error){failed(data.error);return;}
-      const {steps,flow}=pending;
+      const {steps}=pending;
       pending=undefined;
       let base;
       for(const {id,frame} of data.frames){
@@ -214,7 +214,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       }
       if(base){
         const time=Math.max((room.habitat.time??0)+steps*.01,base[0]);
-        feeding.step(time,base,room.latest?.frame,steps,flow);
+        feeding.step(time,base,room.latest?.frame);
         room.publish(base);
       }
     };
@@ -225,17 +225,27 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     if(!lastEnvironment)return;
     if(session!==room.session){
       stopWorker();
-      session=room.session;lastTime=time;acc=0;
-      current=lastPacket=lastGullTime=undefined;
+      session=room.session;lastTime=time;acc=0;gullDebt=0;
+      current=lastPacket=undefined;
       for(const entry of visuals.values())entry.frame=undefined;
     }
     const elapsed=Math.min(.35,Math.max(0,time-(lastTime??time)));
     lastTime=time;
     const needsWorker=room.host&&room.animals.size>0;
     if(!needsWorker&&worker)stopWorker();
-    if(!room.host||!room.hasWildlife){acc=0;return;}
+    if(!room.host||!room.hasWildlife){acc=0;gullDebt=0;return;}
 
     const {wind,level,local,flow,localHull}=lastEnvironment;
+    // Gull plants are small and can publish a presentation sample at the
+    // render cadence even when a swimmer's worker batch is still pending.
+    if(room.habitat.gulls.length){
+      gullDebt+=elapsed;
+      const gullSteps=Math.floor((gullDebt+1e-9)/.01);
+      if(gullSteps>=2){
+        gullDebt=Math.max(0,gullDebt-gullSteps*.01);
+        feeding.stepGulls(gullSteps,flow);
+      }
+    }else gullDebt=0;
     acc+=elapsed;
     const frame=room.latest?.frame;
     if(pending||(acc<.1&&(!needsWorker||frame)))return;
@@ -243,7 +253,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     acc=Math.max(0,acc-steps*.01);
 
     if(!needsWorker){
-      feeding.step((room.habitat.time??0)+steps*.01,undefined,undefined,steps,flow);
+      feeding.step((room.habitat.time??0)+steps*.01);
       room.publish();
       return;
     }
@@ -280,7 +290,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       actors.push(actor);
     }
     started.clear();for(const actor of actors)started.add(actor.id);
-    pending={steps,flow};
+    pending={steps};
     worker.postMessage({actors,steps,environment:{craftHull:hulls,craft:observations,currentVelocity:flow,wind,waterLevel:level}});
   }
   function update(time,now,wind,level,local,flow,localHull){
@@ -289,13 +299,13 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     advanceHost(time,now);
     syncVisuals();
 
-    const packet=room.latest,gullTime=room.habitat.time;
-    if(packet!==lastPacket||gullTime!==lastGullTime){
-      current=packet?.frame;lastPacket=packet;lastGullTime=gullTime;
+    const packet=room.latest;
+    if(packet!==lastPacket){
+      current=packet?.frame;lastPacket=packet;
       interval=Math.max(1,Math.min(250,now-arrival));arrival=now;
     }
     const f=Math.min(1,(now-arrival)/interval);
-    feeding.draw(room.habitat.time??current?.[0]??0,f);
+    feeding.draw(room.habitat.time??current?.[0]??0,now);
     for(const [id,entry] of visuals){
       const animal=room.animals.get(id),v=entry.visual;
       if(!v)continue;
