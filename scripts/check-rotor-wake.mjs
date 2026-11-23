@@ -39,13 +39,13 @@ const geometry={
 };
 const grid=sampleAirflow(probe,[east,north,up],[0,0,0],{rotors:geometry});
 const index=(x,y,z)=>3*((z*7+y)*7+x);
-const center=index(3,3,5);
+const center=index(3,3,4);
 assert.deepEqual(grid.dimensions,[7,7,7]);
-assert(Math.abs(grid.points[index(4,3,5)]-east-.18)<1e-9);
-assert(Math.abs(grid.points[index(3,3,4)+2]-up+.125)<1e-9);
+assert(Math.abs(grid.points[index(4,3,4)]-east-.22)<1e-9);
+assert(Math.abs(grid.points[index(3,3,3)+2]-up+.34)<1e-9);
 assert.deepEqual(grid.velocity.slice(center,center+3),centered.wind,'Airflow volume must agree with the aircraft center sample');
 assert.equal(grid.velocity[index(3,3,6)+2],0,'No rotor wake above the source');
-assert(grid.velocity[index(6,3,5)+2]>centered.wind[2]&&grid.velocity[index(3,6,5)+2]>centered.wind[2]);
+assert(grid.velocity[index(6,3,4)+2]>centered.wind[2]&&grid.velocity[index(3,6,4)+2]>centered.wind[2]);
 const own=sampleAirflow(probe,[east,north,up],[0,0,0],{rotors:{
   ...geometry,traffic:new Float64Array(48),source:[1,east,north,up,1,0,0,0,800,800,800,800]
 }});
@@ -62,6 +62,8 @@ camera.position.set(east+3,north+3,up+1);camera.lookAt(east,north,up-1);
 globalThis.devicePixelRatio=1;
 physicsView(T,canvas,status).draw(camera,{group:new T.Group(),airflow:{...own,anchor:own.position,previous:grid,blend:.8}},{});
 assert(strokes.has('#ffc281'),'The 3D overlay must draw the downwash arrows');
+assert([...strokes].some(color=>['#a6d9e9','#bbd4d3','#d2ceba','#e9c9a1'].includes(color)),
+  'The wake transition must include intermediate arrows');
 assert(status.textContent.includes('3D rotor wake'));
 advance(drone,60);
 advance(clear,60);

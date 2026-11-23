@@ -1,5 +1,4 @@
-const bowAtlasLayout={width:128,height:64,coarse:1,fine:37,foam:82};
-const bowBlendWidth=.35;
+const bowAtlasLayout={width:80,height:64,coarse:1,foam:35};
 const oceanHeightGLSL=`
  // Packed high/low bytes must reach the decode without sampler precision loss.
  uniform highp sampler2D tile;uniform float blend,tide;
@@ -25,8 +24,8 @@ const oceanHeightGLSL=`
    return whale+mix(animalWave(p-a*shift,sharkPatchPrevious),animalWave(p+(1.-a)*shift,sharkPatch),a);
  }
  uniform vec2 spectrumDrift;
- uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable,hullSpectrumOnly,bowFineAvailable,bowFineSpacing,bowFoamAvailable;
- uniform vec4 bowFineBounds;
+ uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable,hullSpectrumOnly,bowFoamSpacing,bowFoamAvailable;
+ uniform vec4 bowFoamBounds;
  const vec2 bowAtlasSize=vec2(${bowAtlasLayout.width}.,${bowAtlasLayout.height}.);
  vec2 spectralUV(vec2 p){return (p-spectrumDrift)/spectrumPeriod+vec2(.5/64.);}
  float elevationSample(highp sampler2D map,vec2 uv){
@@ -57,29 +56,15 @@ const oceanHeightGLSL=`
    vec2 r=p-boat.xy,forward=vec2(cos(boat.z),sin(boat.z));
    return vec2(dot(r,forward),dot(r,vec2(-forward.y,forward.x)));
  }
- float bowFineWeight(vec2 local){
-   if(bowFineAvailable<.5)return 0.;
-   vec2 edge=min(local-bowFineBounds.xy,bowFineBounds.zw-local);
-   return smoothstep(0.,${bowBlendWidth},min(edge.x,edge.y));
- }
  float bowElevation(vec2 p){
    if(!nearBowField(p,4.))return 0.;
-   vec2 local=bowLocal(p);
-   float blendFine=bowFineWeight(local);
-   float fine=0.;
-   if(blendFine>0.){
-     vec2 index=(local-bowFineBounds.xy)/bowFineSpacing;
-     fine=elevationSample(bowMap,(index+vec2(${bowAtlasLayout.fine+.5},1.5))/bowAtlasSize);
-     if(blendFine>=1.)return fine;
-   }
-   float coarse=elevationSample(bowMap,(mod(local*4.,32.)+vec2(${bowAtlasLayout.coarse+.5},1.5))/bowAtlasSize);
-   return mix(coarse,fine,blendFine);
+   return elevationSample(bowMap,(mod(bowLocal(p)*4.,32.)+vec2(${bowAtlasLayout.coarse+.5},1.5))/bowAtlasSize);
  }
  float bowFoamCoverage(vec2 local){
-   vec2 margin=min(local-bowFineBounds.xy,bowFineBounds.zw-local);
+   vec2 margin=min(local-bowFoamBounds.xy,bowFoamBounds.zw-local);
    float edge=smoothstep(0.,.20,min(margin.x,margin.y));
    if(edge<=0.)return 0.;
-   vec2 index=(local-bowFineBounds.xy)/bowFineSpacing;
+   vec2 index=(local-bowFoamBounds.xy)/bowFoamSpacing;
    vec2 foam=texture2D(bowMap,(index+vec2(${bowAtlasLayout.foam+.5},1.5))/bowAtlasSize).rg;
    return edge*mix(foam.x,foam.y,spectrumBlend);
  }
@@ -516,7 +501,7 @@ function whitecapField(T,U){
    quad.dispose();material.dispose();
  }};
 }
-function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowRefinement,fineBowGrid,islandBed},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
+function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobieSurface,bowFoamGrid,islandBed},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
  const U={cruiserTilt:{value:new Float32Array(10)},cruiserCount:{value:0},cruiserPose:{value:new Float32Array(20)},cruiserAim:{value:new Float32Array(20)},cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  U.islandBedMap={value:islandBed.texture};U.islandBedBounds={value:islandBed.bounds};
  const swimmerWater=makeSwimmerWater(THREE,U);
@@ -597,32 +582,24 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  incidentTexture.wrapS=incidentTexture.wrapT=THREE.RepeatWrapping;
  incidentTexture.minFilter=incidentTexture.magFilter=THREE.LinearFilter;
  U.incidentMap={value:incidentTexture};U.wakeAvailable={value:0};U.hullSpectrumOnly={value:0};
- const {x:fineX,y:fineY,columns:fineColumns,rows:fineRows,spacing:fineStep}=fineBowGrid;
- const bowBytes=new Uint8Array(32*32*4),fineBowBytes=new Uint8Array(fineColumns*fineRows*4);
- const {width:atlasWidth,height:atlasHeight,coarse:coarseColumn,fine:fineColumn,foam:foamColumn}=bowAtlasLayout;
+ const {x:fineX,y:fineY,columns:fineColumns,rows:fineRows,spacing:fineStep}=bowFoamGrid;
+ const bowBytes=new Uint8Array(32*32*4);
+ const {width:atlasWidth,height:atlasHeight,coarse:coarseColumn,foam:foamColumn}=bowAtlasLayout;
  const bowAtlas=new Uint8Array(atlasWidth*atlasHeight*4),bowTexture=new THREE.DataTexture(bowAtlas,atlasWidth,atlasHeight);
  bowTexture.minFilter=bowTexture.magFilter=THREE.LinearFilter;
- U.bowMap={value:bowTexture};U.bowAvailable={value:0};U.bowFineAvailable={value:0};
+ U.bowMap={value:bowTexture};U.bowAvailable={value:0};
  U.bowFoamAvailable={value:0};
- U.bowFineSpacing={value:fineStep};
- U.bowFineBounds={value:new THREE.Vector4(fineX,fineY,fineX+(fineColumns-1)*fineStep,fineY+(fineRows-1)*fineStep)};
+ U.bowFoamSpacing={value:fineStep};
+ U.bowFoamBounds={value:new THREE.Vector4(fineX,fineY,fineX+(fineColumns-1)*fineStep,fineY+(fineRows-1)*fineStep)};
  let spray;
- function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=U.bowFineAvailable.value=U.bowFoamAvailable.value=0;trails.clear();}
+ function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=U.bowFoamAvailable.value=0;trails.clear();}
  function displayedHeight(data,k,blend){
    const old=(data[k]<<8)+data[k+1],latest=(data[k+2]<<8)+data[k+3];
    return Math.round(old+blend*(latest-old));
  }
- function readBowGrid(target,refined=false){
+ function readBowGrid(target){
    const blend=U.spectrumBlend.value;
-   const bytes=refined?fineBowBytes:bowBytes;
-   for(let i=0;i<target.length;i++)target[i]=(displayedHeight(bytes,i*4,blend)-32768)/8192;
- }
- function sampleFineBow(x,y,blend){
-   const ix=Math.min(fineColumns-2,Math.floor(x)),iy=Math.min(fineRows-2,Math.floor(y)),fx=x-ix,fy=y-iy;
-   const k=(iy*fineColumns+ix)*4,next=k+fineColumns*4;
-   const lower=THREE.MathUtils.lerp(displayedHeight(fineBowBytes,k,blend),displayedHeight(fineBowBytes,k+4,blend),fx);
-   const upper=THREE.MathUtils.lerp(displayedHeight(fineBowBytes,next,blend),displayedHeight(fineBowBytes,next+4,blend),fx);
-   return THREE.MathUtils.lerp(lower,upper,fy);
+   for(let i=0;i<target.length;i++)target[i]=(displayedHeight(bowBytes,i*4,blend)-32768)/8192;
  }
  function encodeSpectrum(data,frame,initialized,subtract){
    for(let i=0;i<frame.length;i++){
@@ -632,23 +609,15 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
      data[k]=old>>8;data[k+1]=old&255;data[k+2]=packed>>8;data[k+3]=packed&255;
    }
  }
- function updateFullSpectrum(heights,x,y,period,bow,fineBow,foam){
+ function updateFullSpectrum(heights,x,y,period,bow,foam){
    if(bow){
      encodeSpectrum(bowBytes,bow,U.bowAvailable.value);
-     // Both grids use one sampler. The extra coarse row and column preserve its periodic seam.
+     // Repeat the first row and column for bilinear sampling across the periodic seam.
      for(let row=0;row<=32;row++){
        const start=(row%32)*32*4,offset=((row+1)*atlasWidth+coarseColumn)*4;
        bowAtlas.set(bowBytes.subarray(start,start+32*4),offset);
        bowAtlas.set(bowBytes.subarray(start,start+4),offset+32*4);
      }
-     if(fineBow?.length===fineColumns*fineRows){
-       encodeSpectrum(fineBowBytes,fineBow,U.bowFineAvailable.value);
-       for(let row=0;row<fineRows;row++){
-         const start=row*fineColumns*4;
-         bowAtlas.set(fineBowBytes.subarray(start,start+fineColumns*4),((row+1)*atlasWidth+fineColumn)*4);
-       }
-       U.bowFineAvailable.value=1;
-     }else U.bowFineAvailable.value=0;
      if(foam?.length===fineColumns*fineRows){
        for(let row=0;row<fineRows;row++)for(let col=0;col<fineColumns;col++){
          const k=((row+1)*atlasWidth+foamColumn+col)*4,next=foam[row*fineColumns+col];
@@ -665,9 +634,9 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  }
  // Integrated worlds get their incident sea from boatWater.tile. Their 64²
  // spectrum contains only local and shared hull radiation.
- function updateHullSpectrum(heights,x,y,period,bow,fineBow,foam){
+ function updateHullSpectrum(heights,x,y,period,bow,foam){
    U.hullSpectrumOnly.value=U.wakeAvailable.value=1;
-   updateFullSpectrum(heights,x,y,period,bow,fineBow,foam);
+   updateFullSpectrum(heights,x,y,period,bow,foam);
  }
  function updateSpectrum(heights,x,y,period,wake,bow){
    U.hullSpectrumOnly.value=0;
@@ -690,7 +659,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
    vec2 swellSlope=swell.x*cos(swell.y+dot(p-swellCenter,swell.zw))*sin(.48*swell.zw)/.48;
    vec2 slope=vec2(dx,dy)+swellSlope;
    if(nearBowField(p,4.25)){
-     float spacing=mix(.24,bowFineSpacing,bowFineWeight(bowLocal(p)));
+     float spacing=.25;
      slope+=vec2(bowElevation(p+vec2(spacing,0))-bowElevation(p-vec2(spacing,0)),
        bowElevation(p+vec2(0,spacing))-bowElevation(p-vec2(0,spacing)))/(2.*spacing);
    }
@@ -709,7 +678,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
    // Stretch only the outermost ring to cover the extended horizon.
    if(u===1)return Math.sign(v)*(objectDrawRange+128);
    if(segments<120)return Math.sign(v)*(15*u+580*u**4);
-   const inner=bowRefinement?.70:.52,nearScale=bowRefinement?5.4:7.5;
+   const inner=.52,nearScale=7.5;
    const outer=Math.max(0,(u-inner)/(1-inner));
    return Math.sign(v)*(nearScale*u+(595-nearScale)*outer**3);
  };
@@ -719,7 +688,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  return geometry;
  }
  function compactWaterMesh(){
-   const cells=80,radius=4,row=cells+1;
+   const radius=hobieSurface?5:4,cells=hobieSurface?40:80,row=cells+1;
    const positions=[],indices=[];
    for(let y=0;y<=cells;y++)for(let x=0;x<=cells;x++){
      positions.push((2*x/cells-1)*radius,(2*y/cells-1)*radius,0);
@@ -738,9 +707,9 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
      return vertices;
    };
    let inner=perimeter(cells,(x,y)=>y*row+x);
-   // Keep 10 cm cells around the hull. The square rings share every edge
+   // The Hobie uses 25 cm cells across both hulls and their near wake. Rings share every edge
    // vertex with their neighbours, including where resolution halves.
-   const rings=[[5.25,40],[6.65,40],[8.2,40],[10.2,40],[13,20],[17,20],
+   const rings=[[radius+1.25,40],[radius+2.65,40],[radius+4.2,40],[radius+6.2,40],[13,20],[17,20],
      [22,20],[31,20],[43,10],[64,10],[96,10],[145,10],[225,5],[350,5],
      [550,5],[objectDrawRange+128,5]];
    for(const [extent,segments] of rings){
@@ -1177,16 +1146,8 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
        if(f<1){const w=f*f*(3-2*f);packed=w*packed+(1-w)*sample(spectrumBytes,64,x,y,blend);}
        if(U.bowAvailable.value&&r<4){
          const c=Math.cos(boat.z),s=Math.sin(boat.z),dx=east-boat.x,dy=north-boat.y;
-         const u=dx*c+dy*s,v=-dx*s+dy*c,bounds=U.bowFineBounds.value;
-         let bow=sample(bowBytes,32,4*u,4*v,blend);
-         if(U.bowFineAvailable.value){
-           const edge=Math.min(u-bounds.x,v-bounds.y,bounds.z-u,bounds.w-v);
-           if(edge>0){
-             const fine=sampleFineBow((u-fineX)/fineStep,(v-fineY)/fineStep,blend);
-             bow=THREE.MathUtils.lerp(bow,fine,THREE.MathUtils.smoothstep(edge,0,bowBlendWidth));
-           }
-         }
-         h+=(bow-32768)/8192;
+         const u=dx*c+dy*s,v=-dx*s+dy*c;
+         h+=(sample(bowBytes,32,4*u,4*v,blend)-32768)/8192;
        }
      }
      h+=(packed-32768)/8192;
@@ -1261,7 +1222,8 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
    if(spray)spray.points.visible=sprayVisible;
  }
  function setQuality(profile,vertexSlope,multisampling,mobileWater=false){
-   const compact=mobileWater&&profile.compactOnMobile;
+   const compactMobile=mobileWater&&profile.compactOnMobile;
+   const compact=compactMobile||(hobieSurface&&!profile.omitWake);
    const meshKey=compact?'compact':profile.mesh;
    if(waterMeshKey!==meshKey){
      water.geometry.dispose();
@@ -1270,7 +1232,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
    }
    whitecaps.setResolution(vertexSlope||mobileWater||profile.skipCaptures?320:512);
    simpleCapture=vertexSlope;
-   water.material.defines=vertexSlope||compact?{VERTEX_SLOPE:1}:{};
+   water.material.defines=vertexSlope||compactMobile?{VERTEX_SLOPE:1}:{};
    if(vertexSlope)water.material.defines.DISABLE_BOW_FIELD=1;
    if(mobileWater)water.material.defines.MOBILE_WATER=1;
    if(profile.skipCaptures)water.material.defines.SIMPLE_SURFACE=1;

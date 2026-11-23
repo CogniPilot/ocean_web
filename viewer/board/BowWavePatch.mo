@@ -1,16 +1,15 @@
 model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source distribution"
   constant Integer n=32;
-  constant Integer fineColumns=42,fineRows=57;
+  constant Integer foamColumns=42,foamRows=57;
   constant Real pi=Modelica.Constants.pi;
   parameter Real length=8;
-  parameter Real refineBows(min=0,max=1)=0 "Set to one to sample the finer bow rectangle";
-  final parameter Real fineOrigin[2]={-.20,-2.80} "Forward and port coordinates of the first fine node [m]";
-  final parameter Real fineSpacing=.10 "Distance between fine nodes on both axes [m]";
+  parameter Real breakingBows(min=0,max=1)=0 "Enable breaking bow shoulders, foam and spray";
+  final parameter Real foamOrigin[2]={-.20,-2.80} "Forward and port coordinates of the first foam sample [m]";
+  final parameter Real foamSpacing=.10 "Distance between foam samples on both axes [m]";
   input Real relativeSpeed[2] "Water-relative hull velocity in the forward/port axes [m/s]";
   input Real sources[14,6] "Modelica line sources used by the vehicle hydrodynamics";
   output Real height[n,n] "Short-range linear Bernoulli head in the local axes";
-  output Real fineHeight[fineRows,fineColumns] "Nested bow elevations, port rows and forward columns [m]";
-  output Real fineFoam[fineRows,fineColumns] "Breaking sheet coverage on the expanded bow grid";
+  output Real foamCoverage[foamRows,foamColumns] "Breaking sheet coverage in its local texture";
   output Real sprayRelease[4,6] "Per bow shoulder: forward and port position, forward/port/up velocity, spray volume flux";
 protected
   Real entries[2,6];
@@ -196,23 +195,20 @@ public
     end for;
   end sampleGrid;
 
-  function sampleFineGrid
-    input Real velocity[2],sources[14,6],origin[2],spacing,enabled,entry[2,6],leeway;
-    output Real eta[fineRows,fineColumns],foam[fineRows,fineColumns];
+  function sampleFoam
+    input Real origin[2],spacing,enabled,entry[2,6],leeway;
+    output Real foam[foamRows,foamColumns];
   protected
     Real side;
   algorithm
-    eta:=zeros(fineRows,fineColumns);
-    foam:=zeros(fineRows,fineColumns);
+    foam:=zeros(foamRows,foamColumns);
     if enabled>.5 then
-      for j in 1:fineRows loop
+      for j in 1:foamRows loop
         side:=origin[2]+(j-1)*spacing;
-        eta[j,:]:={potentialHead(origin[1]+(i-1)*spacing,side,velocity,sources)
-          +shoulderSheet(origin[1]+(i-1)*spacing,side,entry,leeway) for i in 1:fineColumns};
-        foam[j,:]:={shoulderSheet(origin[1]+(i-1)*spacing,side,entry,leeway,true) for i in 1:fineColumns};
+        foam[j,:]:={shoulderSheet(origin[1]+(i-1)*spacing,side,entry,leeway,true) for i in 1:foamColumns};
       end for;
     end if;
-  end sampleFineGrid;
+  end sampleFoam;
 
   function localStrips
     input Real worldStrips[12,3],pose[4] "East, north, cosine and sine of heading";
@@ -225,9 +221,9 @@ public
     end for;
   end localStrips;
 equation
-  entries=bowEntries(relativeSpeed,sources,refineBows);
+  entries=bowEntries(relativeSpeed,sources,breakingBows);
   leeway=max(-.3,min(.3,relativeSpeed[2]/max(.6,relativeSpeed[1])));
   height=sampleGrid(relativeSpeed,sources,length,entries,leeway);
-  (fineHeight,fineFoam)=sampleFineGrid(relativeSpeed,sources,fineOrigin,fineSpacing,refineBows,entries,leeway);
+  foamCoverage=sampleFoam(foamOrigin,foamSpacing,breakingBows,entries,leeway);
   sprayRelease=sprayAtShoulder(entries,relativeSpeed[1],leeway);
 end BowWavePatch;

@@ -13,7 +13,7 @@ import {loadVehicleShell} from './vehicle-assets.mjs';
 import {loadInstance} from './fmi3/instance.mjs?api=3';
 import {sailboatMesh,observeBoat,sailingRigFields} from './board/boat.mjs';
 import {sailPanelFields,readSailPanels} from './board/sail-battens.mjs';
-import {fineBowGrid} from './bow-grid.mjs';
+import {bowFoamGrid} from './bow-grid.mjs';
 import {splitCamera} from "./waterline.mjs";
 import {drawCompass,drawDroneCompass} from './compass.mjs';
 import {forceDisplay,firstPersonInstruments} from './instrumentation.mjs?hud=2';
@@ -286,7 +286,7 @@ async function run(saved=readReset(),carried){
   let airflowModel,airflowLoad,airflowFailure,airflowFrame,previousAirflow,airflowAt=-Infinity;
   waveGrids.onchange=()=>$('waveLayerControl').hidden=!waveGrids.checked;
   waveGrids.onchange();
-  let inspector,physicsEnabled=false,inspectionHull,inspectionTime,hullGridSamples,fineHullGridSamples;
+  let inspector,physicsEnabled=false,inspectionHull,inspectionTime,hullGridSamples;
   const pontoonTrace=pontoonPresentation();
   function physicsVisibility(){
     physicsEnabled=physicsToggle.checked;
@@ -861,7 +861,7 @@ async function run(saved=readReset(),carried){
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
   const makeWater=(T,u)=>wildlifeWater(T,u,undefined,renderer.capabilities.isWebGL2);
-  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface:Boolean(motor),bowRefinement:cat,fineBowGrid,islandBed:island.userData.bed},makeWater,surfaceSpray,
+  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface:Boolean(motor),hobieSurface:cat,bowFoamGrid,islandBed:island.userData.bed},makeWater,surfaceSpray,
     cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes);
   cleanup(()=>ocean.dispose());
   const sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
@@ -2389,7 +2389,7 @@ async function run(saved=readReset(),carried){
           nextDrift.set(world.get('waves.driftE'),world.get('waves.driftN'));
           if(!lastHullHeight || lastDrift.distanceToSquared(nextDrift)>16)lastDrift.copy(nextDrift);
           ocean.updateHullSpectrum(hullHeight,nextDrift.x,nextDrift.y,world.get('waves.period'),
-            model||motor?world.get('bowHeight'):undefined,cat?world.get('bowFineHeight'):undefined,cat?world.get('bowFoam'):undefined);
+            model||motor?world.get('bowHeight'):undefined,cat?world.get('bowFoam'):undefined);
           if(!omitWake&&(model||motor)){
             const speed=world.get('bowSpeed')?.[0]??world.get('engine')?.[1]??model?.get('surge');
             ocean.updateHullFoam(world.get('waves.sourceStrips'),waveTick,speed,cat,Boolean(motor),world.get('bowSpray'),world.get('bowFrame'));
@@ -3018,13 +3018,6 @@ async function run(saved=readReset(),carried){
                 const cos=Math.cos(heading),sin=Math.sin(heading);
                 water.near={values:hullGridSamples,east,north,cos,sin,length:8,local:true,
                   height:ocean.sampleSurface(east,north),sources:world.get('bowSources')};
-                if(ocean.U.bowFineAvailable.value){
-                  const {x,y,columns,rows,spacing}=fineBowGrid;
-                  fineHullGridSamples??=new Float32Array(columns*rows);
-                  ocean.readBowGrid(fineHullGridSamples,true);
-                  water.near.refined={values:fineHullGridSamples,columns,rows,spacing,
-                    east:east+x*cos-y*sin,north:north+x*sin+y*cos,cos,sin,local:true,bounded:true};
-                }
               }
             }else if(!world&&lastWaveFrame){
               const {height,wake,origin:[east,north],period:length}=lastWaveFrame;

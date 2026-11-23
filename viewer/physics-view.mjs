@@ -14,8 +14,8 @@ export function sampleAirflow(model,position,ambient,{rotors,sailPeers,sailNpcs,
   const buffer=new Float64Array(343*3);
   const points=buffer.subarray(0,length*width*height*3);
   const [dx,dy,dz]=catamaran?[3,3,1.8]:[2,2,.65];
-  const nearRotor=[-1.45,-.52,-.18,0,.18,.52,1.45];
-  const rotorLevels=[-2.8,-1.6,-.72,-.33,-.125,0,1.6];
+  const nearRotor=[-1.14,-.57,-.22,0,.22,.57,1.14];
+  const rotorLevels=[-2.48,-1.55,-.82,-.34,0,.41,1.02];
   const [alongEast,alongNorth]=ambient;
   const horizontalWind=Math.hypot(alongEast,alongNorth);
   const alignWind=!rotors&&horizontalWind>.01;
@@ -366,14 +366,7 @@ export function physicsView(T,canvas,status){
       if(!dimensions)continue;
       const frame=field.local?'follows hull heading, offset from incident sea':key==='wake'||field.advected?'current drift':'world axes';
       captions.push(name+' '+dimensions+' · '+frame);
-      if(key==='near'){
-        if(field.refined){
-          const detail=layer==='all'?{...field.refined,stride:2}:field.refined;
-          const spacing=drawGrid(detail,x,y,height,'#fff2c1');
-          captions.push('Bow refinement · '+spacing+(layer==='all'?' · alternate nodes shown':''));
-        }
-        drawSources(field,height);
-      }
+      if(key==='near')drawSources(field,height);
       if(key==='wind')captions.push('Long swell is analytic');
     }
     if((layer==='surface'||layer==='all')&&fields?.surfaceAt){
@@ -414,29 +407,50 @@ export function physicsView(T,canvas,status){
     const vectorAt=i=>previous?b.fromArray(previous.velocity,i).lerp(priorFlow.fromArray(velocity,i),blend):b.fromArray(velocity,i);
     for(let i=0;i<velocity.length;i+=3)fastest=Math.max(fastest,vectorAt(i).length());
     const scale=.76*spacing/fastest;
+    const colors=['#94deff','#a6d9e9','#bbd4d3','#d2ceba','#e9c9a1','#ffc281'];
+    const arrows=colors.map(()=>[]);
+    const dots=colors.map(()=>[]);
     for(let i=0;i<points.length;i+=3){
       pointAt(a,i);
       vectorAt(i);
       const difference=Math.hypot(b.x-ambient[0],b.y-ambient[1],b.z-ambient[2]);
-      const inWake=difference>.15;
-      const index=i/3;
-      // Keep every disturbed sample and a coarse lattice of ambient vectors.
-      if(!inWake&&(index%length%2||Math.floor(index/length)%width%2||Math.floor(index/(length*width))%2))continue;
-      const color=inWake?'#ffc281':'#94deff';
+      const band=Math.round((colors.length-1)*Math.min(1,difference/(fastest*.65)));
       b.multiplyScalar(scale).add(a);
       const p=project(a,null);
       if(!p)continue;
       const {x,y}=p,q=project(b,null);
       if(!q)continue;
       const dx=q.x-x,dy=q.y-y,pixels=Math.hypot(dx,dy);
-      if(pixels<3){dot(a,null,color,1.5);continue;}
+      if(pixels<3){dots[band].push(x,y);continue;}
       const ux=dx/pixels,uy=dy/pixels,head=Math.min(7,pixels*.38);
-      ink.beginPath();ink.moveTo(x,y);ink.lineTo(q.x,q.y);
-      ink.moveTo(q.x-head*(ux-.50*uy),q.y-head*(uy+.50*ux));ink.lineTo(q.x,q.y);
-      ink.lineTo(q.x-head*(ux+.50*uy),q.y-head*(uy-.50*ux));
-      ink.strokeStyle='#0c2232';ink.lineWidth=3.5;ink.stroke();
-      ink.strokeStyle=color;ink.lineWidth=1.5;ink.stroke();
+      arrows[band].push(x,y,q.x,q.y,q.x-head*(ux-.50*uy),q.y-head*(uy+.50*ux),
+        q.x-head*(ux+.50*uy),q.y-head*(uy-.50*ux));
     }
+    colors.forEach((color,band)=>{
+      const segments=arrows[band],centers=dots[band];
+      const intensity=band/(colors.length-1);
+      if(segments.length){
+        ink.beginPath();
+        for(let i=0;i<segments.length;i+=8){
+          ink.moveTo(segments[i],segments[i+1]);ink.lineTo(segments[i+2],segments[i+3]);
+          ink.moveTo(segments[i+4],segments[i+5]);ink.lineTo(segments[i+2],segments[i+3]);
+          ink.lineTo(segments[i+6],segments[i+7]);
+        }
+        ink.globalAlpha=.16+.68*intensity;
+        ink.strokeStyle='#0c2232';ink.lineWidth=3;ink.stroke();
+        ink.globalAlpha=.36+.64*intensity;
+        ink.strokeStyle=color;ink.lineWidth=1+.5*intensity;ink.stroke();
+      }
+      if(centers.length){
+        ink.beginPath();
+        for(let i=0;i<centers.length;i+=2){
+          ink.moveTo(centers[i]+1.1,centers[i+1]);
+          ink.arc(centers[i],centers[i+1],1.1,0,Math.PI*2);
+        }
+        ink.globalAlpha=.25+.65*intensity;ink.fillStyle=color;ink.fill();
+      }
+    });
+    ink.globalAlpha=1;
   }
 
   function draw(viewCamera,body,options,hull){
