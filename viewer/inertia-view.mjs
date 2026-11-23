@@ -16,11 +16,11 @@ export function sailingInertia(model,catamaran=false){
   const [px,py,pz]=stations?Array.from(stations).slice(-3):[footX,0,podZ];
   const total=mass+pod;
   const center=[(mass*cx+crew*x+pod*px)/total,(crew*y+pod*py)/total,(crew*z+pod*pz)/total];
-  if(catamaran&&['stationX','beamHalf','halfSpacing','deckZ'].every(name=>model.has(name))){
-    const [stationX,beamHalf,halfSpacing,deckZ]=model.getMany(['stationX','beamHalf','halfSpacing','deckZ']);
-    // The plant uses effective whole-boat moments. Draw the hull section
-    // envelopes and the independently moving masses in their own locations.
-    return {mass:total,center,catamaran:{stationX,beamHalf,halfSpacing,deckZ,stations,
+  if(catamaran&&model.has('pontoonContactVertices')&&model.has('halfSpacing')){
+    const [vertices,halfSpacing]=model.getMany(['pontoonContactVertices','halfSpacing']);
+    // The plant uses effective whole-boat moments. Draw the native pontoon
+    // outlines and the independently moving masses in their own locations.
+    return {mass:total,center,catamaran:{vertices,halfSpacing,stations,
       crew:crew>0?[x,y,z]:null,float:pod>0?[px,py,pz]:null}};
   }
   return {mass:total,center,
@@ -90,11 +90,14 @@ export function inertiaOverlay(T){
     group.updateWorldMatrix(true,false);
     shape(group,properties);
   }
-  function drawCatamaran(frame,{stationX,beamHalf,halfSpacing,deckZ,stations,crew,float}){
+  function drawCatamaran(frame,{vertices,halfSpacing,stations,crew,float}){
     const hull=[];
-    for(const side of [-1,1])for(const edge of [-1,1]){
-      for(let i=1;i<stationX.length;i++){
-        for(const j of [i-1,i])hull.push(stationX[j],side*halfSpacing+edge*beamHalf[j],deckZ-.20);
+    // Each native cross-section ring has eight vertices. Follow its sheer
+    // on either side and the keel through the twelve longitudinal stations.
+    const stride=8*3;
+    for(const side of [-1,1])for(const vertex of [1,4,7]){
+      for(let i=stride+3*vertex;i<vertices.length;i+=stride){
+        for(const j of [i-stride,i])hull.push(vertices[j],side*halfSpacing+vertices[j+1],vertices[j+2]);
       }
     }
     painter.lines(frame,hull,cyan);

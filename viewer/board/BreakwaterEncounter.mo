@@ -1,5 +1,4 @@
 model BreakwaterEncounter "Cruiser encounter, sampled swimmer dynamics and contact damage"
-  import MultiBodyLie.Collision;
   constant Integer targetCount=24;
   constant Real step=.025,g=9.80665,rho=1025;
   parameter Real sharkLength=9.6,sharkMass=870*(sharkLength/4.8)^3;
@@ -7,7 +6,6 @@ model BreakwaterEncounter "Cruiser encounter, sampled swimmer dynamics and conta
   parameter Real firstPass=13 "Time allowed for the initial circling pass [s]";
   constant Real panelX[6]={-2.56,-.25,2.10,-2.56,-.25,2.10};
   constant Real panelY[6]={.94,1.08,.76,-.94,-1.08,-.76};
-  constant Real panelWidth[6]={.88,1.02,.69,.88,1.02,.69};
   constant Real holeZ=-.30,soleZ=-.65;
   constant Real floodedArea[6]={.88,1.08,.76,.88,1.08,.76};
   constant Real floodCapacity[6]=1.23*floodedArea;
@@ -35,7 +33,7 @@ protected
   discrete Real memory[8](each start=0,each fixed=true)
     "Start time, retreat deadline, panel, contact deadline, east/north/up impulse, bite deadline";
   Real R[3,3],openingDepth[6],deckOvertop[6],interiorHead[6],head[6],jetFlow[6],opening[6],floodMassArm[3],gravityArm[3,3];
-  Real dz,offset[3],portRange,starboardRange,oscillation;
+  Real dz,offset[3],portRange,starboardRange,oscillation,cockpitHead;
   function hullRotation
     input Real roll,pitch,yaw;
     output Real R[3,3];
@@ -48,10 +46,11 @@ protected
     input Real observed[targetCount,7],old[10],before[8],oldImpact[8],oldIntegrity[6],oldHealth[targetCount,2];
     output Real next[10],state[8],hit[8],panel[6],health[targetCount,2];
   protected
-    Real frame[3,3],ahead[3],side[3],to[3],target[3],delta[3],velocity[3],jaw[3],jawArm[3],normalSpeed,centre[3],pad[3],normal[3],lever[3];
+    final parameter Real hull[96,3]=Shore.cruiserVertices();
+    final parameter Integer faces[188,3]=Shore.pontoonFaces();
+    Real frame[3,3],ahead[3],side[3],to[3],target[3],delta[3],velocity[3],jaw[3],jawArm[3],normalSpeed,pad[3],normal[3],lever[3],contact[4];
     Real depthGoal,heading,error,pitch,speed,r,mu,energy,impulse,elapsed,best,slip;
-    Integer desired,slab,part,victim;
-    Collision.ContactPoint contact;
+    Integer desired,part,victim;
   algorithm
     next:=old;state:=before;hit:=oldImpact;panel:=oldIntegrity;
     to:=zeros(3);r:=0;mu:=0;energy:=0;impulse:=0;
@@ -114,19 +113,15 @@ protected
     jaw:=next[2:4]+jawArm;
     if next[1]==2 and r<7 then next[10]:=1;end if;
     if next[1]==2 and r<13 and t>=state[4] then
-      best:=1e9;part:=0;normalSpeed:=0;normal:=zeros(3);lever:=zeros(3);
-      for i in 1:3 loop
-        centre:=frame*{panelX[i],0,-.10};
-        contact:=Collision.sphereBox(next[2:4],jawArm,.42,boat[1:3],centre,transpose(frame),{1.23,panelWidth[i],.65});
-        pad:=transpose(frame)*contact.armB;
-        slab:=i+(if pad[2]>=0 then 0 else 3);
-        if contact.gap<best and oldIntegrity[slab]>0 then
-          best:=contact.gap;part:=slab;
-          normal:=contact.n;
-          lever:=contact.armB;
-          normalSpeed:=(vBoat+cross(spin,lever)-velocity)*normal;
-        end if;
-      end for;
+      pad:=transpose(frame)*(jaw-boat[1:3]);
+      contact:=Shore.cruiserGap(pad,hull,.42,faces);
+      best:=contact[1]-.42;
+      pad:=pad-contact[1]*contact[2:4];
+      part:=(if pad[1]<-1.40 then 1 elseif pad[1]<.95 then 2 else 3)+(if pad[2]>=0 then 0 else 3);
+      if oldIntegrity[part]<=0 then best:=1e3;end if;
+      normal:=frame*contact[2:4];
+      lever:=frame*pad;
+      normalSpeed:=(vBoat+cross(spin,lever)-velocity)*normal;
       mu:=mass*boatMass/(mass+boatMass);
       energy:=.5*mu*normalSpeed^2;
       impulse:=1.09*mu*normalSpeed;
@@ -178,6 +173,10 @@ equation
     (shark,memory,impact,integrity,victimHealth)=advance(time,activate,tide,boat,vesselVelocity,angularVelocity,vesselMass,
       (if boat[3]<tide-1.10 and waterMass>2100 then 2 else 0),sharkLength,sharkMass,firstPass,openingWork,targets,pre(shark),pre(memory),pre(impact),pre(integrity),pre(victimHealth));
   end when;
+  // The cockpit is open across the centreline. Water spilling over the low
+  // gunwale reaches both sides through the open floor and damaged partitions.
+  cockpitHead=max(0,.5*(panelSurface[2]+panelSurface[5])-boat[3]-
+    R[3,:]*{-1.35,0,.47}+.90*abs(R[3,2])-.055);
   for i in 1:6 loop
     bodyPoints[i,:]={panelX[i],panelY[i],holeZ};
     openingDepth[i]=panelSurface[i]-boat[3]-R[3,:]*bodyPoints[i,:];
@@ -190,7 +189,7 @@ equation
     // At large list the open cockpit can downflood over the deck edge.
     // It provides a second path into the damaged hull, including unbreached bays.
     deckOvertop[i]=if noEvent(hullHealth<70) then
-      max(0,panelSurface[i]-boat[3]-R[3,:]*{-1.35,panelY[i],.47}-.055) else 0;
+      max(.55*cockpitHead,panelSurface[i]-boat[3]-R[3,:]*{-1.35,panelY[i],.47}-.055) else 0;
     jetFlow[i]=(opening[i]+(if noEvent(openingDepth[i]>1.20 and integrity[i]<98) then .12 else 0))*
       (if noEvent(head[i]>=0) then .62*sqrt(2*g*head[i])*max(0,min(1,(floodCapacity[i]-waterVolume[i])/.025))
        else -.62*sqrt(-2*g*head[i])*max(0,min(1,waterVolume[i]/.025)))+

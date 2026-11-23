@@ -160,6 +160,27 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     end for;
   end pontoonVertices;
 
+  function cruiserVertices "Closed hull loft in the cabin cruiser's forward, port and up frame"
+    output Real vertices[96,3];
+  protected
+    constant Real stations[12,4]=[-3.74,1.07,.77,-.39; -3.53,1.19,.78,-.44; -2.75,1.29,.80,-.52;
+      -1.55,1.36,.84,-.57; -.20,1.35,.91,-.61; 1.05,1.24,1.00,-.58; 2.10,1.00,1.11,-.49;
+      2.55,.85,1.16,-.41; 2.93,.67,1.20,-.32; 3.24,.49,1.24,-.20; 3.49,.33,1.27,-.06; 3.80,.018,1.32,.25];
+    constant Real section[8,2]=[0,1;1,1;.972,.65;.85,.23;0,0;-.85,.23;-.972,.65;-1,1];
+    Real x,w,top,keel,rake,round,drop,f,t;
+  algorithm
+    for i in 1:12 loop
+      x:=stations[i,1];w:=stations[i,2];top:=stations[i,3];keel:=stations[i,4];
+      rake:=.8*max(0,(x-1.5)/2.3)^2;
+      round:=.14*max(0,(-3.39-x)/.35);
+      drop:=.18*min(1,max(0,(3.5-x)/2.1));
+      for j in 1:8 loop
+        f:=section[j,1];t:=section[j,2];
+        vertices[8*(i-1)+j,:]:={x-rake*(1-t)+round*f^2,w*f,keel+(top-keel)*t-drop*max(0,1-t/.23)};
+      end for;
+    end for;
+  end cruiserVertices;
+
   function pontoonFace "One oriented triangle on the lofted pontoon shell"
     input Integer index;
     output Integer face[3];
@@ -197,13 +218,64 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     input Real p[3],vertices[96,3],margin;
     input Integer faces[188,3];
     output Real result[4];
-  protected
-    Real a[3],b[3],c[3],n[3],q[3],edge[3],delta[3],gap,best,d2,sgn,normal[3];
   algorithm
     result:={1e3,0,0,0};
     if abs(p[2])>.2+margin or p[1]< -2.52-margin or p[1]>2.52+margin or p[3]< -.38-margin or p[3]>.24+margin then
       return;
     end if;
+    result:=hullMeshGap(p,vertices,faces);
+  end pontoonGap;
+
+  function cruiserGap "Signed gap to the cruiser's triangulated hull with local broad phase"
+    input Real p[3],vertices[96,3],margin;
+    input Integer faces[188,3];
+    output Real result[4];
+  algorithm
+    result:={1e3,0,0,0};
+    if abs(p[2])>1.37+margin or p[1]< -3.74-margin or p[1]>3.80+margin or p[3]< -.80-margin or p[3]>1.32+margin then
+      return;
+    end if;
+    result:=hullMeshGap(p,vertices,faces);
+    // At an edge the nearest triangle's plane can put an exterior point
+    // on its negative side. Test the closed shell before treating it as penetration.
+    if result[1]<0 and not insideHull(p,vertices,faces) then
+      result:=-result;
+    end if;
+  end cruiserGap;
+
+  function insideHull "Ray parity through a watertight hull, with a submicrometre edge offset"
+    input Real p[3],vertices[96,3];
+    input Integer faces[188,3];
+    output Boolean inside;
+  protected
+    Real a[3],b[3],c[3],y,z,det,u,v;
+  algorithm
+    inside:=false;
+    y:=p[2]+1e-8;z:=p[3]+1.4142e-8;
+    for i in 1:188 loop
+      a:=vertices[faces[i,1],:];b:=vertices[faces[i,2],:];c:=vertices[faces[i,3],:];
+      if max(a[1],max(b[1],c[1]))>p[1] and y>=min(a[2],min(b[2],c[2])) and y<=max(a[2],max(b[2],c[2]))
+        and z>=min(a[3],min(b[3],c[3])) and z<=max(a[3],max(b[3],c[3])) then
+        b:=b-a;c:=c-a;
+        det:=b[2]*c[3]-b[3]*c[2];
+        if abs(det)>1e-12 then
+          u:=((y-a[2])*c[3]-(z-a[3])*c[2])/det;
+          v:=(b[2]*(z-a[3])-b[3]*(y-a[2]))/det;
+          if u>=0 and v>=0 and u+v<1 and a[1]+u*b[1]+v*c[1]>p[1] then
+            inside:=not inside;
+          end if;
+        end if;
+      end if;
+    end for;
+  end insideHull;
+
+  function hullMeshGap "Signed distance and outward normal of the nearest triangle"
+    input Real p[3],vertices[96,3];
+    input Integer faces[188,3];
+    output Real result[4];
+  protected
+    Real a[3],b[3],c[3],n[3],q[3],edge[3],delta[3],gap,best,d2,sgn,normal[3];
+  algorithm
     best:=1e6;sgn:=1;normal:={0,0,1};
     for i in 1:188 loop
       a:=vertices[faces[i,1],:];b:=vertices[faces[i,2],:];c:=vertices[faces[i,3],:];
@@ -228,7 +300,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
       end if;
     end for;
     result:=cat(1,{sgn*sqrt(best)},normal);
-  end pontoonGap;
+  end hullMeshGap;
   function smoothStep
     input Real x;
     output Real blend;

@@ -3,17 +3,18 @@ import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {runInNewContext} from 'node:vm';
 import {surfaceCollisionShapes} from '../viewer/surface-collision-view.mjs';
+import {drawVesselContacts,hullWires} from '../viewer/collision-view.mjs';
 
 const require=createRequire(import.meta.url),T=require('../viewer/vendor/three.min.js');
 const read=path=>readFile(new URL('../'+path,import.meta.url),'utf8');
-const [visuals,shore,cruiser]=await Promise.all([
-  read('viewer/visuals.js'),read('viewer/board/Shore.mo'),read('models/OceanMotorboat.mo')
+const [visuals,shore]=await Promise.all([
+  read('viewer/visuals.js'),read('viewer/board/Shore.mo')
 ]);
 function table(source,name){
   const match=source.match(new RegExp('constant Real '+name+'\\[\\d+,\\d+\\]=\\[([^\\]]+)\\]'));
   return match[1].split(';').map(row=>row.split(',').map(Number));
 }
-const rocks=table(shore,'rocks'),pontoon=table(shore,'pontoon'),cruiserProbes=table(cruiser,'probes').flat();
+const rocks=table(shore,'rocks'),pontoon=table(shore,'pontoon');
 const scene=new T.Scene(),scope={T,scene};
 runInNewContext(visuals+'\nbatchScenery=()=>{}; land=coast(T,scene,true);',scope);
 const island=scope.land,committee=new T.Group(),marks=Array.from({length:3},()=>new T.Group());
@@ -32,7 +33,8 @@ const painter={
   box:(...args)=>boxes.push(args),sphere:(...args)=>spheres.push(args),
   points:(...args)=>points.push(args),lines:(...args)=>wires.push(args)
 };
-shapes.draw(painter,hobie,{cat:true},motor,drone);
+const cruiserMesh=hullWires([0,0,0,1,0,0,0,1,0,0,0,1],[1,2,3,1,3,4,1,4,2,2,4,3]);
+shapes.draw(painter,hobie,{cat:true},motor,drone,cruiserMesh);
 assert.deepEqual(boxes.slice(0,3).map(([frame,center,half])=>[frame===committee,center,half]),[
   [true,[-1.98,0,.66],[.98,.86,.12]],[true,[1.54,0,.66],[.55,.67,.12]],[true,[2.42,0,.66],[.34,.32,.12]]
 ]);
@@ -48,7 +50,7 @@ near(points[0][1].slice(0,9),[
   pontoon[0][0],1.02,pontoon[0][3],
   pontoon[0][0],1.02+.69*pontoon[0][1],pontoon[0][2]+.77*(pontoon[0][3]-pontoon[0][2])
 ]);
-assert.deepEqual(points[1].slice(0,2),[motor,cruiserProbes]);
+assert.equal(points.length,1,'A cruiser with a contact mesh should not show the legacy probes');
 
 const [sandFrame,sand]=wires.shift();
 assert.equal(sandFrame,island);
@@ -76,4 +78,7 @@ const sloop=new T.Group();
 shapes.draw(painter,sloop,{cat:false},null,null);
 assert.deepEqual(boxes.at(-1).slice(0,3),[sloop,[-.27,0,.154],[.37,.20,.0045]]);
 assert.equal(points.at(-1)[1].length,39*3);
-console.log('Verified the three buoy proxies, landing shapes, 46 baked rock frames, sand diagonals and hull probes.');
+drawVesselContacts(T,painter,motor,2,null,null,null,null,null,null,cruiserMesh);
+assert.deepEqual(wires.at(-1).slice(0,2),[motor,cruiserMesh]);
+assert.equal(cruiserMesh.length,6*6);
+console.log('Verified buoy proxies, landing shapes, rock frames, sand diagonals and the cruiser mesh overlay.');

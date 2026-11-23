@@ -6,6 +6,8 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   parameter Real cruiserStations[7]={-3.8,-2.7,-1.55,-.2,1.2,2.45,3.82};
   parameter Real halfStripBeam[7]={.53,.64,.67,.65,.59,.46,.02};
   parameter Real displacementFraction[6]={.15,.20,.23,.21,.15,.06};
+  final parameter Real cruiserContactVertices[96,3]=Shore.cruiserVertices();
+  final parameter Integer cruiserContactFaces[188,3]=Shore.pontoonFaces();
   function panelElevations "Incident sea elevations at the buoyancy strips"
     input Real tile[32,32],east[2,6],north[2,6],tide;
     output Real elevations[2,6];
@@ -29,28 +31,31 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
     volume:=min(2.5*designVolume,if noEvent(immersion<0) then designVolume*(wet/draft)^2
       else designVolume+waterplane*immersion);
   end immersedVolume;
-  function hullContact "Terrain wrench on the cruiser keel and chines"
-    input Real pos[3],cy,sy,rotation[3,3],velocity[3],spin[3];
+  function hullContact "Integrate contact pressure over the cruiser hull triangles"
+    input Real pos[3],cy,sy,rotation[3,3],velocity[3],spin[3],vertices[96,3];
+    input Integer faces[188,3];
     output Real wrench[6];
   protected
-    // ENU hull-local points follow the bottom of the rendered V-hull.
-    constant Real probes[17,3]=[
-      -3.70,0,-.57; -2.70,0,-.70; -1.50,0,-.75; -.20,0,-.79;
-      1.05,0,-.76; 2.05,0,-.62; 2.62,0,-.37; 3.25,0,-.13; 3.76,0,.25;
-      -3.60,-.81,-.26; -3.60,.81,-.26; -1.55,-.99,-.32; -1.55,.99,-.32;
-      .60,-.96,-.33; .60,.96,-.33; 2.45,-.58,-.14; 2.45,.58,-.14];
-    Real arm[3],point[3],contact[5];
+    Real a[3],b[3],c[3],areaVector[3],damping,local[3],arm[3],point[3],contact[5];
   algorithm
     wrench:=zeros(6);
     if not Shore.aboveFlatBottom(pos[1],pos[2],pos[3],4) then
-      for probe in 1:size(probes,1) loop
-        arm:=rotation*probes[probe,:];
-        point:=pos+{cy*arm[1]-sy*arm[2],sy*arm[1]+cy*arm[2],arm[3]};
-        if not Shore.aboveFlatBottom(point[1],point[2],point[3],0) then
-          contact:=Shore.skinContact(point,cy,sy,velocity+cross(spin,arm),1000);
-          wrench[1:3]:=wrench[1:3]+contact[1:3];
-          wrench[4:6]:=wrench[4:6]+cross(arm,contact[1:3]);
-        end if;
+      for face in 1:size(faces,1) loop
+        a:=vertices[faces[face,1],:];b:=vertices[faces[face,2],:];c:=vertices[faces[face,3],:];
+        areaVector:=cross(b-a,c-a);
+        // Sample each triangular patch at its vertices and centre. The
+        // contact stiffness and damping scale with tributary surface area.
+        damping:=75*sqrt(areaVector*areaVector);
+        for j in 1:4 loop
+          local:=if j==1 then a elseif j==2 then b elseif j==3 then c else (a+b+c)/3;
+          arm:=rotation*local;
+          point:=pos+{cy*arm[1]-sy*arm[2],sy*arm[1]+cy*arm[2],arm[3]};
+          if not Shore.aboveFlatBottom(point[1],point[2],point[3],0) then
+            contact:=Shore.skinContact(point,cy,sy,velocity+cross(spin,arm),damping);
+            wrench[1:3]:=wrench[1:3]+contact[1:3];
+            wrench[4:6]:=wrench[4:6]+cross(arm,contact[1:3]);
+          end if;
+        end for;
       end for;
     end if;
   end hullContact;
@@ -171,7 +176,7 @@ equation
   boatDamage={encounter.hullHealth,encounter.waterMass,encounter.sinkState};
   shoreWrench=hullContact(focus,cos(yaw),sin(yaw),rotation,
     {surge+cos(yaw)*boatWater.profile[1,2]+sin(yaw)*boatWater.profile[1,3],
-    sway-sin(yaw)*boatWater.profile[1,2]+cos(yaw)*boatWater.profile[1,3],vertical},spin);
+    sway-sin(yaw)*boatWater.profile[1,2]+cos(yaw)*boatWater.profile[1,3],vertical},spin,cruiserContactVertices,cruiserContactFaces);
   when sample(0,.02) then
     (peerForce,peerContact)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},traffic,2,{roll,pitch},trafficTilt);
     (sceneForce,sceneContact)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},

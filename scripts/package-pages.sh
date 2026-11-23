@@ -25,6 +25,7 @@ if [[ ${2:-} == --world ]]; then
     read -r directory model <<< "$pair"
     node scripts/prepare-world-runtime.mjs "$out/$directory" "viewer/fmi3/$model.fmu" "$model"
   done
+  node scripts/export-cruiser-mesh.mjs "$out/motorboat" "$out/motorboat/collision-mesh.json"
   sed 's/<body>/<body data-default-runtime="world">/' viewer/index.html > "$out/index.html"
 fi
 

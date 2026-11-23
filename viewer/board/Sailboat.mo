@@ -79,11 +79,9 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     output Real centerRadius[3];
   protected
     constant Real sloop[7,2]=[-.93,.18;-.68,.26;-.31,.335;.12,.321;.52,.258;.83,.19;1.10,.11];
-    constant Real cruiser[7,2]=[-2.85,.91;-2.18,1.13;-1.14,1.26;0,1.22;1.02,1.12;2.05,.87;3.02,.45];
     constant Real committee[7,2]=[-2.28,.72;-1.79,.90;-1.03,1.04;0,1.02;.88,.96;1.73,.73;2.57,.39];
   algorithm
     centerRadius:=if kind>2.5 then {committee[station,1],0,committee[station,2]}
-      elseif kind>1.5 then {cruiser[station,1],0,cruiser[station,2]}
       elseif kind>.5 then {.95*(station-3),(3-2*hull)*1.02,.49}
       else {sloop[station,1],0,sloop[station,2]};
   end contactSection;
@@ -97,11 +95,11 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     R:=transpose(axisRotationT(1,heel)*axisRotationT(2,pitch)*axisRotationT(3,yaw));
   end frameToWorld;
 
-  function againstHobie "Contact of vessel hull samples with the two triangulated Hobie pontoons"
-    input Real meshPose[7],meshTilt[2],otherPose[7],otherTilt[2],otherKind,scale;
+  function againstHull "Contact witnesses on a triangulated hull"
+    input Real meshPose[7],meshTilt[2],meshKind,otherPose[7],otherTilt[2],otherKind,scale;
     output Real force[2],momentMesh,momentOther,peak;
   protected
-    final parameter Real vertices[96,3]=Shore.pontoonVertices();
+    final parameter Real pontoon[96,3]=Shore.pontoonVertices(),cruiser[96,3]=Shore.cruiserVertices();
     final parameter Integer faces[188,3]=Shore.pontoonFaces();
     Real a[3,3],b[3,3],shift[3],test[3],sample[3],point[3],rel[3],intersect[4],n[3],drag[2];
     Real candidateForce[2],candidateA,candidateB;
@@ -111,12 +109,15 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     a:=frameToWorld(meshPose[3],meshTilt[1],meshTilt[2]);
     b:=frameToWorld(otherPose[3],otherTilt[1],otherTilt[2]);
     shift:={otherPose[1]-meshPose[1],otherPose[2]-meshPose[2],otherPose[7]-meshPose[7]};
-    for h in 1:2 loop
+    for h in 1:(if meshKind<1.5 then 2 else 1) loop
       strongest:=0;candidateForce:=zeros(2);candidateA:=0;candidateB:=0;
       for k in 1:(if otherKind>.5 and otherKind<1.5 then 2 else 1) loop
-        for i in 1:(if otherKind>.5 and otherKind<1.5 then 96 else 7) loop
+        for i in 1:(if otherKind>.5 and otherKind<2.5 then 96 else 7) loop
           if otherKind>.5 and otherKind<1.5 then
-            sample:=vertices[i,:]+{0,(3-2*k)*1.02,0};
+            sample:=pontoon[i,:]+{0,(3-2*k)*1.02,0};
+            radius:=.026;
+          elseif otherKind>=1.5 and otherKind<2.5 then
+            sample:=cruiser[i,:];
             radius:=.026;
           else
             disk:=contactSection(otherKind,1,i);
@@ -125,8 +126,9 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
           end if;
           point:=b*sample;
           rel:=shift+point;
-          test:=transpose(a)*rel-{0,(3-2*h)*1.02,0};
-          intersect:=Shore.pontoonGap(test,vertices,radius,faces);
+          test:=transpose(a)*rel;
+          intersect:=if meshKind<1.5 then Shore.pontoonGap(test-{0,(3-2*h)*1.02,0},pontoon,radius,faces)
+            else Shore.cruiserGap(test,cruiser,radius,faces);
           depth:=radius-intersect[1];
           if depth>0 then
             n:=a*intersect[2:4];
@@ -149,7 +151,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       force:=force+candidateForce;momentMesh:=momentMesh+candidateA;momentOther:=momentOther+candidateB;
       peak:=max(peak,strongest);
     end for;
-  end againstHobie;
+  end againstHull;
 
   function contactWrench "Horizontal compliant vessel contact at sampled waterline sections"
     input Real pose[7],traffic[:,9],kind;
@@ -169,18 +171,18 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
         otherMass:=if traffic[p,9]>2.5 then 1e8 elseif traffic[p,9]>1.5 then 3250 elseif traffic[p,9]>.5 then 206 else 64;
         scale:=max(1,mass*otherMass/((mass+otherMass)*103));
         otherPose:=traffic[p,2:8];
-        if kind>.5 and kind<1.5 then
-          (fa,ma,qa,pa):=againstHobie(pose,tilt,otherPose,trafficTilt[p,:],traffic[p,9],scale);
-          if traffic[p,9]>.5 and traffic[p,9]<1.5 then
-            (fb,mb,qb,pb):=againstHobie(otherPose,trafficTilt[p,:],pose,tilt,kind,scale);
+        if kind>.5 and kind<2.5 then
+          (fa,ma,qa,pa):=againstHull(pose,tilt,kind,otherPose,trafficTilt[p,:],traffic[p,9],scale);
+          if traffic[p,9]>.5 and traffic[p,9]<2.5 then
+            (fb,mb,qb,pb):=againstHull(otherPose,trafficTilt[p,:],traffic[p,9],pose,tilt,kind,scale);
             wrench:=wrench+.5*cat(1,fa-fb,{ma+qb});
             contact[p]:=max(pa,pb);
           else
             wrench:=wrench+cat(1,fa,{ma});
             contact[p]:=pa;
           end if;
-        elseif traffic[p,9]>.5 and traffic[p,9]<1.5 then
-          (fb,mb,qb,pb):=againstHobie(otherPose,trafficTilt[p,:],pose,tilt,kind,scale);
+        elseif traffic[p,9]>.5 and traffic[p,9]<2.5 then
+          (fb,mb,qb,pb):=againstHull(otherPose,trafficTilt[p,:],traffic[p,9],pose,tilt,kind,scale);
           wrench:=wrench+cat(1,-fb,{qb});
           contact[p]:=pb;
         else

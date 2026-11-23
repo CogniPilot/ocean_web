@@ -849,7 +849,7 @@ async function run(saved=readReset(),carried){
   showInLowWaterCapture(bottom);
   const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);let life;
   const defaultContactHull={cat},contactHullFields=['stationX','beamHalf','halfSpacing'];
-  let collisionPainter,shoreContacts,structureContacts,peerCollisionSamples,contactHull,pontoonWire,pontoonLoad,cruiserWire;
+  let collisionPainter,shoreContacts,structureContacts,peerCollisionSamples,contactHull,pontoonWire,pontoonLoad,cruiserWire,cruiserWireLoad;
   function drawCollisions(){
     if(!collisionPainter){
       collisionPainter=collisionOverlay(T);
@@ -867,6 +867,15 @@ async function run(saved=readReset(),carried){
       const cruiserWorld=motor?world:backgroundCruiserWorld;
       const vertices=cruiserWorld?.get('cruiserContactVertices'),faces=cruiserWorld?.get('cruiserContactFaces');
       if(vertices&&faces)cruiserWire=hullWires(vertices,faces);
+      else if(packaged&&!cruiserWireLoad){
+        const meshUrl=new URL('./motorboat/collision-mesh.json',import.meta.url);
+        meshUrl.search=new URL(import.meta.url).search;
+        cruiserWireLoad=fetch(meshUrl,{signal}).then(response=>{
+          if(!response.ok)throw Error('Collision mesh HTTP '+response.status);
+          return response.json();
+        }).then(({vertices,faces})=>{cruiserWire=hullWires(vertices,faces);})
+          .catch(error=>{if(!signal.aborted)console.warn('Cruiser collision mesh unavailable',error);});
+      }
     }
     shoreContacts.draw(collisionPainter,boat?.group,contactHull??defaultContactHull,motor?.group,drone?.group,cruiserWire);
     structureContacts.draw(collisionPainter,sub?.mesh.visible?sub.mesh:null);

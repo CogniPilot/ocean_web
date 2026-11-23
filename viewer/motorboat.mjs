@@ -591,8 +591,8 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   bezelCabin.rotation.x=Math.PI/2;
   const filament=cabinPart(new T.SphereGeometry(1,24,12),0xbdb69d,[0,0,-.022],dome);
   filament.scale.set(.106,.106,.040);
-  const cabinLamp=new T.PointLight(0xffce8f,8,3.0,2);
-  cabinLamp.name='Cabin lamp emitter';cabinLamp.position.copy(dome.position);cabinLamp.position.z-=.07;
+  const cabinLamp=new T.PointLight(0xffdfbc,1.9,2.6,2);
+  cabinLamp.name='Cabin lamp emitter';cabinLamp.position.copy(dome.position);cabinLamp.position.z-=.14;
   cabinLamp.visible=false;cabin.add(cabinLamp);
   cabinObjects.set('light',dome);
   function setCabinLight(on){
@@ -600,6 +600,23 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     cabinLamp.visible=on;filament.material.emissive.setHex(on?0xffc77a:0);filament.material.emissiveIntensity=on?.8:0;
   }
   function setRadio(on){display.material.emissive.setHex(on&&electricalPower?0x6dcc91:0);}
+  const grainSize=128,grainPixels=new Uint8Array(grainSize*grainSize*4);
+  for(let y=0;y<grainSize;y++)for(let x=0;x<grainSize;x++){
+    const u=2*Math.PI*x/grainSize,v=2*Math.PI*y/grainSize;
+    const rings=45*v+.65*Math.sin(u)+.27*Math.sin(2*u+3*v);
+    const tone=224+13*Math.sin(rings)+8*Math.sin(2*rings+.7)+7*Math.cos(3*v+u);
+    grainPixels.set([tone,tone,tone,255],4*(y*grainSize+x));
+  }
+  const woodGrain=new T.DataTexture(grainPixels,grainSize,grainSize);
+  woodGrain.colorSpace=T.SRGBColorSpace;woodGrain.generateMipmaps=true;
+  woodGrain.minFilter=T.LinearMipmapLinearFilter;woodGrain.magFilter=T.LinearFilter;
+  woodGrain.needsUpdate=true;
+  cabin.traverse(part=>{
+    const color=part.material?.color?.getHex();
+    if(color===cabinWood||color===cabinetEdge||color===0xa17e5b){
+      part.material.map=woodGrain;
+    }
+  });
   const floodingEffects=panelCentres.map((x,index)=>{
     const sign=index<3?1:-1,particles=new Float32Array(60*3),geometry=new T.BufferGeometry();
     geometry.setAttribute('position',new T.BufferAttribute(particles,3).setUsage(T.DynamicDrawUsage));
