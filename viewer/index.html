@@ -141,22 +141,32 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
   .control-check,.control-slider input{min-height:40px}
 }
 
-#roomChat{width:min(480px,calc(100% - 22px));max-height:70dvh;background:#0b2938;color:#eff7f5;border:1px solid #65878b;border-radius:9px;padding:12px}
-#roomChat::backdrop{background:#061a2570}
-.chat-heading,.chat-compose{display:flex;align-items:center;gap:8px}
-.chat-heading{justify-content:space-between}
-.chat-heading h2{font:22px Georgia,serif;margin:0}
-#chatLog{min-height:min(20dvh,120px);max-height:35dvh;overflow:auto;overflow-wrap:anywhere;padding:6px 4px;margin:10px 0;list-style:none}
+#roomChat{position:absolute;top:calc(100% + 7px);left:-1px;width:min(322px,46vw);background:#082633ed;color:#eff7f5;border:1px solid #65878b;border-radius:8px;pointer-events:auto}
+#roomChat:not([open]){width:max-content}
+#roomChat>summary{padding:7px 10px;color:#b7e8de;font:13px ui-monospace,monospace;cursor:pointer}
+#roomChat[open]>summary{border-bottom:1px solid #42666e}
+.chat-compose{display:flex;align-items:center;gap:6px;padding:0 8px 8px}
+#chatLog{min-height:42px;max-height:min(20dvh,142px);overflow:auto;overflow-wrap:anywhere;padding:4px 8px;margin:3px 0;list-style:none;font-size:13px}
 #chatLog li{padding:3px 0}
 #chatLog strong{margin-inline-end:.5em;color:#a4e4d9}
 #chatMessage{min-width:0;flex:1;border:1px solid #659995;background:#103540;color:#effdf9;border-radius:5px;padding:8px;font:inherit}
-#chatStatus{display:block}
+#chatStatus:not(:empty){display:block;padding:0 8px 6px}
 @media(max-width:960px){
   #harborMap{right:6px;bottom:calc(var(--panel-height,66px) + 14px);width:min(75vw,325px);max-height:36dvh}
   #harborMapCanvas{max-height:22dvh}
 }
-@media(pointer:coarse){#roomChat button,#chatMessage{min-height:42px}#chatMessage{font-size:16px}}
-</style></head><body><canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas><canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-pressed="false">Radio</button></div></header>
+@media(max-width:650px){#roomChat{width:min(270px,55vw)}#chatMessage{padding:5px}#chatLog{min-height:28px;max-height:min(16dvh,105px)}}
+@media(pointer:coarse){#roomChat button,#chatMessage{min-height:36px}#chatMessage{font-size:16px}}
+</style></head><body><canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas><canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-pressed="false">Radio</button></div><details id="roomChat" hidden>
+<summary id="roomChatTitle">Room chat</summary>
+<ol id="chatLog" role="log" aria-label="Messages" aria-live="polite"></ol>
+<form id="chatSend" class="chat-compose">
+<input type="text" id="chatMessage" placeholder="Message" aria-label="Message" maxlength="400" autocomplete="off" required>
+<button type="submit">Send</button>
+</form>
+<output id="chatStatus" aria-live="polite"></output>
+</details>
+</header>
 <section id="motorSensors" aria-label="Cruiser sensors" hidden><details id="cruiserSonarPanel" data-view="sonar"><summary>Argos 350 · 3D imaging sonar</summary>
 <div class="sonar-controls"><label>Range <select id="cruiserSonarRange"><option value="100">100 m</option><option value="200">200 m</option><option value="350">350 m</option></select></label> <span class="sonar-spec">90° fan · 18 kn limit</span>
 <div class="sonar-tabs"><button type="button" data-pane="sonar" aria-pressed="true">Sonar</button><button type="button" data-pane="chart" aria-pressed="false">Chart</button></div></div>
@@ -359,13 +369,4 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="vehicle.js?viewport=2"></script><script src="wreck.js"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
 <canvas id="harborMapCanvas" width="680" height="420" aria-label="North-up chart showing the race course, island, players and NPCs"></canvas>
 <div id="harborMapLegend"><span style="--point:#e97618">You</span><span style="--point:#a03731">Race course</span></div><output id="harborMapRoster" aria-label="Your coordinates"></output></dialog>
-<dialog id="roomChat" aria-labelledby="roomChatTitle">
-<div class="chat-heading"><h2 id="roomChatTitle">Room chat</h2><form method="dialog"><button>Close</button></form></div>
-<ol id="chatLog" role="log" aria-label="Messages" aria-live="polite"></ol>
-<form id="chatSend" class="chat-compose">
-<input type="text" id="chatMessage" placeholder="Type a message" aria-label="Message" maxlength="400" autocomplete="off" autofocus required>
-<button type="submit">Send</button>
-</form>
-<output id="chatStatus" aria-live="polite"></output>
-</dialog>
 <script type="module" src="sailing-live.mjs?hud=2"></script></body></html>

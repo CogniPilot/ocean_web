@@ -387,15 +387,19 @@ async function run(saved=readReset(),carried){
     updatePenalty(ruleTracker.update({time:model.time,stage,countdown,boat:{east,north,heading,speed,sheet,cat},
       peers,marks,windFrom:ocean.U.bearing.value+Math.PI}));
   }
-  const chatDialog=$('roomChat'),chatButton=$('openChat'),chatLog=$('chatLog'),chatInput=$('chatMessage');
+  const chatPanel=$('roomChat'),chatTitle=$('roomChatTitle'),chatButton=$('openChat'),chatLog=$('chatLog'),chatInput=$('chatMessage');
   let chatScope=null,unread=0;
-  function chatBadge(){chatButton.textContent=unread?'Chat ('+unread+')':'Chat';}
+  function chatBadge(){
+    const count=unread?' ('+unread+')':'';
+    chatTitle.textContent='Room chat'+count;
+    chatButton.textContent='Chat'+count;
+  }
   function chatMessage(name,message){
     const row=document.createElement('li'),sender=document.createElement('strong');
     sender.textContent=name;
     row.append(sender,message);chatLog.append(row);
     if(chatLog.children.length>60)chatLog.firstElementChild.remove();
-    if(chatDialog.open)chatLog.scrollTop=chatLog.scrollHeight;
+    if(chatPanel.open)chatLog.scrollTop=chatLog.scrollHeight;
     else{unread=Math.min(99,unread+1);chatBadge();}
   }
   const weather={
@@ -415,7 +419,8 @@ async function run(saved=readReset(),carried){
       chatScope=room;
       if(model)resetPenalties();
       chatButton.hidden=!room;
-      if(chatDialog.open)chatDialog.close();
+      chatPanel.hidden=!room;
+      chatPanel.open=Boolean(room);
       chatLog.replaceChildren();
       chatInput.value='';
       $('chatStatus').value='';
@@ -1606,7 +1611,7 @@ async function run(saved=readReset(),carried){
           degrees*$('lampYaw').value,-degrees*$('lampTilt').value];
       }
     }
-    const carry={remote,npcTraffic,online,phase,cruiserRuntime:preserveCruiser?cruiserRuntime:null,
+    const carry={remote,npcTraffic,online,phase,cruiserRuntime:preserveCruiser?cruiserRuntime:null,chatOpen:chatPanel.open,
       chatMessages:[...chatLog.children].map(row=>row.cloneNode(true))};
     remote.detachView();
     lifetime.abort();
@@ -1805,20 +1810,25 @@ async function run(saved=readReset(),carried){
     focusGame();
   }
   function openChat(){
-    if(!chatScope||chatDialog.open)return;
-    releaseControls();
-    unread=0;chatBadge();
-    chatDialog.showModal();chatInput.focus();
-    chatLog.scrollTop=chatLog.scrollHeight;
+    if(!chatScope)return;
+    chatPanel.open=true;
+    chatInput.focus({preventScroll:true});
   }
   $('harborMapButton').onclick=toggleMap;
   mapDialog.addEventListener('close',focusGame);
   chatButton.onclick=openChat;
-  chatDialog.addEventListener('close',focusGame);
-  chatDialog.addEventListener('keydown',e=>{
+  chatPanel.addEventListener('focusin',releaseControls);
+  chatPanel.addEventListener('toggle',()=>{
+    if(chatPanel.open){
+      unread=0;chatBadge();
+      chatLog.scrollTop=chatLog.scrollHeight;
+    }else if(chatPanel.contains(document.activeElement))focusGame();
+  });
+  chatPanel.addEventListener('keydown',e=>{
     if(e.key==='Escape'&&!e.isComposing){
       e.preventDefault();
-      chatDialog.close();
+      chatPanel.open=false;
+      focusGame();
     }
   });
   function cycleCamera(){
@@ -1851,7 +1861,7 @@ async function run(saved=readReset(),carried){
     }
   };
   on(window,'keydown',e=>{
-    if(e.defaultPrevented||e.repeat||e.altKey||e.ctrlKey||e.metaKey||chatDialog.open||
+    if(e.defaultPrevented||e.repeat||e.altKey||e.ctrlKey||e.metaKey||chatPanel.contains(e.target)||
       e.target.isContentEditable||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
     if(e.key==='Enter'&&chatScope&&e.target.tagName!=='BUTTON')openChat();
     else if(e.code==='KeyC'){if(!cycleCamera())return;}
@@ -1864,13 +1874,13 @@ async function run(saved=readReset(),carried){
   on(window,'keydown',e=>{
     const fullRelease=e.shiftKey&&e.code==='ArrowUp';
     const formControl=['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName);
-    if(!moveTraveler||chatDialog.open||targetSelect.value!=='boat'||!manual||
+    if(!moveTraveler||chatPanel.contains(e.target)||targetSelect.value!=='boat'||!manual||
       e.altKey||e.ctrlKey||e.metaKey||(e.shiftKey&&!fullRelease)||e.target.isContentEditable||
       (formControl&&!(fullRelease&&e.target.type==='range'))||!e.code.startsWith('Arrow'))return;
     e.preventDefault();
     if(!fullRelease||!e.repeat)moveTraveler(e.code,fullRelease,e.repeat);
   });
-  on(window,'keydown',e=>{if(!e.defaultPrevented&&!chatDialog.open&&e.code!=='KeyM'&&manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){if(animalId){if(e.code==='KeyF'&&!flyingGull()){if(!e.repeat)$('animalFeed').click();return;}if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat){if(flyingGull())remote.npc.gullCall(gullIndex(animalId));else $('animalBreach').click();}return;}if(e.code.startsWith('Arrow'))e.preventDefault();}else if(drone?.active){
+  on(window,'keydown',e=>{if(!e.defaultPrevented&&!chatPanel.contains(e.target)&&e.code!=='KeyM'&&manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){if(animalId){if(e.code==='KeyF'&&!flyingGull()){if(!e.repeat)$('animalFeed').click();return;}if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat){if(flyingGull())remote.npc.gullCall(gullIndex(animalId));else $('animalBreach').click();}return;}if(e.code.startsWith('Arrow'))e.preventDefault();}else if(drone?.active){
       if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat)$('cutMotors').click();return;}
       if(e.code.startsWith('Arrow'))e.preventDefault();
     }else if(sub?.active&&e.code.startsWith('Arrow'))e.preventDefault();
@@ -2101,6 +2111,7 @@ async function run(saved=readReset(),carried){
     remote.resumeClock(carried.phase-(world?.time??model.time));
     remote.attachView({scene,status:$('online'),weather,crew:$('crew'),laps,onImagingHit:playImagingHit,chat});
     chatLog.append(...carried.chatMessages);
+    if(chatScope)chatPanel.open=carried.chatOpen;
     npcTraffic?.attachView({scene,surface:npcSurface,windAt:ocean.sampleWind,race,incidentSea:npcIncidentSea,onError:npcError,onFinish:laps.observeNpc});
     if(carried.online&&!remote.connected)multiplayer(true);
     else{
