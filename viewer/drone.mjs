@@ -73,6 +73,11 @@ export async function surveyDrone(T,scene,world){
   return {group,instruments,hasNavigation,covariance,bladeCount,hasRotorWake,wakeGeometry,
     wakeSources(rows){if(hasRotorWake)flight.set('rotorWakeTraffic',rows);},
     wakeLoad(){return flight.has('rotorWakeWrench')?flight.getMany(['rotorWakeWind','rotorWakeWrench']):null;},
+    wakeSource(){
+      if(!hasRotorSpeeds)return null;
+      const [position,orientation,speeds]=flight.getMany(['position','quaternion','rotorSpeed']);
+      return [1,...position,...orientation,...speeds];
+    },
     inertia(){return droneInertia(name=>flight.has(name)?flight.get(name):undefined);},
     get throttle(){return flight.get('throttle');},get rotorAngles(){return flight.get('rotorAngle');},
     get rotorSpeeds(){return hasRotorSpeeds?flight.get('rotorSpeed'):null;},

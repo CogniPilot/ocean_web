@@ -32,12 +32,25 @@ assert(wash({speed:0,type:2}).wind[2]<-4);
 assert(wash({orientation:[Math.cos(.2),Math.sin(.2),0,0]}).wind[1]>0);
 wash();
 const probe=await loadInstance('AirflowProbe',{},read);
-const grid=sampleAirflow(probe,[east,north,up],[0,0,0],{
+const geometry={
   traffic:rows,hubs:drone.get('aircraft.rotorGeometry.positionBodyFlu_m'),
   parameters:drone.getMany(['aircraft.thrustCoefficient_N_s2','aircraft.hoverRotorSpeed_rad_s','aircraft.omegaMax','propellerRadius'])
-});
-assert.deepEqual(grid.velocity.slice(36,39),centered.wind,'Airflow slice must agree with the aircraft center sample');
-assert.equal(grid.velocity[98],0,'No rotor wake above the source');
+};
+const grid=sampleAirflow(probe,[east,north,up],[0,0,0],{rotors:geometry});
+const index=(x,y,z)=>3*((z*7+y)*7+x);
+const center=index(3,3,5);
+assert.deepEqual(grid.dimensions,[7,7,7]);
+assert(Math.abs(grid.points[index(4,3,5)]-east-.18)<1e-9);
+assert(Math.abs(grid.points[index(3,3,4)+2]-up+.125)<1e-9);
+assert.deepEqual(grid.velocity.slice(center,center+3),centered.wind,'Airflow volume must agree with the aircraft center sample');
+assert.equal(grid.velocity[index(3,3,6)+2],0,'No rotor wake above the source');
+assert(grid.velocity[index(6,3,5)+2]>centered.wind[2]&&grid.velocity[index(3,6,5)+2]>centered.wind[2]);
+const own=sampleAirflow(probe,[east,north,up],[0,0,0],{rotors:{
+  ...geometry,traffic:new Float64Array(48),source:[1,east,north,up,1,0,0,0,800,800,800,800]
+}});
+assert(Math.abs(own.thrust-4*geometry.parameters[0]*800**2)<1e-8);
+assert(own.velocity[index(3,3,3)+2]<-4);
+assert.equal(own.velocity[index(3,3,6)+2],0);
 advance(drone,60);
 advance(clear,60);
 assert(drone.get('position')[2]<clear.get('position')[2]-.04,'Downwash must change flight dynamics');

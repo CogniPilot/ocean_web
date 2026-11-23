@@ -8,38 +8,42 @@ export const refinedHullInspectionFields=['hydroStationGeometry','hydroSectionVo
 export const battenInspectionFields=[1,2].flatMap(sail=>
   ['battenCount','battenLuff','battenLeech','mesh'].map(name=>`cloth[${sail}].${name}`));
 
-export function sampleAirflow(model,position,ambient,rotors,sailPeers,sailNpcs){
-  const points=new Float64Array(35*3);
-  const spacing=rotors ? .8 : 3;
-  let [alongEast,alongNorth]=ambient;
-  if(rotors?.traffic[0]){
-    const [east,north]=rotors.traffic.subarray(1,3);
-    if(Math.hypot(east-position[0],north-position[1])>.3){
-      alongEast=east-position[0];alongNorth=north-position[1];
-    }
-  }
-  const length=Math.hypot(alongEast,alongNorth);
-  const east=length>.01?alongEast/length:1,north=length>.01?alongNorth/length:0;
-  for(let row=0;row<7;row++)for(let col=0;col<5;col++){
-    const along=(rotors?col-2:row-4)*spacing;
-    const across=rotors?0:(col-2)*spacing;
+export function sampleAirflow(model,position,ambient,{rotors,sailPeers,sailNpcs,sailSource,catamaran}={}){
+  const dimensions=rotors?[7,7,7]:[7,5,5];
+  const [length,width,height]=dimensions;
+  const buffer=new Float64Array(343*3);
+  const points=buffer.subarray(0,length*width*height*3);
+  const [dx,dy,dz]=catamaran?[3,3,1.8]:[2,2,.65];
+  const nearRotor=[-1.45,-.52,-.18,0,.18,.52,1.45];
+  const rotorLevels=[-2.8,-1.6,-.72,-.33,-.125,0,1.6];
+  const [alongEast,alongNorth]=ambient;
+  const horizontalWind=Math.hypot(alongEast,alongNorth);
+  const alignWind=!rotors&&horizontalWind>.01;
+  const east=alignWind?alongEast/horizontalWind:1,north=alignWind?alongNorth/horizontalWind:0;
+  for(let z=0;z<height;z++)for(let y=0;y<width;y++)for(let x=0;x<length;x++){
+    const along=rotors?nearRotor[x]:(x-(length-1)/2)*dx;
+    const across=rotors?nearRotor[y]:(y-(width-1)/2)*dy;
+    const elevation=rotors?rotorLevels[z]:(z-1)*dz;
     points.set([position[0]+along*east-across*north,position[1]+along*north+across*east,
-      position[2]+(rotors?(row-2)*spacing:0)],3*(5*row+col));
+      position[2]+elevation],3*((z*width+y)*length+x));
   }
   model.set('mode',Number(Boolean(rotors)));
-  model.set('points',points);
+  model.set('points',buffer);
   model.set('ambient',ambient);
   if(rotors){
     model.set('rotorTraffic',rotors.traffic);
     model.set('rotorHubs',rotors.hubs);
     model.set('rotorParameters',rotors.parameters);
+    model.set('localRotor',rotors.source??new Float64Array(12));
   }else{
     const traffic=new Float64Array(90);
     if(sailPeers)traffic.set(sailPeers);
     if(sailNpcs)traffic.set(sailNpcs,36);
+    if(sailSource)traffic.set(sailSource,81);
     model.set('sailTraffic',traffic);
   }
-  return {points,ambient,spacing,velocity:model.get('velocity'),vertical:Boolean(rotors)};
+  return {points,position,ambient,dimensions,spacing:rotors ? .32 : Math.min(dx,dy,dz),velocity:model.get('velocity').slice(0,points.length),
+    rotor:Boolean(rotors),thrust:rotors?model.get('localRotorThrust'):null};
 }
 
 export function alignPontoonSamples(points,stations,separation,transform,aligned){
@@ -65,7 +69,7 @@ export function physicsView(T,canvas,status){
     wet:'#5af2e9',dry:'#a1aab7',wind:'#7ebaff',wake:'#bd96ff',near:'#ffce74',swimmer:'#62ffe3',surface:'#d8faff'};
   const surfaceField={size:32,length:64,emphasis:true};
   let gridPixels=new Float64Array(32*32*2);
-  const a=new T.Vector3(),b=new T.Vector3(),center=new T.Vector3();
+  const a=new T.Vector3(),b=new T.Vector3(),center=new T.Vector3(),airflowOffset=new T.Vector3(),priorFlow=new T.Vector3();
   let pontoonPoints;
   let width,height,camera;
   const labelRects=[],markCache=new WeakMap(),battenPaths=new WeakMap(),rigMeshes=new WeakMap();
@@ -393,15 +397,32 @@ export function physicsView(T,canvas,status){
     }
   }
 
-  function drawAirflow({points,velocity,ambient,spacing}){
+  function drawAirflow({points,position,velocity,ambient,dimensions,spacing,previous,blend,anchor}){
+    const [length,width,height]=dimensions;
+    airflowOffset.fromArray(anchor).sub(a.fromArray(position));
+    const pointAt=(target,i)=>target.fromArray(points,i).add(airflowOffset);
+    const corner=(x,y,z)=>3*(((z?height-1:0)*width+(y?width-1:0))*length+(x?length-1:0));
+    ink.beginPath();
+    for(let x=0;x<2;x++)for(let y=0;y<2;y++)for(let z=0;z<2;z++){
+      pointAt(a,corner(x,y,z));
+      if(!x)segment(a,pointAt(b,corner(1,y,z)));
+      if(!y)segment(a,pointAt(b,corner(x,1,z)));
+      if(!z)segment(a,pointAt(b,corner(x,y,1)));
+    }
+    ink.strokeStyle='rgba(121, 200, 238, .48)';ink.lineWidth=1;ink.stroke();
     let fastest=4;
-    for(let i=0;i<velocity.length;i+=3)fastest=Math.max(fastest,Math.hypot(velocity[i],velocity[i+1],velocity[i+2]));
+    const vectorAt=i=>previous?b.fromArray(previous.velocity,i).lerp(priorFlow.fromArray(velocity,i),blend):b.fromArray(velocity,i);
+    for(let i=0;i<velocity.length;i+=3)fastest=Math.max(fastest,vectorAt(i).length());
     const scale=.76*spacing/fastest;
     for(let i=0;i<points.length;i+=3){
-      a.fromArray(points,i);
-      b.fromArray(velocity,i);
+      pointAt(a,i);
+      vectorAt(i);
       const difference=Math.hypot(b.x-ambient[0],b.y-ambient[1],b.z-ambient[2]);
-      const color=difference>.15?'#ffc281':'#94deff';
+      const inWake=difference>.15;
+      const index=i/3;
+      // Keep every disturbed sample and a coarse lattice of ambient vectors.
+      if(!inWake&&(index%length%2||Math.floor(index/length)%width%2||Math.floor(index/(length*width))%2))continue;
+      const color=inWake?'#ffc281':'#94deff';
       b.multiplyScalar(scale).add(a);
       const p=project(a,null);
       if(!p)continue;
@@ -451,7 +472,9 @@ export function physicsView(T,canvas,status){
     }
     if(body.airflow){
       drawAirflow(body.airflow);
-      captions.push((body.airflow.vertical?'Vertical rotor-wake slice':'Horizontal sail-wake slice')+' · Blue ambient · Amber disturbed');
+      const {rotor,thrust}=body.airflow;
+      captions.push((rotor?'3D rotor wake · Estimated rotor thrust '+thrust.toFixed(1)+' N':'3D sail wake')+
+        ' · Blue ambient · Amber disturbed');
     }else if(body.airflowMessage)captions.push(body.airflowMessage);
     if(options.rig&&body.rig?.sails.some(sail=>sail.battenRows))
       captions.push('Yellow · Batten rows in the cloth mesh');

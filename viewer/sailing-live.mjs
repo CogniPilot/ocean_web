@@ -282,7 +282,8 @@ async function run(saved=readReset(),carried){
   };
   const waveGrids=$('physicsWater'),waveLayer=$('waveLayer'),airflowToggle=$('physicsAir');
   airflowToggle.checked=saved?.fields.physicsAir??(url.searchParams.get('airflow')==='1');
-  let airflowModel,airflowLoad,airflowFailure,airflowFrame,airflowAt=-Infinity;
+  const airflowInterval=125;
+  let airflowModel,airflowLoad,airflowFailure,airflowFrame,previousAirflow,airflowAt=-Infinity;
   waveGrids.onchange=()=>$('waveLayerControl').hidden=!waveGrids.checked;
   waveGrids.onchange();
   let inspector,physicsEnabled=false,inspectionHull,inspectionTime,hullGridSamples,fineHullGridSamples;
@@ -2949,21 +2950,29 @@ async function run(saved=readReset(),carried){
             if(!airflowLoad)airflowLoad=loadInstance('AirflowProbe',{}).then(instance=>{airflowModel=instance;})
               .catch(error=>{airflowFailure=error;console.warn('Airflow probes',error);});
             if(airflowModel){
-              const vertical=kind==='drone';
-              if(!airflowFrame||airflowFrame.vertical!==vertical||now-airflowAt>=125){
-                if(vertical&&drone.wakeGeometry){
+              const rotor=kind==='drone';
+              const heightOffset=rotor?0:cat?2.6:1.1;
+              if(!airflowFrame||airflowFrame.rotor!==rotor||now-airflowAt>=airflowInterval){
+                previousAirflow=airflowFrame?.rotor===rotor?airflowFrame:null;
+                if(rotor&&drone.wakeGeometry){
                   const position=drone.position;
                   const ambient=world?.get('wind.droneWind')??windField.get('droneWind');
-                  airflowFrame=sampleAirflow(airflowModel,position,ambient,
-                    {...drone.wakeGeometry,traffic:remote.rotorWakes(position,now,npcTraffic?.droneWakes)});
+                  airflowFrame=sampleAirflow(airflowModel,position,ambient,{rotors:{...drone.wakeGeometry,
+                    traffic:remote.rotorWakes(position,now,npcTraffic?.droneWakes),source:drone.wakeSource()}});
                 }else if(sailing){
-                  const {x,y,z}=inspected.position;
-                  airflowFrame=sampleAirflow(airflowModel,[x,y,z+(cat?2.6:1.1)],[...wind,0],null,
-                    peerCollisionSamples,npcTraffic?.contacts);
+                  const [east,north,yaw,heave]=s;
+                  airflowFrame=sampleAirflow(airflowModel,[east,north,heave+heightOffset],[...wind,0],{
+                    sailPeers:peerCollisionSamples,sailNpcs:npcTraffic?.contacts,catamaran:cat,
+                    sailSource:[1,east,north,yaw,extra[4],extra[5],extra[6],heave,Number(cat)]
+                  });
                 }
                 airflowAt=now;
               }
-              if(airflowFrame?.vertical===vertical)body.airflow=airflowFrame;
+              if(airflowFrame?.rotor===rotor){
+                const {x,y,z}=inspected.position;
+                body.airflow={...airflowFrame,previous:previousAirflow,blend:Math.min(1,(now-airflowAt)/airflowInterval),
+                  anchor:[x,y,z+heightOffset]};
+              }
               else body.airflowMessage='Airflow samples unavailable for this vehicle';
             }else body.airflowMessage=airflowFailure?'Airflow samples unavailable':'Loading airflow samples';
           }

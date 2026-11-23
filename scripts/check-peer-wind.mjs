@@ -50,7 +50,9 @@ for(const hull of ['Hobie16','Sailboat']){
 const probe=await loadInstance('AirflowProbe',{},read);
 const peers=new Float64Array(36);
 peers.set([1,-8,0,0,0,0,0,0,1]);
-const {velocity}=sampleAirflow(probe,[0,0,3.46],[10,0,0],null,peers);
-const center=3*(4*5+2);
+const {velocity,dimensions}=sampleAirflow(probe,[0,0,3.46],[10,0,0],{sailPeers:peers,catamaran:true});
+const center=3*((5+2)*7+3);
+assert.deepEqual(dimensions,[7,5,5]);
 assert.equal(velocity[0],10,'The sample grid includes undisturbed upwind air');
-assert(velocity[center]<9&&velocity[center-3]>velocity[center],'The sample grid resolves the sail shadow');
+assert(velocity[center]<9&&velocity[center+3*7]>velocity[center]&&velocity[center+3*7*5*3]>velocity[center],
+  'The sample grid resolves the sail shadow across and above the wake');

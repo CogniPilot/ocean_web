@@ -392,7 +392,7 @@ function whitecapField(T,U){
    [1.12,.11,.102,2.3],[1.38,-.24,.084,5.2],[1.72,.02,.089,.7],[1.98,.29,.076,4.2],
    [2.26,-.13,.070,1.5],[2.61,.41,.065,5.8],[2.94,-.36,.057,3.3],[3.31,.18,.054,.2],
    [3.64,-.52,.047,2.9],[3.92,.51,.042,5.4],[4.29,-.31,.039,1.1],[4.61,.36,.034,4.5]
- ];
+ ].map(([k,angle,steepness,phase])=>[k,angle*(k<3.2 ? .49 : .78),steepness,phase]);
  const sigma=Math.sqrt(modes.reduce((sum,[,,steepness])=>sum+.5*steepness**2,0));
  const waveTerms=modes.map(([k,angle,steepness,phase])=>{
    const x=Math.cos(angle).toFixed(7),y=Math.sin(angle).toFixed(7);
@@ -457,16 +457,20 @@ function whitecapField(T,U){
        // a fraction of the measured area, the rest is drifting foam.
        float x=sqrt(-2.*log(clamp(.81*totalCoverage,1e-6,.08)));
        float onset=x-(2.515517+x*(.802853+.010328*x))/(1.+x*(1.432788+x*(.189269+.001308*x)));
-       float spilling=smoothstep(onset-.12,onset+.22,severity);
-       float front=smoothstep(-.028,.15,-gradient.x);
-       float source=smoothstep(3.87,6.,wind10)*spilling*(.26+.74*front);
+       // Keep the active lip on the steepening face of a coherent crest.
+       float spilling=smoothstep(onset-.25,onset+.18,severity);
+       float front=smoothstep(-.012,.13,-gradient.x);
+       float source=smoothstep(3.87,6.,wind10)*spilling*front;
        // Semi-Lagrangian advection. Foam moves with the water and wind
        // drift while the dispersive crest moves away at phase speed.
        vec2 drift=surfaceCurrent+(.025*wind10+.46*orbital.x)*downwind+.46*orbital.y*across;
        vec2 back=(world-elapsed*drift-previousCenter)/span+.5;
        float residual=0.;
        if(hasHistory>.5&&all(greaterThan(back,vec2(0.)))&&all(lessThan(back,vec2(1.)))){
-         float foam=texture2D(history,back).g;
+         // Residual bubbles disperse preferentially downwind as the lip moves on.
+         vec2 spread=downwind*sqrt(.35*elapsed)/span;
+         float foam=.6*texture2D(history,back).g+.2*(texture2D(history,back-spread).g
+           +texture2D(history,back+spread).g);
          // Callaghan et al. (2012) model the decay of foam area exponentially.
          float lifetime=mix(1.8,3.8,smoothstep(7.,15.,wind10));
          residual=foam*exp(-elapsed/lifetime);
@@ -1058,10 +1062,10 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
      float crisp=1.-smoothstep(.18,.70,length(fwidth(wp.xy)));
      // Preserve the small holes in a nearby spilling front while retaining
      // the atlas's area average when that front falls below a pixel.
-     float lip=smoothstep(.14+.17*bubbleNoise,.67,whitecap.x)*(.73+.27*bubbles);
+     float lip=smoothstep(.10+.12*bubbleNoise,.59,whitecap.x)*(.70+.30*bubbles);
      fresh=mix(fresh,lip,crisp);
-     float residue=whitecap.y*(.37+.63*bubbles);
-     float foam=max(fresh,.53*residue);
+     float residue=whitecap.y*(.29+.71*bubbles);
+     float foam=max(fresh,.46*residue);
      if(bowFoamAvailable>.5&&nearBowField(wp.xy,4.)){
        vec2 local=bowLocal(wp.xy);
        vec2 flow=local+vec2(tm*clamp(.45*abs(boat.w),.4,2.8),0.);
