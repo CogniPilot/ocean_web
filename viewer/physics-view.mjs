@@ -8,6 +8,40 @@ export const refinedHullInspectionFields=['hydroStationGeometry','hydroSectionVo
 export const battenInspectionFields=[1,2].flatMap(sail=>
   ['battenCount','battenLuff','battenLeech','mesh'].map(name=>`cloth[${sail}].${name}`));
 
+export function sampleAirflow(model,position,ambient,rotors,sailPeers,sailNpcs){
+  const points=new Float64Array(35*3);
+  const spacing=rotors ? .8 : 3;
+  let [alongEast,alongNorth]=ambient;
+  if(rotors?.traffic[0]){
+    const [east,north]=rotors.traffic.subarray(1,3);
+    if(Math.hypot(east-position[0],north-position[1])>.3){
+      alongEast=east-position[0];alongNorth=north-position[1];
+    }
+  }
+  const length=Math.hypot(alongEast,alongNorth);
+  const east=length>.01?alongEast/length:1,north=length>.01?alongNorth/length:0;
+  for(let row=0;row<7;row++)for(let col=0;col<5;col++){
+    const along=(rotors?col-2:row-4)*spacing;
+    const across=rotors?0:(col-2)*spacing;
+    points.set([position[0]+along*east-across*north,position[1]+along*north+across*east,
+      position[2]+(rotors?(row-2)*spacing:0)],3*(5*row+col));
+  }
+  model.set('mode',Number(Boolean(rotors)));
+  model.set('points',points);
+  model.set('ambient',ambient);
+  if(rotors){
+    model.set('rotorTraffic',rotors.traffic);
+    model.set('rotorHubs',rotors.hubs);
+    model.set('rotorParameters',rotors.parameters);
+  }else{
+    const traffic=new Float64Array(90);
+    if(sailPeers)traffic.set(sailPeers);
+    if(sailNpcs)traffic.set(sailNpcs,36);
+    model.set('sailTraffic',traffic);
+  }
+  return {points,ambient,spacing,velocity:model.get('velocity'),vertical:Boolean(rotors)};
+}
+
 export function alignPontoonSamples(points,stations,separation,transform,aligned){
   const sections=stations.length/6;
   for(let side=0;side<2;side++){
@@ -359,6 +393,31 @@ export function physicsView(T,canvas,status){
     }
   }
 
+  function drawAirflow({points,velocity,ambient,spacing}){
+    let fastest=4;
+    for(let i=0;i<velocity.length;i+=3)fastest=Math.max(fastest,Math.hypot(velocity[i],velocity[i+1],velocity[i+2]));
+    const scale=.76*spacing/fastest;
+    for(let i=0;i<points.length;i+=3){
+      a.fromArray(points,i);
+      b.fromArray(velocity,i);
+      const difference=Math.hypot(b.x-ambient[0],b.y-ambient[1],b.z-ambient[2]);
+      const color=difference>.15?'#ffc281':'#94deff';
+      b.multiplyScalar(scale).add(a);
+      const p=project(a,null);
+      if(!p)continue;
+      const {x,y}=p,q=project(b,null);
+      if(!q)continue;
+      const dx=q.x-x,dy=q.y-y,length=Math.hypot(dx,dy);
+      if(length<3){dot(a,null,color,1.5);continue;}
+      const ux=dx/length,uy=dy/length,head=Math.min(7,length*.38);
+      ink.beginPath();ink.moveTo(x,y);ink.lineTo(q.x,q.y);
+      ink.moveTo(q.x-head*(ux-.50*uy),q.y-head*(uy+.50*ux));ink.lineTo(q.x,q.y);
+      ink.lineTo(q.x-head*(ux+.50*uy),q.y-head*(uy-.50*ux));
+      ink.strokeStyle='#0c2232';ink.lineWidth=3.5;ink.stroke();
+      ink.strokeStyle=color;ink.lineWidth=1.5;ink.stroke();
+    }
+  }
+
   function draw(viewCamera,body,options,hull){
     width=canvas.clientWidth;height=canvas.clientHeight;
     if(!width||!height)return;
@@ -390,6 +449,10 @@ export function physicsView(T,canvas,status){
       drawProbes(body.probes);
       captions.push('White dots · Buoyancy surface samples');
     }
+    if(body.airflow){
+      drawAirflow(body.airflow);
+      captions.push((body.airflow.vertical?'Vertical rotor-wake slice':'Horizontal sail-wake slice')+' · Blue ambient · Amber disturbed');
+    }else if(body.airflowMessage)captions.push(body.airflowMessage);
     if(options.rig&&body.rig?.sails.some(sail=>sail.battenRows))
       captions.push('Yellow · Batten rows in the cloth mesh');
     else if(options.rig&&body.rig?.battens?.some(([count])=>count>0))

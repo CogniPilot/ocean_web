@@ -1,5 +1,5 @@
 import {harborMap} from './harbor-map.mjs';
-import {physicsView,hullInspectionFields,refinedHullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
+import {physicsView,sampleAirflow,hullInspectionFields,refinedHullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
 import {collisionOverlay,drawAnimalCollision,drawVesselContacts,hullWires,pontoonWires} from './collision-view.mjs';
 import {cruiserInertia,inertiaOverlay,sailingInertia,subInertia} from './inertia-view.mjs';
 import {surfaceCollisionShapes} from './surface-collision-view.mjs';
@@ -120,7 +120,7 @@ async function chooseVehicle(){
   return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true}));
 }
 const resetStorage='ocean-world-reset';
-const settingsFields='wind seaState sky storm quality simulationSpeed compassWind roomName physicsView physicsRig physicsHulls physicsWater waveLayer collisionShapes inertiaShapes showDroneCovariance vang outhaul autoTrim showBallastMarker ballX ballY autoDeck jibTackAssist mainCar jibCar jibSheet searchLamp keelLamp lampYaw lampTilt subMode flightMode sonarMap showDvlRays cruiserSonarRange echoCamera wiperSwitch jibHalyard mastPort musicVolume effectsVolume spawnKind'.split(' ');
+const settingsFields='wind seaState sky storm quality simulationSpeed compassWind roomName physicsView physicsRig physicsHulls physicsWater physicsAir waveLayer collisionShapes inertiaShapes showDroneCovariance vang outhaul autoTrim showBallastMarker ballX ballY autoDeck jibTackAssist mainCar jibCar jibSheet searchLamp keelLamp lampYaw lampTilt subMode flightMode sonarMap showDvlRays cruiserSonarRange echoCamera wiperSwitch jibHalyard mastPort musicVolume effectsVolume spawnKind'.split(' ');
 const toggleSettings=['showCompass','showForces','cruiserChartFit','cutMotors','helm','subLamp'];
 const settingPanels=()=>document.querySelectorAll('.control-pane,#racePanel,#fleetRoster,#cruiserSonarPanel,#cruiserCameras,#subSensors,#fishFinder');
 function readReset(){
@@ -280,7 +280,9 @@ async function run(saved=readReset(),carried){
     else url.searchParams.delete('inertia');
     history.replaceState(history.state,'',url);
   };
-  const waveGrids=$('physicsWater'),waveLayer=$('waveLayer');
+  const waveGrids=$('physicsWater'),waveLayer=$('waveLayer'),airflowToggle=$('physicsAir');
+  airflowToggle.checked=saved?.fields.physicsAir??(url.searchParams.get('airflow')==='1');
+  let airflowModel,airflowLoad,airflowFailure,airflowFrame,airflowAt=-Infinity;
   waveGrids.onchange=()=>$('waveLayerControl').hidden=!waveGrids.checked;
   waveGrids.onchange();
   let inspector,physicsEnabled=false,inspectionHull,inspectionTime,hullGridSamples,fineHullGridSamples;
@@ -2943,6 +2945,28 @@ async function run(saved=readReset(),carried){
         if(inspected){
           const body={group:inspected,kind,rig,thrust:kind==='sub'?subFrame?.thrust:null,
             strips:showHulls&&kind==='motorboat'&&motor?cruiserInspectionFields.map(name=>world.get(name)):null};
+          if(airflowToggle.checked&&(sailing||kind==='drone'&&inspected===drone?.group)){
+            if(!airflowLoad)airflowLoad=loadInstance('AirflowProbe',{}).then(instance=>{airflowModel=instance;})
+              .catch(error=>{airflowFailure=error;console.warn('Airflow probes',error);});
+            if(airflowModel){
+              const vertical=kind==='drone';
+              if(!airflowFrame||airflowFrame.vertical!==vertical||now-airflowAt>=125){
+                if(vertical&&drone.wakeGeometry){
+                  const position=drone.position;
+                  const ambient=world?.get('wind.droneWind')??windField.get('droneWind');
+                  airflowFrame=sampleAirflow(airflowModel,position,ambient,
+                    {...drone.wakeGeometry,traffic:remote.rotorWakes(position,now,npcTraffic?.droneWakes)});
+                }else if(sailing){
+                  const {x,y,z}=inspected.position;
+                  airflowFrame=sampleAirflow(airflowModel,[x,y,z+(cat?2.6:1.1)],[...wind,0],null,
+                    peerCollisionSamples,npcTraffic?.contacts);
+                }
+                airflowAt=now;
+              }
+              if(airflowFrame?.vertical===vertical)body.airflow=airflowFrame;
+              else body.airflowMessage='Airflow samples unavailable for this vehicle';
+            }else body.airflowMessage=airflowFailure?'Airflow samples unavailable':'Loading airflow samples';
+          }
           const probes=cat&&sailing?world?.get('hydroSurfaceProbes'):null;
           if(probes?.length){
             const stamp=world.get('sectionStamp');

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
+import {sampleAirflow} from '../viewer/physics-view.mjs';
 
 const read=async url=>new Response(await readFile(url));
 const initial={stationEast:-5,stationNorth:0,windENU:[0,0,0]};
@@ -30,6 +31,13 @@ assert(wash({speed:400}).wind[2]>centered.wind[2]);
 assert(wash({speed:0,type:2}).wind[2]<-4);
 assert(wash({orientation:[Math.cos(.2),Math.sin(.2),0,0]}).wind[1]>0);
 wash();
+const probe=await loadInstance('AirflowProbe',{},read);
+const grid=sampleAirflow(probe,[east,north,up],[0,0,0],{
+  traffic:rows,hubs:drone.get('aircraft.rotorGeometry.positionBodyFlu_m'),
+  parameters:drone.getMany(['aircraft.thrustCoefficient_N_s2','aircraft.hoverRotorSpeed_rad_s','aircraft.omegaMax','propellerRadius'])
+});
+assert.deepEqual(grid.velocity.slice(36,39),centered.wind,'Airflow slice must agree with the aircraft center sample');
+assert.equal(grid.velocity[98],0,'No rotor wake above the source');
 advance(drone,60);
 advance(clear,60);
 assert(drone.get('position')[2]<clear.get('position')[2]-.04,'Downwash must change flight dynamics');

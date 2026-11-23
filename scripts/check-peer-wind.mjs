@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
+import {sampleAirflow} from '../viewer/physics-view.mjs';
 
 const read=async url=>new Response(await readFile(url));
 for(const hull of ['Hobie16','Sailboat']){
@@ -46,3 +47,10 @@ for(const hull of ['Hobie16','Sailboat']){
   assert(forceDifference>1,'Expected a change in mainsail force outside hull contact');
   console.log(hull,{lee,shifted,forceDifference});
 }
+const probe=await loadInstance('AirflowProbe',{},read);
+const peers=new Float64Array(36);
+peers.set([1,-8,0,0,0,0,0,0,1]);
+const {velocity}=sampleAirflow(probe,[0,0,3.46],[10,0,0],null,peers);
+const center=3*(4*5+2);
+assert.equal(velocity[0],10,'The sample grid includes undisturbed upwind air');
+assert(velocity[center]<9&&velocity[center-3]>velocity[center],'The sample grid resolves the sail shadow');

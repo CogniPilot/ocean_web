@@ -13,7 +13,7 @@ cp LICENSE "$out/"
 sed 's|viewer/||g' NOTICE > "$out/NOTICE"
 cp viewer/fmi3/{instance.mjs,OceanWorld.fmu,OceanSailing.fmu,Wreck_SurveySLAM.fmu} "$out/fmi3/"
 cp viewer/fmi3/BowWavePatch.{json,mjs,wasm} "$out/fmi3/"
-for model in CruiserImagingSonar Wreck_Plant Wreck_Navigation Rdd2Survey HerringGull FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray HarborTraffic Sailboat Hobie16 HobieFleetPilot Regatta MarineWind HullWake WakeSpectrum; do
+for model in CruiserImagingSonar Wreck_Plant Wreck_Navigation Rdd2Survey AirflowProbe HerringGull FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray HarborTraffic Sailboat Hobie16 HobieFleetPilot Regatta MarineWind HullWake WakeSpectrum; do
   cp viewer/fmi3/"$model".{fmu,json,mjs,wasm} "$out/fmi3/"
 done
 touch "$out/.nojekyll"

@@ -17,6 +17,7 @@ const environmentOutputs=[
 const hullInspectionOutputs=hullInspectionFields.map(name=>'boat.'+name);
 const flightOutputs=group('drone','position quaternion rotorAngle throttle attitude gps gpsVelocity dragBody aircraft.rotorGeometry.positionBodyFlu_m');
 const flightNavigationOutputs=group('drone','estimatedPosition estimatedVelocity positionCovariance velocityCovariance estimatedWindENU windEstimateValid windCovariance');
+const flightWakeOutputs=[...group('drone','rotorWakeWind rotorWakeWrench propellerRadius aircraft.thrustCoefficient_N_s2 aircraft.hoverRotorSpeed_rad_s aircraft.omegaMax'),'wind.droneWind'];
 const submarineOutputs=[...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),
  'estimate','sensor','ping'];
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',outhaulInput:'outhaul',deckManual:'deckManual',
@@ -88,7 +89,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.sailWind','boat.stationX','boat.beamHalf','boat.halfSpacing','boat.deckZ','boat.pontoonContactVertices','boat.pontoonContactFaces']:[]),
      ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes','sectionStamp',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
-     ...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea','cruiserContactVertices','cruiserContactFaces','cabinContactVertices','cabinContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','engineIdleTime','engineOffAfter']:[]),...(hasFlight?[...flightNavigationOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount','drone.rotorWakeWind','drone.rotorWakeWrench']:[])]});
+     ...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea','cruiserContactVertices','cruiserContactFaces','cabinContactVertices','cabinContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','engineIdleTime','engineOffAfter']:[]),...(hasFlight?[...flightNavigationOutputs,...flightWakeOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount']:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);

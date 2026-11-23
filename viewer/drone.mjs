@@ -40,10 +40,13 @@ export async function surveyDrone(T,scene,world){
     world?.flight??loadInstance('Rdd2Survey',{pilot:1,stationEast:-5,stationNorth:0,currentENU:[.2,.04,0]}),
     loadAirframe()
   ]);
-  const {group,props}=assembleAirframe(T,model,flight.get('aircraft.rotorGeometry.positionBodyFlu_m'));
+  const hubs=flight.get('aircraft.rotorGeometry.positionBodyFlu_m');
+  const {group,props}=assembleAirframe(T,model,hubs);
   scene.add(group);
   const hasNavigation=flight.has('estimatedPosition'),hasRotorSpeeds=flight.has('rotorSpeed');
   const hasRotorWake=world?.hasRotorWake??flight.has('rotorWakeTraffic');
+  const rotorFields=['aircraft.thrustCoefficient_N_s2','aircraft.hoverRotorSpeed_rad_s','aircraft.omegaMax','propellerRadius'];
+  const wakeGeometry=rotorFields.every(name=>flight.has(name))?{hubs,parameters:flight.getMany(rotorFields)}:null;
   const bladeCount=flight.has('aircraft.bladeCount')?flight.get('aircraft.bladeCount'):2;
   const instrumentsFields=['attitude',...(hasNavigation?['estimatedPosition','estimatedVelocity']:['gps','gpsVelocity'])];
   const compassFields=[...instrumentsFields,'estimatedWindENU','windEstimateValid'];
@@ -67,7 +70,7 @@ export async function surveyDrone(T,scene,world){
     const sigma=v=>Math.sqrt(Math.max(0,v));
     return {position:position.map(sigma),velocity:velocity.map(sigma),wind:sigma(wind)};
   }
-  return {group,instruments,hasNavigation,covariance,bladeCount,hasRotorWake,
+  return {group,instruments,hasNavigation,covariance,bladeCount,hasRotorWake,wakeGeometry,
     wakeSources(rows){if(hasRotorWake)flight.set('rotorWakeTraffic',rows);},
     wakeLoad(){return flight.has('rotorWakeWrench')?flight.getMany(['rotorWakeWind','rotorWakeWrench']):null;},
     inertia(){return droneInertia(name=>flight.has(name)?flight.get(name):undefined);},
