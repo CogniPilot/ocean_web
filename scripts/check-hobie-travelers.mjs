@@ -10,8 +10,8 @@ async function setting(speed,angle,extra={}){
   const bow=angle*Math.PI/180;
   const boat=await loadInstance('Hobie16',{launchHeading:0,manualHelm:0,
     windEast:-speed*Math.cos(bow),windNorth:-speed*Math.sin(bow),...extra},read);
-  const [main,jib,payout]=boat.getMany(['mainCarTarget','jibCarTarget','autoPayout']);
-  return {main:Math.abs(main),jib,payout};
+  const [main,jib,payout,line,min,max]=boat.getMany(['mainCarTarget','jibCarTarget','autoPayout','travelerCommand','travelerMinLine','travelerMaxLine']);
+  return {main,jib,payout,ease:(line-min)/(max-min)};
 }
 const light=await setting(3,50),moderate=await setting(8,50),gust=await setting(15,50);
 const heavyCrew=await setting(15,50,{ballastMass:135});
@@ -26,50 +26,63 @@ assert(Math.abs(gust.payout-.030)<1e-9,'Automatic upwind trim hauls the main wit
 assert(heavyCrew.main<gust.main&&heavyCrew.jib<gust.jib);
 assert.deepEqual(otherTack,moderate);
 assert(downwind.main>.8&&downwind.jib>.8);
-assert.equal(manual.main,.66);
+assert(Math.abs(manual.ease-.66)<1e-9);
 assert.equal(manual.jib,.72);
 
-for(const windNorth of [-1.5,1.5]){
+async function rig(windNorth,step=.01){
   const boat=await loadInstance('Hobie16',{launchEast:-140,launchNorth:-80,launchHeading:0,
-    launchSpeed:1,manualHelm:1,deckManual:1,jibCarInput:.65,windEast:-1.5,windNorth},read);
-  for(let step=0;step<500;step++)boat.advance(.01);
-  const leeward=boat.get('windSide'),jib=boat.get('jibCar');
-  boat.set('mainCarInput',.9*leeward);
-  let easeTime;
-  for(let step=1;step<=280;step++){
-    boat.advance(.01);
-    if(easeTime===undefined&&leeward*boat.get('mainCar')>=.855)easeTime=step*.01;
+    launchSpeed:windNorth?2:0,manualHelm:1,deckManual:1,jibCarInput:.40,jibTrimInput:.07,
+    windEast:windNorth?-6:0,windNorth},read);
+  const advance=seconds=>{
+    for(let t=0;t<Math.round(seconds/step);t++)boat.advance(step);
+    assert(boat.getMany(['mainCar','travelerVelocity','travelerTension','heel']).every(Number.isFinite));
+  };
+  return {boat,advance};
+}
+const {boat:calm,advance:advanceCalm}=await rig(0);
+advanceCalm(2);
+calm.set('mainCarInput',1);
+advanceCalm(2.5);
+assert(calm.get('travelerEase')>.97&&calm.get('travelerTension')===0);
+assert(Math.abs(calm.get('mainCar'))<.025,'Easing an unloaded traveler cannot drive the car sideways');
+
+for(const [windNorth,step] of [[-6,.01],[6,.02]]){
+  const {boat,advance}=await rig(windNorth,step);
+  advance(3);
+  const [initial,jib,working,loads,pins,spans,purchase]=boat.getMany([
+    'mainCar','jibCar','jibWorkingSide','jibSheetLoads','jibSheetPins','lineSpan','jibPurchase'
+  ]);
+  assert.equal(purchase,2);
+  const selected=working>0?0:1;
+  assert(loads[selected]>1&&loads[1-selected]===0,'The working clew block carries the load and the lazy sheet is slack');
+  const clewLeg=i=>Math.hypot(...Array.from({length:3},(_,k)=>pins[3*i+k]-pins[k]));
+  for(let i=0;i<2;i++){
+    const expected=(clewLeg(2*i+1)+clewLeg(2*i+2))/2;
+    assert(Math.abs(spans[i+1]-expected)<1e-10,'Both legs through the clew block determine the physical span');
   }
+  boat.set('mainCarInput',1);
+  advance(2.7);
   const released=boat.get('mainCar');
-  assert(easeTime>.50&&easeTime<.70,'Manual ease reaches 95% travel in under 0.70 s');
-  assert(leeward*released<=.9+1e-8,'The traveler stays on the rail');
-  boat.set('mainCarInput',released-.8*leeward);
-  let haulTime;
-  for(let step=1;step<=270;step++){
-    boat.advance(.01);
-    if(haulTime===undefined&&leeward*(released-boat.get('mainCar'))>=.76)haulTime=step*.01;
-  }
-  assert(haulTime>2.00&&haulTime<2.25,'Windward trim keeps its finer speed');
-  assert(Math.abs(boat.get('jibCar')-jib)<.001,'The jib travelers are independent');
-  console.log({windNorth,easeTime,haulTime});
+  assert(working*released>working*initial+.2,'Sheet load moves the released traveler leeward');
+  assert(Math.abs(released)<.93,'The car stays on the rail');
+  assert(Math.abs(boat.get('jibCar')-jib)<.001&&Math.abs(boat.get('jibSheet')-.07)<.001,
+    'The traveler line and jib controls are independent');
+  boat.set('jibTrimInput',1);
+  advance(2.4);
+  assert(boat.get('jibSheetLoads').every(load=>load===0),'An eased jib has no sheet tension');
+  boat.set('mainCarInput',0);
+  boat.set('jibTrimInput',.07);
+  advance(3.5);
+  const [hauled,tension,newLoads]=boat.getMany(['mainCar','travelerTension','jibSheetLoads']);
+  assert(Math.abs(hauled)<Math.abs(released)/3&&tension>0,'Hauling the line pulls the car inboard');
+  assert(newLoads[selected]>1&&newLoads[1-selected]===0,'Only the working jib sheet loads when hauled');
+  console.log({windNorth,step,initial,released,hauled,tension,jibTailLoad:newLoads[selected]});
 }
 
-async function loadedReach(ease){
-  const angle=.92,wind=14;
-  const boat=await loadInstance('Hobie16',{launchEast:-140,launchNorth:-80,launchHeading:0,
-    launchSpeed:3.5,manualHelm:1,deckManual:1,jibCarInput:.32,windEast:-wind*Math.cos(angle),
-    windNorth:-wind*Math.sin(angle),trimInput:-1,ballastManual:1,ballastCmdY:.5},read);
-  for(let step=0;step<80;step++)boat.advance(.01);
-  boat.set('trimInput',0);
-  if(ease)boat.set('mainCarInput',.9*boat.get('windSide'));
-  let peakHeel=0;
-  for(let step=0;step<150;step++){
-    boat.advance(.01);
-    peakHeel=Math.max(peakHeel,Math.abs(boat.get('heel')));
-  }
-  return peakHeel;
-}
-
-const heldHeel=await loadedReach(false),easedHeel=await loadedReach(true);
-assert(easedHeel<.65*heldHeel,'Quick traveler release arrests the heel on a loaded reach');
-console.log({heldHeel,easedHeel});
+const {boat:tacking,advance:advanceTack}=await rig(-6);
+advanceTack(3);
+assert(tacking.get('jibSheetLoads')[1]>1);
+tacking.set('windNorth',6);
+advanceTack(3);
+const [portLoad,starboardLoad]=tacking.get('jibSheetLoads');
+assert(portLoad>1&&starboardLoad===0,'The load transfers to the opposite jib sheet when the wind crosses the bow');

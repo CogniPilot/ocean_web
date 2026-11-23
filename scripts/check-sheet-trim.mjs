@@ -12,10 +12,13 @@ function hold(command){
     assert(sag.every(x=>Number.isFinite(x)&&x>=0));
     assert(tension.every(x=>x>=0));
   }
-  return {main:boat.get('lineTarget')[0],jib:boat.get('jibSheet'),sag:boat.get('exposedSheetSag')};
+  const [target,jib,sag,pins]=boat.getMany(['lineTarget','jibSheet','exposedSheetSag','jibSheetPins']);
+  const jibClearance=Math.min(pins[2],pins[5],pins[8],pins[11],pins[14])-.414;
+  assert(Math.max(sag[1],sag[2])<=Math.max(0,jibClearance)+1e-9,'Slack jib sheets settle onto the trampoline');
+  return {main:target[0],jib,sag};
 }
 const eased=hold(1),hauled=hold(-1);
 assert(hauled.main<eased.main&&hauled.jib<eased.jib);
 assert(eased.jib<.35, "Releasing the main in this wind does not fully ease the automatic jib");
-assert(Math.max(...eased.sag,...hauled.sag)<.12);
+assert(Math.max(eased.sag[0],hauled.sag[0])<.12);
 console.log({eased,hauled});

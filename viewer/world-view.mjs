@@ -88,7 +88,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    optionalOutputs:['swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame',...inertiaOutputs,
      ...launchContactOutputs,
      'race.earlyStart','race.finishUtc','race.heatStart',
-     ...(hasBoat&&mode!=='sloop'?['boat.ballastTrapezeReach','boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins','boat.mainBlockClearance','boat.blockStack','boat.mastBend','boat.forestayPath','boat.forestayTension','boat.jibHalyardTension','boat.mastRake','boat.mastRotation','boat.rigCollision',
+     ...(hasBoat&&mode!=='sloop'?['boat.ballastTrapezeReach','boat.travelerEase','boat.travelerTension','boat.travelerSag','boat.jibSheet','boat.jibSheetPins','boat.jibSheetLoads','boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins','boat.mainBlockClearance','boat.blockStack','boat.mastBend','boat.forestayPath','boat.forestayTension','boat.jibHalyardTension','boat.mastRake','boat.mastRotation','boat.rigCollision',
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.sailWind','boat.stationX','boat.beamHalf','boat.halfSpacing','boat.deckZ','boat.pontoonContactVertices','boat.pontoonContactFaces']:[]),
      ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes','sectionStamp',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),

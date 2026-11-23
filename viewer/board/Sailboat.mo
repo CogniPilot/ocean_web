@@ -460,7 +460,19 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   final parameter Real launchSwellOmega=sqrt(Wreck.g*launchSwellK*tanh(launchSwellK*Wreck.SpectralSea.nearshoreDepth));
   final parameter Real launchSwellSlope=launchSwellA*launchSwellK*cos(launchSwellPhase);
   input Real swellAmplitude,reachTrial,deckManual,mainCarInput,jibCarInput,jibTrimInput;
-  Real mainCar(start=0,fixed=true),jibCar(start=0,fixed=true),jibSheet(start=.35,fixed=true);
+  Real mainCar(start=0,fixed=true) "Position of the aft traveler car, positive to port [m]";
+  Real jibCar(start=0,fixed=true),jibSheet(start=.35,fixed=true);
+  parameter Real travelerHalfTrack=.90,travelerCarMass=1.6,travelerLineStiffness=1800;
+  final parameter Real travelerCleatLead=.075,travelerDeadeyeLead=.065
+    "Fore and aft distances from the rail to the fixed line supports [m]";
+  final parameter Real travelerMinLine=travelerCleatLead+travelerDeadeyeLead-.018;
+  final parameter Real travelerMaxLine=sqrt(travelerHalfTrack^2+travelerCleatLead^2)
+    +sqrt(travelerHalfTrack^2+travelerDeadeyeLead^2)+.06;
+  Real travelerLine(start=travelerMinLine,fixed=true),travelerVelocity(start=0,fixed=true);
+  Real travelerSpan,travelerSlope,travelerExtension,travelerCommand,travelerStop;
+  output Real travelerEase "Fraction of traveler line paid out";
+  output Real travelerTension(unit="N") "Line tension through the traveler car";
+  output Real travelerSag(unit="m") "Sag of each exposed traveler rope reach";
   parameter Integer sailOf[3]={1,2,2};
   parameter Real attachRadius[2]={if catamaran then 1.84 else .44,feet[2]};
   Real fairlead[3,3],attachment[2,3],tipLocal[2,3],tipVel[2,3],leadVel[3,3];
@@ -516,6 +528,14 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real leechDelta[3],leechDirection[3],leechLength,leechLoad,leechLift;
   Real blockContact,mainTension,jibTension;
   Real jibTrimTarget,jibReach,jibDepower,apparentWindAngle;
+  final parameter Integer jibPurchase=2 "Two sheet legs through each clew block";
+  parameter Real jibSheetEA(unit="N")=900,jibSheetTail(unit="m")=.82;
+  parameter Real jibHaulForce(unit="N")=150,jibHoldingForce(unit="N")=250;
+  final parameter Real jibLeadHalf=.019,jibTightSpan=.47,jibEasedSpan=2.57;
+  Real jibLeadCrown,jibLeadSlope,jibLineStiffness[3],jibStretch[3],jibTakeup[3];
+  Real jibLegVector[3,2,3],jibLegLength[3,2],jibLegUnit[3,2,3];
+  output Real jibSheetPins[5,3] "Clew and both pairs of deck lead pins in hull axes";
+  output Real jibSheetLoads[2] "Port and starboard tail tensions [N]";
   parameter Real mastRotationStop(unit="rad")=1.02 "Estimated travel to the stops at the mast step";
   output Real mastRotation(start=.17,fixed=true,unit="rad") "Rotation of the spar on its ball joint";
   Real mastRotationRate(start=0,fixed=true),mastTrackOffset[3],boomCompression,mastTwist;
@@ -554,7 +574,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   end streamerDirection;
   Real tailArm[2,3],tailFluid[2,3];
   Real tailImmersion[2] "Wet fraction across the ribbon near the waterline";
-  Real mainCarTarget,jibCarTarget,windSide,mainCarError,mainCarEasing,mainCarRate,mainCarResponse;
+  Real mainCarTarget,jibCarTarget,windSide;
   Real trueWindAngle,windForCrew,buildingWind,depower,reachFraction,reachTrim,poweredReach,autoPayout,upwindGustEase;
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
   parameter Real swellBearing=Wreck.SpectralSea.swellBearing;
@@ -1000,8 +1020,7 @@ equation
   // Keep the sheets engaged there, then ease for a deep downwind course.
   poweredReach=if catamaran and sqrt(sailWind*sailWind)>6 then
     sin(Modelica.Constants.pi*min(1,max(0,(trueWindAngle-1.22)/1.48)))^2 else 0;
-  mainCarTarget=if deckManual>.5 then mainCarInput else
-    windSide*((1-reachTrim)*.23*depower+(.9-.42*poweredReach)*reachTrim);
+  mainCarTarget=(1-reachTrim)*.23*depower+(.9-.42*poweredReach)*reachTrim;
   jibCarTarget=if deckManual>.5 then jibCarInput else
     (1-reachTrim)*(.18+.16*buildingWind+.19*depower)+.88*reachTrim;
   upwindGustEase=.095*min(1,max(0,(abs(sin(heel))-.31)/.42))^2;
@@ -1009,13 +1028,26 @@ equation
     (1-reachTrim)*(.030+.047*(1-buildingWind)+upwindGustEase)
       +reachTrim*((1-poweredReach)*2*sheetArm*sin(abs(sheetTarget)/2)+.14*poweredReach)
     else 2*sheetArm*sin(abs(sheetTarget)/2);
-  mainCarError=min(.9,max(-.9,mainCarTarget))-mainCar;
-  // The loaded traveler runs out when the line is released. Hauling
-  // against the sail load and automatic trimming retain their old pace.
-  mainCarEasing=if noEvent(deckManual>.5 and mainCarError*windSide>0) then 1 else 0;
-  mainCarRate=.40+1.25*mainCarEasing;
-  mainCarResponse=.38-.28*mainCarEasing;
-  der(mainCar)=if catamaran then max(-mainCarRate,min(mainCarRate,mainCarError/mainCarResponse)) else 0;
+  // The tail passes from the fixed crossbar cleat through the car and
+  // returns to the centerline deadeye. Both legs pull the car inboard.
+  travelerSpan=sqrt(travelerCleatLead^2+mainCar^2)+sqrt(travelerDeadeyeLead^2+mainCar^2);
+  travelerSlope=mainCar*(1/sqrt(travelerCleatLead^2+mainCar^2)+1/sqrt(travelerDeadeyeLead^2+mainCar^2));
+  travelerCommand=if deckManual>.5 then travelerMinLine+
+    (travelerMaxLine-travelerMinLine)*min(1,max(0,mainCarInput))
+    else sqrt(travelerCleatLead^2+mainCarTarget^2)+sqrt(travelerDeadeyeLead^2+mainCarTarget^2)-.018;
+  travelerExtension=max(0,travelerSpan-travelerLine);
+  der(travelerLine)=if catamaran then max(-1.15/(1+travelerLineStiffness*travelerExtension/220),
+    min(3.6,(travelerCommand-travelerLine)/.055)) else 0;
+  travelerTension=if catamaran and travelerExtension>0 then
+    max(0,travelerLineStiffness*travelerExtension+28*(travelerSlope*travelerVelocity-der(travelerLine))) else 0;
+  travelerEase=min(1,max(0,(travelerLine-travelerMinLine)/(travelerMaxLine-travelerMinLine)));
+  travelerSag=min(.085,.25*sqrt(max(0,travelerLine^2-travelerSpan^2)));
+  travelerStop=if abs(mainCar)>travelerHalfTrack then
+    6400*(mainCar-(if mainCar>0 then travelerHalfTrack else -travelerHalfTrack))+45*travelerVelocity else 0;
+  der(mainCar)=if catamaran then travelerVelocity else 0;
+  der(travelerVelocity)=if catamaran then
+    (-sheetForce[1,2]-travelerSlope*travelerTension-travelerStop-43*travelerVelocity
+      -(1.4+.009*abs(sheetForce[1,3]))*tanh(travelerVelocity/.04))/travelerCarMass else 0;
   der(jibCar)=if catamaran then max(-.40,min(.40,(min(.88,max(.18,jibCarTarget))-jibCar)/.38)) else 0;
   // Headsail trim follows the apparent wind. Easing the main alone keeps the
   // working jib sheet engaged, with some extra release for a deliberate dump.
@@ -1029,12 +1061,33 @@ equation
   sheet=trim[1];
   fairlead[1,:]=if catamaran then {travelerPinX-footX[1],mainCar,travelerDeckZ+travelerRiser-footZ[1]}
     else {-attachRadius[1],0,-.105};
-  fairlead[2,:]={if catamaran then .55-footX[2] else -feet[2],if catamaran then jibCar else 0,
-    if catamaran then .43-footZ[2] else -.105};
+  jibLeadCrown=max(0,1-(jibCar/1.02)^2);
+  jibLeadSlope=if jibLeadCrown>0 then -2*jibCar/1.02^2 else 0;
+  fairlead[2,:]={if catamaran then .425+.035*jibLeadCrown-footX[2] else -feet[2],
+    if catamaran then jibCar else 0,if catamaran then .52+.033*jibLeadCrown-footZ[2] else -.105};
   fairlead[3,:]={fairlead[2,1],-fairlead[2,2],fairlead[2,3]};
   leadVel[1,:]={0,der(mainCar),0};
-  leadVel[2,:]={0,der(jibCar),0};
-  leadVel[3,:]=-leadVel[2,:];
+  leadVel[2,:]=der(jibCar)*{.035*jibLeadSlope,1,.033*jibLeadSlope};
+  leadVel[3,:]={leadVel[2,1],-leadVel[2,2],leadVel[2,3]};
+  jibSheetPins[1,:]={footX[2],0,footZ[2]}+attachment[2,:];
+  jibLegVector[1,:,:]=zeros(2,3);
+  jibLegLength[1,:]=zeros(2);
+  jibLegUnit[1,:,:]=zeros(2,3);
+  jibLineStiffness[1]=0;
+  jibStretch[1]=0;
+  jibTakeup[1]=0;
+  for side in 1:2 loop
+    for leg in 1:2 loop
+      jibSheetPins[1+2*(side-1)+leg,:]={footX[2]+(2*leg-3)*jibLeadHalf,0,footZ[2]}+fairlead[side+1,:];
+      jibLegVector[side+1,leg,:]=jibSheetPins[1+2*(side-1)+leg,:]-jibSheetPins[1,:];
+      jibLegLength[side+1,leg]=sqrt(jibLegVector[side+1,leg,:]*jibLegVector[side+1,leg,:]);
+      jibLegUnit[side+1,leg,:]=jibLegVector[side+1,leg,:]/max(.001,jibLegLength[side+1,leg]);
+    end for;
+    jibSheetLoads[side]=if catamaran then lineTension[side+1]/jibPurchase else 0;
+    jibLineStiffness[side+1]=jibPurchase^2*jibSheetEA/(jibSheetTail+jibPurchase*linePaid[side+1]);
+    jibStretch[side+1]=max(0,lineSpan[side+1]-linePaid[side+1]);
+    jibTakeup[side+1]=max(0,1-jibLineStiffness[side+1]*jibStretch[side+1]/(jibPurchase*jibHaulForce));
+  end for;
   lineTarget[1]=if rightingSide<>0 then max(linePaid[1],lineSpan[1]+.15)
     elseif catamaran then blockStack-.010+attachRadius[1]*max(0,payout-.012)/sheetArm else sqrt(fairlead[1,3]^2+(attachRadius[1]*payout/sheetArm)^2);
   // Hold the jib's working sheet through the eye to push the bow onto the new tack.
@@ -1042,8 +1095,9 @@ equation
     elseif (tackRecovery==1 or tackRecovery==2) and deckManual<.5 then -recoveryTurn else windSide;
   for j in 2:3 loop
     lineTarget[j]=if rightingSide<>0 then max(linePaid[j],lineSpan[j]+.15)
-      elseif catamaran then (if (j==2 and jibWorkingSide<0) or (j==3 and jibWorkingSide>0) then lineSpan[j]+.035
-      else .47+2.1*jibSheet) else sqrt(fairlead[2,3]^2+(.88*feet[2]*payout/sheetArm)^2);
+      elseif catamaran then (if (j==2 and jibWorkingSide>0) or (j==3 and jibWorkingSide<0)
+        then jibTightSpan+(jibEasedSpan-jibTightSpan)*jibSheet else jibEasedSpan)
+      else sqrt(fairlead[2,3]^2+(.88*feet[2]*payout/sheetArm)^2);
   end for;
   mainSheetStiffness=purchase^2*mainsheetEA/(sheetTail+purchase*linePaid[1]);
   // Limit negative drum work under load. A backdriven brake pays out
@@ -1052,16 +1106,23 @@ equation
   brakeSlip=max(0,lineSpan[1]-linePaid[1]-purchase*sheetHoldingForce/mainSheetStiffness)/.035;
   for j in 1:3 loop
     der(linePaid[j])=if catamaran and j==1 then max(brakeSlip,min(1.8,max(0,(lineTarget[j]-linePaid[j])/.22)))+
-      haulFraction*max(-1.8,min(0,(lineTarget[j]-linePaid[j])/.22)) else max(-1.8,min(1.8,(lineTarget[j]-linePaid[j])/.22));
-    lineSpan[j]=sqrt((fairlead[j,:]-attachment[sailOf[j],:])*(fairlead[j,:]-attachment[sailOf[j],:]));
+      haulFraction*max(-1.8,min(0,(lineTarget[j]-linePaid[j])/.22))
+      elseif catamaran and j>1 then
+        max(max(0,jibStretch[j]-jibPurchase*jibHoldingForce/jibLineStiffness[j])/.04,
+          min(5,max(0,(lineTarget[j]-linePaid[j])/.07)))+
+        jibTakeup[j]*max(-2.6,min(0,(lineTarget[j]-linePaid[j])/.10))
+      else max(-1.8,min(1.8,(lineTarget[j]-linePaid[j])/.22));
+    lineSpan[j]=if catamaran and j>1 then sum(jibLegLength[j,:])/jibPurchase else
+      sqrt((fairlead[j,:]-attachment[sailOf[j],:])*(fairlead[j,:]-attachment[sailOf[j],:]));
     // The sheets lead through deck blocks to the winch. A slack bight
     // rests on deck once its free span reaches the trampoline or sloop deck.
     exposedSheetSag[j]=min(max(0,footZ[sailOf[j]]+min(fairlead[j,3],attachment[sailOf[j],3])
       -(if catamaran then .414 else .083)),.5*sqrt(max(0,linePaid[j]^2-lineSpan[j]^2)));
-    lineDirection[j,:]=(fairlead[j,:]-attachment[sailOf[j],:])/max(.001,lineSpan[j]);
+    lineDirection[j,:]=if catamaran and j>1 then (jibLegUnit[j,1,:]+jibLegUnit[j,2,:])/jibPurchase
+      else (fairlead[j,:]-attachment[sailOf[j],:])/max(.001,lineSpan[j]);
     lineRate[j]=lineDirection[j,:]*(leadVel[j,:]-tipVel[sailOf[j],:]);
     lineTension[j]=if (j==3 and not catamaran) or lineSpan[j]<=linePaid[j] then 0 else
-      max(0,(if catamaran and j==1 then mainSheetStiffness elseif catamaran then 1750 else 720)*(lineSpan[j]-linePaid[j])+
+      max(0,(if catamaran and j==1 then mainSheetStiffness elseif catamaran then jibLineStiffness[j] else 720)*(lineSpan[j]-linePaid[j])+
         (if catamaran and j==1 then 240 elseif catamaran then 40 else 12)*(lineRate[j]-der(linePaid[j])));
     sheetForce[j,:]=(lineTension[j]-(if j==1 then blockContact else 0))*lineDirection[j,:];
     ropeTorque[j,:]=cross(attachment[sailOf[j],:],sheetForce[j,:]);

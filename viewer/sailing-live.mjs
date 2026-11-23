@@ -254,6 +254,8 @@ async function run(saved=readReset(),carried){
     showControls(panel.hidden);
   };
   const positionText=(cm,positive,negative)=>cm===0?'Centered':Math.abs(cm)+' cm '+(cm>0?positive:negative);
+  const hasTraveler=cat&&['travelerEase','travelerTension','travelerSag'].every(name=>model.has(name));
+  const hasJibTackle=cat&&['jibSheetPins','jibSheetLoads'].every(name=>model.has(name));
   const hasRigGeometry=cat&&sailingRigFields.every(name=>model.has(name));
   const hasMastRotation=cat&&model.has("mastRotation");
   const sailPanels=cat?readSailPanels(model):null;
@@ -1188,26 +1190,29 @@ async function run(saved=readReset(),carried){
       for(const [id,input] of [['mainCar','mainCarInput'],['jibCar','jibCarInput'],['jibSheet','jibTrimInput']]){
         const control=$(id),value=control.valueAsNumber;
         control.disabled=auto;
-        $(id+'Value').value=auto?'Auto':id==='mainCar'?positionText(value,'port','starboard'):
-          id==='jibCar'?value+' cm outboard':value+'% eased';
+        $(id+'Value').value=auto?'Auto':id==='jibCar'?value+' cm outboard':value+'% eased';
         model.set(input,value/100);
       }
     }
-    for(const id of ['autoDeck','mainCar','jibCar','jibSheet'])$(id).oninput=deck;
+    const autoDeck=$('autoDeck'),main=$('mainCar'),jib=$('jibCar');
+    function takeOverDeck(){
+      main.value=hasTraveler?Math.round(model.get('travelerEase')*100):0;
+      jib.value=Math.round(model.get('jibCar')*100);
+      $('jibSheet').value=Math.round(model.get('jibSheet')*100);
+    }
+    for(const id of ['mainCar','jibCar','jibSheet'])$(id).oninput=deck;
+    autoDeck.oninput=()=>{if(!autoDeck.checked)takeOverDeck();deck();};
     deck();
     moveTraveler=(code,fullRelease=false,repeating=false)=>{
-      const auto=$('autoDeck'),main=$('mainCar'),jib=$('jibCar');
-      if(auto.checked){
-        main.value=Math.round(model.get('mainCar')*100);
-        jib.value=Math.round(model.get('jibCar')*100);
-        auto.checked=false;
+      if(autoDeck.checked){
+        takeOverDeck();
+        autoDeck.checked=false;
       }
       const step=5;
       if(code==='ArrowUp'||code==='ArrowDown'){
-        const leeward=Math.sin(model.get('vane'))>=0?-1:1;
         const easing=code==='ArrowUp';
-        if(fullRelease)main.value=leeward*Number(main.max);
-        else main.value=main.valueAsNumber+(easing?leeward*(repeating?30:step):-leeward*step);
+        if(fullRelease)main.value=main.max;
+        else main.value=main.valueAsNumber+(easing?(repeating?30:step):-step);
       }else{
         jib.value=jib.valueAsNumber+(code==='ArrowRight'?step:-step);
       }
@@ -2500,6 +2505,17 @@ async function run(saved=readReset(),carried){
           $('weightPos').value='Actual ballast · '+positionText(Math.round(100*ballastX),'forward','aft')+' · '+
             positionText(Math.round(100*ballastY),'port','starboard')+(rightingSide?' · Righting':'');
           if(!$('setup').hidden){
+            if(hasTraveler&&$('hobieTrim').open){
+              const tension=Math.round(model.get('travelerTension'));
+              const position=positionText(Math.round(mainCar*100),'port','starboard');
+              const label=(tension?tension+' N':'Slack')+' · '+position;
+              if($('travelerLoad').textContent!==label)$('travelerLoad').textContent=label;
+            }
+            if(hasJibTackle&&$('hobieTrim').open){
+              const [port,starboard]=model.get('jibSheetLoads').map(Math.round);
+              const label='Port '+port+' N · Starboard '+starboard+' N';
+              if($('jibSheetLoad').textContent!==label)$('jibSheetLoad').textContent=label;
+            }
             $('clewTravel').textContent=(100*model.get('mainClewOffset')).toFixed(1)+' cm';
             if(!halyardControl.hidden){
               const [rake,jibLoad,forestay]=model.getMany(['mastRake','jibHalyardTension','forestayTension']);
@@ -2515,7 +2531,8 @@ async function run(saved=readReset(),carried){
         mastRotation=hasMastRotation?model.get('mastRotation'):undefined;
         extra=[cat?ballastX:0,cat?ballastY:0,mainCar,jibCar,ve,vn,yawRate,0];
         if(t!==meshTime){
-          const geometry={mastRotation,rig:hasRigGeometry?model.getMany(sailingRigFields):null,
+          const geometry={mastRotation,travelerSag:hasTraveler?model.get('travelerSag'):0,
+            jibSheetPins:hasJibTackle?model.get('jibSheetPins'):null,rig:hasRigGeometry?model.getMany(sailingRigFields):null,
             forestay:cat&&model.has('forestayPath')?model.get('forestayPath'):null,
             cloth:hasClothPanels?model.getMany(verticesFields):null};
           boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag,cat?model.get('shroudTail'):null,

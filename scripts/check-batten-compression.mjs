@@ -77,10 +77,10 @@ for (const windNorth of [-8, 8]) {
 
 // An established reach under load used to drive a sustained 9 Hz leech motion.
 // Read the batten tips directly from the FMU, before camera interpolation.
-for(const [heading,side] of [[-.12,1],[-3.02,-1]]){
+for(const heading of [-.12,-3.02]){
   const boat=await loadInstance('Hobie16',{
     launchEast:-1000,launchNorth:-1000,launchHeading:heading,launchSpeed:5.3,
-    windEast:0,windNorth:8.5,manualHelm:1,deckManual:1,mainCarInput:.9*side,
+    windEast:0,windNorth:8.5,manualHelm:1,deckManual:1,mainCarInput:.90,
     jibCarInput:.8,trimInput:-1,downhaulInput:.65,outhaulInput:.8,mass:255,ballastMass:110
   },async url=>new Response(await readFile(url)));
   let sumSquared=0,samples=0,upperHook=0;

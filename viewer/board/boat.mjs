@@ -397,7 +397,9 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
  function rod(a,b,r,mat,parent=group){a=new T.Vector3(...a);b=new T.Vector3(...b);const d=b.clone().sub(a);const m=mesh(new T.CylinderGeometry(r,r,d.length(),10),mat,parent);m.position.copy(a).lerp(b,.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return m;}
  let vane,drum,rudder,otherRudder,carriage,crossTiller,rightingLine;
  let jibHalyard,stayEyes,staySleeves,lowerBowAdjuster,upperBowAdjuster,forestayShockCord;
- const deckCars=[],sheets=[],sheetBlocks=[],podParts=[],streamers=[];
+ const deckCars=[],sheets=[],sheetBlocks=[],jibBlocks=[],travelerRopes=[],podParts=[],streamers=[];
+ const travelerCleat=new T.Vector3(-1.325,0,.499),travelerDeadeye=new T.Vector3(-1.465,0,.499);
+ const travelerGuide=new T.Vector3();
  const stayCables=[],chainplates=[];
  const jibTackZ=.87,jibTackX=2.26-(jibTackZ-.75)*1.82/5.1;
  const bridlePin=new T.Vector3(2.29,0,.65),jibTackPin=new T.Vector3(jibTackX,0,jibTackZ);
@@ -739,6 +741,41 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
      if(x<0)rod([-.028,0,.04],[.028,0,.04],.004,pin,car);
      if(x>0){const fairlead=deckHardware(T,true);fairlead.name='Jib traveler fairlead and cam cleat';fairlead.scale.setScalar(.60);fairlead.position.z=.014;car.add(fairlead);}
    }
+   const rail=mesh(new T.BoxGeometry(.045,1.87,.012),black);
+   rail.name='Mainsheet traveler track';
+   rail.position.set(-1.40,0,.459);
+   rod([-1.40,-.92,.469],[-1.40,.92,.469],.0045,stainless);
+   for(const y of [-.92,.92]){
+     const limit=mesh(new T.BoxGeometry(.049,.027,.032),black);
+     limit.position.set(-1.40,y,.476);
+   }
+   const cleat=deckHardware(T,true);
+   cleat.name='Aft crossbar traveler cam cleat';
+   cleat.scale.setScalar(.60);
+   cleat.rotation.z=Math.PI;
+   cleat.position.set(travelerCleat.x-.014,0,travelerCleat.z-.03);
+   group.add(cleat);
+   const tie=mesh(new T.TorusGeometry(.013,.0032,7,14),stainless);
+   tie.name='Traveler line deadeye';
+   tie.rotation.y=Math.PI/2;tie.position.copy(travelerDeadeye);
+   const guide=mesh(new T.TorusGeometry(.009,.0032,7,14),stainless,deckCars[0]);
+   guide.name='Moving traveler line guide';
+   guide.rotation.y=Math.PI/2;guide.position.z=.019;
+   travelerRopes.push(sheetRope(0xc65845),sheetRope(0xc65845));
+   travelerRopes.forEach(rope=>{rope.name='Mainsheet traveler tail';});
+   for(let i=0;i<2;i++){
+     const block=new T.Group();
+     block.name=i===0?'Port jib clew block':'Starboard jib clew block';
+     group.add(block);jibBlocks.push(block);
+     mesh(new T.CylinderGeometry(.016,.016,.014,14),black,block);
+     mesh(new T.CylinderGeometry(.0167,.0167,.004,14),paint(0x24768c),block);
+     for(const y of [-.009,.009]){
+       const cheek=mesh(new T.BoxGeometry(.032,.003,.039),stainless,block);
+       cheek.position.set(0,y,.004);
+     }
+     const eye=mesh(new T.TorusGeometry(.009,.002,6,12),stainless,block);
+     eye.rotation.x=Math.PI/2;eye.position.z=.025;
+   }
    for(let i=0;i<10;i++)sheets.push(sheetRope(i<6?0xc65845:0x24768c));
  }else{
    sheets.push(sheetRope(0xad4045),sheetRope(0x2e7485));
@@ -1016,6 +1053,11 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
        const y=side*cars[1],beam=forwardBeam(y);
        deckCars[i].position.set(beam.x,y,beam.z+.067);
      }
+     travelerGuide.set(-1.40,cars[0],.499);
+     // The trampoline catches excess slack as the car crosses the beam.
+     const travelerSag=Math.min(.026,geometry?.travelerSag??0);
+     drawRope(travelerRopes[0],travelerCleat,travelerGuide,travelerSag);
+     drawRope(travelerRopes[1],travelerGuide,travelerDeadeye,travelerSag);
      // Attachment positions in the hull frame. The front clew follows the actual cloth.
      const {boomHinge,pivot}=sails[0];
      const top=blockPins?new T.Vector3().fromArray(blockPins,3):
@@ -1031,24 +1073,32 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
        block.position.copy(i?top:lowerBlock);
        block.quaternion.setFromRotationMatrix(connectorPose);
      });
-     const jib=new T.Vector3().fromBufferAttribute(sails[1].coords,3).applyQuaternion(sails[1].pivot.quaternion).add(sails[1].pivot.position);
-     for(let i=0;i<sheets.length;i++){
-       const main=i<6,car=deckCars[main?0:i<8?1:2];
-       const offset=(i%2-.5)*.014;
-       let start,end;
-       if(main){
-         const x=(Math.floor(i/2)-1)*mainSheaveSpacing,y=(i%2?-1:1)*mainSheetTurn;
-         // The fall is tied to the lower becket, crosses to the next
-         // upper groove after each return and exits through the cam cleat.
-         const lowerX=i>0&&i%2===0?x-mainSheaveSpacing:x;
-         const lowerZ=.50*blockStack-mainSheaveInset-(i===0?.036:0);
-         start=new T.Vector3(lowerX,y,lowerZ).applyQuaternion(sheetBlocks[0].quaternion).add(lowerBlock);
-         end=new T.Vector3(x,y,-.50*blockStack+mainSheaveInset).applyQuaternion(sheetBlocks[1].quaternion).add(top);
-       }else{
-         start=car.position.clone();start.x+=.026*.60+offset*.60;start.z+=.014+.05*.60;
-         end=jib.clone();end.x+=offset;
-       }
-       drawRope(sheets[i],start,end,rope?rope[main?0:i<8?1:2]:0);
+     for(let i=0;i<6;i++){
+       const x=(Math.floor(i/2)-1)*mainSheaveSpacing,y=(i%2?-1:1)*mainSheetTurn;
+       // The fall crosses to the next upper groove after each return.
+       const lowerX=i>0&&i%2===0?x-mainSheaveSpacing:x;
+       const lowerZ=.50*blockStack-mainSheaveInset-(i===0?.036:0);
+       const start=new T.Vector3(lowerX,y,lowerZ).applyQuaternion(sheetBlocks[0].quaternion).add(lowerBlock);
+       const end=new T.Vector3(x,y,-.50*blockStack+mainSheaveInset).applyQuaternion(sheetBlocks[1].quaternion).add(top);
+       drawRope(sheets[i],start,end,rope?.[0]??0);
+     }
+     const jibPins=geometry?.jibSheetPins;
+     const clew=jibPins?new T.Vector3().fromArray(jibPins):
+       new T.Vector3().fromBufferAttribute(sails[1].coords,3).applyQuaternion(sails[1].pivot.quaternion).add(sails[1].pivot.position);
+     for(let i=0;i<2;i++){
+       const block=jibBlocks[i],car=deckCars[i+1].position;
+       const forward=jibPins?new T.Vector3().fromArray(jibPins,6+6*i):new T.Vector3(car.x+.039,car.y,car.z+.043);
+       const aft=jibPins?new T.Vector3().fromArray(jibPins,3+6*i):new T.Vector3(car.x+.001,car.y,car.z+.043);
+       const blockUp=new T.Vector3().copy(clew).sub(forward).addScaledVector(tangent.subVectors(forward,aft),.5).normalize();
+       const across=fore.set(1,0,0).addScaledVector(blockUp,-blockUp.x).normalize();
+       connectorPose.makeBasis(across,binormal.crossVectors(blockUp,across),blockUp);
+       block.quaternion.setFromRotationMatrix(connectorPose);
+       block.position.copy(clew).addScaledVector(blockUp,-.031);
+       const foreRim=block.position.clone().addScaledVector(across,.016);
+       const aftRim=block.position.clone().addScaledVector(across,-.016);
+       const sag=rope?.[i+1]??0;
+       drawRope(sheets[6+2*i],aft,aftRim,sag);
+       drawRope(sheets[7+2*i],forward,foreRim,sag);
      }
    }else if(rope){
      for(let m=0;m<2;m++){
