@@ -31,7 +31,7 @@ const shapes=surfaceCollisionShapes(T,island,committee,marks);
 const boxes=[],spheres=[],points=[],wires=[];
 const painter={
   box:(...args)=>boxes.push(args),sphere:(...args)=>spheres.push(args),
-  points:(...args)=>points.push(args),lines:(...args)=>wires.push(args)
+  points:(...args)=>points.push(args),lines:(...args)=>wires.push(args),staticLines:(...args)=>wires.push(args)
 };
 const cruiserMesh=hullWires([0,0,0,1,0,0,0,1,0,0,0,1],[1,2,3,1,3,4,1,4,2,2,4,3]);
 shapes.draw(painter,hobie,{cat:true},motor,drone,cruiserMesh);

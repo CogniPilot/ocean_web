@@ -28,6 +28,7 @@ export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768
       geometry.setAttribute('color',rgb);
     }
     allocate(capacity);
+    geometry.setDrawRange(0,0);
     return {
       clear(){size=0;},
       add(frame,x,y,z,color){
@@ -45,7 +46,10 @@ export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768
     };
   }
   const style={vertexColors:true,depthTest:false,depthWrite:false,transparent:true,toneMapped:false};
-  const segments=batch((g,m)=>new T.LineSegments(g,m),new T.LineBasicMaterial({...style,opacity:.64}),segmentCapacity);
+  const lineBatch=capacity=>batch((g,m)=>new T.LineSegments(g,m),
+    new T.LineBasicMaterial({...style,opacity:.64}),capacity);
+  const fixed=lineBatch(segmentCapacity),segments=lineBatch(1024);
+  let fixedDirty=false;
   const samples=batch((g,m)=>new T.Points(g,m),new T.PointsMaterial({...style,opacity:.95,size:5,sizeAttenuation:false}),256);
   function tint(value){
     if(!colors.has(value)){
@@ -130,8 +134,13 @@ export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768
     ellipsoid,
     circle(frame,center,axis,radius,value){ellipse(frame,center,[radius,radius,radius],axis,tint(value));},
     lines(frame,coords,value){vertices(segments,frame,coords,value);},
+    staticLines(frame,coords,value){
+      vertices(fixed,frame,coords,value);
+      fixedDirty=true;
+    },
     points(frame,coords,value){vertices(samples,frame,coords,value);},
     render(renderer,camera){
+      if(fixedDirty){fixed.update();fixedDirty=false;}
       segments.update();samples.update();
       const autoClear=renderer.autoClear;
       renderer.autoClear=false;

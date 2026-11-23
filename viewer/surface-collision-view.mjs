@@ -108,10 +108,13 @@ function rockWires(T,island){
 export function surfaceCollisionShapes(T,island,committeeGroup,markGroups){
   island.updateWorldMatrix(true,true);
   const sand=sandWire(island.userData.chartTerrain.height),rocks=rockWires(T,island);
-  const sailProbes=new WeakMap();
+  const sailProbes=new WeakMap(),prepared=new WeakSet();
   return {draw(painter,boatGroup,hull,motorGroup,droneGroup,cruiserMesh){
-    painter.lines(island,sand,colors.sand);
-    for(const {frame,lines} of rocks)painter.lines(frame,lines,colors.rocks);
+    if(!prepared.has(painter)){
+      painter.staticLines(island,sand,colors.sand);
+      for(const {frame,lines} of rocks)painter.staticLines(frame,lines,colors.rocks);
+      prepared.add(painter);
+    }
     for(const mark of markGroups??[]){
       mark.updateWorldMatrix(true,false);
       painter.lines(mark,buoyWire,colors.marks);

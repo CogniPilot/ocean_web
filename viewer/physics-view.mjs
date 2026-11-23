@@ -329,7 +329,11 @@ export function physicsView(T,canvas,status){
       const frame=field.local?'follows hull heading, offset from incident sea':key==='wake'||field.advected?'current drift':'world axes';
       captions.push(name+' '+dimensions+' · '+frame);
       if(key==='near'){
-        if(field.refined)captions.push('Bow refinement · '+drawGrid(field.refined,x,y,height,'#fff2c1'));
+        if(field.refined){
+          const detail=layer==='all'?{...field.refined,stride:2}:field.refined;
+          const spacing=drawGrid(detail,x,y,height,'#fff2c1');
+          captions.push('Bow refinement · '+spacing+(layer==='all'?' · alternate nodes shown':''));
+        }
         drawSources(field,height);
       }
       if(key==='wind')captions.push('Long swell is analytic');
