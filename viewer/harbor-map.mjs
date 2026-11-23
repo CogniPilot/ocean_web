@@ -1,21 +1,21 @@
 import {contour} from './cruiser-chart.mjs';
 
-const palette={you:'#e97618',player:'#005997',npc:'#644495',course:'#a03731'};
+const palette={you:'#e97618',course:'#a03731'};
 
 export function harborMap(canvas,terrain,race,summary){
   const ctx=canvas.getContext('2d');
   const coast=contour(terrain,0);
   const shoal=contour(terrain,-3);
   const {width,height}=canvas;
-  let previousRows='';
+  let previousCoordinates='';
 
-  function draw(entities){
+  function draw(ownEast,ownNorth){
     const pin=[race.get('pinEast'),race.get('pinNorth')];
     const committee=[race.get('committeeEast'),race.get('committeeNorth')];
     const start=pin.map((x,i)=>(x+committee[i])/2);
     const northings=race.get('markNorth');
     const marks=Array.from(race.get('markEast'),(x,i)=>[x,northings[i]]);
-    const positions=[...coast,pin,committee,...marks,...entities.map(({x,y})=>[x,y])];
+    const positions=[...coast,pin,committee,...marks,[ownEast,ownNorth]];
     const east=positions.map(p=>p[0]),north=positions.map(p=>p[1]);
     const left=Math.min(...east),right=Math.max(...east),bottom=Math.min(...north),top=Math.max(...north);
     const scale=Math.min((width-110)/Math.max(160,right-left),(height-114)/Math.max(140,top-bottom));
@@ -56,27 +56,18 @@ export function harborMap(canvas,terrain,race,summary){
       text('Mark '+(i+1),px(x)+10,py(y)-7,palette.course);
     }
     text('Start / finish',px(start[0])+10,py(start[1])-9,palette.course);
-    for(const type of ['npc','player','you'])for(const point of entities){
-      if(point.type!==type)continue;
-      const x=px(point.x),y=py(point.y);
-      marker(x,y,palette[type],type==='you'?7:5);
-      if(type==='you')text('You',x+10,y+15,palette.you);
-    }
+    const x=px(ownEast),y=py(ownNorth);
+    marker(x,y,palette.you,7);
+    text('You',x+10,y+15,palette.you);
     ctx.fillStyle='#284c56';ctx.fillRect(17,40,grid*scale,2);
     ctx.fillRect(17,36,2,9);ctx.fillRect(17+grid*scale,36,2,9);text(grid+' m',17,31);
     text('N',width-29,29);
     ctx.beginPath();ctx.moveTo(width-23,35);ctx.lineTo(width-30,53);ctx.lineTo(width-16,53);ctx.closePath();ctx.fill();
 
-    const rows=entities.map(p=>({type:p.type,name:p.name,x:Math.round(p.x),y:Math.round(p.y)}));
-    const key=JSON.stringify(rows);
-    if(key===previousRows)return;
-    previousRows=key;
-    summary.replaceChildren(...rows.map(p=>{
-      const item=document.createElement('li');
-      item.dataset.mapType=p.type;
-      item.textContent=p.name+' · '+p.x+' E, '+p.y+' N';
-      return item;
-    }));
+    const coordinates='You · '+Math.round(ownEast)+' E, '+Math.round(ownNorth)+' N';
+    if(coordinates===previousCoordinates)return;
+    previousCoordinates=coordinates;
+    summary.textContent=coordinates;
   }
   return {draw};
 }

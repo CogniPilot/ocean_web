@@ -49,6 +49,18 @@ export const cruiserHullGLSL=`
                cos(tilt.x)*horizontal.y+sin(tilt.x)*unpitchedZ,
                -sin(tilt.x)*horizontal.y+cos(tilt.x)*unpitchedZ);
  }
+ vec3 cruiserSectionAt(float station){
+   ${hullSections.slice(1).map(([end,...right],i)=>{
+     const [start,...left]=hullSections[i];
+     return `${i?'else ':''}if(station<=${glslFloat(end)})return mix(vec3(${left.map(glslFloat).join(',')}),vec3(${right.map(glslFloat).join(',')}),clamp((station-(${glslFloat(start)}))/${glslFloat(end-start)},0.,1.));`;
+   }).join('\n')}
+   return vec3(.018,1.32,.25);
+ }
+ float cruiserStemX(float station,float z,vec3 shape){
+   float rake=.8*pow(max(0.,(station-1.5)/2.3),2.);
+   float alongHeight=clamp((z-shape.z)/(shape.y-shape.z),0.,1.);
+   return station-rake*(1.-alongHeight);
+ }
  bool cruiserWaterExcluded(vec3 world){
    for(int i=0;i<5;i++){
      if(i>=cruiserCount)break;
@@ -56,14 +68,24 @@ export const cruiserHullGLSL=`
      vec2 d=world.xy-pose.xy;
      if(dot(d,d)>18.)continue;
      vec3 p=cruiserLocal(world,pose,cruiserTilt[i]);
-     if(p.x < -3.64 || p.x > 3.72 || abs(p.y)>1.37 || p.z < -.76 || p.z > 1.36)continue;
-     vec3 section;
-     ${hullSections.slice(1).map(([end,...right],i)=>{
-       const [start,...left]=hullSections[i];
-       return `${i?'else ':''}if(p.x<=${glslFloat(end)})section=mix(vec3(${left.map(glslFloat).join(',')}),vec3(${right.map(glslFloat).join(',')}),clamp((p.x-(${glslFloat(start)}))/${glslFloat(end-start)},0.,1.));`;
-     }).join('\n')}
-     else continue;
-     float keel=section.z-.18*clamp((3.5-p.x)/2.1,0.,1.);
+     if(p.x < -3.74 || p.x > 3.72 || abs(p.y)>1.37 || p.z < -.76 || p.z > 1.36)continue;
+     float station=p.x;
+     if(p.x>1.5){
+       // Invert the forefoot's station-dependent rake at this height, just as
+       // the hull loft moves each section aft below the deck line.
+       if(p.x>=cruiserStemX(3.8,p.z,cruiserSectionAt(3.8))-.006)continue;
+       float lo=p.x,hi=3.8;
+       for(int stepIndex=0;stepIndex<7;stepIndex++){
+         float mid=(lo+hi)*.5;
+         if(cruiserStemX(mid,p.z,cruiserSectionAt(mid))<p.x)lo=mid;
+         else hi=mid;
+       }
+       station=(lo+hi)*.5;
+     }
+     vec3 section=cruiserSectionAt(station);
+     float transom=-3.74+.14*pow(min(1.,abs(p.y)/1.07),2.);
+     if(p.x<transom+.004)continue;
+     float keel=section.z-.18*clamp((3.5-station)/2.1,0.,1.);
      if(p.z<=keel || p.z>=section.y+.045)continue;
      float t=(p.z-keel)/(section.y-keel);
      float shape=mix(.80,.987,smoothstep(.2,1.,t))*min(1.,t/.31);
@@ -108,6 +130,37 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     metal=new T.MeshStandardMaterial({vertexColors:true,side:T.DoubleSide,roughness:.33,metalness:.35}),
     glass=new T.MeshPhongMaterial({color:0x6e9da2,transparent:true,opacity:.32,specular:0xccdfe4,
       shininess:85,side:T.DoubleSide,depthWrite:false});
+  const panelCentres=[-2.56,-.25,2.10,-2.56,-.25,2.10];
+  const integrity=panelCentres.map(()=>({value:100})),breachRadius=panelCentres.map(()=>({value:0}));
+  const panelMaterials=[...integrity].map((condition,index)=>{
+    const material=solid.clone();
+    material.name='Hull panel '+(index+1);
+    material.onBeforeCompile=shader=>{
+      shader.uniforms.panelCondition=condition;
+      shader.uniforms.holeRadius=breachRadius[index];
+      shader.uniforms.holeX={value:panelCentres[index]};
+      shader.vertexShader='varying vec3 hullPoint;\n'+shader.vertexShader.replace('#include <begin_vertex>',
+        '#include <begin_vertex>\n hullPoint=position;');
+      shader.fragmentShader='varying vec3 hullPoint;uniform float panelCondition,holeRadius,holeX;\n'+
+        shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+          vec2 portA=(hullPoint.xz-vec2(1.64,.69))/vec2(.157,.118);
+          vec2 portB=(hullPoint.xz-vec2(2.15,.69))/vec2(.157,.118);
+          if(abs(hullPoint.y)>.54&&min(dot(portA,portA),dot(portB,portB))<1.)discard;
+          vec2 rel=hullPoint.xz-vec2(holeX,-.30);
+          float bearing=atan(rel.y,rel.x);
+          float edge=holeRadius*(1.+.15*sin(9.*bearing)+.12*sin(17.*bearing));
+          float gap=length(rel);
+          if(holeRadius>0.&&gap<edge)discard;
+          float rim=(1.-smoothstep(edge,edge+.10,gap))*step(.001,holeRadius);
+          float worn=1.-panelCondition/100.;
+          float pores=sin(132.*hullPoint.x+19.*hullPoint.z)*sin(96.*hullPoint.z);
+          diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*vec3(.62,.53,.43),.50*worn+.30*rim);
+          diffuseColor.rgb*=1.-.16*worn*step(.6,pores);
+        `);
+    };
+    return material;
+  });
+  const panelMeshes=[];
   // Hull, pilothouse and fittings are fixed relative to one another. Bake them
   // by surface finish so a distant peer's grab rails take a single draw call.
   const batches=new Map(),v3=(x,y,z)=>new T.Vector3(x,y,z);
@@ -170,8 +223,12 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   }
   for(const side of [-1,1]){
     const row=(k,f,t)=>k.point(side,f,t);
-    surface(sections.map(k=>[row(k,1,1),row(k,.993,.87),row(k,.972,.65),row(k,.931,.43),row(k,.85,.23)]),ivory);
-    surface(sections.map(k=>[row(k,.85,.23),row(k,.57,.12),row(k,.27,.045),row(k,0,0)]),0x9f9e96);
+    const splits=[0,sections.findIndex(k=>k.x>=-1.40),sections.findIndex(k=>k.x>=.95),sections.length-1];
+    for(let i=0;i<3;i++){
+      const plating=sections.slice(splits[i],splits[i+1]+1),material=panelMaterials[i+(side>0?0:3)];
+      surface(plating.map(k=>[row(k,1,1),row(k,.993,.87),row(k,.972,.65),row(k,.931,.43),row(k,.85,.23)]),ivory,material);
+      surface(plating.map(k=>[row(k,.85,.23),row(k,.57,.12),row(k,.27,.045),row(k,0,0)]),0x9f9e96,material);
+    }
     // Molded lifting strakes fade into the forward V rather than extending
     // all the way to the bow. The bottom remains one continuous plating mesh.
     for(const [fraction,t,slope] of [[.27,.045,.25],[.57,.12,.393]]){
@@ -191,7 +248,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     surface(sections.map(k=>[stripe(k,.070),stripe(k,.025)]),trim);
     surface(sections.map(k=>[row(k,1.003,.986),row(k,1.006,.946)]),trim);
     surface(sections.map(k=>[row(k,1,1),row(k,.83,1)]),white);
-    const window=sections.filter(k=>k.x>-.55&&k.x<2.5);
+    const window=sections.filter(k=>k.x>-.55&&k.x<1.43);
     surface(window.map((k,i)=>{
       const u=i/(window.length-1),height=.092*Math.sqrt(Math.max(0,Math.sin(Math.PI*u)));
       const mid=.77+.055*u;
@@ -263,10 +320,6 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   const B=[1.19,-.85,1.65],C=[.63,-.83,2.09],D=[.63,.83,2.09],A=[1.19,.85,1.65];
   surface([[B,C],[A,D]],0xffffff,glass);
   for(const [u,v] of [[B,A],[A,D],[D,C],[C,B],[[1.19,0,1.65],[.63,0,2.09]]])rod(u,v,.030,trim);
-  for(const s of [-1,1]){
-    rod([1.13,s*.56,1.70],[.96,s*.33,1.83],.009,trim);
-    rod([1.05,s*.55,1.76],[.83,s*.16,1.93],.011,trim);
-  }
   surface([[[1.19,-.85,1.65],[1.19,.85,1.65]],[[1.83,-.65,1.19],[1.83,.65,1.19]],[[2.04,-.48,1.10],[2.04,.48,1.10]]],ivory);
   // Cambered roof with rounded corners and a dark drip moulding.
   const rim=new T.Shape();rim.moveTo(-1.24,-.78);rim.quadraticCurveTo(-1.24,-1.02,-1.01,-1.02);
@@ -275,7 +328,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   for(const [z,color,depth] of [[2.12,trim,.026],[2.15,white,.046]])
     part(new T.ExtrudeGeometry(rim,{depth,bevelEnabled:true,bevelSegments:2,bevelSize:.022,bevelThickness:.012}),color,[0,0,z]);
   // Visible interior, including the companionway and the starboard helm.
-  box(.39,0,.97,.68,1.79,.83,ivory);box(.0,.37,1.05,.03,.62,.52,trim);
+  box(.39,0,.97,.68,1.79,.83,ivory);
   box(.33,-.39,1.40,.37,1.00,.21,trim);
   // Twin recessed helm displays face the seated operator. Draw bezel, chart,
   // sonar trace and separate switch bank on a single instrument face.
@@ -294,11 +347,6 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   pad(-.01,-.90,1.238,.12,.061,.043,steel,metal);
   rod([-.04,-.90,1.23],[.019,-.90,1.37],.016,steel);
   pad(.019,-.90,1.38,.044,.032,.026,trim);
-  for(let i=0;i<6;i++){
-    const y=-.61+i*.076;
-    box(-.014,y,1.27,.018,.041,.063,0x364144);
-    pad(-.023,y,1.29,.007,.009,.005,i%3?0xaec3bb:0xe2b568);
-  }
   const wheelCenter=v3(-.11,-.51,1.37);
   rod([.06,-.51,1.30],wheelCenter.toArray(),.045,trim);
   pad(-.128,-.51,1.37,.027,.042,.042,steel,metal);
@@ -330,6 +378,155 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     const material=basic?new T.MeshBasicMaterial({color}):new T.MeshStandardMaterial({color,roughness:.44});
     const m=new T.Mesh(geometry,material);parent.add(m);return m;
   };
+  const cabin=new T.Group();cabin.name='Forward cabin';group.add(cabin);
+  const cabinObjects=new Map();
+  function cabinPart(g,color,position,parent=cabin,basic=false){
+    const piece=fixed(g,color,parent,basic);
+    piece.position.set(...position);return piece;
+  }
+  const deckObjects=new Map(),helmIndicators=new Map(),wiperPivots=[];
+  const companionway=new T.Group();companionway.name='Companionway door';
+  companionway.position.set(-.020,.42,1.02);group.add(companionway);
+  cabinPart(new T.BoxGeometry(.055,.63,.61),0x4c3a2b,[0,0,0],companionway);
+  cabinPart(new T.BoxGeometry(.025,.55,.53),0x8f724e,[-.036,0,0],companionway);
+  for(let i=0;i<4;i++)cabinPart(new T.BoxGeometry(.012,.50,.006),0x6b5139,
+    [-.051,0,-.173+i*.106],companionway);
+  const latch=cabinPart(new T.CylinderGeometry(.013,.013,.105,10),0xbac5c5,[-.069,.15,.072],companionway);
+  latch.rotation.x=Math.PI/2;deckObjects.set('cabin',companionway);
+  for(const [i,id] of ['search','underwater','wipers','anchor'].entries()){
+    const mount=new T.Group();
+    mount.name=id+' switch';mount.position.set(-.034,-.62+i*.101,1.275);group.add(mount);
+    cabinPart(new T.BoxGeometry(.020,.066,.061),0x293d40,[0,0,0],mount);
+    const rocker=cabinPart(new T.BoxGeometry(.016,.043,.038),0x5b6765,[-.014,0,0],mount);
+    const light=cabinPart(new T.BoxGeometry(.009,.022,.009),0x61726a,[-.024,0,.012],mount);
+    helmIndicators.set(id,{rocker,light});deckObjects.set(id,mount);
+  }
+  function setHelmSwitch(id,on){
+    const {rocker,light}=helmIndicators.get(id);
+    rocker.rotation.y=on?.23:-.23;
+    light.material.emissive.setHex(on?0x44e7a9:0);
+    light.material.emissiveIntensity=on?.85:0;
+  }
+  const upWindshield=v3(-.56,0,.44).normalize(),acrossWindshield=v3(0,1,0);
+  const glassFrame=new T.Matrix4().makeBasis(acrossWindshield,upWindshield,
+    v3(0,0,0).crossVectors(acrossWindshield,upWindshield));
+  for(const side of [-1,1]){
+    const mount=new T.Group();mount.position.set(1.176,side*.43,1.676);
+    mount.quaternion.setFromRotationMatrix(glassFrame);group.add(mount);
+    cabinPart(new T.CylinderGeometry(.031,.031,.025,14),trim,[0,0,0],mount).rotation.x=Math.PI/2;
+    const pivot=new T.Group();pivot.name='Windshield wiper';mount.add(pivot);wiperPivots.push(pivot);
+    cabinPart(new T.BoxGeometry(.012,.24,.015),trim,[0,.122,.014],pivot);
+    cabinPart(new T.BoxGeometry(.020,.31,.015),0x121416,[.018,.287,.005],pivot);
+  }
+  function setWiper(angle){for(const pivot of wiperPivots)pivot.rotation.z=angle-.68;}
+  setWiper(0);
+  const anchorMesh=new T.Group();anchorMesh.name='Bow anchor';anchorMesh.visible=false;group.add(anchorMesh);
+  const anchorMetal=0x8f9a9a;
+  cabinPart(new T.BoxGeometry(.028,.032,.29),anchorMetal,[0,0,-.12],anchorMesh);
+  cabinPart(new T.CylinderGeometry(.014,.014,.29,10),anchorMetal,[0,0,-.23],anchorMesh);
+  for(const sign of [-1,1]){
+    const fluke=cabinPart(new T.BoxGeometry(.16,.12,.016),anchorMetal,[.045,sign*.102,-.24],anchorMesh);
+    fluke.rotation.y=-.44;
+  }
+  const rodeGeometry=new T.BufferGeometry(),rodePositions=new Float32Array(17*3);
+  rodeGeometry.setAttribute('position',new T.BufferAttribute(rodePositions,3).setUsage(T.DynamicDrawUsage));
+  const rode=new T.Line(rodeGeometry,new T.LineBasicMaterial({color:0x8e8d75}));
+  rode.frustumCulled=false;rode.visible=false;group.add(rode);
+  const anchorPoint=v3(0,0,0),rollerPoint=v3(0,0,0),anchorRotation=new T.Quaternion();
+  function setAnchor(row){
+    if(!row){anchorMesh.visible=false;rode.visible=false;return;}
+    anchorMesh.visible=true;
+    group.updateWorldMatrix(true,false);
+    const paid=row[10];
+    anchorPoint.fromArray(row);rollerPoint.fromArray(row,7);
+    group.worldToLocal(anchorPoint);group.worldToLocal(rollerPoint);
+    anchorMesh.position.copy(anchorPoint);
+    anchorMesh.quaternion.copy(group.quaternion).invert().multiply(anchorRotation.fromArray([row[4],row[5],row[6],row[3]]));
+    rode.visible=paid>.22;
+    if(!rode.visible)return;
+    const slack=Math.min(1.4,.22*Math.max(0,paid-anchorPoint.distanceTo(rollerPoint)));
+    for(let i=0;i<17;i++){
+      const u=i/16;
+      rodePositions[3*i]=T.MathUtils.lerp(rollerPoint.x,anchorPoint.x,u);
+      rodePositions[3*i+1]=T.MathUtils.lerp(rollerPoint.y,anchorPoint.y,u);
+      rodePositions[3*i+2]=T.MathUtils.lerp(rollerPoint.z,anchorPoint.z,u)-4*u*(1-u)*(1-u)*slack;
+    }
+    rodeGeometry.attributes.position.needsUpdate=true;
+  }
+  const cabinWood=0x866445,ivoryLining=0xdbd4bf;
+  cabinPart(new T.BoxGeometry(1.64,1.46,.04),0x89664c,[2.0,0,-.38]);
+  for(let i=-5;i<=5;i++)cabinPart(new T.BoxGeometry(1.59,.006,.006),0x4a3c2d,[2.0,i*.13,-.357]);
+  cabinPart(new T.BoxGeometry(1.74,1.55,.045),ivoryLining,[2.0,0,1.12]);
+  cabinPart(new T.BoxGeometry(.04,1.40,1.46),cabinWood,[2.83,0,.35]);
+  for(const side of [-1,1]){
+    const lining=new T.Shape();
+    lining.moveTo(1.22,-.35);lining.lineTo(2.81,-.35);lining.lineTo(2.77,1.11);lining.lineTo(1.22,1.11);lining.closePath();
+    for(const x of [1.64,2.15]){
+      const hole=new T.Path();hole.absellipse(x,.69,.157,.118,0,2*Math.PI,true);lining.holes.push(hole);
+    }
+    const wall=cabinPart(new T.ShapeGeometry(lining,28),ivoryLining,[0,side*.78,0]);
+    wall.rotation.x=Math.PI/2;wall.material.side=T.DoubleSide;
+    for(const [x,outerY] of [[1.64,1.09],[2.15,.935]]){
+      for(const y of [.776,outerY]){
+        const rim=cabinPart(new T.TorusGeometry(.148,.014,10,36),0xa6a9a2,[x,side*y,.69]);
+        rim.rotation.x=Math.PI/2;rim.scale.y=.75;rim.material.metalness=.62;
+      }
+      const pane=cabinPart(new T.CircleGeometry(.148,36),0xa6d4e0,[x,side*.797,.69]);
+      pane.rotation.x=Math.PI/2;pane.scale.y=.75;pane.material=glass.clone();pane.material.opacity=.18;
+    }
+    cabinPart(new T.BoxGeometry(1.06,.42,.21),cabinWood,[2.22,side*.53,-.22]);
+    cabinPart(new T.BoxGeometry(1.07,.42,.10),0x405b61,[2.22,side*.53,-.067]);
+  }
+  cabinPart(new T.BoxGeometry(.06,1.54,.11),cabinWood,[1.21,0,-.27]);
+  const radio=new T.Group();radio.name='Cabin radio';radio.position.set(2.46,.15,.66);cabin.add(radio);
+  cabinPart(new T.BoxGeometry(.20,.39,.23),0x332924,[0,0,0],radio);
+  cabinPart(new T.BoxGeometry(.013,.354,.197),0x795739,[-.106,0,0],radio);
+  for(let i=-3;i<=3;i++)cabinPart(new T.BoxGeometry(.006,.102,.007),0x322e2a,[-.114,.099,.019*i],radio);
+  const display=cabinPart(new T.BoxGeometry(.012,.12,.068),0x465150,[-.116,-.074,.037],radio);
+  const dial=cabinPart(new T.CylinderGeometry(.039,.039,.026,18),0xc0b58e,[-.119,-.083,-.042],radio);
+  dial.rotation.z=Math.PI/2;
+  cabinObjects.set('radio',radio);
+  const dome=new T.Group();dome.name='Cabin lamp';dome.position.set(2.05,-.11,1.07);cabin.add(dome);
+  const bezelCabin=cabinPart(new T.CylinderGeometry(.12,.126,.032,32),0x9d8e71,[0,0,0],dome);
+  bezelCabin.rotation.x=Math.PI/2;
+  const filament=cabinPart(new T.SphereGeometry(1,24,12),0xbdb69d,[0,0,-.022],dome);
+  filament.scale.set(.106,.106,.040);
+  const cabinLamp=new T.PointLight(0xffce8f,8,3.0,2);
+  cabinLamp.name='Cabin lamp emitter';cabinLamp.position.set(2.05,-.11,1.01);cabinLamp.visible=false;cabin.add(cabinLamp);
+  cabinObjects.set('light',dome);
+  function setCabinLight(on){
+    cabinLamp.visible=on;filament.material.emissive.setHex(on?0xffc77a:0);filament.material.emissiveIntensity=on?.8:0;
+  }
+  function setRadio(on){display.material.emissive.setHex(on?0x6dcc91:0);}
+  const floodingEffects=panelCentres.map((x,index)=>{
+    const sign=index<3?1:-1,particles=new Float32Array(60*3),geometry=new T.BufferGeometry();
+    geometry.setAttribute('position',new T.BufferAttribute(particles,3).setUsage(T.DynamicDrawUsage));
+    const spray=new T.Points(geometry,new T.PointsMaterial({color:0x8ad4e7,size:.061,transparent:true,
+      opacity:.72,depthWrite:false}));
+    spray.name='Flood inflow '+(index+1);spray.frustumCulled=false;spray.visible=false;group.add(spray);
+    const level=cabinPart(new T.PlaneGeometry(2.18,.94),0x4d9eac,[x,sign*.46,-.65],group);
+    level.material.transparent=true;level.material.opacity=.58;level.material.depthWrite=false;level.visible=false;
+    return {sign,spray,particles,level};
+  });
+  function updateDamage(health,flood,panels,time){
+    for(let i=0;i<floodingEffects.length;i++){
+      integrity[i].value=health[i];
+      breachRadius[i].value=Math.sqrt(Math.max(0,flood[5*i+2])/Math.PI);
+      if(panelMeshes[i])panelMeshes[i].visible=health[i]>.01;
+      const {sign,spray,particles,level}=floodingEffects[i],rate=flood[5*i+1],o=3*i;
+      level.visible=flood[5*i]>.025;level.position.z=flood[5*i+3];
+      spray.visible=rate>.002;
+      if(!spray.visible)continue;
+      for(let k=0;k<60;k++){
+        const u=(k/60+time*(1.0+rate*1.7))%1,splay=Math.sin(k*2.3);
+        particles[3*k]=panels[o]+splay*(.022+.20*u);
+        particles[3*k+1]=panels[o+1]-sign*.68*u;
+        particles[3*k+2]=(flood[5*i+2]>0?panels[o+2]:.47)+.05*u*Math.cos(k*8.2)-.47*u*u;
+      }
+      spray.geometry.attributes.position.needsUpdate=true;
+      spray.material.opacity=Math.min(.82,.25+rate*8);
+    }
+  }
   for(let i=0;i<3;i++){
     const blade=fixed(new T.SphereGeometry(1,10,8),brass,propeller),a=2*Math.PI*i/3;
     blade.position.set(0,.14*Math.cos(a),.14*Math.sin(a));blade.scale.set(.040,.169,.078);blade.rotation.set(a,.26,.20,'XYZ');
@@ -401,6 +598,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     const g=new T.BufferGeometry();
     for(const [attribute,data] of [['position',b.p],['normal',b.n],['color',b.c]])g.setAttribute(attribute,new T.Float32BufferAttribute(data,3));
     g.setIndex(b.ix);const m=new T.Mesh(g,material);group.add(m);
+    const panel=panelMaterials.indexOf(material);if(panel>=0)panelMeshes[panel]=m;
   }
   // Fit the sonar view and chart to the local helm. The display faces aft and
   // slightly upward, allowing the helmsman to see through the windshield.
@@ -450,5 +648,5 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     for(const m of materials){m.map?.dispose();m.dispose();}
   }
   const lamps=[{swivel,light,beam,lens,under:underwaterLamps[1]},{under:underwaterLamps[8]}];
-  return {group,update,lamps,searchlight:{swivel,light},underwaterLamps,dispose,get shaftRPM(){return shaftRPM;}};
+  return {group,update,updateDamage,cabinObjects,deckObjects,setCabinLight,setRadio,setWiper,setHelmSwitch,setAnchor,lamps,searchlight:{swivel,light},underwaterLamps,dispose,get shaftRPM(){return shaftRPM;}};
 }

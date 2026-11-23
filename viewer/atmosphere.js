@@ -705,11 +705,18 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
      color=mix(waterColor,reflected,fres);
      #else
      vec3 levelNormal=vec3(0.,0.,1.);
-     vec4 clip=mirrorMatrix*vec4(wp,1.);
+     // Anchor the capture to the reflected viewing ray. Using the displaced
+     // point itself here folds the planar projection over each crest when
+     // viewed near the horizon, duplicating or reversing silhouettes.
+     vec3 mirrorPoint=vec3(wp.xy,2.*tide-wp.z);
+     vec4 clip=mirrorMatrix*vec4(mirrorPoint,1.);
      vec3 reflectedDeflection=ref-reflect(-eye,levelNormal);
-     vec4 mirrorRay=clip+mirrorMatrix*vec4(.055*eyeDistance*reflectedDeflection,0.);
-     vec2 uv=clamp(mirrorRay.xy/max(.001,mirrorRay.w)*.5+.5,.001,.999);
-     vec4 objects=texture2D(reflection,uv,.65);
+     float objectDistortion=.037*eyeDistance*(1.-smoothstep(12.,55.,eyeDistance));
+     vec4 mirrorRay=clip+mirrorMatrix*vec4(objectDistortion*reflectedDeflection,0.);
+     vec2 uv=mirrorRay.xy/max(.001,mirrorRay.w)*.5+.5;
+     vec2 mirrorMargin=min(uv,1.-uv);
+     float mirrorVisible=step(.001,mirrorRay.w)*smoothstep(0.,.018,min(mirrorMargin.x,mirrorMargin.y));
+     vec4 objects=texture2D(reflection,clamp(uv,.001,.999),.65)*mirrorVisible;
      vec3 reflected=skyColor(ref)*(1.-objects.a)+objects.rgb;
      // Compare both depths in the camera that captured the seabed.
      vec4 captureClip=throughMatrix*vec4(wp,1.);

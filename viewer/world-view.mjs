@@ -21,7 +21,7 @@ const submarineOutputs=[...group('sub','surveyTelemetry position orientation pro
  'estimate','sensor','ping'];
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',outhaulInput:'outhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',manualJibAssist:'manualJibAssist',
- ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic',trafficTilt:'trafficTilt'};
+ jibHalyardInput:'jibHalyardInput',ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic',trafficTilt:'trafficTilt'};
 export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1,options={}){
  const hasBoat=mode==='world'||mode==='sailing'||mode==='sloop',hasSub=mode==='world'||mode==='submarine',hasFlight=mode==='world'||mode==='flight';
  const workerUrl=new URL('./'+mode+'/ocean-world-worker.mjs',import.meta.url);
@@ -54,7 +54,7 @@ export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1
  const inputs=['seaState','raceStart'];
  if(hasBoat){
    Object.assign(initial,{sailingManual:1,vang:.5,downhaul:.5,outhaul:.65,manualJibAssist:1});
-   inputs.push(...Object.values(boatInputs),'finishAllowed','npcVessels','npcTilt');
+   inputs.push(...Object.values(boatInputs).filter(name=>name!=='jibHalyardInput'),'finishAllowed','npcVessels','npcTilt');
    initial.finishAllowed=1;
  }
  if(mode==='motorboat')inputs.push('throttleLever','helmLever','traffic','trafficTilt','npcVessels','npcTilt');
@@ -81,13 +81,13 @@ export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
    refineBows:hasBoat&&mode!=='sloop',
-   optionalInputs:['animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
+   optionalInputs:[...(hasBoat&&mode!=='sloop'?['jibHalyardInput']:[]),...(mode==='motorboat'?['startEncounter','encounterTargets','wiperSwitch','lowerAnchor']:[]),'animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
    optionalOutputs:['swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame',...inertiaOutputs,
-     ...(hasBoat&&mode!=='sloop'?['boat.ballastTrapezeReach','boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins',
+     ...(hasBoat&&mode!=='sloop'?['boat.ballastTrapezeReach','boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins','boat.mainBlockClearance','boat.blockStack','boat.mastBend','boat.forestayPath','boat.forestayTension','boat.jibHalyardTension','boat.mastRake',
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.stationX','boat.beamHalf','boat.pontoonContactVertices','boat.pontoonContactFaces']:[]),
-     ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
-     ...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea']:[]),...(hasFlight?[...flightNavigationOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount']:[])]});
+     ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes','sectionStamp',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
+     ...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','engineIdleTime','engineOffAfter']:[]),...(hasFlight?[...flightNavigationOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount']:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
@@ -161,5 +161,5 @@ export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1
    if(surveyView.wakeSurface!==enabled)wakeRevision++;
    surveyView.wakeSurface=enabled;
    if(!enabled)for(const name of ['waves.height','bowHeight','bowFineHeight','bowFoam','bowSpray'])state.delete(name);
- },hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasAnimalJoints:offsets.has('animalJoints'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map,dvl=false){surveyView.dvl=camera||dvl;surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
+ },hasWiper:offsets.has('wiperSwitch'),hasAnchor:offsets.has('lowerAnchor'),hasEncounter:offsets.has('startEncounter')&&offsets.has('encounterTargets')&&state.has('encounterShark'),hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasAnimalJoints:offsets.has('animalJoints'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),setSurveyView(active,camera,map,dvl=false){surveyView.dvl=camera||dvl;surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

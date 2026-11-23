@@ -67,6 +67,23 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   discrete Real bowFrame[4](each start=0,each fixed=true);
   input Real throttleLever(start=0) "Astern -1 through neutral to ahead 1";
   input Real helmLever(start=0) "Positive port helm";
+  input Real startEncounter(start=0);
+  input Real lowerAnchor(start=0),wiperSwitch(start=0);
+  output Real anchorState[12] "Anchor position, quaternion, bow roller position, line paid and grounded";
+  output Real wiperAngle "Sweep angle from park [rad]";
+  discrete Real wiperPhase(start=0,fixed=true);
+  Real bowRollerArm[3],bowRoller[3],anchorMoment[3],anchorForce[3];
+  CruiserAnchor anchor(stowed={initialEast+3.25*cos(initialHeading),initialNorth+3.25*sin(initialHeading),1.12},
+    lower=lowerAnchor,sea=boatWater.tide,mount=bowRoller,
+    mountVelocity={der(east),der(north),vertical}+cross(yawRotation*spin,bowRollerArm),
+    current=boatWater.profile[1,2:3]);
+  input Real encounterTargets[BreakwaterEncounter.targetCount,7]=zeros(BreakwaterEncounter.targetCount,7);
+  BreakwaterEncounter encounter(activate=startEncounter,tide=boatWater.tide,boat=boatPose,
+    vesselVelocity={der(east),der(north),vertical},angularVelocity=yawRotation*spin,
+    vesselMass=wetMass,panelSurface=damageSurface,targets=encounterTargets);
+  output Real encounterShark[10],structuralImpact[8],hullIntegrity[6],flooding[6,5],damagePanels[6,3],
+    encounterHealth[BreakwaterEncounter.targetCount,2],boatDamage[3];
+  Real damageSurface[6],yawRotation[3,3],damageMoment[3],wetMass,submergedDrag;
   input Real traffic[4,9](each start=0) "Peer surface vessel states";
   input Real trafficTilt[4,2]=zeros(4,2),npcTilt[5,2]=zeros(5,2);
   input Real npcVessels[5,9]=zeros(5,9);
@@ -99,9 +116,10 @@ equation
       stripNorth[h,j]=north+sin(yaw)*stripX[j]*cos(pitch)+cos(yaw)*(3-2*h)*.55*cos(roll);
       stripZ[h,j]=z-(stripX[j]-floatX)*sin(pitch)+(3-2*h)*.55*sin(roll)*cos(pitch);
       immersion[h,j]=(1-waterFraction)*previousSea[h,j]+waterFraction*panelSea[h,j]
-        +swell[1]*sin(swell[2]+stripEast[h,j]*swell[3]+stripNorth[h,j]*swell[4])-stripZ[h,j]
+        +swell[1]*sin(swell[2]+stripEast[h,j]*swell[3]+stripNorth[h,j]*swell[4])+encounter.waveSurge[h]-stripZ[h,j]
         +(if noEvent(panelSignal>1e-9) then swimmerWater[(h-1)*6+j] else swimmerWater[13]+stripX[j]*swimmerWater[14]+(3-2*h)*.55*swimmerWater[15]);
-      stripVolume[h,j]=immersedVolume(.5*(3250/1025)*displacementFraction[j],stripArea[j],immersion[h,j]);
+      stripVolume[h,j]=(1-.30*max(0,1-encounter.integrity[(h-1)*3+div(j-1,2)+1]/45))*
+        immersedVolume(.5*(3250/1025)*displacementFraction[j],stripArea[j],immersion[h,j]);
       stripForce[h,j]=1025*9.80665*(stripVolume[h,j]-.5*(3250/1025)*displacementFraction[j]);
     end for;
   end for;
@@ -123,6 +141,34 @@ equation
     0,cos(roll),-sin(roll);
     -sin(pitch),cos(pitch)*sin(roll),cos(pitch)*cos(roll)];
   spin={rollRate*cos(pitch),pitchRate,yawRate-rollRate*sin(pitch)};
+  yawRotation=[cos(yaw),-sin(yaw),0;sin(yaw),cos(yaw),0;0,0,1];
+  bowRollerArm=yawRotation*rotation*{3.25,0,.83};
+  bowRoller=focus+bowRollerArm;
+  anchorForce=if noEvent(anchor.paid>.22 or lowerAnchor>.5) then anchor.reaction else zeros(3);
+  anchorMoment=transpose(yawRotation)*cross(bowRollerArm,anchorForce);
+  anchorState=cat(1,anchor.position,anchor.orientation,bowRoller,{anchor.paid,anchor.grounded});
+  when sample(0,.02) then
+    wiperPhase=if wiperSwitch>.5 then mod(pre(wiperPhase)+.02,1.12)
+      elseif pre(wiperPhase)>.001 and pre(wiperPhase)+.02<1.12 then pre(wiperPhase)+.02 else 0;
+  end when;
+  wiperAngle=.71*(1-cos(2*Modelica.Constants.pi*wiperPhase/1.12));
+  wetMass=3250+encounter.waterMass;
+  submergedDrag=max(0,min(1,(boatWater.tide-z-.65)/1.05));
+  damageMoment=transpose(yawRotation)*encounter.collisionMoment;
+  for p in 1:6 loop
+    damageSurface[p]=.5*((1-waterFraction)*(previousSea[div(p-1,3)+1,2*mod(p-1,3)+1]+
+      previousSea[div(p-1,3)+1,2*mod(p-1,3)+2])+waterFraction*(panelSea[div(p-1,3)+1,2*mod(p-1,3)+1]+
+      panelSea[div(p-1,3)+1,2*mod(p-1,3)+2]))+
+      swell[1]*sin(swell[2]+(east+cos(yaw)*encounter.bodyPoints[p,1]-sin(yaw)*encounter.bodyPoints[p,2])*swell[3]+
+      (north+sin(yaw)*encounter.bodyPoints[p,1]+cos(yaw)*encounter.bodyPoints[p,2])*swell[4]);
+  end for;
+  encounterShark=encounter.shark;
+  structuralImpact=encounter.impact;
+  hullIntegrity=encounter.integrity;
+  flooding=encounter.flooding;
+  damagePanels=encounter.bodyPoints;
+  encounterHealth=encounter.victimHealth;
+  boatDamage={encounter.hullHealth,encounter.waterMass,encounter.sinkState};
   shoreWrench=hullContact(focus,cos(yaw),sin(yaw),rotation,
     {surge+cos(yaw)*boatWater.profile[1,2]+sin(yaw)*boatWater.profile[1,3],
     sway-sin(yaw)*boatWater.profile[1,2]+cos(yaw)*boatWater.profile[1,3],vertical},spin);
@@ -137,23 +183,24 @@ equation
       then engineCrankTime else max(0,pre(starterRemaining)-.01);
     engineIdleTime=if abs(throttleLever)>.008 then 0 else min(engineOffAfter,pre(engineIdleTime)+.01);
   end when;
-  effectiveThrottle=if starterRemaining>1e-8 then 0 else throttleLever;
+  effectiveThrottle=if starterRemaining>1e-8 or encounter.waterMass>1650 then 0 else throttleLever;
   der(shaftRPM)=(if effectiveThrottle>=0 then 1850*effectiveThrottle-shaftRPM else 1100*effectiveThrottle-shaftRPM)/.85;
   thrust=if starterRemaining>1e-8 then 0 else .0025*shaftRPM*abs(shaftRPM);
-  der(surge)=(thrust+(animalWrench[1]+peerForce[1]+sceneForce[1])*cos(yaw)+(animalWrench[2]+peerForce[2]+sceneForce[2])*sin(yaw)+shoreWrench[1]
-    -118*surge*abs(surge)-180*surge)/3250;
-  der(yawRate)=(.085*helmLever*surge+.025*helmLever*shaftRPM/1850-yawRate)/.9+(animalWrench[6]+shoreWrench[6]+peerForce[3]+sceneForce[3])/14000;
+  der(surge)=(thrust+(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1])*cos(yaw)+(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2])*sin(yaw)+shoreWrench[1]
+    -118*surge*abs(surge)-180*surge)/wetMass;
+  der(yawRate)=(.085*helmLever*surge+.025*helmLever*shaftRPM/1850-yawRate)/.9+(animalWrench[6]+shoreWrench[6]+peerForce[3]+sceneForce[3]+damageMoment[3]+anchorMoment[3])/(14000+3.6*encounter.waterMass);
   der(yaw)=yawRate;
-  der(sway)=(-sin(yaw)*(animalWrench[1]+peerForce[1]+sceneForce[1])+cos(yaw)*(animalWrench[2]+peerForce[2]+sceneForce[2])+shoreWrench[2])/3250-(1.5+.45*abs(sway))*sway;
+  der(sway)=(-sin(yaw)*(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1])+cos(yaw)*(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2])+shoreWrench[2])/wetMass-(1.5+.45*abs(sway))*sway;
   der(east)=surge*cos(yaw)-sway*sin(yaw)+boatWater.profile[1,2];
   der(north)=surge*sin(yaw)+sway*cos(yaw)+boatWater.profile[1,3];
-  der(vertical)=(sum(stripForce)+shoreWrench[3]-16500*vertical)/(3250+addedHeaveMass);der(z)=vertical;
+  der(vertical)=(sum(stripForce)+shoreWrench[3]+encounter.collisionForce[3]+anchorForce[3]-9.80665*encounter.waterMass
+    -16500*vertical)/(wetMass+addedHeaveMass);der(z)=vertical;
   // Restoring moments about the centre of flotation. Roll stiffness accounts
   // for the raised centre of gravity; turning and thrust also trim the hull.
   der(rollRate)=(.68*.55*sum(stripForce[1,j]-stripForce[2,j] for j in 1:6)
-    +shoreWrench[4]-7400*rollRate-1950*surge*yawRate)/rollInertia;der(roll)=rollRate;
+    +shoreWrench[4]+damageMoment[1]+anchorMoment[1]+encounter.rollMoment-(7400+18000*submergedDrag)*rollRate-1950*surge*yawRate)/(rollInertia+.65*encounter.waterMass);der(roll)=rollRate;
   der(pitchRate)=(-sum((stripX[j]-floatX)*(stripForce[1,j]+stripForce[2,j]) for j in 1:6)
-    +shoreWrench[5]-47000*pitchRate-.65*thrust)/pitchInertia;der(pitch)=pitchRate;
+    +shoreWrench[5]+damageMoment[2]+anchorMoment[2]+encounter.pitchMoment-(47000+52000*submergedDrag)*pitchRate-.65*thrust)/(pitchInertia+3.5*encounter.waterMass);der(pitch)=pitchRate;
   boatPose={east,north,z,roll,pitch,yaw};
   engine={shaftRPM,surge,thrust,.52*helmLever};
 end OceanMotorboat;

@@ -95,7 +95,31 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
   const visuals=new Map(),started=new Set();
   let worker,pending,session,lastTime,lastEnvironment,acc=0;
   let current,lastPacket,lastGullTime,arrival=0,interval=100;
-  let localActor,localVessel;
+  let localActor,localVessel,breakwater,loadingBreakwater,breakwaterState;
+  const breakwaterRig=new Float64Array(203);
+  function showBreakwater(row,time){
+    breakwaterState=row;
+    if(!row||row[0]<.5){if(breakwater)breakwater.group.visible=false;return;}
+    if(!breakwater&&!loadingBreakwater){
+      loadingBreakwater=marineAnimal(T,'shark',2*greatWhiteLength,caustics,tideUniform).then(visual=>{
+        if(signal.aborted)return;
+        breakwater=visual;
+        visual.group.name='Breakwater';
+        visual.group.visible=Boolean(breakwaterState?.[0]);
+        scene.add(visual.group);
+      }).catch(error=>console.warn('Great white encounter model unavailable',error));
+    }
+    if(!breakwater)return;
+    const {group,articulate,mouth}=breakwater;
+    group.visible=true;group.position.fromArray(row,1);group.rotation.set(0,-row[5],row[4],'ZYX');
+    mouth(row[9]);
+    // Skin motion between the resolved swim and jaw poses.
+    const frequency=.48+.13*Math.hypot(row[6],row[7],row[8]),phase=2*Math.PI*frequency*time;
+    breakwaterRig[202]=.06*Math.sin(phase);
+    breakwaterRig[70]=.14*Math.sin(phase-.70);
+    breakwaterRig[72]=.23*Math.sin(phase-1.35);
+    articulate(breakwaterRig);
+  }
 
   function syncVisuals(){
     for(const [id,entry] of visuals){
@@ -374,7 +398,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     }
     return nearest;
   }
-  return {update,advanceHost,wakes,nearestHumpback,fish(){return feeding.fish(current?.[0]??lastTime??0);},ping(a){return current?feeding.ping(a,a.frame??current,current[0]):null;},surfaceWakes,contacts,animalJoints,cameraSubject,watch(id){localActor=id;},frame(id){
+  return {update,advanceHost,wakes,nearestHumpback,showBreakwater,fish(){return feeding.fish(current?.[0]??lastTime??0);},ping(a){return current?feeding.ping(a,a.frame??current,current[0]):null;},surfaceWakes,contacts,animalJoints,cameraSubject,watch(id){localActor=id;},frame(id){
     const index=gullIndex(id);
     return index>=0?room.habitat.gulls[index]:room.animals.get(id)?.frame??current;
   }};

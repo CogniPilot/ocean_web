@@ -56,7 +56,7 @@ function engineVoice(context,output,recordings){
 export function inboardMixer(context,output,decodeRecording){
   const voices=new Map(),recordings={};
   let next=0,loadClips;
-  const neutralDelay=1.8;
+  const neutralDelay=10;
   function prepare(){
     loadClips??=Promise.all([
       decodeRecording('inboard-loop.mp3').then(buffer=>{recordings.loop=seamlessLoop(context,buffer);}),
@@ -72,7 +72,8 @@ export function inboardMixer(context,output,decodeRecording){
     const nearby=[];
     function collect(boat,powered){
       const existing=voices.get(boat);
-      if(!powered&&!(boat.starterRemaining>1e-6)&&(!existing||now-existing.lastPowered>=neutralDelay))return;
+      const running=boat.engineRunning??(powered||Boolean(existing&&now-existing.lastPowered<neutralDelay));
+      if(!running&&!(boat.starterRemaining>1e-6))return;
       const p=boat.group.position,dx=p.x-pos.x,dy=p.y-pos.y,dz=p.z-pos.z;
       const d=Math.hypot(dx,dy,dz);
       if(d<=150)nearby.push({boat,powered,d,balance:(dx*right[0]+dy*right[1]+dz*right[2])/Math.max(2,d)});

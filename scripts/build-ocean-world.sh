@@ -22,7 +22,8 @@ esac
 roots=(--source-root "$lib" --source-root models/OceanRace.mo)
 case $modelName in
   OceanSloop) roots+=(--source-root models/OceanSailing.mo) ;;
-  OceanSubmarine|OceanFlight|OceanMotorboat|OceanHabitat) roots+=(--source-root models/OceanMission.mo) ;;
+  OceanSubmarine|OceanFlight|OceanHabitat) roots+=(--source-root models/OceanMission.mo) ;;
+  OceanMotorboat) roots+=(--source-root models/OceanMission.mo --source-root viewer/board/BreakwaterEncounter.mo --source-root models/CruiserAnchor.mo) ;;
 esac
 for model in SwimmerCollision WildlifeContact Shore SailingTactics Sailboat SailMembrane MarineWind WakeSpectrum BowWavePatch Regatta Rdd2Survey; do
   roots+=(--source-root "viewer/board/$model.mo")

@@ -48,7 +48,15 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   let selfId,room,action,lastSend=-Infinity,participants=new Set();
   const npc=npcRoom();
   const peers=new Map(),lamps=[],cruisers=[],drones=[],lampStates=new Map();
-  let starterChannel;
+  let starterChannel,encounterChannel,encounter,lastEncounterSend=-Infinity;
+  function sendEncounter(now,snapshot){
+    if(!room||!npc.host||!participants.size||now-lastEncounterSend<85)return;
+    lastEncounterSend=now;
+    encounterChannel.send(snapshot.map(row=>Array.from(row))).catch(()=>{});
+  }
+  function receiveEncounter(now){
+    return encounter&&encounter.owner===npc.owner&&now-encounter.at<2000?encounter.rows:undefined;
+  }
   const starters=new Map();
   let lampChannel,sentLamp,rotorChannel,imagingChannel,imagingSequence=0;
   const imagingSource=new T.Vector3();
@@ -198,7 +206,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(peer.kind==='boat'||peer.kind==='motorboat'){boatCount--;trafficChanged=true;}
       peers.delete(id);}
   }
-  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;starters.clear();penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
+  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;starters.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
   function join(transport,name=roomName){
     if(room)return;
     if(name!==roomName)retainedOffset=0;
@@ -207,6 +215,14 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     room=joinFleetRoom(transport,{appId:'pelagic-sailing-v1',relayConfig:{urls:relays}},roomName);
     const active=room;
     npc.connect(room.makeAction('harbor-npcs'),selfId);
+    encounterChannel=room.makeAction('shark-scene');
+    encounterChannel.onMessage=(rows,{peerId})=>{
+      if(room!==active||npc.host||peerId!==npc.owner||!participants.has(peerId))return;
+      const sizes=[10,8,6,30,18,48,3];
+      if(!Array.isArray(rows)||rows.length!==sizes.length||!rows.every((row,i)=>
+        Array.isArray(row)&&row.length===sizes[i]&&row.every(Number.isFinite)))return;
+      encounter={owner:peerId,at:performance.now(),rows};
+    };
     starterChannel=room.makeAction('engine-start');
     starterChannel.onMessage=(remaining,{peerId})=>{
       if(room===active&&participants.has(peerId)&&Number.isFinite(remaining)&&remaining>=0&&remaining<=1)
@@ -547,7 +563,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     if(seaClock)seaClock.offset=phase;
     lastWakeStamp=-Infinity;
   }
-  return {join,leave,frame,sendChat,detachView,attachView,resumeClock,get connected(){return Boolean(room);},setPenalty(turns){
+  return {join,leave,frame,sendChat,sendEncounter,receiveEncounter,hostCruiser:()=>peers.get(npc.owner)?.cruiser,detachView,attachView,resumeClock,get connected(){return Boolean(room);},setPenalty(turns){
     if(ourPenalty!==turns){ourPenalty=turns;lastPenaltySend=-Infinity;}
   },lamps,cruisers,drones,imagingHit,contacts,nearbyDeck,npc,vessels,players,contactPeers,contactTilts,get captain(){return roster.get(selfId);},captainName:id=>roster.get(id),get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
 }

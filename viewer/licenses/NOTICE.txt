@@ -71,3 +71,8 @@ level-adjusted, faded and compressed for positional playback in the simulator.
 https://www.fisheries.noaa.gov/national/science-data/sounds-ocean-mammals#humpback-whale
 https://www.fisheries.noaa.gov/s3/2023-06/SoundsPageCitations-2023-0.pdf
 https://www.fisheries.noaa.gov/national/about-us/website-policies-and-disclaimers
+
+Cabin radio music: "Spanish Ladies", a traditional song. The original
+simulator piano performance is distributed under Apache-2.0. The melody
+follows the setting sung by Mr. Leatherday and collected by Ralph Vaughan
+Williams, Journal of the Folk-Song Society, vol. 2, no. 8 (1905), p. 179.

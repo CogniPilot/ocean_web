@@ -54,7 +54,7 @@ async function handle(request){
         [waveDt*100,['waves.height','waves.driftE','waves.driftN','bowSources','bowSpeed','bowFrame'],'wakeSurface'],
         [waveDt*100,['waves.sourceStrips'],'wakeSource'],
         [waveDt*100,['boat.stationGeometry','boat.beamFraction','boat.halfSpacing','boat.sectionVolume','boat.sectionWater','boat.stationX','boat.beamHalf',
-          'boat.hydroStationGeometry','boat.hydroSectionVolume','hydroSurfaceProbes',
+          'boat.hydroStationGeometry','boat.hydroSectionVolume','hydroSurfaceProbes','sectionStamp',
           'stripEast','stripNorth','stripZ','stripForce','stripVolume','panelSea',...battenFields],'physics'],
         [20,['boatWater.tile']],[20,['sensor'],'dvl'],[20,['ping'],'camera'],[windDt*100,['wind.field']]
       ];

@@ -7,9 +7,10 @@ aside{position:fixed;right:18px;top:20px;background:#071f2be8;border-left:3px so
 #harborMap h2{font:17px Georgia,serif;margin:0}
 #harborMapCanvas{position:static;display:block;width:100%;height:auto;margin:5px 0;background:#aed5dc;max-height:28dvh;object-fit:contain}
 #harborMapLegend{display:flex;flex-wrap:wrap;gap:5px 14px;font-size:12px}#harborMapLegend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--point);margin-right:4px}
-#harborMapRoster{margin:7px 0 0;padding-left:20px;font:12px/1.45 ui-monospace,monospace;max-height:6dvh;overflow:auto;columns:2}
+#harborMapRoster{display:block;margin-top:7px;font:12px/1.45 ui-monospace,monospace}
 #physicsCanvas{pointer-events:none}#physicsLayers{display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center}
 #physicsLayers label{white-space:nowrap}#physicsStatus{display:block}
+#cabinControls{pointer-events:auto;margin-top:7px}#cruiserIntegrity{display:block;margin-top:4px}#cabinRadio:disabled{opacity:.5}
 #runStats{display:block;margin-top:4px;font-variant-numeric:tabular-nums}#vehiclePanel{display:inline}#online{display:inline-block;margin:0 .6em 0 .25em}#sticks{position:fixed;inset:auto 12px calc(var(--panel-height,66px) + 20px);display:flex;justify-content:space-between;pointer-events:none}.stick{touch-action:none;user-select:none;pointer-events:auto;background:#082936bc;color:white;border:1px solid #92c9ce;width:88px;height:88px;border-radius:50%;display:grid;place-items:center;position:relative}.knob{width:32px;height:32px;border-radius:50%;background:#c6eddfaa;border:1px solid white}.stick small{position:absolute;top:-16px;white-space:nowrap;color:white;text-shadow:0 1px 3px black;font-size:11px}#sound,#music{min-width:44px;min-height:44px;font-size:18px;vertical-align:middle}#collapsePanel{margin-right:5px}
 #racePenalty{padding:.45em .65em;background:#8c2237;color:#fff;border-radius:4px;font-variant-numeric:tabular-nums}
  [hidden]{display:none!important}#dial{position:static;width:274px;max-width:100%;height:auto;inset:auto;display:block}nav{flex-wrap:wrap}#droneCovariance{display:block;white-space:pre-line}#setup{margin-top:6px}@media(pointer:coarse){footer{left:6px;right:6px;bottom:6px;max-width:none}button,select{min-height:36px}}#flightHud{position:fixed;left:50%;top:50%;width:min(96vw,680px);height:min(64vh,510px);translate:-50% -50%;pointer-events:none}
@@ -155,7 +156,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
   #harborMapCanvas{max-height:22dvh}
 }
 @media(pointer:coarse){#roomChat button,#chatMessage{min-height:42px}#chatMessage{font-size:16px}}
-</style></head><body><canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas><canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output></header>
+</style></head><body><canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas><canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-pressed="false">Radio</button></div></header>
 <section id="motorSensors" aria-label="Cruiser sensors" hidden><details id="cruiserSonarPanel" data-view="sonar"><summary>Argos 350 · 3D imaging sonar</summary>
 <div class="sonar-controls"><label>Range <select id="cruiserSonarRange"><option value="100">100 m</option><option value="200">200 m</option><option value="350">350 m</option></select></label> <span class="sonar-spec">90° fan · 18 kn limit</span>
 <div class="sonar-tabs"><button type="button" data-pane="sonar" aria-pressed="true">Sonar</button><button type="button" data-pane="chart" aria-pressed="false">Chart</button></div></div>
@@ -192,6 +193,9 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button type="button" id="easeTraveler" aria-keyshortcuts="Shift+ArrowUp" title="Release the main traveler fully leeward (Shift+↑)" hidden>Ease traveler</button>
 <button id="cutMotors" hidden aria-pressed="false">Cut motors</button>
 <button type="button" id="gullCall" hidden>Caw</button>
+<button type="button" id="goBelow" hidden>Go below</button>
+<button type="button" id="anchorSwitch" aria-pressed="false" hidden>Lower anchor</button>
+<output id="anchorReadout" hidden></output>
 </div><section class="control-row" id="animalPilot" hidden><button type="button" id="animalFeed">Feed (F)</button> <button id="animalBreach" type="button">Breach</button> <span>W/S swim effort · A/D turn · ← climb · → dive · ↑/↓ whale roll starboard/port · Space to breach</span></section></div>
 <div id="setup" class="control-settings" aria-label="Settings" hidden>
 <details class="control-pane" data-boat><summary>Sail trim</summary>
@@ -202,6 +206,9 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div id="outhaulControl"><div class="control-slider"><div class="control-label"><label for="outhaul">Mainsail outhaul</label><output id="outhaulSet" for="outhaul">65%</output></div>
 <input id="outhaul" type="range" min="0" max="100" value="65" title="Ease left, tighten right" aria-describedby="outhaulScale"><div class="control-scale" id="outhaulScale"><span>Eased</span><span>Tight</span></div><small>Clew offset <output id="clewTravel" for="outhaul">0 cm</output></small></div></div>
 </div>
+<output id="mainSheetStatus" hidden></output>
+<div class="control-slider" hidden><div class="control-label"><label for="jibHalyard">Jib halyard</label><output id="jibHalyardSetting">55%</output></div>
+<input id="jibHalyard" type="range" min="0" max="100" value="55"><div class="control-scale"><span>Eased</span><span>Tight</span></div><small id="jibHalyardLoad"></small></div>
 <details class="control-pane" id="hobieTrim" hidden><summary>Travelers &amp; jib sheet</summary>
 <div class="control-fields">
 <div class="control-row">
@@ -243,6 +250,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <label class="control-check"><input id="searchLamp" type="checkbox" aria-keyshortcuts="Z"><span>Searchlight (Z)</span></label>
 <label class="control-check"><input id="keelLamp" type="checkbox" aria-keyshortcuts="X"><span>Underwater lights (X)</span></label>
 <button id="lampCenter" type="button">Center searchlight</button>
+<label class="control-check" id="wiperControl" hidden><input id="wiperSwitch" type="checkbox"><span>Windshield wipers</span></label>
 </div>
 <div class="control-grid">
 <div class="control-slider"><div class="control-label"><label for="lampYaw">Searchlight bearing</label><output id="yawDegrees">0°</output></div>
@@ -252,7 +260,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 </div>
 <p>Hold W or S for throttle. A and D steer, and the arrows aim the searchlight.</p>
 </div></details>
-<details class="control-pane"><summary>Wind &amp; sea</summary>
+<details class="control-pane"><summary>Environment</summary>
 <div class="control-fields">
 <div class="control-grid">
 <div class="control-slider"><div class="control-label"><label for="wind">Wind speed</label><output id="windOut" for="wind">10.0 kn</output></div>
@@ -350,7 +358,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <dialog id="vehiclePicker" aria-labelledby="vehiclePickerTitle"><h2 id="vehiclePickerTitle">Choose a model</h2><form method="dialog"><button value="hobie">Hobie 16</button><button value="motorboat">Inboard cabin cruiser</button><button value="sloop">Pilothouse sloop</button><button value="drone">RDD2 drone</button><button value="sub">Piccard Sub</button><button value="whale">Humpback whale</button><button value="shark">Great white shark</button><button value="gull">Herring gull</button></form></dialog>
 <script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="vehicle.js?viewport=2"></script><script src="wreck.js"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
 <canvas id="harborMapCanvas" width="680" height="420" aria-label="North-up chart showing the race course, island, players and NPCs"></canvas>
-<div id="harborMapLegend"><span style="--point:#e97618">You</span><span style="--point:#005997">Player</span><span style="--point:#644495">NPC</span><span style="--point:#a03731">Race course</span></div><ul id="harborMapRoster" aria-label="Chart contacts"></ul></dialog>
+<div id="harborMapLegend"><span style="--point:#e97618">You</span><span style="--point:#a03731">Race course</span></div><output id="harborMapRoster" aria-label="Your coordinates"></output></dialog>
 <dialog id="roomChat" aria-labelledby="roomChatTitle">
 <div class="chat-heading"><h2 id="roomChatTitle">Room chat</h2><form method="dialog"><button>Close</button></form></div>
 <ol id="chatLog" role="log" aria-label="Messages" aria-live="polite"></ol>

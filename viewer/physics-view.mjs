@@ -14,7 +14,7 @@ export function physicsView(T,canvas,status){
   const colors={main:'#79edff',jib:'#b2ffa8',mast:'#ffd080',joint:'#ff9cce',batten:'#fff07b',
     wet:'#5af2e9',dry:'#a1aab7',wind:'#7ebaff',wake:'#bd96ff',near:'#ffce74',swimmer:'#62ffe3',surface:'#d8faff'};
   const surfaceField={size:32,length:64,emphasis:true};
-  const gridPixels=new Float64Array(32*32*2);
+  let gridPixels=new Float64Array(32*32*2);
   const a=new T.Vector3(),b=new T.Vector3(),center=new T.Vector3();
   let width,height,camera;
   const labelRects=[],markCache=new WeakMap(),battenPaths=new WeakMap(),rigMeshes=new WeakMap();
@@ -222,6 +222,9 @@ export function physicsView(T,canvas,status){
     const j0=bounded?0:local?first:Math.ceil((y-north-radius)/spacing);
     const j1=bounded?height-1:local?last:Math.floor((y-north+radius)/spacing);
     const columns=Math.floor((i1-i0)/stride)+1;
+    const rows=Math.floor((j1-j0)/stride)+1;
+    const needed=2*rows*columns;
+    if(needed>gridPixels.length)gridPixels=new Float64Array(needed);
     const index=(i)=>(i%size+size)%size;
     ink.strokeStyle=color;ink.lineWidth=emphasis?1.6:local||bounded?1.15:1;
     ink.globalAlpha=emphasis?.9:local||bounded?.77:.48;ink.beginPath();
