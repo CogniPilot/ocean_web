@@ -133,6 +133,7 @@ function readReset(){
 const viewerLayout=[...document.body.children].filter(node=>node.tagName!=='SCRIPT').map(node=>node.cloneNode(true));
 const initialBodyStyle=document.body.style.cssText;
 let localWhaleRecordings=[];
+let localRadioRecording,localRadioUrl;
 async function run(saved=readReset(),carried){
   const lifetime=new AbortController(),{signal}=lifetime;
   const on=(target,type,listener,options)=>target.addEventListener(type,listener,{...options,signal});
@@ -495,7 +496,7 @@ async function run(saved=readReset(),carried){
     radio=new Audio();
     radio.preload='auto';
     radio.loop=true;
-    radio.src=radioLocation.href;
+    radio.src=localRadioUrl??radioLocation.href;
   }
   function stopRadio(){
     radioCommand++;
@@ -533,6 +534,28 @@ async function run(saved=readReset(),carried){
   }
   cabinLight.onclick=()=>{if(motor)toggleCabinLight();};
   cabinRadio.onclick=toggleRadio;
+  const radioPicker=$('radioRecording'),radioTrack=$('radioRecordingStatus'),resetRadioTrack=$('resetRadioRecording');
+  $('localCabinRadio').hidden=!motor;
+  function displayRadioTrack(){
+    radioTrack.value=localRadioRecording?.name??'Bundled Spanish Ladies';
+    resetRadioTrack.hidden=!localRadioRecording;
+  }
+  function setRadioTrack(file){
+    stopRadio();
+    if(localRadioUrl)URL.revokeObjectURL(localRadioUrl);
+    localRadioRecording=file;
+    localRadioUrl=file?URL.createObjectURL(file):undefined;
+    if(radio)radio.src=localRadioUrl??radioLocation.href;
+    displayRadioTrack();
+  }
+  radioPicker.onchange=()=>{
+    if(radioPicker.files.length)setRadioTrack(radioPicker.files[0]);
+  };
+  resetRadioTrack.onclick=()=>{
+    radioPicker.value='';
+    setRadioTrack(undefined);
+  };
+  displayRadioTrack();
   cleanup(()=>{
     cabinLight.onclick=cabinRadio.onclick=null;
     if(!preserveCruiser&&radio)stopRadio();
@@ -676,6 +699,7 @@ async function run(saved=readReset(),carried){
     }
     if(lastHostCruiser&&(lastHostCruiser!==hostCruiser||!encounterFrame)){
       lastHostCruiser.updateDamage([100,100,100,100,100,100],new Float64Array(30),new Float64Array(18),t);
+      lastHostCruiser.setElectricalPower(true);
     }
     lastHostCruiser=encounterFrame?hostCruiser:undefined;
     visitors.showBreakwater(encounterFrame?.[0],roomTime);
@@ -877,7 +901,7 @@ async function run(saved=readReset(),carried){
   showInLowWaterCapture(bottom);
   const wreckVisual=batchScenery(T,makeWreck(T,materials));submergedScenery.add(wreckVisual);caustics.setWreck(wreckVisual);let life;
   const defaultContactHull={cat},contactHullFields=['stationX','beamHalf','halfSpacing'];
-  let collisionPainter,shoreContacts,structureContacts,peerCollisionSamples,contactHull,pontoonWire,pontoonLoad,cruiserWire,cruiserWireLoad;
+  let collisionPainter,shoreContacts,structureContacts,peerCollisionSamples,contactHull,pontoonWire,pontoonLoad,cruiserWire,cruiserWireLoad,cabinWire;
   function drawCollisions(){
     if(!collisionPainter){
       collisionPainter=collisionOverlay(T);
@@ -894,14 +918,21 @@ async function run(saved=readReset(),carried){
     if(!cruiserWire){
       const cruiserWorld=motor?world:backgroundCruiserWorld;
       const vertices=cruiserWorld?.get('cruiserContactVertices'),faces=cruiserWorld?.get('cruiserContactFaces');
-      if(vertices&&faces)cruiserWire=hullWires(vertices,faces);
+      if(vertices&&faces){
+        cruiserWire=hullWires(vertices,faces);
+        const walls=cruiserWorld.get('cabinContactVertices'),triangles=cruiserWorld.get('cabinContactFaces');
+        if(walls&&triangles)cabinWire=hullWires(walls,triangles);
+      }
       else if(packaged&&!cruiserWireLoad){
         const meshUrl=new URL('./motorboat/collision-mesh.json',import.meta.url);
         meshUrl.search=new URL(import.meta.url).search;
         cruiserWireLoad=fetch(meshUrl,{signal}).then(response=>{
           if(!response.ok)throw Error('Collision mesh HTTP '+response.status);
           return response.json();
-        }).then(({vertices,faces})=>{cruiserWire=hullWires(vertices,faces);})
+        }).then(({vertices,faces,cabinVertices,cabinFaces})=>{
+          cruiserWire=hullWires(vertices,faces);
+          if(cabinVertices&&cabinFaces)cabinWire=hullWires(cabinVertices,cabinFaces);
+        })
           .catch(error=>{if(!signal.aborted)console.warn('Cruiser collision mesh unavailable',error);});
       }
     }
@@ -915,8 +946,11 @@ async function run(saved=readReset(),carried){
         .catch(error=>console.warn('Pontoon collision mesh unavailable',error));
     }
     drawVesselContacts(T,collisionPainter,vessel,motor?2:Number(cat),peerCollisionSamples,remote.contactTilts,
-      npcTraffic?.contacts,npcTraffic?.tilts,course.committee,pontoonWire,cruiserWire);
-    if(backgroundCruiser?.group.visible&&cruiserWire)collisionPainter.lines(backgroundCruiser.group,cruiserWire,'#69e2bb');
+      npcTraffic?.contacts,npcTraffic?.tilts,course.committee,pontoonWire,cruiserWire,cabinWire);
+    if(backgroundCruiser?.group.visible&&cruiserWire){
+      collisionPainter.lines(backgroundCruiser.group,cruiserWire,'#69e2bb');
+      if(cabinWire)collisionPainter.lines(backgroundCruiser.group,cabinWire,'#69e2bb');
+    }
     for(const animal of remote.npc.animals.values()){
       const frame=visitors.cameraSubject(animal.id);
       if(frame)drawAnimalCollision(collisionPainter,frame,animal.kind);
@@ -965,8 +999,8 @@ async function run(saved=readReset(),carried){
   let deferLife=mode==='sailing' && Boolean(omitWake);
   function populateSea(){if(signal.aborted)return;life=marineLife(T,submergedScenery,renderer.capabilities.isWebGL2,visitors.fish);}
   if(!deferLife)populateSea();
-  const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
-  const fpvForward=new T.Vector3(),drawInstruments=firstPersonInstruments($('flightHud'));
+  const underwaterFog=new T.FogExp2(0x124759,.075),cabinWaterFog=new T.FogExp2(0x124759,.48),split=splitCamera(T);
+  const fpvForward=new T.Vector3(),cabinEye=new T.Vector3(),drawInstruments=firstPersonInstruments($('flightHud'));
   const helmSeat=new T.Vector3(cat ? -1.2 : -.73,0,cat ? .65 : .18),orbitCenter=new T.Vector3();
   const cameraMenu=$('cameraDepth'),skipper={yaw:0,pitch:-.12};
   const skipperOption=cat?new Option('Skipper','ballast'):null;
@@ -1639,6 +1673,7 @@ async function run(saved=readReset(),carried){
     const state=rememberSettings();
     // Camera defaults follow the newly selected model.
     state.view=undefined;state.orbit=undefined;
+    if(choice==='hobie')delete state.toggles.showCompass;
     if(animalId)remote.npc.release(animalId);
     const phase=remote.seaTime(world?.time??model.time,performance.now());
     preserveCruiser=Boolean(cruiserRuntime&&encounterStarted&&controlsEncounter());
@@ -2119,7 +2154,8 @@ async function run(saved=readReset(),carried){
     for(const id of toggleSettings){
       const button=$(id);
       const available=id==='helm'?hasBoat||drone?.active||sub?.active:id==='cutMotors'?drone?.active:id==='cruiserChartFit'?motor:id!=='subLamp';
-      if(available&&saved.toggles[id]!== (button.getAttribute('aria-pressed')==='true'))button.click();
+      const preference=saved.toggles[id];
+      if(available&&typeof preference==='boolean'&&preference!==(button.getAttribute('aria-pressed')==='true'))button.click();
     }
     if(sub){
       $('subMode').onchange();
@@ -2808,10 +2844,13 @@ async function run(saved=readReset(),carried){
         audio.water(running&&!document.hidden?ocean.sampleSurface:null,opticalTime,eyeX,eyeY,
           ocean.U.tide.value,eyeHeight,!omitWake,waterSpeed,hullDistance);
       }
-      if(Math.abs(eyeHeight)<=surfaceBand){split(renderer,scene,camera,ocean,underwaterFog,renderBelow);}
+      const floodedCabin=motor&&view==='motorCabin'&&!animalId&&
+        motor.group.worldToLocal(cabinEye.copy(camera.position)).z<motor.cabinWaterLevel;
+      const waterFog=floodedCabin?cabinWaterFog:underwaterFog;
+      if(Math.abs(eyeHeight)<=surfaceBand){split(renderer,scene,camera,ocean,waterFog,renderBelow);}
       else{
         const submerged=eyeHeight<0;
-        scene.fog=submerged?underwaterFog:cloudFog;scene.background=submerged?underwaterFog.color:null;
+        scene.fog=submerged?waterFog:cloudFog;scene.background=submerged?waterFog.color:null;
         ocean.U.under.value=Number(submerged);ocean.dome.visible=!submerged;
         if(submerged)renderBelow(scene,camera);else renderer.render(scene,camera);
       }

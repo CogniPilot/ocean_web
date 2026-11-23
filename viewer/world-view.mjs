@@ -87,7 +87,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.stationX','boat.beamHalf','boat.halfSpacing','boat.deckZ','boat.pontoonContactVertices','boat.pontoonContactFaces']:[]),
      ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes','sectionStamp',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
-     ...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea','cruiserContactVertices','cruiserContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','engineIdleTime','engineOffAfter']:[]),...(hasFlight?[...flightNavigationOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount']:[])]});
+     ...(mode==='motorboat'?[...cruiserInspectionFields,'panelSea','cruiserContactVertices','cruiserContactFaces','cabinContactVertices','cabinContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','engineIdleTime','engineOffAfter']:[]),...(hasFlight?[...flightNavigationOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount']:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);

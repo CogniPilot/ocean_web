@@ -423,7 +423,30 @@ export function raceAudio(T){
     speaker.rolloffFactor=1.6;
     speaker.maxDistance=60;
     gain.gain.value=.6;
-    audio.createMediaElementSource(media).connect(speaker).connect(gain).connect(effects);
+    const bassCut=audio.createBiquadFilter(),trebleCut=audio.createBiquadFilter();
+    bassCut.type='highpass';bassCut.frequency.value=310;
+    trebleCut.type='lowpass';trebleCut.frequency.value=3000;
+    const saturation=audio.createWaveShaper();
+    saturation.curve=Float32Array.from({length:513},(_,i)=>.65*Math.tanh(2.4*(i/256-1)));
+    saturation.oversample='2x';
+    audio.createMediaElementSource(media).connect(bassCut).connect(saturation).connect(trebleCut);
+    trebleCut.connect(speaker).connect(gain).connect(effects);
+
+    const staticNoise=audio.createBuffer(1,8*audio.sampleRate,audio.sampleRate);
+    const samples=staticNoise.getChannelData(0);
+    let crackle=0;
+    for(let i=0;i<samples.length;i++){
+      if(Math.random()<27/audio.sampleRate)crackle=.15+Math.random()*.5;
+      samples[i]=(2*Math.random()-1)*(.016+crackle);
+      crackle*=.985;
+    }
+    const staticSource=audio.createBufferSource(),staticGate=audio.createGain();
+    staticSource.buffer=staticNoise;staticSource.loop=true;
+    staticGate.gain.value=0;
+    staticSource.connect(staticGate).connect(trebleCut);staticSource.start();
+    const staticLevel=value=>staticGate.gain.setTargetAtTime(value,audio.currentTime,.014);
+    media.addEventListener('playing',()=>staticLevel(1));
+    for(const event of ['pause','waiting','ended','error','emptied'])media.addEventListener(event,()=>staticLevel(0));
     const {listener}=audio,position=new T.Vector3(),direction=new T.Vector3(),up=new T.Vector3();
     function coordinates(x,y,z,vector){
       x.value=vector.x;

@@ -18,6 +18,16 @@ try{
     return Array.from(session.read_bound(binding));
   }
   const vertices=read('cruiserContactVertices'),faces=read('cruiserContactFaces');
+  const cabinVertices=read('cabinContactVertices'),cabinFaces=read('cabinContactFaces');
+  assert(cabinVertices.every(Number.isFinite));
+  for(let i=0;i<cabinFaces.length;i+=3){
+    const triangle=cabinFaces.slice(i,i+3);
+    assert(triangle.every(index=>Number.isInteger(index)&&index>0&&3*index<=cabinVertices.length));
+    const [a,b,c]=triangle.map(index=>cabinVertices.slice(3*(index-1),3*index));
+    const u=b.map((value,axis)=>value-a[axis]),v=c.map((value,axis)=>value-a[axis]);
+    const normal=u.map((_,axis)=>u[(axis+1)%3]*v[(axis+2)%3]-u[(axis+2)%3]*v[(axis+1)%3]);
+    assert(Math.hypot(...normal)>1e-8,'Cabin collision triangles must have nonzero area');
+  }
   const edges=new Map();
   for(let i=0;i<faces.length;i+=3){
     for(let j=0;j<3;j++){
@@ -31,7 +41,7 @@ try{
   assert(vertices.every(Number.isFinite));
   assert([...edges.values()].every(([count,orientation])=>count===2&&orientation===0),
     'Every hull edge must join two consistently oriented triangles');
-  await writeFile(destination,JSON.stringify({vertices,faces})+'\n');
+  await writeFile(destination,JSON.stringify({vertices,faces,cabinVertices,cabinFaces})+'\n');
 }finally{
   session.free();
 }

@@ -101,7 +101,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     breakwaterState=row;
     if(!row||row[0]<.5){if(breakwater)breakwater.group.visible=false;return;}
     if(!breakwater&&!loadingBreakwater){
-      loadingBreakwater=marineAnimal(T,'shark',2*greatWhiteLength,caustics,tideUniform).then(visual=>{
+      loadingBreakwater=marineAnimal(T,'shark',greatWhiteLength,caustics,tideUniform).then(visual=>{
         if(signal.aborted)return;
         breakwater=visual;
         visual.group.name='Breakwater';

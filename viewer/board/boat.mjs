@@ -165,7 +165,7 @@ function sailMaterial(T,cat,sail,telltaleRows,panelTexture){
  return material;
 }
 // Bake the small fixed fittings by material so each swivel moves as one unit.
-function deckHardware(T,traveler=false){
+function deckHardware(T,traveler=false,blockFace=.1475){
  const group=new T.Group(),batches=new Map();
  function part(g,color,metal,x=0,y=0,z=0){
    g.translate(x,y,z);
@@ -179,6 +179,7 @@ function deckHardware(T,traveler=false){
    g.dispose();
  }
  const dark=0x242a30,steel=0xacb7bb,wheel=0x41494b,rope=0xc65845;
+ const axleHeight=blockFace-.027, sheaveRadius=.022;
  function pin(x,y,z,r,length){
    const g=new T.CylinderGeometry(r,r,length,12);g.rotateZ(Math.PI/2);part(g,steel,.65,x,y,z);
  }
@@ -206,9 +207,10 @@ function deckHardware(T,traveler=false){
    eye(.026,0,.05,.021,.004);
  }else{
    const outline=new T.Shape();
-   outline.moveTo(-.010,-.024);outline.quadraticCurveTo(0,-.029,.010,-.024);
-   outline.lineTo(.022,.001);outline.absarc(0,.004,.022,-.14,Math.PI+.14,false);outline.closePath();
-   const hole=new T.Path();hole.absellipse(0,-.010,.006,.009,0,2*Math.PI,true,0);outline.holes.push(hole);
+   const neck=.012-axleHeight;
+   outline.moveTo(-.009,neck);outline.quadraticCurveTo(0,neck-.004,.009,neck);
+   outline.lineTo(.025,-.004);outline.absarc(0,0,.025,-.14,Math.PI+.14,false);outline.closePath();
+   const hole=new T.Path();hole.absellipse(0,neck*.55,.005,Math.min(.019,-neck*.24),0,2*Math.PI,true,0);outline.holes.push(hole);
    for(const y of [-.011,.011]){
      const slot=new T.Path();slot.absellipse(y,.0005,.0027,.007,0,2*Math.PI,true,y>0?.24:-.24);outline.holes.push(slot);
    }
@@ -216,19 +218,19 @@ function deckHardware(T,traveler=false){
      const plate=new T.ExtrudeGeometry(outline,{depth:.002,bevelEnabled:true,bevelThickness:.0006,bevelSize:.00065,bevelSegments:1,curveSegments:8});
      // Map profile XY onto YZ, leaving extrusion along the axle.
      plate.rotateX(Math.PI/2);plate.rotateZ(Math.PI/2);
-     part(plate,dark,.14,x-.0015,0,.034);
+     part(plate,dark,.14,x-.0015,0,axleHeight);
    }
    for(const x of [-.016,0,.016]){
-     part(new T.CylinderGeometry(.019,.019,.012,16).rotateZ(Math.PI/2),wheel,.14,x,0,.038);
-     const wrap=new T.TorusGeometry(.019,.0038,6,16,Math.PI);
+     part(new T.CylinderGeometry(sheaveRadius,sheaveRadius,.012,16).rotateZ(Math.PI/2),wheel,.14,x,0,axleHeight);
+     const wrap=new T.TorusGeometry(sheaveRadius,.0038,6,16,Math.PI);
      wrap.rotateZ(Math.PI);wrap.rotateX(Math.PI/2);wrap.rotateZ(Math.PI/2);
-     part(wrap,rope,.04,x,0,.038);
+     part(wrap,rope,.04,x,0,axleHeight);
    }
-   pin(0,0,.038,.006,.054);pin(0,0,.013,.003,.055);
+   pin(0,0,axleHeight,.006,.054);pin(0,0,.018,.003,.055);
    for(const x of [-.028,.028]){
-     const inset=new T.TorusGeometry(.010,.0013,5,16);inset.rotateY(Math.PI/2);part(inset,wheel,.14,x,0,.038);
+     const inset=new T.TorusGeometry(.010,.0013,5,16);inset.rotateY(Math.PI/2);part(inset,wheel,.14,x,0,axleHeight);
    }
-   eye(0,0,.005,.010,.0027);
+   eye(0,0,.009,.009,.003);
  }
  for(const [color,{positions,normals,metal}] of batches){
    const g=new T.BufferGeometry();
@@ -246,8 +248,9 @@ function deckHardware(T,traveler=false){
    }
    part(new T.CylinderGeometry(.027,.027,.025,8).rotateX(Math.PI/2),wheel,.15,.031,0,.026);
  }else{
-   part(new T.CylinderGeometry(.025,.025,.052,10).rotateZ(Math.PI/2),dark,.14,0,0,.034);
-   pin(0,0,.038,.006,.055);
+   part(new T.CylinderGeometry(.025,.025,.052,10).rotateZ(Math.PI/2),dark,.14,0,0,axleHeight);
+   part(new T.CylinderGeometry(.019,.010,axleHeight,8).rotateX(Math.PI/2),dark,.14,0,0,axleHeight/2);
+   pin(0,0,axleHeight,.006,.055);
  }
  const farGeometry=new T.BufferGeometry(),positions=[],normals=[],colors=[];
  for(const [tint,batch] of batches){
@@ -527,18 +530,11 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    mastRest=positions.clone();
    // This interpolates the six luff nodes reported by the cloth FMU.
    mastWeights=Array.from({length:positions.count},(_,i)=>Math.min(5,Math.max(0,(positions.getZ(i)-.97)*5/7.36)));
-   const lower=new T.Group(),casing=deckHardware(T);
-   const linkLength=.50*blockStack-.061;
-   casing.position.z=linkLength;
+   const lower=new T.Group(),casing=deckHardware(T,false,.50*blockStack);
    lower.add(casing);
-   const linkMaterial=new T.MeshStandardMaterial({color:0xacb7bb,metalness:.65,roughness:.31});
-   const link=new T.Mesh(new T.TorusGeometry(1,.0038/linkLength,8,20),linkMaterial);
-   link.scale.set(.010,linkLength*.49,.012);
-   link.rotation.x=Math.PI/2;link.position.z=linkLength*.5;
-   lower.add(link);
    const upper=lower.clone();upper.scale.z=-1;
    lower.name='Mainsheet lower triple block';upper.name='Mainsheet upper triple block';
-   const cleat=deckHardware(T,true);cleat.scale.setScalar(.52);cleat.position.set(.027,.006,linkLength+.021);lower.add(cleat);
+   const cleat=deckHardware(T,true);cleat.scale.setScalar(.52);cleat.position.set(.027,.006,.50*blockStack-.050);lower.add(cleat);
    group.add(lower,upper);sheetBlocks.push(lower,upper);
    rod([2.29,0,.65],[jibTackX,0,jibTackZ],.009,pin);
    installStay(2,[jibTackX,0,jibTackZ]);
@@ -833,8 +829,8 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
        let start,end;
        if(main){
          const x=(Math.floor(i/2)-1)*.016,y=(i%2?1:-1)*.019;
-         start=new T.Vector3(x,y,.50*blockStack-.023).applyQuaternion(sheetBlocks[0].quaternion).add(lowerBlock);
-         end=new T.Vector3(x,y,-.50*blockStack+.023).applyQuaternion(sheetBlocks[1].quaternion).add(top);
+         start=new T.Vector3(x,y,.50*blockStack-.027).applyQuaternion(sheetBlocks[0].quaternion).add(lowerBlock);
+         end=new T.Vector3(x,y,-.50*blockStack+.027).applyQuaternion(sheetBlocks[1].quaternion).add(top);
        }else{
          start=car.position.clone();start.x+=.026*.60+offset*.60;start.z+=.014+.05*.60;
          end=jib.clone();end.x+=offset;

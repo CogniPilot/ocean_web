@@ -181,7 +181,7 @@ export function hullWires(vertices,faces,offsets=[0]){
   return output;
 }
 export const pontoonWires=(vertices,faces)=>hullWires(vertices,faces,[-1.02,1.02]);
-export function drawVesselContacts(T,painter,group,kind,peers,peerTilts,patrols,patrolTilts,committee,pontoons,cruiser){
+export function drawVesselContacts(T,painter,group,kind,peers,peerTilts,patrols,patrolTilts,committee,pontoons,cruiser,cabin){
   const frame=new T.Object3D();
   function rings(east,north,height,yaw,kind){
     const points=[],c=Math.cos(yaw),s=Math.sin(yaw);
@@ -196,7 +196,10 @@ export function drawVesselContacts(T,painter,group,kind,peers,peerTilts,patrols,
   }
   function body(group,kind){
     if(kind===1){if(pontoons)painter.lines(group,pontoons,'#69e2bb');}
-    else if(kind===2&&cruiser)painter.lines(group,cruiser,'#69e2bb');
+    else if(kind===2&&cruiser){
+      painter.lines(group,cruiser,'#69e2bb');
+      if(cabin)painter.lines(group,cabin,'#69e2bb');
+    }
     else rings(group.position.x,group.position.y,group.position.z,group.rotation.z,kind);
   }
   if(group)body(group,kind);

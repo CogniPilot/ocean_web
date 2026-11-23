@@ -335,6 +335,11 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 </div>
 <label class="control-select"><span>Local whale recordings</span><input id="whaleRecordings" type="file" accept="audio/*,.mp3,.wav,.ogg" multiple></label>
 <output id="whaleRecordingsStatus" aria-live="polite">NOAA recordings</output>
+<div id="localCabinRadio" hidden>
+<label class="control-select"><span>Local cabin radio track</span><input id="radioRecording" type="file" accept="audio/*,.mp3,.wav,.ogg"></label>
+<output id="radioRecordingStatus" aria-live="polite">Bundled Spanish Ladies</output>
+<button id="resetRadioRecording" type="button" hidden>Use bundled track</button>
+</div>
 </div></details>
 <details class="control-pane"><summary>Multiplayer</summary>
 <div class="control-fields">

@@ -121,7 +121,7 @@ def upper_pose(p):
     x,y,z=p
     # Cranial elevation turns the full rostrum and carries the orbit and nares.
     w=min(1,max(0,(x-.69)/.24))
-    theta=.19*w
+    theta=.23*w
     dx,dz=x-.79,z+.07
     return (.79+dx*cos(theta)-dz*sin(theta),y,-.07+dx*sin(theta)+dz*cos(theta))
 
@@ -135,9 +135,9 @@ def lip_open(a,lower):
     _,w,h=upper_pose(skin(hinge,-pi/2+corner_angle,1))
     if not lower:
         return upper_pose(lip_point(a))
-    return (hinge+.185*fore,
-            math.copysign(w*sin(phi)*(1+.09*fore),offset),
-            h-.265*fore**.86)
+    return (hinge+.20*fore,
+            math.copysign(w*sin(phi)*(1-.08*fore),offset),
+            h-.228*fore**.86)
 
 def jaw_pose(p,a,lower):
     # Transport the skin from the rest arcade to its articulated position.
@@ -150,8 +150,6 @@ def jaw_pose(p,a,lower):
         aft=max(0,lip.x-x)
         w=max(0,1-aft/.68)
         w=w*w*(3-2*w)
-        # Thicken the outer chin behind the lip when the jaw rolls down.
-        base.z-=.054*sin(pi*w)*max(0,-sin(a))
     else:
         w=max(0,1-abs(x-lip.x)/.17)
     return base+w*(goal-Vector(upper_pose(lip)))
@@ -169,11 +167,10 @@ for i in range(83):
         x=-1.24+(hinge+1.24)*i/82
         _,y,z=skin(x,a,1)
         blend=max(0,1-(hinge-x)/.45)**2
-        # A padded chin turns up into the dental arcade. In full excursion the
-        # ventral skin under the hinge spreads the load back toward the gills.
+        # A thin lip turns into the dental arcade and blends into the throat.
         behind=hinge-x
         pad=min(1,opening/.021)*max(0,1-behind/.72)*min(1,(max(0,behind)/.055)**.6)
-        p=(x-1.25*blend*opening,y*(1+.025*pad),z-blend*opening-.065*pad)
+        p=(x-1.25*blend*opening,y*(1+.012*pad),z-blend*opening-.022*pad)
         v=skin_vertex(*p,a)
         row.append(v)
         morph(v,jaw_pose(p,a,True) if opening else upper_pose(p))

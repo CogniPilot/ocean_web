@@ -181,6 +181,43 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     end for;
   end cruiserVertices;
 
+  function cruiserCabinVertices "Pilothouse skin in the cruiser body frame"
+    output Real vertices[38,3];
+  protected
+    // Lower side, side glazing, windshield pillars and the roof rim.
+    // The aft opening is left clear between the two quarter panels.
+    constant Real port[19,3]=[
+      -1.85,1.06,.77; -1.63,1.01,1.14; -1.18,1.05,.79; -1.12,.99,1.24;
+      -.84,1.05,.82; -.83,1,1.34; .50,.98,.94; .50,.94,1.57;
+      1.26,.88,1; 1.19,.85,1.65; 1.82,.65,1.10; 1.83,.64,1.19;
+      .63,.83,2.09; -.35,.89,2.14; -1.21,.90,2.15; 2.04,.48,1.10;
+      -1.33,.97,1.68; .80,.87,2.18; -.98,1.02,2.18];
+  algorithm
+    for i in 1:19 loop
+      vertices[i,:]:=port[i,:];
+      vertices[i+19,:]:={port[i,1],-port[i,2],port[i,3]};
+    end for;
+  end cruiserCabinVertices;
+
+  function cruiserCabinFaces "Indexed two-sided cabin triangles"
+    output Integer faces[46,3];
+  protected
+    constant Integer side[17,3]=[
+      1,3,2; 2,3,4; 3,5,4; 4,5,6; 5,7,6; 6,7,8; 7,9,8;
+      8,9,10; 9,11,10; 10,11,12; 6,10,14; 14,10,13; 2,4,17;
+      4,15,17; 13,18,14; 14,18,19; 14,19,15];
+    constant Integer across[6,2]=[10,13;10,12;12,16;13,18;18,19;19,15];
+  algorithm
+    for i in 1:17 loop
+      faces[i,:]:=side[i,:];
+      faces[i+17,:]:={side[i,1]+19,side[i,3]+19,side[i,2]+19};
+    end for;
+    for i in 1:6 loop
+      faces[33+2*i,:]:={across[i,1],across[i,1]+19,across[i,2]};
+      faces[34+2*i,:]:={across[i,2],across[i,1]+19,across[i,2]+19};
+    end for;
+  end cruiserCabinFaces;
+
   function pontoonFace "One oriented triangle on the lofted pontoon shell"
     input Integer index;
     output Integer face[3];
@@ -269,15 +306,16 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     end for;
   end insideHull;
 
-  function hullMeshGap "Signed distance and outward normal of the nearest triangle"
-    input Real p[3],vertices[96,3];
-    input Integer faces[188,3];
+  function hullMeshGap "Distance and contact normal at the nearest triangle"
+    input Real p[3],vertices[:,3];
+    input Integer faces[:,3];
+    input Boolean twoSided=false;
     output Real result[4];
   protected
     Real a[3],b[3],c[3],n[3],q[3],edge[3],delta[3],gap,best,d2,sgn,normal[3];
   algorithm
     best:=1e6;sgn:=1;normal:={0,0,1};
-    for i in 1:188 loop
+    for i in 1:size(faces,1) loop
       a:=vertices[faces[i,1],:];b:=vertices[faces[i,2],:];c:=vertices[faces[i,3],:];
       gap:=max(0,max(min(a[1],min(b[1],c[1]))-p[1],p[1]-max(a[1],max(b[1],c[1]))));
       if gap*gap<best then
@@ -294,7 +332,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
         end if;
         delta:=p-q;d2:=delta*delta;
         if d2<best then
-          best:=d2;sgn:=if gap>=0 then 1 else -1;
+          best:=d2;sgn:=if twoSided or gap>=0 then 1 else -1;
           normal:=if d2>1e-10 then sgn*delta/sqrt(d2) else n;
         end if;
       end if;

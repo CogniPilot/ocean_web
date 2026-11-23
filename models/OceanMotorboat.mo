@@ -8,6 +8,10 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   parameter Real displacementFraction[6]={.15,.20,.23,.21,.15,.06};
   final parameter Real cruiserContactVertices[96,3]=Shore.cruiserVertices();
   final parameter Integer cruiserContactFaces[188,3]=Shore.pontoonFaces();
+  final parameter Real cabinContactVertices[38,3]=Shore.cruiserCabinVertices();
+  final parameter Integer cabinContactFaces[46,3]=Shore.cruiserCabinFaces();
+  final parameter Real cruiserShellVertices[134,3]=cat(1,cruiserContactVertices,cabinContactVertices);
+  final parameter Integer cruiserShellFaces[234,3]=cat(1,cruiserContactFaces,cabinContactFaces+fill(96,46,3));
   function panelElevations "Incident sea elevations at the buoyancy strips"
     input Real tile[32,32],east[2,6],north[2,6],tide;
     output Real elevations[2,6];
@@ -31,9 +35,9 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
     volume:=min(2.5*designVolume,if noEvent(immersion<0) then designVolume*(wet/draft)^2
       else designVolume+waterplane*immersion);
   end immersedVolume;
-  function hullContact "Integrate contact pressure over the cruiser hull triangles"
-    input Real pos[3],cy,sy,rotation[3,3],velocity[3],spin[3],vertices[96,3];
-    input Integer faces[188,3];
+  function hullContact "Integrate terrain contact pressure over the cruiser shell triangles"
+    input Real pos[3],cy,sy,rotation[3,3],velocity[3],spin[3],vertices[:,3];
+    input Integer faces[:,3];
     output Real wrench[6];
   protected
     Real a[3],b[3],c[3],areaVector[3],damping,local[3],arm[3],point[3],contact[5];
@@ -83,7 +87,8 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
     mountVelocity={der(east),der(north),vertical}+cross(yawRotation*spin,bowRollerArm),
     current=boatWater.profile[1,2:3]);
   input Real encounterTargets[BreakwaterEncounter.targetCount,7]=zeros(BreakwaterEncounter.targetCount,7);
-  BreakwaterEncounter encounter(activate=startEncounter,tide=boatWater.tide,boat=boatPose,
+  BreakwaterEncounter encounter(hullVertices=cruiserContactVertices,hullFaces=cruiserContactFaces,
+    cabinVertices=cabinContactVertices,cabinFaces=cabinContactFaces,activate=startEncounter,tide=boatWater.tide,boat=boatPose,
     vesselVelocity={der(east),der(north),vertical},angularVelocity=yawRotation*spin,
     vesselMass=wetMass,panelSurface=damageSurface,targets=encounterTargets);
   output Real encounterShark[10],structuralImpact[8],hullIntegrity[6],flooding[6,5],damagePanels[6,3],
@@ -176,7 +181,7 @@ equation
   boatDamage={encounter.hullHealth,encounter.waterMass,encounter.sinkState};
   shoreWrench=hullContact(focus,cos(yaw),sin(yaw),rotation,
     {surge+cos(yaw)*boatWater.profile[1,2]+sin(yaw)*boatWater.profile[1,3],
-    sway-sin(yaw)*boatWater.profile[1,2]+cos(yaw)*boatWater.profile[1,3],vertical},spin,cruiserContactVertices,cruiserContactFaces);
+    sway-sin(yaw)*boatWater.profile[1,2]+cos(yaw)*boatWater.profile[1,3],vertical},spin,cruiserShellVertices,cruiserShellFaces);
   when sample(0,.02) then
     (peerForce,peerContact)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},traffic,2,{roll,pitch},trafficTilt);
     (sceneForce,sceneContact)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},

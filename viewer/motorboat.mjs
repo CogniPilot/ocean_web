@@ -619,6 +619,30 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
       part.material.map=woodGrain;
     }
   });
+  const cabinWaterSegments=24;
+  const cabinWater=cabinPart(new T.PlaneGeometry(1,2,cabinWaterSegments,1),0x4d9eac,[0,0,0],group);
+  cabinWater.name='Cabin flood surface';
+  cabinWater.frustumCulled=false;
+  cabinWater.material.side=T.DoubleSide;
+  cabinWater.material.transparent=true;
+  cabinWater.material.opacity=.58;
+  cabinWater.material.depthWrite=false;
+  const cabinWaterPositions=cabinWater.geometry.attributes.position;
+  let cabinWaterLevel=-Infinity;
+  function setCabinWater(level){
+    if(level===cabinWaterLevel)return;
+    cabinWaterLevel=level;
+    cabinWater.visible=level>cabinSole&&level<cabinRoof(cabinFore);
+    if(!cabinWater.visible)return;
+    const aft=Math.max(cabinAft,cabinAft+(level-cabinRoof(cabinAft))/.118);
+    for(let i=0;i<=cabinWaterSegments;i++){
+      const x=T.MathUtils.lerp(aft,cabinFore,i/cabinWaterSegments),y=Math.max(0,innerBeam(x,level)-.01);
+      cabinWaterPositions.setXYZ(i,x,y,level);
+      cabinWaterPositions.setXYZ(i+cabinWaterSegments+1,x,-y,level);
+    }
+    cabinWaterPositions.needsUpdate=true;
+  }
+  cabinWater.visible=false;
   const floodingEffects=panelCentres.map((x,index)=>{
     const sign=index<3?1:-1,particles=new Float32Array(60*3),geometry=new T.BufferGeometry();
     geometry.setAttribute('position',new T.BufferAttribute(particles,3).setUsage(T.DynamicDrawUsage));
@@ -630,13 +654,15 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     return {sign,spray,particles,level};
   });
   function updateDamage(health,flood,panels,time){
+    setCabinWater(.5*(flood[13]+flood[28]));
     for(let i=0;i<floodingEffects.length;i++){
       integrity[i].value=health[i];
       breachRadius[i].value=Math.sqrt(Math.max(0,flood[5*i+2])/Math.PI);
       if(panelMeshes[i])panelMeshes[i].visible=health[i]>.01;
       const {sign,spray,particles,level}=floodingEffects[i],rate=flood[5*i+1],o=3*i;
-      level.visible=flood[5*i]>.025;level.position.z=flood[5*i+3];
-      spray.visible=rate>.002;
+      level.position.z=flood[5*i+3];
+      level.visible=flood[5*i]>.025&&(i%3!==2||level.position.z<cabinSole);
+      spray.visible=rate>.002&&(i%3!==2||cabinWaterLevel<cabinRoof(cabinFore));
       if(!spray.visible)continue;
       for(let k=0;k<60;k++){
         const u=(k/60+time*(1.0+rate*1.7))%1,splay=Math.sin(k*2.3);
@@ -759,7 +785,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   }
   let previousTime,shaftRPM=0;
   function update(t,rpm,steer,settings,seaTime=t){
-    radar.rotation.z=(seaTime%2.5)*(2*Math.PI/2.5);
+    if(electricalPower)radar.rotation.z=(seaTime%2.5)*(2*Math.PI/2.5);
     if(previousTime!==undefined)propeller.rotation.x+=(t-previousTime)*rpm*Math.PI/30;
     previousTime=t;shaftRPM=rpm;rudder.rotation.z=steer;
     if(electricalPower&&panel&&t-lastPanel>=.2){panel(rpm);lastPanel=t;}
@@ -780,5 +806,6 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     for(const m of materials){m.map?.dispose();m.dispose();}
   }
   const lamps=[{swivel,light,beam,lens,under:underwaterLamps[1]},{under:underwaterLamps[8]}];
-  return {group,update,updateDamage,cabinObjects,deckObjects,setCabinLight,setRadio,setElectricalPower,setWiper,setHelmSwitch,setAnchor,lamps,searchlight:{swivel,light},underwaterLamps,dispose,get shaftRPM(){return shaftRPM;}};
+  return {group,update,updateDamage,cabinObjects,deckObjects,setCabinLight,setRadio,setElectricalPower,setWiper,setHelmSwitch,setAnchor,lamps,searchlight:{swivel,light},underwaterLamps,dispose,
+    get cabinWaterLevel(){return cabinWaterLevel;},get shaftRPM(){return shaftRPM;}};
 }
