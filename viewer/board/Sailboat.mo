@@ -957,9 +957,15 @@ equation
   end when;
   mastStations[1,:]=mastStep;
   jibStation=cloth[2].rowLuff*spans[2]/(tang[3]-stayAnchors[3,3]);
-  for row in 1:6 loop
+  for row in 1:5 loop
     mastStations[row+1,:]={footX[1]-spans[1]*mainMastSlope*(row-1)/5,0,footZ[1]+spans[1]*(row-1)/5}
       +mastDeflection((row-1)/5,stayFraction,mastTip,mainMastSlope,tangLean,lowerMastBow);
+  end for;
+  // Lower-mast curvature vanishes at the head. The leech load uses this
+  // endpoint to calculate the bow, so evaluate the endpoint independently.
+  mastStations[7,:]={footX[1]-spans[1]*mainMastSlope,0,footZ[1]+spans[1]}
+    +mastDeflection(1,stayFraction,mastTip,mainMastSlope,tangLean,0);
+  for row in 1:6 loop
     cloth[2].luffShift[row,:]=if catamaran then transpose(sheetRotation[2,:,:])*(
       (if jibStation[row]<=.5 then (1-2*jibStation[row])*stayPath[3,1,:]+2*jibStation[row]*stayPath[3,2,:]
        else (2-2*jibStation[row])*stayPath[3,2,:]+(2*jibStation[row]-1)*stayPath[3,3,:])
