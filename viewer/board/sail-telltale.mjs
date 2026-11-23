@@ -9,7 +9,7 @@ export function sailTelltale(T,port,phase){
   const indices=[];
   for(let i=0;i<links;i++){const j=2*i;indices.push(j,j+1,j+2,j+1,j+3,j+2);}
   geometry.setIndex(indices);geometry.setAttribute('position',coords);
-  const mesh=new T.Mesh(geometry,new T.MeshBasicMaterial({color:port?0xff5f64:0x77ff9d,side:T.DoubleSide}));
+  const mesh=new T.Mesh(geometry,new T.MeshStandardMaterial({color:port?0xc83e44:0x5bb873,roughness:.88,side:T.DoubleSide}));
   mesh.frustumCulled=false;mesh.visible=false;
   const face=new T.Vector3(),driving=new T.Vector3(),direction=new T.Vector3();
   const equivalent=new T.Vector3(),twistAxis=new T.Vector3(),prior=new T.Vector3();
@@ -70,6 +70,7 @@ export function sailTelltale(T,port,phase){
       coords.setXYZ(2*i+1,prior.x,prior.y,prior.z);
     }
     coords.needsUpdate=true;
+    geometry.computeVertexNormals();
   }
   return {mesh,update};
 }

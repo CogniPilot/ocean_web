@@ -178,6 +178,12 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real drumRadius=.043, sheetArm=.44;
   parameter Boolean catamaran=false;
   parameter Real launchSpeed=.45,launchHeight=.2,launchPitch=0,launchVertical=0,launchPitchRate=0;
+  parameter Real launchSeaState=0 "Sea preset used to place the hull on the initial incident swell";
+  final parameter Real launchSwellK=Wreck.SpectralSea.swellWaveNumber(launchSeaState);
+  final parameter Real launchSwellA=Wreck.SpectralSea.swellHeight(launchSeaState);
+  final parameter Real launchSwellPhase=launchSwellK*(launchEast*cos(swellBearing)+launchNorth*sin(swellBearing));
+  final parameter Real launchSwellOmega=sqrt(Wreck.g*launchSwellK*tanh(launchSwellK*Wreck.SpectralSea.nearshoreDepth));
+  final parameter Real launchSwellSlope=launchSwellA*launchSwellK*cos(launchSwellPhase);
   input Real swellAmplitude,reachTrial,deckManual,mainCarInput,jibCarInput,jibTrimInput;
   Real mainCar(start=0,fixed=true),jibCar(start=0,fixed=true),jibSheet(start=.35,fixed=true);
   parameter Integer sailOf[3]={1,2,2};
@@ -256,10 +262,15 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real mainCarTarget,jibCarTarget,windSide,mainCarError,mainCarEasing,mainCarRate,mainCarResponse;
   Real trueWindAngle,windForCrew,buildingWind,depower,reachFraction,reachTrim,poweredReach,autoPayout,upwindGustEase;
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
-  parameter Real swellK=Wreck.SpectralSea.swellK,swellBearing=Wreck.SpectralSea.swellBearing;
-  parameter Real swellOmega=sqrt(Wreck.g*swellK*tanh(swellK*Wreck.SpectralSea.nearshoreDepth));
-  final parameter Real swellPresetAmplitudes[3]={Wreck.SpectralSea.swellHeight(0),
-    Wreck.SpectralSea.swellHeight(.45),Wreck.SpectralSea.swellHeight(1.10)};
+  parameter Real swellBearing=Wreck.SpectralSea.swellBearing;
+  input Real swellK=Wreck.SpectralSea.swellK;
+  input Real swellOmega=sqrt(Wreck.g*Wreck.SpectralSea.swellK*
+    tanh(Wreck.SpectralSea.swellK*Wreck.SpectralSea.nearshoreDepth));
+  final parameter Real swellPresetAmplitudes[4]={Wreck.SpectralSea.swellHeight(0),Wreck.SpectralSea.swellHeight(.45),
+    Wreck.SpectralSea.swellHeight(1.10),Wreck.SpectralSea.swellHeight(Wreck.SpectralSea.longSwellPreset)};
+  final parameter Real swellPresetWaveNumbers[4]={Wreck.SpectralSea.swellK,Wreck.SpectralSea.swellK,
+    Wreck.SpectralSea.swellK,Wreck.SpectralSea.swellWaveNumber(Wreck.SpectralSea.longSwellPreset)};
+  final parameter Real swellPresetFrequencies[4]={sqrt(Wreck.g*swellPresetWaveNumbers[i]*tanh(swellPresetWaveNumbers[i]*Wreck.SpectralSea.nearshoreDepth)) for i in 1:4};
   output Real swellForce[2] "Incident swell pressure force in level forward/port axes [N]";
   Real hullSwellForce[2,2];
   Real swellPhase,swellLocal[2],waterDamping,waterVertical;
@@ -308,7 +319,11 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   // Effective inertia of the water entrained by the submerged part of each sail.
   // Chord and span mean-square arms use a triangular planform approximation.
   Real rigWaterMass[2],hingeWaterInertia[2],rigWaterInertia,levelYawMoment;
-  Real heel(start=launchHeel,fixed=true), pitch(start=launchPitch,fixed=true), heave(start=launchHeight,fixed=true), vertical(start=launchVertical,fixed=true);
+  Real heel(start=launchHeel+atan(launchSwellSlope*sin(swellBearing-launchHeading)),fixed=true);
+  Real pitch(start=launchPitch-atan(launchSwellSlope*cos(swellBearing-launchHeading)),fixed=true);
+  Real heave(start=launchHeight+launchSwellA*sin(launchSwellPhase),fixed=true);
+  Real vertical(start=launchVertical+launchSwellA*cos(launchSwellPhase)*
+    (launchSwellK*launchSpeed*cos(swellBearing-launchHeading)-launchSwellOmega),fixed=true);
   Real sheet,rudder(start=0,fixed=true);
   discrete Integer leg(start=1,fixed=true), tack(start=1,fixed=true);
   Real goalE,goalN,dx,dy,desired,upwind,relative,crossTrack,course,error,sheetTarget;
@@ -537,17 +552,22 @@ equation
   when sample(0,.1) then
     rightingSide=if not catamaran or ballastManual>.5 or ballastMass<=0 then 0
       elseif pre(rightingSide)<>0 then
-        (if cos(heel)>.75 or cos(heel)<-.84 then 0 else pre(rightingSide))
-      elseif cos(heel)<.20 and cos(heel)>-.71 and abs(pitch)<.85
+        (if cos(heel)>.90 or cos(heel)<-.84 then 0 else pre(rightingSide))
+      elseif (cos(heel)<.28 or (cos(heel)<.42 and (podCap>.03 or sum(wettedArea)>.35)))
+        and cos(heel)>-.71 and abs(pitch)<.85
         and buoyancy+podBuoyancy>.1*totalMass*9.80665 then (if sin(heel)>0 then -1 else 1)
       else 0;
   end when;
-  rightingLean=if rightingSide==0 then 0 else min(1,max(0,(.75-cos(heel))/.52));
-  targetZ=ballastNeutralZ-rightingLean*(ballastNeutralZ+rightingReach);
+  rightingLean=if rightingSide==0 then 0 else min(1,max(0,(.90-cos(heel))/.62));
+  // Keep the crew's gravity lever on the restoring side of the lower hull as
+  // it rises. Move the crew inboard before releasing the righting stance.
+  targetZ=if rightingSide==0 then ballastNeutralZ else max(-rightingReach,min(
+    ballastNeutralZ-rightingLean*(ballastNeutralZ+rightingReach),
+    -abs(targetY)*max(0,cos(heel))/max(.35,abs(sin(heel)))-.20));
   targetX=if not catamaran then 0 elseif rightingSide<>0 then centerMassX
     elseif ballastManual>.5 then max(-.72,min(.72,ballastCmdX)) else
     max(-.72,min(forwardBallastLimit,-3.6*crewPitch-.70*(pitchRate-trimPitchRate)-7*bowShortage));
-  targetY=if not catamaran then 0 elseif rightingSide<>0 then halfSpacing*rightingSide
+  targetY=if not catamaran then 0 elseif rightingSide<>0 then halfSpacing*rightingSide*min(1,2*rightingLean)
     elseif ballastManual>.5 then max(-.84,min(.84,ballastCmdY)) else
     max(-ballastTrapezeReach,min(ballastTrapezeReach,
       (.56*buildingWind+(ballastTrapezeReach-.56)*trapezeDemand)*crewSide+1.15*crewHeel));

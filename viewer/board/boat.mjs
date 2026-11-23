@@ -22,6 +22,7 @@ export function elevation(frame,x,y){
  return frame.tide+(1-a)*(1-b)*at(i,j)+a*(1-b)*at(i+1,j)+(1-a)*b*at(i,j+1)+a*b*at(i+1,j+1);
 }
 const mastStationHeights=[.443,.97,2.40,3.83,5.26,6.69,8.12,8.44];
+export const sailingRigFields=['mastStations','mainGooseneck','mainBlockPins'];
 const poseFields=['east','north','heading','heave','heel','pitch','sheet','rudder'];
 const navFields=['buoyancy','vane','navE','navN','courseEstimate','speedE','speedN','cupSpeed','p11','fixE','fixN','drumAngle','payout'];
 export const boatFields=['sailVertex','sailForward','sailPort','foilAxial','foilSide','sheetRotation','footX','boomElevation','surge',...poseFields,...navFields];
@@ -104,15 +105,14 @@ function sailMaterial(T,cat,sail,telltaleRows,panelTexture){
    g.fillStyle=finish;g.fillRect(0,0,512,1024);
    g.fillStyle='rgba(52,39,31,.21)';
    g.fillRect(0,0,7,1024);g.fillRect(508,0,4,1024);g.fillRect(0,1018,512,6);
-   // Small inspection windows sit just aft of their paired ribbons.
-   const windows=panelTexture?.windows??telltaleRows.map(row=>1-(row+.48)/5);
-   for(const v of windows){
+   // Opaque woven tabs behind the paired ribbons share the sail's lighting.
+   const tabs=panelTexture?.telltaleTabs??telltaleRows.map(row=>1-(row+.48)/5);
+   for(const v of tabs){
      const x=.20*512,y=v*1024;
      g.beginPath();g.moveTo(x+6,y);g.lineTo(x+55,y-13);g.lineTo(x+55,y+13);g.closePath();
-     g.strokeStyle='#d9d1b6';g.lineWidth=6;g.stroke();
-     g.save();g.clip();g.clearRect(x+4,y-16,54,32);g.restore();
-     g.fillStyle='rgba(186,219,226,.20)';g.fill();
-     g.beginPath();g.arc(x,y,4.2,0,2*Math.PI);g.fillStyle='#dbd9c6';g.fill();
+     g.fillStyle='#254560';g.fill();
+     g.strokeStyle='#4b5260';g.lineWidth=3;g.stroke();
+     g.beginPath();g.arc(x,y,4.2,0,2*Math.PI);g.fillStyle='#7d6a51';g.fill();
    }
    // The vinyl inspection windows sit below the lowest batten on both sails.
    g.clearRect(110,963,124,34);g.fillStyle='rgba(155,184,185,.28)';g.fillRect(110,963,124,34);
@@ -599,7 +599,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels){
    [sails[1].pivot,[cat?-1.82/5.1:-1.04/2.69,0,1],'Jib rotation'],[rudder,[0,0,1],'Rudder hinge'],
    ...(otherRudder?[[otherRudder,[0,0,1],'']]:[])
  ]};
- return {group,cameraPorts,inspection,ballastPosition:carriage?.position,setBallastVisible(visible){if(carriage)carriage.visible=visible;},patrolTrim(main,jib){sails[0].pivot.rotation.z=main;sails[1].pivot.rotation.z=jib;},
+ return {group,cameraPorts,inspection,ballastPosition:carriage?.position,setBallastVisible(visible){if(carriage)carriage.visible=visible;},
    update(s,ballast,cars,rope,tails,faceTails,stayPath,time,geometry){
    const [mastStations,gooseneck,blockPins]=geometry?.rig??[];
    inspection.mastStations=mastStations;

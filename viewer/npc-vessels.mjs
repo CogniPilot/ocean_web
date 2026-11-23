@@ -1,4 +1,5 @@
-import {sailboatMesh,observeBoat} from './board/boat.mjs';
+import {sailboatMesh,observeBoat,sailingRigFields} from './board/boat.mjs';
+import {readSailPanels,sailPanelFields} from './board/sail-battens.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
 import {loadVehicleShell,vehicleShell} from './vehicle-assets.mjs';
 import {cabinCruiser} from './motorboat.mjs';
@@ -35,7 +36,15 @@ export function vesselTraffic(T,scene,surface,windAt,race,onError,onFinish){
     if(!sailRigs.has(kind)){
       const cat=kind==='hobie',shell=cat?'hobie-hulls':'sloop-hull';
       const loading=Promise.all([loadVehicleShell(shell),loadInstance(cat?'Hobie16':'Sailboat',{
-        windEast:0,windNorth:8})]).then(([,model])=>({state:observeBoat(model),foilX:model.get('foilX')[0]}));
+        windEast:0,windNorth:8})]).then(([,model])=>{
+          const panels=cat?readSailPanels(model):null;
+          const geometry={rig:cat?model.getMany(sailingRigFields):null,
+            cloth:panels?model.getMany(sailPanelFields.map(fields=>fields[3])):null};
+          const [axisX,axisZ,trim]=model.getMany(['axisX','axisZ','trim']);
+          const axes=axisX.map((x,i)=>new T.Vector3(x,0,axisZ[i]).normalize());
+          return {state:observeBoat(model),foilX:model.get('foilX')[0],panels,geometry,axes,trim,
+            stays:cat?model.get('stayPath'):null};
+        });
       sailRigs.set(kind,loading);
       loading.catch(()=>sailRigs.delete(kind));
     }
@@ -56,20 +65,23 @@ export function vesselTraffic(T,scene,surface,windAt,race,onError,onFinish){
       await loadVehicleShell('survey-pressure-housing');
       return {group:surveyVehicle(T,vehicleShell('survey-pressure-housing'))};
     }
-    const {state,foilX}=await rig(kind);
-    const boat=sailboatMesh(T,kind==='hobie',foilX);
-    boat.update(state);
+    const {state,foilX,panels,geometry,axes,trim,stays}=await rig(kind);
+    const boat=sailboatMesh(T,kind==='hobie',foilX,panels);
+    boat.update(state,null,null,null,null,null,stays,0,geometry);
+    const pivots=boat.inspection.sails.map(sail=>sail.pivot);
+    const orientations=pivots.map(pivot=>pivot.quaternion.clone());
     return {group:boat.group,animate(t,speed,heading){
       const {x,y}=boat.group.position;
       windAt(x,y,wind);
       const lateral=wind.y*Math.cos(heading)-wind.x*Math.sin(heading);
       const along=wind.x*Math.cos(heading)+wind.y*Math.sin(heading)-speed;
-      const trim=Math.atan2(-lateral,-along);
-      boat.patrolTrim(Math.max(-1.1,Math.min(1.1,trim*.55)),Math.max(-.75,Math.min(.75,trim*.42)));
+      const apparent=Math.atan2(-lateral,-along);
+      const angles=[T.MathUtils.clamp(apparent*.55,-1.1,1.1),T.MathUtils.clamp(apparent*.42,-.75,.75)];
+      pivots.forEach((pivot,i)=>pivot.quaternion.setFromAxisAngle(axes[i],angles[i]-trim[i]).multiply(orientations[i]));
     }};
   }
   function begin(row,id,index,utc){
-    const entry={kind:row.kind,started:row.started,raceId:row.raceId};
+    const entry={kind:row.kind,started:row.started,raceId:row.raceId,raceAt:row.raceAt};
     if(row.kind==='hobie')entry.racer=hobieRace(race,index,row.raceAt??nextFleetStart(utc,race.get('countdown')),row.raceWind);
     craft.set(id,entry);
     load(row.kind).then(visual=>{
@@ -85,7 +97,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,onError,onFinish){
     if(visual)(visual.dispose??(()=>dispose(visual.group)))();
     craft.delete(id);
   };
-  return {draw(rows,time,utc){
+  return {draw(rows,time,utc,displayUtc){
     for(const [id,entry] of craft){
       const row=rows[Number(id.slice(4))-1];
       if(!row||row.started!==entry.started||row.kind!==entry.kind||row.raceId!==entry.raceId)remove(id,entry);
@@ -94,7 +106,11 @@ export function vesselTraffic(T,scene,surface,windAt,race,onError,onFinish){
       const id='npc-'+(i+1),entry=craft.get(id)??begin(row,id,i,utc),visual=entry.visual;
       let east,north,speed,heading,orbit,height,angle;
       if(entry.racer){
-        const sample=entry.racer.sample(utc);
+        if(row.raceAt!==entry.raceAt){
+          entry.raceAt=row.raceAt;
+          entry.racer=hobieRace(race,i,row.raceAt,row.raceWind);
+        }
+        const sample=entry.racer.sample(utc,displayUtc);
         ({east,north,speed,heading}=sample);
         const {status}=sample;
         entry.raceStatus=status;orbit=12;

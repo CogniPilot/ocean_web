@@ -7,7 +7,7 @@ import {openFmuSession} from '../.deps/microduck_web/site/fmu-session.js';
 import {fileFetch} from '../.deps/microduck_web/scripts/fmu-test-support.mjs';
 import {scalarNames} from '../.deps/microduck_web/site/fmu-page-contract.js';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
-import {fineBowGrid,bowFoamGrid} from '../viewer/bow-grid.mjs';
+import {fineBowGrid} from '../viewer/bow-grid.mjs';
 
 const base=pathToFileURL(resolve(process.argv[2]??'build/pages/sailing')+'/');
 const manifest=JSON.parse(await readFile(new URL('manifest.json',base)));
@@ -16,7 +16,6 @@ const field=await loadInstance('BowWavePatch',{refineBows:1},async url=>new Resp
 const size=32,spacing=.25;
 assert.deepEqual(field.get('fineOrigin'),[fineBowGrid.x,fineBowGrid.y]);
 assert.equal(field.get('fineSpacing'),fineBowGrid.spacing);
-assert.deepEqual(field.get('foamOrigin'),[bowFoamGrid.x,bowFoamGrid.y]);
 const wrap=(k,n)=>(k%n+n)%n;
 const datum=(field,i,j,n)=>field[wrap(j,n)*n+wrap(i,n)];
 function interpolate(field,x,y,n){
@@ -34,11 +33,11 @@ field.set('relativeSpeed',[6,0]);
 field.advance(.01);
 const [foam,jets]=field.getMany(['fineFoam','sprayRelease']);
 function coverage(x,y){
-  const {x:originX,y:originY,columns}=bowFoamGrid;
-  const {spacing}=fineBowGrid;
+  const {x:originX,y:originY,columns,spacing}=fineBowGrid;
   return foam[Math.round((y-originY)/spacing)*columns+Math.round((x-originX)/spacing)];
 }
 assert(coverage(1.7,.75)>.45&&coverage(1.7,1.3)>.45,'Water should split to both sides of the wet bow');
+assert(coverage(1.0,1.7)>.10,'The fine grid must retain the shoulder aft of the old bow patch');
 assert(coverage(1.7,1.02)<.01&&coverage(1.7,-1.02)===0,'A dry bow and the gap between crests should remain clear');
 assert(jets[3]>0&&jets[9]<0&&jets[4]>0&&jets[10]>0&&jets[5]>0&&jets[11]>0);
 assert(jets[17]===0&&jets[23]===0,'The lifted bow must release no spray');

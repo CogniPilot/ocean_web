@@ -1,4 +1,2 @@
-// Matches the rectangular fineHeight output of BowWavePatch.mo.
-export const fineBowGrid={x:1.2,y:-1.8,columns:27,rows:37,spacing:.1};
-// Includes the full breaking shoulders outboard and aft of the bows.
-export const bowFoamGrid={x:.30,y:-2.50,columns:36,rows:51};
+// The near-field height and foam in BowWavePatch.mo share this 10 cm grid.
+export const fineBowGrid={x:-.20,y:-2.80,columns:42,rows:57,spacing:.10};

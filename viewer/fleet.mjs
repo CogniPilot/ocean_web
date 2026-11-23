@@ -43,7 +43,7 @@ function drawGhost(T,scene,peer,kind,template,offset,p,d,f){
   ghost.position.fromArray(old,offset+1).lerp(peer.target.fromArray(d,offset+1),f);
   ghost.quaternion.fromArray(old,offset+4).normalize().slerp(peer.rotation.fromArray(d,offset+4).normalize(),f);
 }
-export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
+export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,chat){
   let remoteAirframe,loadingAirframe,remoteSub,loadingSub,retrySubAt=0;
   let selfId,room,action,lastSend=-Infinity,participants=new Set();
   const npc=npcRoom();
@@ -57,12 +57,12 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
   let trafficChanged=false,boatCount=0;
   let roster=new Map();
   let seaClock,clockChannel,lastClockSend=-Infinity,retainedOffset=0;
-  let shownHost;
+  let shownHost,chatChannel;
   let weatherChannel,weatherRows,weatherChanged=false,lastWeatherSend=-Infinity;
   const weatherValid={
     wind:v=>Number.isInteger(v)&&v>=0&&v<=22,
     bearing:v=>Number.isFinite(v)&&Math.abs(v)<=Math.PI*2,
-    sea:v=>['0','.45','1.1'].includes(v),
+    sea:v=>['0','.45','1.1','1.5'].includes(v),
     sky:v=>['Day','Sunset','Moonlit','Cycle'].includes(v),
     storm:v=>typeof v==='boolean'
   };
@@ -119,6 +119,14 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
     }
     return wakeRows;
   }
+  async function sendChat(message){
+    const active=chatChannel;
+    if(!active)return false;
+    try{
+      await active.send(message);
+    }catch{return false;}
+    return active===chatChannel;
+  }
   function report(){
     roster=room?captainRoster([selfId,...participants]):new Map();
     status.textContent=room?roomName+' · '+roster.get(selfId)+' · '+roster.size+' online'+(npc.host?' · Host':'')+(roster.size===1?' · Waiting for peers':''):'Offline';
@@ -127,6 +135,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
       el.disabled=Boolean(room&&!npc.host);
       el.title=el.disabled?'The room host controls the weather':'';
     }
+    chat?.connected(room?roomName:null);
     crew.hidden=!room;
     if(!room)crew.open=false;
     const list=crew.querySelector('ul');
@@ -184,7 +193,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
       if(peer.kind==='boat'){boatCount--;trafficChanged=true;}
       peers.delete(id);}
   }
-  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
+  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
   function join(transport,name=roomName){
     if(room)return;
     if(name!==roomName)retainedOffset=0;
@@ -193,6 +202,11 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
     room=joinFleetRoom(transport,{appId:'pelagic-sailing-v1',relayConfig:{urls:relays}},roomName);
     const active=room;
     npc.connect(room.makeAction('harbor-npcs'),selfId);
+    chatChannel=room.makeAction('room-chat');
+    chatChannel.onMessage=(message,{peerId})=>{
+      if(room===active&&participants.has(peerId)&&typeof message==='string'&&message.length<=400&&message.trim())
+        chat?.receive(roster.get(peerId)??'Player',message.trim());
+    };
     if(laps)laps.connect(room.makeAction('best-laps'),roomName);
     seaClock=new FleetSeaClock(selfId);
     seaClock.offset=retainedOffset;
@@ -478,5 +492,5 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit){
     }
     return result;
   }
-  return {join,leave,frame,lamps,cruisers,drones,imagingHit,contacts,nearbyDeck,npc,vessels,players,get captain(){return roster.get(selfId);},captainName:id=>roster.get(id),get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
+  return {join,leave,frame,sendChat,lamps,cruisers,drones,imagingHit,contacts,nearbyDeck,npc,vessels,players,get captain(){return roster.get(selfId);},captainName:id=>roster.get(id),get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
 }

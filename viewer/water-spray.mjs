@@ -32,7 +32,7 @@ export function waterStreaks(T,scene,name,capacity,bow=false){
         float radius=max(launch.w,pixel*.8);
         p.xy+=radius*vec2(position.x,2.*position.y-1.);
         gl_Position=projectionMatrix*vec4(p,1.);
-        alpha=.73*min(1.,launch.w/radius)*exp(-1.4*age);
+        alpha=.62*min(1.,launch.w/radius)*exp(-1.6*age);
         #else
         vec3 base=path(max(0.,age-water.y));
         if(max(tip.z,base.z)<water.x-.015)return;
@@ -148,7 +148,7 @@ export function surfaceSpray(T,scene,name,count,surface,{bow=false}={}){
           const forward=release[k+2]*(.82+.36*random()),side=release[k+3]*(.76+.48*random());
           const rise=release[k+4]*(.68+.78*random());
           drops.emit(px,py,level+.012,shoulderTime+dt*f,c*forward-s*side,s*forward+c*side,rise,
-            .003+.010*random(),level,.032);
+            .0025+.0075*random(),level,.032);
         }
       }
       old.set(x,y,0);

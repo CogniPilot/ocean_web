@@ -9,25 +9,28 @@ export const vesselNpcNames=Object.freeze({
 });
 const vesselLimit=5;
 
-// The earliest connected participant runs the NPCs and owns room weather.
+// The elected or appointed host runs the NPCs and owns room weather.
 // RTTs use local monotonic clocks. Comparing two links needs at least three players.
 export function npcRoom(){
   let channel,self,joined,owner,last,lastPing=-Infinity,pingRound=0,issued=0,localRtt;
   const members=new Map();
+  let appointed,hostRevision=0;
   const maxGulls=6;
   const gullSeed=i=>[4+i*2,-12+i*2,8+i*.6,.6*i,13.4,0,2*i,0,.1,0,0,0];
-  const emptyHabitat=()=>({restock:Array(36).fill(0),gulls:[],gullSeats:[],vessels:[],sounds:[],sequence:0,time:0});
+  const emptyHabitat=()=>({restock:Array(36).fill(0),gulls:[],gullSeats:[],vessels:[],sounds:[],sequence:0,time:0,raceStart:0});
   let habitat=emptyHabitat(),habitatOwner,session=0,lastCall=-Infinity,callRequested=null;
   const finiteRow=(v,n)=>Array.isArray(v)&&v.length===n&&v.every(Number.isFinite);
+  const validStart=time=>Number.isSafeInteger(time)&&time>0;
   function acceptHabitat(h){
     return h&&finiteRow(h.restock,36)&&Array.isArray(h.gulls)&&h.gulls.length<=maxGulls&&h.gulls.every(r=>[12,19,22,25].includes(r?.length)&&finiteRow(r,r.length))&&
       (h.vessels===undefined||(Array.isArray(h.vessels)&&h.vessels.length<=vesselLimit&&h.vessels.every(
         v=>v&&Object.hasOwn(vesselNpcNames,v.kind)&&Number.isFinite(v.started)&&
-          (v.raceAt===undefined||Number.isSafeInteger(v.raceAt)&&v.raceAt%300===0)&&
+          (v.raceAt===undefined||validStart(v.raceAt))&&
           (v.raceId===undefined||typeof v.raceId==='string'&&/^[a-f0-9]{16}$/.test(v.raceId))&&
           (v.raceWind===undefined||Number.isFinite(v.raceWind)&&v.raceWind>=0&&v.raceWind<=22))))&&
       (h.gullSeats===undefined||(Array.isArray(h.gullSeats)&&h.gullSeats.length===h.gulls.length&&
         h.gullSeats.every(seat=>seat===null||typeof seat==='string')))&&
+      (h.raceStart===undefined||h.raceStart===0||validStart(h.raceStart))&&
       (h.time===undefined||Number.isFinite(h.time)&&h.time>=0)&&Number.isSafeInteger(h.sequence)&&h.sequence>=0&&Array.isArray(h.sounds)&&h.sounds.length<=16&&
       h.sounds.every(s=>Array.isArray(s)&&s.length===7&&['gull','spout','impact'].includes(s[2])&&s.every((v,i)=>i===2||Number.isFinite(v)));
   }
@@ -108,7 +111,7 @@ export function npcRoom(){
         const frameSize=m.swimReserve?207:m.sharkBank?205:203;
         const frame=last?.frame?.length>frameSize?last.frame.slice(0,frameSize):last?.frame;
         const roster=items.map(a=>a.frame?.length>frameSize?{...a,frame:a.frame.slice(0,frameSize)}:a);
-        send({type:'harbor',version:2,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined,frame,items:roster,habitat:shared},id);
+        send({type:'harbor',version:2,hostTransfer:true,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined,frame,items:roster,habitat:shared},id);
       }else{
         if(last?.frame)send([joined,...last.frame.slice(0,70)],id);
         send({type:'animals',items:items.map(a=>({...a,frame:a.frame?.slice(0,70)}))},id);
@@ -120,24 +123,40 @@ export function npcRoom(){
     const comparable=candidates.length>=3&&candidates.some(c=>c[2]!=null&&c[2]<250);
     const viable=candidates.filter(c=>!comparable||c[2]==null||c[2]<=550);
     viable.sort((a,b)=>a[1]-b[1]||String(a[0]).localeCompare(String(b[0])));
-    owner=viable[0][0];
+    const elected=viable[0][0];
+    owner=appointed&&(appointed===self||members.has(appointed))?appointed:elected;
+  }
+  function canTransferTo(id){
+    return Boolean(channel&&owner===self&&members.has(id)&&[...members.values()].every(m=>m.hostTransfer));
+  }
+  function receiveHost(data,peerId,m){
+    const {host,hostRevision:sequence}=data;
+    if(!m.hostTransfer||typeof host!=='string'||host.length<1||host.length>128||
+      !Number.isSafeInteger(sequence)||sequence<=hostRevision)return;
+    // Joining clients can learn a prior handoff from their initial elected
+    // host. Once established, only the current host can advance authority.
+    if(peerId!==owner)return;
+    if(data.type!=='hello'&&host!==self&&!members.has(host))return;
+    appointed=host;hostRevision=sequence;elect();
+    if(owner===self)sync();
   }
   function send(data,target){channel?.send(data,target?{target}:undefined).catch(()=>{});}
-  function hello(target){send([joined],target);send({type:'hello',version:2,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined},target);}
+  function hello(target){send([joined],target);send({type:'hello',version:2,hostTransfer:true,host:appointed,hostRevision,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined},target);}
   return {
     connect(action,id){
-      channel=action;self=id;habitatOwner=id;session++;animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
+      channel=action;self=id;appointed=undefined;hostRevision=0;habitatOwner=id;session++;animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
       if(!action)return;
       action.onMessage=(data,{peerId})=>{
         if(action!==channel||!data)return;
         let m=members.get(peerId);
         if((data.type==='hello'||data.type==='harbor')&&data.version===2&&Number.isSafeInteger(data.joined)&&data.joined>0){
           if(!m){m={joined:data.joined,samples:[]};members.set(peerId,m);elect();hello(peerId);}
-          m.version=2;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.gullSwimMode=data.gullSwimMode===true;m.sharkBank=data.sharkBank===true;m.swimReserve=data.swimReserve===true;
-          if(data.type==='hello'){sync(peerId);return;}
+          m.version=2;m.hostTransfer=data.hostTransfer===true;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.gullSwimMode=data.gullSwimMode===true;m.sharkBank=data.sharkBank===true;m.swimReserve=data.swimReserve===true;
+          if(data.type==='hello'){receiveHost(data,peerId,m);sync(peerId);return;}
         }
         if(!Array.isArray(data)){
           if(!m)return;
+          if(data.type==='host'){receiveHost(data,peerId,m);return;}
           if(data.type==='animals'||data.type==='harbor'){
             if(peerId!==owner||!Array.isArray(data.items)||data.items.length>10)return;
             if(data.type==='harbor'&&data.frame){
@@ -165,6 +184,7 @@ export function npcRoom(){
           }
           if(!Number.isSafeInteger(data.round))return;
           if(data.type==='ping'){
+            receiveHost(data,peerId,m);
             m.rtt=Number.isFinite(data.rtt)&&data.rtt>=0?data.rtt:undefined;
             send({type:'pong',round:data.round},peerId);elect();
           }else if(data.type==='pong'&&data.round===pingRound&&m.round!==pingRound){
@@ -186,9 +206,28 @@ export function npcRoom(){
       // Use the lower median. One bad connection should not disqualify both endpoints.
       localRtt=samples.length>=2?samples[Math.floor((samples.length-1)/2)]:undefined;
       issued=performance.now();lastPing=now;pingRound++;
-      send({type:'ping',round:pingRound,rtt:localRtt??null});elect();
+      send({type:'ping',round:pingRound,rtt:localRtt??null,host:appointed,hostRevision});elect();
     },
-    join:hello,leave(id){members.delete(id);elect();releaseSeats(id);if(owner===self)sync();},
+    join:hello,leave(id){
+      members.delete(id);
+      if(appointed===id)appointed=undefined;
+      elect();releaseSeats(id);if(owner===self)sync();
+    },
+    canTransferTo,
+    transferHost(id){
+      if(!canTransferTo(id))return false;
+      sync();
+      send({type:'host',host:id,hostRevision:++hostRevision});
+      appointed=id;elect();
+      return true;
+    },
+    restartRace(start){
+      if(owner!==self||!validStart(start))return false;
+      habitat.raceStart=start;
+      for(const vessel of habitat.vessels)if(vessel.kind==='hobie')vessel.raceAt=start;
+      sync();
+      return true;
+    },
     get owner(){return owner;},get host(){return owner===self;},get latest(){return last;},
     get animals(){return animals;},get revision(){return revision;},get self(){return self??'local';},
     seat(id){const index=gullIndex(id);return index<0?animals.get(id)?.seat:habitat.gullSeats[index];},
@@ -219,7 +258,7 @@ export function npcRoom(){
       if(Object.hasOwn(vesselNpcNames,kind)){
         if(!Number.isFinite(started))return;
         const vessel={kind,started};
-        if(kind==='hobie'&&Number.isSafeInteger(raceAt)&&raceAt%300===0){
+        if(kind==='hobie'&&validStart(raceAt)){
           vessel.raceAt=raceAt;
           vessel.raceId=Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('');
         }

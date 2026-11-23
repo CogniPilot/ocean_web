@@ -96,14 +96,30 @@ export function hobieRace(race,index,startAt,windSpeed=11){
   const returnOrbitRate=2*Math.PI*laps/holdingTime;
   const offset=left(launchDirection),position={east:0,north:0,heading:0,speed:0,
     status:{stage:0,elapsed:0,lapTime:0,startDelay:null,heatStart:startAt}};
-  function sample(utc){
-    const elapsed=utc-startAt;
-    const completedHeats=Math.max(0,Math.floor((elapsed-segments[0].time)/period));
-    const heatTime=elapsed-completedHeats*period;
-    if(heatTime<segments[0].time||heatTime>=at){
+  const heatIndex=utc=>Math.max(0,Math.floor((utc-startAt-segments[0].time)/period));
+  const cornerHalfTime=(a,b)=>Math.min(.6,a.duration/4,b.duration/4);
+  function smoothCorner(previous,next,time){
+    if(!previous||!next)return;
+    const half=cornerHalfTime(previous,next),offset=time-next.time;
+    if(Math.abs(offset)>=half)return;
+    // Integrate a cosine blend of the incoming and outgoing velocities.
+    // Position and velocity meet the straight segments at both ends.
+    const u=(offset+half)/(2*half),angle=Math.PI*u;
+    const drift=Math.sin(angle)/Math.PI,weight=.5-.5*Math.cos(angle);
+    const a=previous.delta.map(x=>x/previous.duration),b=next.delta.map(x=>x/next.duration);
+    const p=add(add(next.origin,a,half*(u+drift-1)),b,half*(u-drift));
+    const velocity=add(a.map(x=>(1-weight)*x),b,weight);
+    position.east=p[0];position.north=p[1];
+    position.heading=Math.atan2(velocity[1],velocity[0]);position.speed=Math.hypot(...velocity);
+    return true;
+  }
+  function sample(utc,displayUtc){
+    const completedHeats=heatIndex(utc),heatTime=utc-startAt-completedHeats*period;
+    const visualClock=displayUtc??utc,visualTime=visualClock-startAt-heatIndex(visualClock)*period;
+    if(visualTime<segments[0].time||visualTime>=at){
       // A holding oval joins the close-hauled approach at its tangent.
-      const returning=heatTime>=at;
-      const waiting=returning?heatTime-at:heatTime-segments[0].time;
+      const returning=visualTime>=at;
+      const waiting=returning?visualTime-at:visualTime-segments[0].time;
       const rate=returning?returnOrbitRate:orbitRate;
       const phase=-.5*Math.PI+waiting*rate;
       const p=add(add(launch,launchDirection,6*Math.cos(phase)),offset,3.5*(1+Math.sin(phase)));
@@ -111,12 +127,18 @@ export function hobieRace(race,index,startAt,windSpeed=11){
       position.east=p[0];position.north=p[1];position.heading=Math.atan2(velocity[1],velocity[0]);
       position.speed=6*rate*Math.hypot(...velocity);
     }else{
-      const leg=segments.find(leg=>heatTime<leg.time+leg.duration)??segments.at(-1);
-      const elapsed=Math.max(0,heatTime-leg.time);
-      const portion=Math.min(1,elapsed/leg.duration);
-      position.east=leg.origin[0]+leg.delta[0]*portion;position.north=leg.origin[1]+leg.delta[1]*portion;
-      position.heading=leg.previousHeading+turn(leg.previousHeading,leg.heading)*Math.min(1,elapsed/1.5);
-      position.speed=leg.speed;
+      const index=segments.findIndex(leg=>visualTime<leg.time+leg.duration);
+      const leg=index<0?segments.at(-1):segments[index];
+      const rounded=displayUtc!==undefined&&(smoothCorner(segments[index-1],leg,visualTime)||
+        smoothCorner(leg,segments[index+1],visualTime));
+      if(!rounded){
+        const elapsed=Math.max(0,visualTime-leg.time);
+        const portion=Math.min(1,elapsed/leg.duration);
+        position.east=leg.origin[0]+leg.delta[0]*portion;position.north=leg.origin[1]+leg.delta[1]*portion;
+        position.heading=displayUtc!==undefined?leg.heading:
+          leg.previousHeading+turn(leg.previousHeading,leg.heading)*Math.min(1,elapsed/1.5);
+        position.speed=leg.speed;
+      }
     }
     const status=position.status;
     status.heatStart=startAt+completedHeats*period;

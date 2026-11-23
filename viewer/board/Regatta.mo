@@ -1,5 +1,6 @@
 model Regatta "Five-minute fleet starts and an equilateral triangular course"
   input Real utc "Unix seconds from the browser clock";
+  input Real raceStart=0 "UTC of a host-scheduled start, zero for the regular UTC cycle";
   input Real east,north;
   parameter Real windBearing=atan2(4,10) "Direction the prevailing wind travels, counterclockwise from east";
   parameter Real gateEast=-10,gateNorth=-6.5,lineLength=40,legLength=200,zone=18
@@ -11,8 +12,10 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   input Real hullWaveTile[64,64]=zeros(64,64);
   input Real bowSources[14,6]=zeros(14,6),bowFrame[4]=zeros(4),bowSpeed[2]=zeros(2);
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
-  parameter Real swellK=Wreck.SpectralSea.swellK,swellBearing=Wreck.SpectralSea.swellBearing;
-  parameter Real swellOmega=sqrt(Wreck.g*swellK*tanh(swellK*Wreck.SpectralSea.nearshoreDepth));
+  parameter Real swellBearing=Wreck.SpectralSea.swellBearing;
+  input Real swellK=Wreck.SpectralSea.swellK;
+  input Real swellOmega=sqrt(Wreck.g*Wreck.SpectralSea.swellK*
+    tanh(Wreck.SpectralSea.swellK*Wreck.SpectralSea.nearshoreDepth));
   parameter Real launchMass=1150,waterplaneArea=7.2,rollInertia=650,pitchInertia=3100;
   final parameter Real stationX[4]={1.65,1.65,-1.65,-1.65},stationY[4]={.65,-.65,.65,-.65};
   final parameter Real draft=launchMass/(1025*waterplaneArea);
@@ -215,7 +218,7 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
     elevation:=if (abs(pose[3])+abs(pose[4]))>.5 and relative*relative<3.8^2 then
       BowWavePatch.potentialHead(relative*pose[3:4],relative*{-pose[4],pose[3]},velocity,sources) else 0;
   end nearHullElevation;
-  output Real countdown;
+  output Real countdown,nextStart "Seconds to the next signal, and that signal on the UTC clock";
   output Real pilotTarget[2] "Approach, round to port, and cross the finish";
   discrete output Integer stage(start=0,fixed=true) "0 prestart, 1 start open, 2/3 marks, 4 finish, 5 finished";
   discrete Boolean roundingReady(start=false,fixed=true);
@@ -226,8 +229,9 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   Real along,across;
   discrete Real lastAlong(start=0,fixed=true),lastAcross(start=0,fixed=true),heat(start=-1,fixed=true),started(start=0,fixed=true);
   discrete Real lastPosition[2](each start=0,each fixed=true);
-  discrete Real boundary,crossingAt;
-  discrete Boolean onLine,startCross,finishCross;
+  Real fleetHeat;
+  discrete Real crossingAt,lastSchedule(start=0,fixed=true);
+  discrete Boolean onLine,startCross,finishCross,scheduleChanged;
 equation
   committeeEast=gateEast+rightE*lineLength/2;
   committeeNorth=gateNorth+rightN*lineLength/2;
@@ -307,15 +311,20 @@ equation
   pilotTarget=if stage==2 or stage==3 then (if roundingReady then markDeparture else markApproach)
     else {gateEast,gateNorth}+{upE,upN}*(if stage==1 and (along<=0 or along<2 and abs(across)<lineLength*.4) then 14
       elseif stage==4 and along<0 and abs(across)>lineLength*.4 then 15 else -14);
-  countdown=300-mod(utc,300);
+  fleetHeat=raceStart+floor((utc-raceStart)/300)*300;
+  nextStart=if utc<raceStart then raceStart else fleetHeat+300;
+  countdown=nextStart-utc;
   when sample(0,.05) then
-    boundary=floor(utc/300)*300;
+    lastSchedule=raceStart;
+    scheduleChanged=abs(raceStart-pre(lastSchedule))>.5;
     crossingAt=pre(lastAcross)+(across-pre(lastAcross))*(-pre(lastAlong))/(if abs(along-pre(lastAlong))>1e-8 then along-pre(lastAlong) else 1);
     onLine=abs(crossingAt)<lineLength/2;
     startCross=onLine and pre(lastAlong)<=0 and along>0;
     finishCross=onLine and pre(lastAlong)>=0 and along<0;
-    heat=boundary;
-    stage=if boundary>pre(heat) and pre(heat)>=0 and (pre(stage)<=1 or pre(stage)==5) then (if startCross then 2 else 1)
+    heat=fleetHeat;
+    stage=if scheduleChanged then (if utc<raceStart then 0 else 1)
+          elseif utc<raceStart then 0
+          elseif fleetHeat>pre(heat) and pre(heat)>=0 and (pre(stage)<=1 or pre(stage)==5) then (if startCross then 2 else 1)
           elseif pre(stage)==1 and startCross then 2
           elseif pre(stage)==2 and passedToPort(pre(lastPosition),{east,north},{markEast[1],markNorth[1]},
             {gateEast,gateNorth},{markEast[2],markNorth[2]},zone) then 3
@@ -328,9 +337,10 @@ equation
       elseif markPosition[2]<-2 and markPosition[1]>3 and markPosition[1]<zone-2 then true
       elseif markPosition[2]>1 and (markPosition[1]<.70 or markPosition[1]>zone) then false
       else pre(roundingReady);
-    started=if boundary>pre(heat) and (pre(stage)<=1 or pre(stage)==5) then boundary else pre(started);
+    started=if scheduleChanged then raceStart
+      elseif fleetHeat>pre(heat) and (pre(stage)<=1 or pre(stage)==5) then fleetHeat else pre(started);
     elapsed=if stage>=2 and pre(stage)<>5 then utc-started elseif stage==5 then pre(elapsed) else 0;
-    crossed=if stage==2 and pre(stage)<>2 then utc else pre(crossed);
+    crossed=if scheduleChanged then 0 elseif stage==2 and pre(stage)<>2 then utc else pre(crossed);
     lapTime=if stage>=2 and pre(stage)<>5 then utc-crossed elseif stage==5 then pre(lapTime) else 0;
     lastAlong=along;
     lastAcross=across;

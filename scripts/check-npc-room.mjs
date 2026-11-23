@@ -29,13 +29,15 @@ function channel(id){
 }
 const host=npcRoom(),guest=npcRoom();
 const a=channel('a'),b=channel('b');
+const peers=new Map([['a',a],['b',b]]);
 host.connect(a,'a');guest.connect(b,'b');
 function flush(){
   for(let remaining=100;pending.length;remaining--){
     assert(remaining>0,'Peer messages should settle');
     const {peerId,target,data}=pending.shift();
-    const peer=peerId==='a'?b:a;
-    if(!target||target!==peerId)peer.onMessage(data,{peerId});
+    for(const [id,peer] of peers){
+      if(id!==peerId&&(!target||id===target))peer.onMessage(data,{peerId});
+    }
   }
 }
 host.join('b');guest.join('a');flush();
@@ -118,3 +120,40 @@ assert.deepEqual(pilot.habitat.gullSeats,[pilot.self]);
 assert.equal(pilot.habitat.gulls.length,1);
 assert.equal(pilot.animals.size,0);
 console.log('Empty rooms, player selection, gull controls, opt-in NPCs and peer synchronization passed.');
+
+// Rejoin and exercise handoff, synchronized countdown, and a later arrival.
+host.connect(a,'a');guest.connect(b,'b');
+host.join('b');guest.join('a');flush();
+assert.equal(host.spawn('hobie',1,600,11),'npc-1');
+assert.equal(guest.restartRace(917),false);
+assert.equal(host.restartRace(917),true);flush();
+assert.equal(guest.habitat.raceStart,917);
+assert.equal(guest.habitat.vessels[0].raceAt,917);
+assert.equal(guest.transferHost('a'),false);
+assert.equal(host.transferHost('b'),true);flush();
+assert.equal(host.owner,'b');
+assert.equal(guest.host,true);
+assert.equal(host.spawn('gull'),undefined);
+assert.equal(guest.spawn('gull'),'gull-1');flush();
+assert.equal(host.habitat.gulls.length,1);
+const late=npcRoom(),c=channel('c');
+late.connect(c,'c');peers.set('c',c);
+for(const [id,peer] of [['a',host],['b',guest]]){late.join(id);peer.join('c');}
+flush();
+assert.equal(late.owner,'b');
+assert.equal(late.habitat.raceStart,917);
+assert.equal(late.habitat.vessels[0].raceAt,917);
+assert.equal(guest.transferHost('c'),true);flush();
+assert.equal(late.host,true);
+assert.equal(host.owner,'c');
+assert.equal(guest.owner,'c');
+assert.equal(late.restartRace(1034),true);flush();
+for(const peer of [host,guest]){
+  assert.equal(peer.habitat.raceStart,1034);
+  assert.equal(peer.habitat.vessels[0].raceAt,1034);
+  peer.leave('c');
+}
+peers.delete('c');flush();
+assert.equal(host.host,true);
+assert.equal(guest.owner,'a');
+console.log('Only the host can restart or transfer, and the room state follows the selected host.');

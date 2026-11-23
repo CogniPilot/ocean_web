@@ -64,6 +64,16 @@ for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
   near(race.get('lapTime'),87);
   assert.equal(move(gate(-2,0),399),5);
   near(race.get('lapTime'),87);
+
+  race.set('raceStart',707);
+  assert.equal(move(gate(-2,0),407),0);
+  near(race.get('countdown'),300);
+  near(race.get('nextStart'),707);
+  near(race.get('lapTime'),0);
+  assert.equal(move(gate(2,0),500),0,'Crossings before the reset start cannot count');
+  assert.equal(move(gate(-2,0),706.9),0);
+  assert.equal(move(gate(1,0),707.1),2,'The moved fleet start opens at the new UTC boundary');
+  near(race.get('nextStart'),1007);
 }
 console.log('Three wind bearings passed start, port roundings at 4 m and 7 m, finish and lap time.');
 const launch=await loadInstance('Regatta',{windBearing:-Math.PI},read);

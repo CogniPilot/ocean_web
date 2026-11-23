@@ -1,13 +1,15 @@
 partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race committee"
   parameter Boolean hobie=true "Choose the hull configuration at translation";
   parameter Real prevailingBearing=atan2(4,10);
-  parameter Real swellK=Wreck.SpectralSea.swellK,swellBearing=Wreck.SpectralSea.swellBearing;
-  final parameter Real swellOmega=sqrt(Wreck.g*swellK*tanh(swellK*boatWater.waterDepth));
+  parameter Real swellBearing=Wreck.SpectralSea.swellBearing;
+  Real swellK=Wreck.SpectralSea.swellWaveNumber(seaState);
+  Real swellOmega=sqrt(Wreck.g*swellK*tanh(swellK*boatWater.waterDepth));
   input Real seaClockOffset(start=0) "Shared incident sea time minus vehicle simulation time [s]";
   input Real omitWake(start=0);
   input Real peerWake[4,38](each start=0);
   input Real windAnchor[5](each start=0);
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
+  input Real raceStart=0;
   input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),outhaul(start=.65),deckManual,mainCar,jibCar,jibSheet;
   input Real manualJibAssist(start=1);
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
@@ -50,7 +52,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,seaState=seaState,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
   Regatta race(racerState={1,boat.heading,boat.heel,boat.pitch,boat.heave,boat.ve,boat.vn,boat.yawRate,boat.vertical,boat.rollRate,boat.pitchRate},
     hullStations=boat.stationX,hullWidths=boat.beamHalf,hullOffset=boat.halfSpacing,seaClockOffset=seaClockOffset,swellK=swellK,swellBearing=swellBearing,swellOmega=swellOmega,landingReaction=committeeLandingWrench,wakeTile=waves.height,hullWaveTile=waves.wakeHeight,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
-    tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,east=boat.east,north=boat.north,
+    tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,raceStart=raceStart,east=boat.east,north=boat.north,
     bowSources=bowSources,bowFrame=bowFrame,bowSpeed=bowSpeed);
   discrete output Real bowSources[14,6](each start=0,each fixed=true) "Bound near-hull flow from immersed cross sections";
   discrete output Real bowSpeed[2](each start=0,each fixed=true) "Water-relative boat velocity in the moving frame";

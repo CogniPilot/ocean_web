@@ -9,7 +9,7 @@ const sailingOutputs=[
  ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail sailLuff mainClewOffset stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
 ];
 const environmentOutputs=[
- ...group('race','countdown stage elapsed lapTime markPose launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
+ ...group('race','utc nextStart countdown stage elapsed lapTime markPose launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
  ...group('wind','period field thunderArrival strikeBearing strikeFlash travelE travelN localEast localNorth'),
  ...group('waves','height driftE driftN period'),
  ...group('boatWater','tile tide wind'),
@@ -22,7 +22,7 @@ const submarineOutputs=[...group('sub','surveyTelemetry position orientation pro
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',outhaulInput:'outhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',manualJibAssist:'manualJibAssist',
  ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
-export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1){
+export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1){
  const hasBoat=mode==='world'||mode==='sailing'||mode==='sloop',hasSub=mode==='world'||mode==='submarine',hasFlight=mode==='world'||mode==='flight';
  const workerUrl=new URL('./'+mode+'/ocean-world-worker.mjs',import.meta.url);
  workerUrl.search=new URL(import.meta.url).search;
@@ -51,7 +51,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    });
  }
  const initial={windSpeed,windBearing,seaState,epoch:Date.now()/1000};
- const inputs=['seaState'];
+ const inputs=['seaState','raceStart'];
  if(hasBoat){
    Object.assign(initial,{sailingManual:1,vang:.5,downhaul:.5,outhaul:.65,manualJibAssist:1});
    inputs.push(...Object.values(boatInputs));
@@ -64,7 +64,10 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  if(mode==='flight')inputs.push('peerDeck');
  const parameters={prevailingBearing:windBearing};
  for(const [key,value] of Object.entries(startGate))parameters['race.'+key]=value;
- if(hasBoat)for(const [key,value] of Object.entries(sailingStart(mode!=='sloop')))parameters['boat.'+key]=value;
+ if(hasBoat){
+   parameters['boat.launchSeaState']=seaState;
+   for(const [key,value] of Object.entries(sailingStart(mode!=='sloop')))parameters['boat.'+key]=value;
+ }
  const outputs=[...environmentOutputs,...(hasBoat?sailingOutputs:['focus','swell','waterStamp','waterFraction']),
    ...(mode==='motorboat'?['boatPose','engine']:[]),...(hasSub?submarineOutputs:[]),...(hasFlight?flightOutputs:[])];
  const inertiaOutputs=[...(hasBoat?boatInertiaFields.map(name=>'boat.'+name):[]),

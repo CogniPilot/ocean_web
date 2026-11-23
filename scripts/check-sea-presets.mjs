@@ -11,16 +11,18 @@ const cases=[
   {seaState:0,windWaveHeight:.08,swellAmplitude:0},
   {seaState:.45,windWaveHeight:.62,swellAmplitude:.65},
   {seaState:1.1,windWaveHeight:1.15,swellAmplitude:1.20},
+  {seaState:1.5,windWaveHeight:.18,swellAmplitude:1.70,wavelength:90},
 ];
 const rms=values=>Math.sqrt(values.reduce((sum,x)=>sum+x*x,0)/values.length);
 const phase=.31,clockOffset=125,trials=[];
-const waveNumber=2*Math.PI/30.48,omega=Math.sqrt(9.80665*waveNumber*Math.tanh(waveNumber*13.7));
 for(const role of ['sailing','sloop','world','flight','submarine','motorboat','habitat']){
   const boat=['sailing','sloop','world'].includes(role);
   const base=pathToFileURL(resolve(root,role)+'/');
   const manifest=JSON.parse(await readFile(new URL('manifest.json',base)));
   const index=JSON.parse(await readFile(new URL(manifest.index,base)));
   for(const preset of cases){
+    const waveNumber=2*Math.PI/(preset.wavelength??30.48);
+    const omega=Math.sqrt(9.80665*waveNumber*Math.tanh(waveNumber*13.7));
     const fmu=await openFmuSession({index,base,fetch:fileFetch});
     try{
       const tile=fmu.bind_outputs(JSON.stringify(scalarNames('boatWater.tile',[32,32])));

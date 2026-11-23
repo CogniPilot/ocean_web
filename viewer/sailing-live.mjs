@@ -11,9 +11,9 @@ import {waterCaptureLayer,showInLowWaterCapture} from './render-layers.mjs';
 import {wreckCaustics} from './caustics.mjs';
 import {loadVehicleShell} from './vehicle-assets.mjs';
 import {loadInstance} from './fmi3/instance.mjs?api=2';
-import {sailboatMesh,observeBoat} from './board/boat.mjs';
-import {sailPanelFields} from './board/sail-battens.mjs';
-import {fineBowGrid,bowFoamGrid} from './bow-grid.mjs';
+import {sailboatMesh,observeBoat,sailingRigFields} from './board/boat.mjs';
+import {sailPanelFields,readSailPanels} from './board/sail-battens.mjs';
+import {fineBowGrid} from './bow-grid.mjs';
 import {splitCamera} from "./waterline.mjs";
 import {drawCompass,drawDroneCompass} from './compass.mjs';
 import {forceDisplay,firstPersonInstruments} from './instrumentation.mjs?hud=2';
@@ -30,7 +30,7 @@ import {gullIndex,vesselNpcNames} from './npc-room.mjs';
 import {fleet} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
 const renderInterval=1000/30,knotsPerMetrePerSecond=3600/1852;
-const objectDrawRange=5500;
+const objectDrawRange=5500,longSwell='1.5';
 const directControls=['drone','sub','whale','shark','gull','motorboat'];
 const profiles={
   fast:{target:20,ratio:.6,min:.4,mesh:48,sky:.375,omitWake:true,skipCaptures:true},
@@ -130,7 +130,7 @@ async function run(){
   $('trampoline').hidden=!cat;$('vangControl').hidden=false;
   $('luffControlName').textContent=cat?'Mainsail downhaul':'Boom vang';
   // Start at the default loaded waterline for each hull.
-  const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
+  const inputs={...sailingStart(cat),launchHeight:cat ? .20 : .069,launchSeaState:Number($('seaState').value),windEast:windSpeed*Math.cos(windBearing),windNorth:windSpeed*Math.sin(windBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const simulationReady=Promise.all([
     mode?import('./world-view.mjs').then(module=>module.openWorld(mode,Number($('seaState').value),omitWake,mobile&&mode==='sailing'?2:1)):loadInstance(vessel,inputs),
     hasBoat?loadVehicleShell(cat?'hobie-hulls':'sloop-hull'):null,
@@ -158,7 +158,8 @@ async function run(){
   }
   function waveInputs(){
     const [east,north,heading,heel,pitch,volume]=model.getMany(['east','north','heading','heel','pitch','sectionVolume']);
-    return {omitWake,seaAmplitude:Number($('seaState').value),east,north,heading,heel,pitch,volume};
+    const sea=$('seaState').value;
+    return {omitWake,seaAmplitude:sea===longSwell?0:Number(sea),east,north,heading,heel,pitch,volume};
   }
   worker?.postMessage({init:{...waveInputs(),currentEast:inputs.currentEast,currentNorth:inputs.currentNorth,
     beamHalf:model.get('beamHalf'),stations:model.get('stationX'),separation:model.get('halfSpacing'),
@@ -191,13 +192,9 @@ async function run(){
     showControls(panel.hidden);
   };
   const positionText=(cm,positive,negative)=>cm===0?'Centered':Math.abs(cm)+' cm '+(cm>0?positive:negative);
-  const rigFields=['mastStations','mainGooseneck','mainBlockPins'];
-  const hasRigGeometry=cat&&rigFields.every(name=>model.has(name));
-  const hasClothPanels=cat&&sailPanelFields.flat().every(name=>model.has(name));
-  const sailPanels=hasClothPanels?sailPanelFields.map((fields,index)=>{
-    const [luff,leech,telltales]=model.getMany(fields.slice(0,3));
-    return {luff,leech,telltaleRows:Array.from(telltales).slice(0,index===0?3:2).map(row=>row-1)};
-  }):null;
+  const hasRigGeometry=cat&&sailingRigFields.every(name=>model.has(name));
+  const sailPanels=cat?readSailPanels(model):null;
+  const hasClothPanels=Boolean(sailPanels);
   const verticesFields=sailPanelFields.map(fields=>fields[3]);
   const boat=model?sailboatMesh(T,cat,model.get("foilX")[0],sailPanels):null;
   if(boat)scene.add(boat.group);
@@ -284,6 +281,17 @@ async function run(){
   let roomName=normalizeRoom(url.searchParams.get('room')??'');
   const roomField=$('roomName');roomField.value=roomName;
   const laps=lapLeaderboard(mode==='flight'?'RDD2':hasBoat?vessel:'Hobie16',roomName,$('racePanel'));
+  const chatDialog=$('roomChat'),chatButton=$('openChat'),chatLog=$('chatLog'),chatInput=$('chatMessage');
+  let chatScope=null,unread=0;
+  function chatBadge(){chatButton.textContent=unread?'Chat ('+unread+')':'Chat';}
+  function chatMessage(name,message){
+    const row=document.createElement('li'),sender=document.createElement('strong');
+    sender.textContent=name;
+    row.append(sender,message);chatLog.append(row);
+    if(chatLog.children.length>60)chatLog.firstElementChild.remove();
+    if(chatDialog.open)chatLog.scrollTop=chatLog.scrollHeight;
+    else{unread=Math.min(99,unread+1);chatBadge();}
+  }
   const remote=fleet(T,scene,roomName,$('online'),{
     read:()=>({wind:Number($('wind').value),bearing:ocean.U.bearing.value,sea:$('seaState').value,sky:$('sky').value,storm:$('storm').checked}),
     apply(settings){
@@ -294,8 +302,20 @@ async function run(){
       if(settings.sky!==undefined)$('sky').value=settings.sky;
       if(settings.storm!==undefined)$('storm').checked=settings.storm;
     }
-  },$('crew'),laps,playImagingHit);camera.layers.enable(1);camera.layers.enable(3);
-  let npcTraffic,npcTrafficLoad,npcRows,npcRaceUtc,npcCamCount=0;
+  },$('crew'),laps,playImagingHit,{
+    connected(room){
+      if(chatScope===room)return;
+      chatScope=room;
+      chatButton.hidden=!room;
+      if(chatDialog.open)chatDialog.close();
+      chatLog.replaceChildren();
+      chatInput.value='';
+      $('chatStatus').value='';
+      unread=0;chatBadge();
+    },
+    receive:chatMessage
+  });camera.layers.enable(1);camera.layers.enable(3);
+  let npcTraffic,npcTrafficLoad,npcRows,npcRaceUtc,npcDisplayUtc,npcCamCount=0;
   let joinAttempt=0;
   async function multiplayer(on){
     const attempt=++joinAttempt;
@@ -390,7 +410,7 @@ async function run(){
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
   const makeWater=(T,u)=>wildlifeWater(T,u,undefined,renderer.capabilities.isWebGL2);
-  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface:Boolean(motor),bowRefinement:cat,fineBowGrid,bowFoamGrid},makeWater,surfaceSpray,
+  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface:Boolean(motor),bowRefinement:cat,fineBowGrid},makeWater,surfaceSpray,
     cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes);
   const sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   ocean.U.windPeriod.value=windField.get('period');
@@ -517,7 +537,17 @@ async function run(){
   // Keep wildlife framing independent of the vehicle's orbit and zoom.
   const wildlifeOrbits={gull:{angle:-1,tilt:.36,distance:3.3},whale:{angle:-1.15,tilt:.20,distance:14},shark:{angle:-1.15,tilt:.12,distance:6}};
   const wildlifeOrbit=()=>wildlifeOrbits[cameraMenu.value.split('-')[0]];
-  const cameraZoom=new Map();
+  const cameraZoom=new Map(),cameraPan=new Map();
+  const panRight=new T.Vector3(),panUp=new T.Vector3();
+  let panDistance=distance;
+  function panView(dx,dy){
+    const view=cameraMenu.value;
+    let offset=cameraPan.get(view);
+    if(!offset){offset=new T.Vector3();cameraPan.set(view,offset);}
+    const scale=2*panDistance*Math.tan(T.MathUtils.degToRad(camera.fov/2))/Math.max(1,viewport.clientHeight);
+    offset.addScaledVector(panRight.set(1,0,0).applyQuaternion(camera.quaternion),-dx*scale);
+    offset.addScaledVector(panUp.set(0,1,0).applyQuaternion(camera.quaternion),dy*scale);
+  }
   const fixedView=view=>view==='ballast'||view==='fpv'||view==='onboard'||Object.hasOwn(cruiserViews,view);
   function zoomView(scale){
     const view=cameraMenu.value,orbit=wildlifeOrbit();
@@ -531,15 +561,18 @@ async function run(){
   }
   const viewport=$('view'),pointers=new Map();
   viewport.onpointerdown=e=>{
-    if(e.pointerType==='mouse'&&e.button!==0)return;
-    pointers.set(e.pointerId,[e.clientX,e.clientY]);
+    const pan=e.pointerType==='mouse'&&e.button===2;
+    if(e.pointerType==='mouse'&&e.button!==0&&!pan)return;
+    if(pan)e.preventDefault();
+    pointers.set(e.pointerId,[e.clientX,e.clientY,pan]);
     viewport.setPointerCapture(e.pointerId);
   };
   viewport.onpointermove=e=>{
     const previous=pointers.get(e.pointerId);
     if(!previous)return;
-    const [x,y]=previous;
+    const [x,y,pan]=previous;
     previous[0]=e.clientX;previous[1]=e.clientY;
+    if(pan){panView(e.clientX-x,e.clientY-y);return;}
     if(pointers.size===2){
       const [otherX,otherY]=[...pointers.values()].find(point=>point!==previous);
       const before=Math.hypot(x-otherX,y-otherY),after=Math.hypot(e.clientX-otherX,e.clientY-otherY);
@@ -557,6 +590,7 @@ async function run(){
       else{angle-=dx;tilt=elevation;}
     }
   };
+  viewport.oncontextmenu=e=>e.preventDefault();
   viewport.onlostpointercapture=e=>pointers.delete(e.pointerId);
   viewport.onpointerup=viewport.onpointercancel=viewport.onlostpointercapture;
   viewport.onwheel=e=>{
@@ -632,9 +666,16 @@ async function run(){
   function applySea(){
     const sea=$('seaState');
     if(world)world.set('seaState',Number(sea.value));
-    else model.set('swellAmplitude',model.get('swellPresetAmplitudes')[sea.selectedIndex]);
+    else{
+      const [amplitude,waveNumber,frequency]=model.getMany(['swellPresetAmplitudes','swellPresetWaveNumbers','swellPresetFrequencies'])
+        .map(values=>values[sea.selectedIndex]);
+      model.set('swellAmplitude',amplitude);
+      model.set('swellK',waveNumber);model.set('swellOmega',frequency);
+      race.set('swellK',waveNumber);race.set('swellOmega',frequency);
+    }
+    ocean.U.rippleScale.value=sea.value===longSwell?.55:1;
   }
-  if(!world)applySea();
+  applySea();
   $('seaState').onchange=()=>{applySea();remote.changeWeather('sea',$('seaState').value);};
   $('storm').onchange=()=>remote.changeWeather('storm',$('storm').checked);
   $('sky').onchange=()=>remote.changeWeather('sky',$('sky').value);
@@ -856,7 +897,15 @@ async function run(){
   const fleetModels={...vesselNpcNames,gull:'Herring gull',whale:'Humpback whale',shark:'Great white shark'};
   const racePanel=$('racePanel'),raceSidebar=racePanel.parentElement;
   const npcStage=['Prestart','Crossing start','Mark 1','Mark 2','Heading to finish','Finished'];
-  let fleetSignature='',lastFleetReport=-Infinity;
+  const hostControls=$('roomHostControls'),hostTarget=$('hostTarget'),transferHost=$('transferHost');
+  let fleetSignature='',hostTargets='',lastFleetReport=-Infinity;
+  hostTarget.onchange=()=>{transferHost.disabled=!hostTarget.value;};
+  transferHost.onclick=()=>{
+    if(remote.npc.transferHost(hostTarget.value))hostControls.hidden=true;
+  };
+  $('restartRace').onclick=()=>{
+    if(chatScope)remote.npc.restartRace(Math.floor(Date.now()/1000)+300);
+  };
   function reportFleet(now){
     if(now-lastFleetReport<250)return;
     lastFleetReport=now;
@@ -868,9 +917,22 @@ async function run(){
     for(const animal of animals.values())addAnimal(animal.seat,animalLabel(animal),animal.kind);
     for(let i=0;i<habitat.gulls.length;i++)addAnimal(remote.npc.seat('gull-'+(i+1)),'Gull '+(i+1),'gull');
     const selected=targetSelect.value,localModel=occupied.get(self)??animalKind()??(selected==='boat'?(cat?'hobie':'sloop'):selected);
-    const name=remote.captain;
+    const name=remote.captain,peers=remote.players();
+    hostControls.hidden=!chatScope||owner!==self;
+    if(!hostControls.hidden){
+      const options=peers.filter(peer=>remote.npc.canTransferTo(peer.id)).map(({id,name})=>[id,name]);
+      const signature=JSON.stringify(options);
+      if(signature!==hostTargets){
+        hostTargets=signature;
+        const selectedHost=hostTarget.value;
+        hostTarget.replaceChildren(new Option('Select a player',''),...options.map(([id,name])=>new Option(name,id)));
+        hostTarget.value=options.some(([id])=>id===selectedHost)?selectedHost:'';
+        hostTarget.disabled=options.length===0;
+        hostTarget.onchange();
+      }
+    }
     const players=[[name?name+' (you)':'You',fleetModels[localModel]??'—',null,Boolean(name&&owner===self)]];
-    for(const peer of remote.players())players.push([peer.name,fleetModels[occupied.get(peer.id)??peer.model]??'—',null,owner===peer.id]);
+    for(const peer of peers)players.push([peer.name,fleetModels[occupied.get(peer.id)??peer.model]??'—',null,owner===peer.id]);
     for(const [i,row] of habitat.vessels.entries()){
       const status=npcTraffic?.raceStatus?.('npc-'+(i+1));
       const progress=status?.stage===5?`Finished ${lapClock(Math.round(status.lapTime*10))}`:npcStage[status?.stage];
@@ -939,7 +1001,8 @@ async function run(){
   }
   $('spawnAnimal').onclick=()=>{
     const kind=$('spawnKind').value;
-    const boundary=kind==='hobie'?Math.round((Date.now()/1000+race.get('countdown'))/300)*300:undefined;
+    const pendingStart=remote.npc.habitat.raceStart??0;
+    const boundary=kind==='hobie'?(pendingStart>race.get('utc')?pendingStart:race.get('nextStart')):undefined;
     const id=remote.npc.spawn(kind,remote.seaTime(world?.time??model.time,performance.now()),boundary,$('wind').valueAsNumber);
     if(id?.startsWith('gull-')){syncGullViews();$('cameraDepth').value=id==='gull-1'?'gull':id;}
     if(id?.startsWith('npc-')){
@@ -1063,7 +1126,7 @@ async function run(){
     }
     location.reload();
   }
-  let loadingDrone,droneScorer,scoredTime=0,scoreEpoch;
+  let loadingDrone,droneScorer,scoredTime=0;
   const flightControl=$('flightMode');
   flightControl.onchange=()=>{
     if(!drone)return;
@@ -1077,8 +1140,7 @@ async function run(){
         // Coupled development scenes keep scoring the sailboat independently.
         const [east,north]=vehicle.position;
         scoredTime=world?.time??model.time;
-        scoreEpoch=Date.now()/1000-scoredTime;
-        droneScorer=await loadInstance('Regatta',{...startGate,windBearing,east,north,utc:scoreEpoch+scoredTime});
+        droneScorer=await loadInstance('Regatta',{...startGate,windBearing,east,north,utc:race.get('utc'),raceStart:remote.npc.habitat.raceStart??0});
       }
       drone=vehicle;
       if(wreckSurvey&&(fullWorld||!packaged))drone.manual=false;
@@ -1185,32 +1247,71 @@ async function run(){
   }
   const mapDialog=$('harborMap');
   let localChart,lastChart=-Infinity;
+  const focusGame=()=>$('view').focus({preventScroll:true});
   function toggleMap(){
     if(mapDialog.open){mapDialog.close();return;}
-    keys.clear();keyboard.clear();analog.clear();helm();
     localChart??=harborMap($('harborMapCanvas'),island.userData.chartTerrain,race,$('harborMapRoster'));
     lastChart=-Infinity;
-    mapDialog.showModal();
+    mapDialog.show();
+    focusGame();
+  }
+  function openChat(){
+    if(!chatScope||chatDialog.open)return;
+    releaseControls();
+    unread=0;chatBadge();
+    chatDialog.showModal();chatInput.focus();
+    chatLog.scrollTop=chatLog.scrollHeight;
   }
   $('harborMapButton').onclick=toggleMap;
-  mapDialog.addEventListener('close',()=>$('view').focus({preventScroll:true}));
-  addEventListener('keydown',e=>{
-    if(!['KeyM','KeyR'].includes(e.code)||e.defaultPrevented||e.repeat||e.altKey||e.ctrlKey||e.metaKey||e.target.isContentEditable||
-      ['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
+  mapDialog.addEventListener('close',focusGame);
+  chatButton.onclick=openChat;
+  chatDialog.addEventListener('close',focusGame);
+  chatDialog.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&!e.isComposing){
+      e.preventDefault();
+      chatDialog.close();
+    }
+  });
+  const chatSend=$('chatSend');
+  chatInput.onkeydown=e=>{
+    if(e.key==='Enter'&&!e.isComposing){
+      e.preventDefault();
+      if(!e.repeat)chatSend.requestSubmit();
+    }
+  };
+  chatSend.onsubmit=async e=>{
     e.preventDefault();
-    if(e.code==='KeyM')toggleMap();
-    else resetSimulation();
+    const draft=chatInput.value,message=draft.trim(),room=chatScope;
+    if(!message||!room)return;
+    chatInput.value='';
+    if(await remote.sendChat(message)){
+      if(chatScope===room)chatMessage(remote.captain?remote.captain+' (you)':'You',message);
+      $('chatStatus').value='';
+    }else if(chatScope===room){
+      if(!chatInput.value)chatInput.value=draft;
+      $('chatStatus').value='Message could not be sent.';
+    }
+  };
+  addEventListener('keydown',e=>{
+    if(e.defaultPrevented||e.repeat||e.altKey||e.ctrlKey||e.metaKey||chatDialog.open||
+      e.target.isContentEditable||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
+    if(e.key==='Enter'&&chatScope&&e.target.tagName!=='BUTTON')openChat();
+    else if(e.code==='KeyM')toggleMap();
+    else if(e.code==='KeyR')resetSimulation();
+    else if(e.key==='Escape'&&mapDialog.open)mapDialog.close();
+    else return;
+    e.preventDefault();
   });
   addEventListener('keydown',e=>{
     const fullRelease=e.shiftKey&&e.code==='ArrowUp';
     const formControl=['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName);
-    if(!moveTraveler||mapDialog.open||targetSelect.value!=='boat'||!manual||
+    if(!moveTraveler||chatDialog.open||targetSelect.value!=='boat'||!manual||
       e.altKey||e.ctrlKey||e.metaKey||(e.shiftKey&&!fullRelease)||e.target.isContentEditable||
       (formControl&&!(fullRelease&&e.target.type==='range'))||!e.code.startsWith('Arrow'))return;
     e.preventDefault();
     if(!fullRelease||!e.repeat)moveTraveler(e.code,fullRelease,e.repeat);
   });
-  addEventListener('keydown',e=>{if(!e.defaultPrevented&&!mapDialog.open&&e.code!=='KeyM'&&manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){if(animalId){if(e.code==='KeyF'&&!flyingGull()){if(!e.repeat)$('animalFeed').click();return;}if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat){if(flyingGull())remote.npc.gullCall(gullIndex(animalId));else $('animalBreach').click();}return;}if(e.code.startsWith('Arrow'))e.preventDefault();}else if(drone?.active){
+  addEventListener('keydown',e=>{if(!e.defaultPrevented&&!chatDialog.open&&e.code!=='KeyM'&&manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){if(animalId){if(e.code==='KeyF'&&!flyingGull()){if(!e.repeat)$('animalFeed').click();return;}if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat){if(flyingGull())remote.npc.gullCall(gullIndex(animalId));else $('animalBreach').click();}return;}if(e.code.startsWith('Arrow'))e.preventDefault();}else if(drone?.active){
       if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat)$('cutMotors').click();return;}
       if(e.code.startsWith('Arrow'))e.preventDefault();
     }else if(sub?.active&&e.code.startsWith('Arrow'))e.preventDefault();
@@ -1402,7 +1503,7 @@ async function run(){
   };
   if(url.searchParams.has('room'))multiplayer(true);
   else updatePlayback();
-  let physicsTimer,courseTarget,drawDeadline;
+  let physicsTimer,courseTarget,drawDeadline,appliedRaceStart=0;
   function draw(now){
     // Keep a 30 Hz deadline across refresh rates. If a frame missed a
     // whole period, reset phase instead of rendering catch-up frames.
@@ -1418,11 +1519,19 @@ async function run(){
       }
       if(now>=raceTick){
         raceTick=now+50;
+        const start=remote.npc.habitat.raceStart??0;
+        if(start!==appliedRaceStart){
+          appliedRaceStart=start;
+          if(world)world.set('raceStart',start);
+          else race.set('raceStart',start);
+          droneScorer?.set('raceStart',start);
+          lastCountdown=null;
+        }
         if(droneScorer){
           const t=world?.time??model.time,dt=t-scoredTime;
           if(dt>=.049){
             const [east,north]=drone.position;
-            droneScorer.set('east',east);droneScorer.set('north',north);droneScorer.set('utc',scoreEpoch+t);
+            droneScorer.set('east',east);droneScorer.set('north',north);droneScorer.set('utc',race.get('utc'));
             droneScorer.advance(dt);scoredTime=t;
           }
         }
@@ -1431,7 +1540,7 @@ async function run(){
         const scorer=drone?.active&&droneScorer?droneScorer:race;
         const left=Math.ceil(scorer.get('countdown')),stage=scorer.get('stage');
         if(lastCountdown!==null&&lastCountdown<5&&left>295)audio.signal();
-        lastCountdown=left;const label=left>298?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
+        lastCountdown=left;const label=left>298&&stage>0?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
         const sceneryTime=world?.time??model.time;
         course.update(label,sceneryTime,ocean.sampleWind);island.userData.updatePalms(sceneryTime,ocean.sampleWind);$('countdown').textContent=label;
         const lap=scorer.get('lapTime');
@@ -1621,7 +1730,7 @@ async function run(){
         }
         extra=[cat?ballastX:0,cat?ballastY:0,mainCar,jibCar,ve,vn,yawRate,0];
         if(t!==meshTime){
-          const geometry={rig:hasRigGeometry?model.getMany(rigFields):null,
+          const geometry={rig:hasRigGeometry?model.getMany(sailingRigFields):null,
             cloth:hasClothPanels?model.getMany(verticesFields):null};
           boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag,cat?model.get('shroudTail'):null,
             cat?model.get('sailTail'):null,cat?model.get('stayPath'):null,t,geometry);
@@ -1667,10 +1776,12 @@ async function run(){
         syncNpcVessels(vessels);
       if(npcTraffic){
         if(running||npcRaceUtc===undefined){
-          const countdown=race.get('countdown');
-          npcRaceUtc=Math.round((Date.now()/1000+countdown)/300)*300-countdown;
+          npcRaceUtc=race.get('utc');
+          // The itinerary is continuous in UTC, even when Modelica snapshots
+          // arrive in batches. Keep scoring on the committed snapshot.
+          npcDisplayUtc=Date.now()/1000;
         }
-        npcTraffic.draw(vessels,roomTime,npcRaceUtc);
+        npcTraffic.draw(vessels,roomTime,npcRaceUtc,npcDisplayUtc);
       }
       let motorState;
       if(motor){
@@ -1946,6 +2057,10 @@ async function run(){
         camera.up.set(0,0,1);
         camera.lookAt(subject.position);
       }
+      const panPivot=subject?.position??(drone?.active?drone.group.position:sub?.active?sub.mesh.position:orbitCenter);
+      panDistance=fixedView(view)?3.5:Math.max(2,camera.position.distanceTo(panPivot));
+      const panOffset=cameraPan.get(view);
+      if(panOffset)camera.position.add(panOffset);
       drawForces(!drone?.active&&$('showForces').getAttribute('aria-pressed')==='true',s,subFrame,!!sub?.active,t,hullBlend,hullDisplay.previous);
       const waterCenter=subject?.position??boat?.group.position??motor?.group.position;
       ocean.dome.position.copy(camera.position);ocean.water.position.set(waterCenter?.x??focus[0],waterCenter?.y??focus[1],0);updateLight(t,roomTime);

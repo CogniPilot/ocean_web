@@ -57,3 +57,16 @@ for(const {heel,heave,manual} of [
     assert(Math.abs(boat.get('ballastZ')-.52)<1e-8,'Normal vertical position is preserved');
   }
 }
+
+// A settled capsize in stronger wind used to stall partway upright once
+// the crew's centre of mass moved back above the restoring lever.
+const gust=await launch(100,.90,-12);
+gust.set('trimInput',-1);
+let engaged=false,upright;
+for(let i=0;i<400;i++){
+  gust.advance(.02);
+  engaged||=gust.get('rightingSide')!==0;
+  if(engaged&&Math.abs(gust.get('heel'))<25*deg){upright=gust.time;break;}
+}
+assert(upright>2&&upright<7,'Recover past the stalled angle while the crew is still hauling');
+console.log({beamWind:12,upright});

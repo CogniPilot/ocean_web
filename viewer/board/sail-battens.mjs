@@ -22,6 +22,14 @@ export const clothTopology=sailTopology(6);
 export const sailPanelFields=[1,2].map(sail=>
   ['rowLuff','rowLeech','telltalePanelRows','vertex'].map(name=>`cloth[${sail}].${name}`));
 
+export function readSailPanels(model){
+  if(!sailPanelFields.flat().every(name=>model.has(name)))return null;
+  return sailPanelFields.map((fields,index)=>{
+    const [luff,leech,telltales]=model.getMany(fields.slice(0,3));
+    return {luff,leech,telltaleRows:Array.from(telltales).slice(0,index===0?3:2).map(row=>row-1)};
+  });
+}
+
 export function sailPanelTexture(luff,leech,telltaleRows){
   const uv=[],pockets=[];
   for(let row=0;row<luff.length;row++){
@@ -33,11 +41,11 @@ export function sailPanelTexture(luff,leech,telltaleRows){
     }
     if(row>0&&row<luff.length-1)pockets.push(path);
   }
-  const windows=telltaleRows.map(row=>{
+  const telltaleTabs=telltaleRows.map(row=>{
     const i=8*row;
     return 1-(.40*uv[i+1]+.12*uv[i+3]+.48*uv[i+11]);
   });
-  return {uv,pockets,windows};
+  return {uv,pockets,telltaleTabs};
 }
 
 export function battenPath(mesh,triangles,luff,leech){

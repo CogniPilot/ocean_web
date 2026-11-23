@@ -2,11 +2,12 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ocean_web · Ocean robotics</title><style>
 *{box-sizing:border-box}body{margin:0;background:#092f39;color:#f0f8f6;font:15px system-ui,sans-serif}canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}header,footer{position:fixed;left:clamp(12px,3vw,44px);background:#061f2cd9;border:1px solid #b3dfdf40;border-radius:9px;padding:15px 20px}header{top:20px;pointer-events:none}h1{font:normal clamp(23px,3vw,36px) Georgia,serif;margin:.12em 0}small,output{font:12px ui-monospace,monospace;color:#a4e4d9}footer{bottom:18px;max-width:calc(100% - 24px)}select,button{background:#103540;color:#effdf9;border:1px solid #659995;border-radius:5px;padding:7px}button[aria-pressed=true]{background:#2c655d}label{font-size:13px}p{margin:8px 0 0;color:#c7dcdf;font-size:13px}nav{margin-top:8px;display:flex;gap:5px}button{touch-action:none}a{color:#c5eee5}
 aside{position:fixed;right:18px;top:20px;background:#071f2be8;border-left:3px solid #f8a441;padding:10px 16px;border-radius:4px;display:grid;gap:2px}#countdown{font:600 clamp(26px,4vw,54px)/1.05 ui-monospace,monospace;color:#ffc371}#raceStatus{font-size:12px}footer{max-height:43vh;overflow:auto}@media(max-width:650px){header{max-width:55%;padding:8px}aside{right:6px;max-width:40%;padding:7px}footer{padding:8px}}
-#harborMap{width:min(740px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:14px 16px;background:#0b2938;color:#eff7f5;border:1px solid #65878b;border-radius:9px}
-#harborMap::backdrop{background:#061a25ad}#harborMap>div{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
-#harborMap h2{font:24px Georgia,serif;margin:0}#harborMapCanvas{position:static;display:block;width:100%;height:auto;margin:8px 0;background:#aed5dc;max-height:56dvh;object-fit:contain}
+#harborMap{position:fixed;inset:auto 14px 14px auto;margin:0;width:clamp(298px,33vw,460px);max-height:47dvh;overflow:auto;padding:9px 10px;background:#0b2938;color:#eff7f5;border:1px solid #65878b;border-radius:9px}
+#harborMap>div{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+#harborMap h2{font:17px Georgia,serif;margin:0}
+#harborMapCanvas{position:static;display:block;width:100%;height:auto;margin:5px 0;background:#aed5dc;max-height:28dvh;object-fit:contain}
 #harborMapLegend{display:flex;flex-wrap:wrap;gap:5px 14px;font-size:12px}#harborMapLegend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--point);margin-right:4px}
-#harborMapRoster{margin:7px 0 0;padding-left:20px;font:12px/1.45 ui-monospace,monospace;max-height:15dvh;overflow:auto;columns:2}
+#harborMapRoster{margin:7px 0 0;padding-left:20px;font:12px/1.45 ui-monospace,monospace;max-height:6dvh;overflow:auto;columns:2}
 #physicsCanvas{pointer-events:none}#physicsLayers{display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center}
 #physicsLayers label{white-space:nowrap}#physicsStatus{display:block}
 #runStats{display:block;margin-top:4px;font-variant-numeric:tabular-nums}#vehiclePanel{display:inline}#online{display:inline-block;margin:0 .6em 0 .25em}#sticks{position:fixed;inset:auto 12px calc(var(--panel-height,66px) + 20px);display:flex;justify-content:space-between;pointer-events:none}.stick{touch-action:none;user-select:none;pointer-events:auto;background:#082936bc;color:white;border:1px solid #92c9ce;width:88px;height:88px;border-radius:50%;display:grid;place-items:center;position:relative}.knob{width:32px;height:32px;border-radius:50%;background:#c6eddfaa;border:1px solid white}.stick small{position:absolute;top:-16px;white-space:nowrap;color:white;text-shadow:0 1px 3px black;font-size:11px}#sound,#music{min-width:44px;min-height:44px;font-size:18px;vertical-align:middle}#collapsePanel{margin-right:5px}
@@ -135,6 +136,22 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
   .control-pane .control-grid{grid-template-columns:minmax(0,1fr)}
   .control-check,.control-slider input{min-height:40px}
 }
+
+#roomChat{width:min(480px,calc(100% - 22px));max-height:70dvh;background:#0b2938;color:#eff7f5;border:1px solid #65878b;border-radius:9px;padding:12px}
+#roomChat::backdrop{background:#061a2570}
+.chat-heading,.chat-compose{display:flex;align-items:center;gap:8px}
+.chat-heading{justify-content:space-between}
+.chat-heading h2{font:22px Georgia,serif;margin:0}
+#chatLog{min-height:min(20dvh,120px);max-height:35dvh;overflow:auto;overflow-wrap:anywhere;padding:6px 4px;margin:10px 0;list-style:none}
+#chatLog li{padding:3px 0}
+#chatLog strong{margin-inline-end:.5em;color:#a4e4d9}
+#chatMessage{min-width:0;flex:1;border:1px solid #659995;background:#103540;color:#effdf9;border-radius:5px;padding:8px;font:inherit}
+#chatStatus{display:block}
+@media(max-width:960px){
+  #harborMap{right:6px;bottom:calc(var(--panel-height,66px) + 14px);width:min(75vw,325px);max-height:36dvh}
+  #harborMapCanvas{max-height:22dvh}
+}
+@media(pointer:coarse){#roomChat button,#chatMessage{min-height:42px}#chatMessage{font-size:16px}}
 </style></head><body><canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas><canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output></header>
 <section id="motorSensors" aria-label="Cruiser sensors" hidden><details id="cruiserSonarPanel" data-view="sonar"><summary>Argos 350 · 3D imaging sonar</summary>
 <div class="sonar-controls"><label>Range <select id="cruiserSonarRange"><option value="100">100 m</option><option value="200">200 m</option><option value="350">350 m</option></select></label> <span class="sonar-spec">90° fan · 18 kn limit</span>
@@ -157,6 +174,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button id="play">Pause</button>
 <button type="button" id="resetSimulation" aria-keyshortcuts="R" title="Restart the current simulation (R)">Reset</button>
 <button id="settings" aria-expanded="false" aria-controls="setup">Settings</button>
+<button id="openChat" type="button" aria-haspopup="dialog" aria-keyshortcuts="Enter" hidden>Chat</button>
 <button id="collapsePanel" aria-label="Hide controls" aria-controls="vehiclePanel" aria-expanded="true">Controls</button>
 </div></div>
 <audio id="theme" loop preload="none" src="./assets/audio/Pirate1_Theme1.mp3"></audio>
@@ -237,7 +255,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-grid">
 <div class="control-slider"><div class="control-label"><label for="wind">Wind speed</label><output id="windOut" for="wind">21.4 kn</output></div>
 <input type="range" id="wind" min="0" max="22" value="11" aria-valuetext="21.4 kn" aria-describedby="windScale"><div class="control-scale" id="windScale"><span>Calm</span><span>42.8 kn</span></div></div>
-<label class="control-select"><span>Sea state</span><select id="seaState"><option value="0">Calm</option><option value=".45" selected>Swell</option><option value="1.1">Steep swell</option></select></label>
+<label class="control-select"><span>Sea state</span><select id="seaState"><option value="0">Calm</option><option value=".45">Swell</option><option value="1.1">Steep swell</option><option value="1.5" selected>Long swell</option></select></label>
 <label class="control-select"><span>Time of day</span><select id="sky"><option>Day</option><option>Sunset</option><option>Moonlit</option><option>Cycle</option></select></label>
 </div>
 <div class="control-row">
@@ -301,6 +319,11 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button id="invite" type="button" hidden>Copy room link</button>
 </div>
 <output id="online" aria-label="Multiplayer connection">Offline</output>
+<div id="roomHostControls" class="control-row" hidden>
+<label class="control-select"><span>New host</span><select id="hostTarget"><option value="">Select a player</option></select></label>
+<button id="transferHost" type="button" disabled>Transfer host</button>
+<button id="restartRace" type="button">Restart countdown</button>
+</div>
 <details id="crew" hidden><summary>Players</summary><ul></ul></details>
 </div></details>
 <details class="control-pane" id="wildlifeSpawn"><summary>Spawn NPC</summary>
@@ -315,8 +338,8 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-fields">
 <p id="gullKeys" hidden>↑/↓ pitch · ←/→ bank · A/D turn · W flap · S glide · Space call</p>
 <p id="flightKeys" hidden>RDD2 · ↑/↓ pitch · ←/→ roll · W/S climb/descend · A/D yaw · Space arm/disarm · hold Shift for fast horizontal flight · release direction to hover</p>
-<p data-boat>A and D steer. Hold S to haul in both sheets or W to ease them. Drag to orbit and scroll or pinch to zoom.</p>
-<p>Press M for the map, or R to restart the simulator.</p>
+<p data-boat>A and D steer. Hold S to haul in both sheets or W to ease them. Drag to orbit, right-drag to pan, and scroll or pinch to zoom.</p>
+<p>Press M for the map, R to restart the simulator, or Enter for room chat.</p>
 </div></details>
 </div>
 </div>
@@ -325,4 +348,13 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="vehicle.js?viewport=2"></script><script src="wreck.js"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
 <canvas id="harborMapCanvas" width="680" height="420" aria-label="North-up chart showing the race course, island, players and NPCs"></canvas>
 <div id="harborMapLegend"><span style="--point:#e97618">You</span><span style="--point:#005997">Player</span><span style="--point:#644495">NPC</span><span style="--point:#a03731">Race course</span></div><ul id="harborMapRoster" aria-label="Chart contacts"></ul></dialog>
+<dialog id="roomChat" aria-labelledby="roomChatTitle">
+<div class="chat-heading"><h2 id="roomChatTitle">Room chat</h2><form method="dialog"><button>Close</button></form></div>
+<ol id="chatLog" role="log" aria-label="Messages" aria-live="polite"></ol>
+<form id="chatSend" class="chat-compose">
+<input type="text" id="chatMessage" placeholder="Type a message" aria-label="Message" maxlength="400" autocomplete="off" autofocus required>
+<button type="submit">Send</button>
+</form>
+<output id="chatStatus" aria-live="polite"></output>
+</dialog>
 <script type="module" src="sailing-live.mjs?hud=2"></script></body></html>

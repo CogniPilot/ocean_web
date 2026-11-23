@@ -32,3 +32,22 @@ for(let lane=0;lane<5;lane++){
   assert.equal(boat.sample(901.1).status.heatStart,900);
   console.log({lane,startDelay:result.startDelay,lapTime:result.lapTime,scored:committee.get('lapTime')});
 }
+
+// The displayed boat can round off its track without changing the scored lap.
+const committee=await loadInstance('Regatta',{...startGate,windBearing},read);
+const route=hobieRace(committee,0,600,11);
+let previous,velocity,peakChange=0;
+for(let i=0;i<14000;i++){
+  const utc=590+i*.02;
+  const official={...route.sample(utc).status};
+  const {east,north,status}=route.sample(utc,utc);
+  assert.deepEqual(status,official);
+  if(previous){
+    const next=[(east-previous[0])/.02,(north-previous[1])/.02];
+    if(velocity)peakChange=Math.max(peakChange,Math.hypot(next[0]-velocity[0],next[1]-velocity[1]));
+    velocity=next;
+  }
+  previous=[east,north];
+}
+assert(peakChange<.4,'Rounded NPC tacks must avoid abrupt velocity changes');
+console.log({peakSpeedChangePer20ms:peakChange});
