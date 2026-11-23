@@ -46,7 +46,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     for p in 1:4 loop
       if traffic[p,1]>.5 then
         dx:=east-traffic[p,2]; dy:=north-traffic[p,3];
-        height:=if traffic[p,9]>1.5 then 2.25 elseif traffic[p,9]>.5 then 7.15 else 2.6;
+        height:=if traffic[p,9]>1.5 then 2.25 elseif traffic[p,9]>.5 then 7.36 else 2.6;
         if dx*dx+dy*dy<(8*height)^2 then
           u:=windEast-traffic[p,5]; v:=windNorth-traffic[p,6];
           speed:=sqrt(u*u+v*v);
@@ -66,57 +66,142 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     end for;
     localWind:={windEast,windNorth}-loss/max(1,total/.65);
   end shadowWind;
-  function contactSection
+  function contactSection "Circle centre and radius in the hull's waterline plane"
     input Real kind;
     input Integer hull,station;
     output Real centerRadius[3];
+  protected
+    constant Real sloop[7,2]=[-.93,.18;-.68,.26;-.31,.335;.12,.321;.52,.258;.83,.19;1.10,.11];
+    constant Real cruiser[7,2]=[-2.85,.91;-2.18,1.13;-1.14,1.26;0,1.22;1.02,1.12;2.05,.87;3.02,.45];
+    constant Real committee[7,2]=[-2.28,.72;-1.79,.90;-1.03,1.04;0,1.02;.88,.96;1.73,.73;2.57,.39];
   algorithm
-    // Coarse discs along each hull's waterline. Use the same sections for
-    // both sides of the pair so classification and contact are reciprocal.
-    centerRadius:=if kind>1.5 then {1.50*station,0,if station==2 then .65 elseif station==-2 then .81 else 1.07}
-      elseif kind>.5 then {.95*station,(3-2*hull)*1.02,.49}
-      else {.42*station,0,.31};
+    centerRadius:=if kind>2.5 then {committee[station,1],0,committee[station,2]}
+      elseif kind>1.5 then {cruiser[station,1],0,cruiser[station,2]}
+      elseif kind>.5 then {.95*(station-3),(3-2*hull)*1.02,.49}
+      else {sloop[station,1],0,sloop[station,2]};
   end contactSection;
 
-  function contactWrench "Horizontal compliant vessel contact at sampled waterline sections"
-    input Real pose[7],traffic[4,9],kind;
-    output Real wrench[3],contact[4];
+  function frameToWorld
+    input Real yaw,heel,pitch;
+    output Real R[3,3];
   protected
+    import MultiBodyLie.Frames.axisRotationT;
+  algorithm
+    R:=transpose(axisRotationT(1,heel)*axisRotationT(2,pitch)*axisRotationT(3,yaw));
+  end frameToWorld;
+
+  function againstHobie "Contact of vessel hull samples with the two triangulated Hobie pontoons"
+    input Real meshPose[7],meshTilt[2],otherPose[7],otherTilt[2],otherKind,scale;
+    output Real force[2],momentMesh,momentOther,peak;
+  protected
+    final parameter Real vertices[96,3]=Shore.pontoonVertices();
+    final parameter Integer faces[188,3]=Shore.pontoonFaces();
+    Real a[3,3],b[3,3],shift[3],test[3],sample[3],point[3],rel[3],intersect[4],n[3],drag[2];
+    Real candidateForce[2],candidateA,candidateB;
+    Real disk[3],depth,strongest,horizontal,rate,f,armA[3],armB[3],leverA[2],leverB[2],radius;
+  algorithm
+    force:=zeros(2);momentMesh:=0;momentOther:=0;peak:=0;
+    a:=frameToWorld(meshPose[3],meshTilt[1],meshTilt[2]);
+    b:=frameToWorld(otherPose[3],otherTilt[1],otherTilt[2]);
+    shift:={otherPose[1]-meshPose[1],otherPose[2]-meshPose[2],otherPose[7]-meshPose[7]};
+    for h in 1:2 loop
+      strongest:=0;candidateForce:=zeros(2);candidateA:=0;candidateB:=0;
+      for k in 1:(if otherKind>.5 and otherKind<1.5 then 2 else 1) loop
+        for i in 1:(if otherKind>.5 and otherKind<1.5 then 96 else 7) loop
+          if otherKind>.5 and otherKind<1.5 then
+            sample:=vertices[i,:]+{0,(3-2*k)*1.02,0};
+            radius:=.026;
+          else
+            disk:=contactSection(otherKind,1,i);
+            sample:={disk[1],disk[2],-.07};
+            radius:=disk[3];
+          end if;
+          point:=b*sample;
+          rel:=shift+point;
+          test:=transpose(a)*rel-{0,(3-2*h)*1.02,0};
+          intersect:=Shore.pontoonGap(test,vertices,radius,faces);
+          depth:=radius-intersect[1];
+          if depth>0 then
+            n:=a*intersect[2:4];
+            horizontal:=sqrt(n[1]^2+n[2]^2);
+            depth:=depth*horizontal;
+            if horizontal>1e-5 then
+              drag:={n[1],n[2]}/horizontal;
+              armB:=point;armA:=rel-intersect[1]*n;
+              leverA:={-armA[2],armA[1]};leverB:={-armB[2],armB[1]};
+              rate:=drag*({otherPose[4]-meshPose[4],otherPose[5]-meshPose[5]}+otherPose[6]*leverB-meshPose[6]*leverA);
+              f:=scale*max(0,22000*min(.24,depth)-680*min(1,depth/.012)*rate);
+              if f>strongest then
+                strongest:=f;
+                candidateForce:=-f*drag;candidateA:=-f*(drag*leverA);candidateB:=f*(drag*leverB);
+              end if;
+            end if;
+          end if;
+        end for;
+      end for;
+      force:=force+candidateForce;momentMesh:=momentMesh+candidateA;momentOther:=momentOther+candidateB;
+      peak:=max(peak,strongest);
+    end for;
+  end againstHobie;
+
+  function contactWrench "Horizontal compliant vessel contact at sampled waterline sections"
+    input Real pose[7],traffic[:,9],kind;
+    input Real tilt[2]=zeros(2),trafficTilt[size(traffic,1),2]=zeros(size(traffic,1),2);
+    output Real wrench[3],contact[size(traffic,1)];
+  protected
+    Real otherPose[7],fa[2],fb[2],ma,mb,qa,qb,pa,pb;
     Real sliceA[3],sliceB[3],x,y,u,v,dx,dy,d,r,rate,f,armX,armY,otherX,otherY,mass,otherMass,scale,localDraft,peerDraft;
   algorithm
-    wrench:=zeros(3);contact:=zeros(4);
+    wrench:=zeros(3);contact:=zeros(size(traffic,1));
     mass:=if kind>1.5 then 3250 elseif kind>.5 then 206 else 64;
     localDraft:=if kind>1.5 then .62 else .325;
-    for p in 1:4 loop
-      peerDraft:=if traffic[p,9]>1.5 then .62 else .325;
+    for p in 1:size(traffic,1) loop
+      peerDraft:=if traffic[p,9]>2.5 then .60 elseif traffic[p,9]>1.5 then .62 else .325;
       if traffic[p,1]>.5 and abs(pose[7]-traffic[p,8])<localDraft+peerDraft
         and (pose[1]-traffic[p,2])^2+(pose[2]-traffic[p,3])^2<100 then
-        otherMass:=if traffic[p,9]>1.5 then 3250 elseif traffic[p,9]>.5 then 206 else 64;
+        otherMass:=if traffic[p,9]>2.5 then 1e8 elseif traffic[p,9]>1.5 then 3250 elseif traffic[p,9]>.5 then 206 else 64;
         scale:=max(1,mass*otherMass/((mass+otherMass)*103));
-        for i in 1:(if kind>.5 and kind<1.5 then 2 else 1) loop
-          for j in 1:(if traffic[p,9]>.5 and traffic[p,9]<1.5 then 2 else 1) loop
-            for k in -2:2 loop
-              sliceA:=contactSection(kind,i,k);
-              armX:=sliceA[1]*cos(pose[3])-sliceA[2]*sin(pose[3]);
-              armY:=sliceA[1]*sin(pose[3])+sliceA[2]*cos(pose[3]);
-              for l in -2:2 loop
-                sliceB:=contactSection(traffic[p,9],j,l);
-                otherX:=sliceB[1]*cos(traffic[p,4])-sliceB[2]*sin(traffic[p,4]);
-                otherY:=sliceB[1]*sin(traffic[p,4])+sliceB[2]*cos(traffic[p,4]);
-                dx:=pose[1]+armX-traffic[p,2]-otherX;dy:=pose[2]+armY-traffic[p,3]-otherY;
-                d:=sqrt(dx*dx+dy*dy);r:=sliceA[3]+sliceB[3];
-                if d<r and d>.0001 then
-                  x:=dx/d;y:=dy/d;
-                  u:=pose[4]-pose[6]*armY-traffic[p,5]+traffic[p,7]*otherY;
-                  v:=pose[5]+pose[6]*armX-traffic[p,6]-traffic[p,7]*otherX;
-                  rate:=u*x+v*y;f:=scale*max(0,850*(r-d)-55*rate);
-                  wrench:=wrench+f*{x,y,armX*y-armY*x};
-                  contact[p]:=max(contact[p],f);
-                end if;
+        otherPose:=traffic[p,2:8];
+        if kind>.5 and kind<1.5 then
+          (fa,ma,qa,pa):=againstHobie(pose,tilt,otherPose,trafficTilt[p,:],traffic[p,9],scale);
+          if traffic[p,9]>.5 and traffic[p,9]<1.5 then
+            (fb,mb,qb,pb):=againstHobie(otherPose,trafficTilt[p,:],pose,tilt,kind,scale);
+            wrench:=wrench+.5*cat(1,fa-fb,{ma+qb});
+            contact[p]:=max(pa,pb);
+          else
+            wrench:=wrench+cat(1,fa,{ma});
+            contact[p]:=pa;
+          end if;
+        elseif traffic[p,9]>.5 and traffic[p,9]<1.5 then
+          (fb,mb,qb,pb):=againstHobie(otherPose,trafficTilt[p,:],pose,tilt,kind,scale);
+          wrench:=wrench+cat(1,-fb,{qb});
+          contact[p]:=pb;
+        else
+          for i in 1:1 loop
+            for j in 1:1 loop
+              for k in 1:7 loop
+                sliceA:=contactSection(kind,i,k);
+                armX:=sliceA[1]*cos(pose[3])-sliceA[2]*sin(pose[3]);
+                armY:=sliceA[1]*sin(pose[3])+sliceA[2]*cos(pose[3]);
+                for l in 1:7 loop
+                  sliceB:=contactSection(traffic[p,9],j,l);
+                  otherX:=sliceB[1]*cos(traffic[p,4])-sliceB[2]*sin(traffic[p,4]);
+                  otherY:=sliceB[1]*sin(traffic[p,4])+sliceB[2]*cos(traffic[p,4]);
+                  dx:=pose[1]+armX-traffic[p,2]-otherX;dy:=pose[2]+armY-traffic[p,3]-otherY;
+                  d:=sqrt(dx*dx+dy*dy);r:=sliceA[3]+sliceB[3];
+                  if d<r and d>.0001 then
+                    x:=dx/d;y:=dy/d;
+                    u:=pose[4]-pose[6]*armY-traffic[p,5]+traffic[p,7]*otherY;
+                    v:=pose[5]+pose[6]*armX-traffic[p,6]-traffic[p,7]*otherX;
+                    rate:=u*x+v*y;f:=scale*max(0,850*(r-d)-55*rate);
+                    wrench:=wrench+f*{x,y,armX*y-armY*x};
+                    contact[p]:=max(contact[p],f);
+                  end if;
+                end for;
               end for;
             end for;
           end for;
-        end for;
+        end if;
       end if;
     end for;
   end contactWrench;
@@ -166,8 +251,13 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     lean:=previous+dt*velocity;
   end standingRig;
   input Real traffic[4,9] "Active, east, north, yaw, east/north velocity, yaw rate, height, hull type (0 sloop, 1 Hobie, 2 cruiser)";
-  output Real peerForce[3] "World east/north force and yaw moment";
-  output Real peerContact[4] "Maximum normal contact force against each peer [N]";
+  input Real trafficTilt[4,2]=zeros(4,2),sceneTilt[6,2]=zeros(6,2);
+  final parameter Real pontoonContactVertices[96,3]=Shore.pontoonVertices();
+  final parameter Integer pontoonContactFaces[188,3]=Shore.pontoonFaces();
+  input Real sceneTraffic[6,9]=zeros(6,9) "Five shared NPCs and the anchored launch";
+  discrete output Real sceneForce[3](each start=0,each fixed=true),sceneContact[6](each start=0,each fixed=true);
+  discrete output Real peerForce[3](each start=0,each fixed=true) "World east/north force and yaw moment";
+  discrete output Real peerContact[4](each start=0,each fixed=true) "Maximum normal contact force against each peer [N]";
   input Real wakeEast,wakeNorth,wakeYaw "Free-surface pressure reaction from the local wave FMU";
   input Real useSectionWater,sectionWater[2,6],previousWater[2,6],waterStamp;
   parameter Boolean useRefinedSectionWater=false "Supply water at the native hull integration stations";
@@ -178,6 +268,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real waterFraction;
   input Real windEast, windNorth, currentEast, currentNorth, waveHeight, waveRoll, wavePitch;
   input Real orbitalEast,orbitalNorth,orbitalUp "Wave particle velocity at the boat [m/s]";
+  input Real tacticalCourse[3]=zeros(3) "Override the autopilot with an enabled heading and sail power setting";
   input Real raceGoal[3](each start=0) "Enable, east, north; the standalone pilot defaults to its local course";
   input Real manualHelm,rudderInput,trimInput;
   input Real vangInput "Tackle adjustment, 0 eased to 1 tight";
@@ -316,7 +407,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real footZ[2]=if catamaran then {.97,.87} else {.19,.19};
   parameter Real yawInertia=19,rollInertia=28,pitchInertia=12, halfSpacing=0;
   parameter Real ballastMass=0;
-  parameter Real ballastTrapezeReach(unit="m")=2.10 "Maximum automatic crew offset from the Hobie centreline";
+  parameter Real ballastTrapezeReach(unit="m")=2.10 "Maximum crew offset from the Hobie centreline";
   parameter Real rightingReach(unit="m")=.95 "Crew mass centre below the hull plane while leaning on the righting line";
   final parameter Real ballastNeutralZ(unit="m")=.52 "Normal crew height relative to the hull frame";
   input Real ballastManual,ballastCmdX,ballastCmdY;
@@ -355,6 +446,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   discrete output Integer jibAssistSide(start=0,fixed=true) "Working side held during a manual tack, zero when idle";
   discrete Real jibAssistUntil(start=0,fixed=true);
   discrete Boolean reverseHelm(start=false,fixed=true);
+  discrete Real fleetCourse(start=launchHeading,fixed=true);
   Real tackBand,raceCourse,raceError,windOffBow,jibWorkingSide,helmTarget;
   parameter Real forestaySlope=(1.16-.12)/(2.78-.09) "Aft rake per metre of rise";
   final parameter Real jibLuffSlope=if catamaran then (2.26-tang[1])/(tang[3]-.75) else forestaySlope;
@@ -364,7 +456,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     axisZ[2]={cos(mainMastRake),1/sqrt(1+jibLuffSlope^2)};
   output Real sheetRotation[2,3,3] "Sail frame to hull frame";
   SailMembrane cloth[2](each attachedAirflow=catamaran,telltaleCount={if catamaran then 3 else 2,2},
-    telltaleRows={if catamaran then {3,5,9} else {2,3,5},{2,4,5}},cutAngle={footCut,0},footInTrack={catamaran,false},each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={spans[1]*mainMastSlope,spans[2]*jibLuffSlope});
+    battenEI={{3.2,19.2},{1.6,3.0}},telltaleRows={if catamaran then {3,5,9} else {2,3,5},{2,4,5}},cutAngle={footCut,0},footInTrack={catamaran,false},each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={spans[1]*mainMastSlope,spans[2]*jibLuffSlope});
   Real rotation[3,3],rig[2,3,3],trim[2](each start=.17,each fixed=true), waterRelative[3],spin[3],origin[2,3];
   Real pitchRate(start=launchPitchRate,fixed=true),rigMoment[2,3],rigForce[2,3],surfaceNormal[3];
   output Real sailVertex[2,24,3],wettedArea[2],leechSpeed[2],sailMoment[3];
@@ -589,7 +681,7 @@ equation
     elseif ballastManual>.5 then max(-.72,min(.72,ballastCmdX)) else
     max(-.72,min(forwardBallastLimit,-3.6*crewPitch-.70*(pitchRate-trimPitchRate)-7*bowShortage));
   targetY=if not catamaran then 0 elseif rightingSide<>0 then halfSpacing*rightingSide*min(1,2*rightingLean)
-    elseif ballastManual>.5 then max(-.84,min(.84,ballastCmdY)) else
+    elseif ballastManual>.5 then max(-ballastTrapezeReach,min(ballastTrapezeReach,ballastCmdY)) else
     max(-ballastTrapezeReach,min(ballastTrapezeReach,
       (.56*buildingWind+(ballastTrapezeReach-.56)*trapezeDemand)*crewSide+1.15*crewHeel));
   der(ballastX)=if rightingSide<>0 or ballastManual>.5 then max(-.35,min(.35,(targetX-ballastX)/.65))
@@ -653,7 +745,15 @@ equation
   elsewhen crossTrack < -tackBand then
     tack=1;
   end when;
-  raceCourse=if reachTrial>.5 then -2.1 elseif abs(relative)<noGo then upwind+tack*noGo else desired;
+  when sample(0,.2) then
+    fleetCourse=if catamaran and manualHelm<.5 and raceGoal[1]>.5 and tacticalCourse[1]<.5 then
+      SailingTactics.chooseCourse({navE,navN},courseEstimate,signedLogSpeed,{goalE,goalN},upwind,
+        sqrt(measuredWindE^2+measuredWindN^2),noGo,pre(fleetCourse),cat(1,traffic,sceneTraffic))
+      else pre(fleetCourse);
+  end when;
+  raceCourse=if reachTrial>.5 then -2.1 elseif tacticalCourse[1]>.5 then tacticalCourse[2]
+    elseif catamaran and raceGoal[1]>.5 and manualHelm<.5 then fleetCourse
+    elseif abs(relative)<noGo then upwind+tack*noGo else desired;
   raceError=atan2(sin(raceCourse-courseEstimate),cos(raceCourse-courseEstimate));
   windOffBow=atan2(sin(courseEstimate-upwind),cos(courseEstimate-upwind));
   when sample(0,.1) then
@@ -697,7 +797,7 @@ equation
   sheetTarget=(if sin(vane)>=0 then 1 else -1)*min(1.40,max(0,abs(atan2(sin(vane),cos(vane)))-0.32));
   boomLimit=2*asin(min(0.99,max(0,payout/(2*sheetArm))));
   lineSpeed=if rightingSide<>0 then max(0,min(.65,(.59-payout)/.22))
-    elseif manualHelm>.5 then .24*trimInput else max(-.40,min(.40,(autoPayout-payout)/.22));
+    elseif manualHelm>.5 then .24*trimInput else max(-.40,min(.40,(autoPayout+(if tacticalCourse[1]>.5 then .51*(1-tacticalCourse[3]) else 0)-payout)/.22));
   der(payout)=if (payout<=.012 and lineSpeed<0) or (payout>=.59 and lineSpeed>0) then 0 else lineSpeed;
   drumAngle=payout/drumRadius;
   windSide=if sin(vane)>=0 then -1 else 1;
@@ -966,11 +1066,14 @@ equation
   frictionCoefficient=if hullRe<5e5 then 1.328/sqrt(max(1,hullRe)) else .075/(log10(hullRe)-2)^2;
   skinDrag=.5*1025*skinArea*(1+formFactor)*frictionCoefficient*waterRelative[1]*abs(waterRelative[1]);
   shoreWrench=Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing);
-  (peerForce,peerContact)=contactWrench({east,north,heading,ve,vn,yawRate,heave},traffic,if catamaran then 1 else 0);
+  when sample(0,.02) then
+    (sceneForce,sceneContact)=contactWrench({east,north,heading,ve,vn,yawRate,heave},sceneTraffic,if catamaran then 1 else 0,{heel,pitch},sceneTilt);
+    (peerForce,peerContact)=contactWrench({east,north,heading,ve,vn,yawRate,heave},traffic,if catamaran then 1 else 0,{heel,pitch},trafficTilt);
+  end when;
   swellForce=hullSwellForce[1,:]+(if catamaran then hullSwellForce[2,:] else zeros(2));
-  der(surge)=((wakeEast+droneLoad[1]+peerForce[1])*cos(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*sin(heading)+fx+shoreWrench[1]+sum(foilAxial)+skinDrag+swellForce[1])/totalMass+yawRate*sway;
-  der(sway)=(-(wakeEast+droneLoad[1]+peerForce[1])*sin(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*cos(heading)+fy+shoreWrench[2]+sum(foilSide)+swellForce[2]-80*sway*abs(sway)-40*sway)/totalMass-yawRate*surge;
-  levelYawMoment=droneLoad[6]+shoreWrench[6]+wakeYaw+peerForce[3]+sailMoment[3]+sum(foilTorque[:,3]);
+  der(surge)=((wakeEast+droneLoad[1]+peerForce[1]+sceneForce[1])*cos(heading)+(wakeNorth+droneLoad[2]+peerForce[2]+sceneForce[2])*sin(heading)+fx+shoreWrench[1]+sum(foilAxial)+skinDrag+swellForce[1])/totalMass+yawRate*sway;
+  der(sway)=(-(wakeEast+droneLoad[1]+peerForce[1]+sceneForce[1])*sin(heading)+(wakeNorth+droneLoad[2]+peerForce[2]+sceneForce[2])*cos(heading)+fy+shoreWrench[2]+sum(foilSide)+swellForce[2]-80*sway*abs(sway)-40*sway)/totalMass-yawRate*surge;
+  levelYawMoment=droneLoad[6]+shoreWrench[6]+wakeYaw+peerForce[3]+sceneForce[3]+sailMoment[3]+sum(foilTorque[:,3]);
   der(yawRate)=(levelYawMoment-(if catamaran then 190 else 30)*yawRate)/(yawInertia+ballastYawInertia+rigWaterInertia*(sin(pitch)^2+cos(pitch)^2*sin(heel)^2)+sum(hingeWaterInertia));
   der(heading)=yawRate;
   der(heel)=rollRate;

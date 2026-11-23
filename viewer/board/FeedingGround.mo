@@ -3,38 +3,43 @@ model FeedingGround "Kinematic bait schools and body-mounted fish finder"
   input Real pose[6] "East, north, up, yaw, nose-up pitch, roll";
   input Real whale "One for a humpback, zero for a white shark";
   input Real feedAge "Time since the last feeding command, negative when idle";
+  constant Integer fishCount=72;
   output Real gape,capture;
-  output Real school[36,4] "East, north, up and course in radians";
-  output Real returns[36,4] "Slant range, bearing, elevation, relative echo strength";
-  output Real inMouth[36] "Fish inside the open jaw envelope";
+  output Real school[fishCount,4] "East, north, up and course in radians";
+  output Real returns[fishCount,4] "Slant range, bearing, elevation, relative echo strength";
+  output Real inMouth[fishCount] "Fish inside the open jaw envelope";
   function swim
     input Real t;
-    output Real fish[36,4];
+    input Integer count;
+    output Real fish[count,4];
   protected
-    Integer flock;
-    Real phase,course,along,across;
+    Integer flock,site;
+    Real phase,course,along,across,centerEast,centerNorth;
   algorithm
-    for i in 1:36 loop
+    for i in 1:count loop
       flock:=div(i-1,12);
+      site:=mod(flock,3);
+      centerEast:=if flock<3 then 4+7*site else 2+11*site;
+      centerNorth:=if flock<3 then -17-3*site else 3+9*site;
       phase:=.095*t+2.1*flock;
       course:=atan2(3.5*cos(phase),-6*sin(phase));
       along:=1.65*sin(4.3*i)+.18*cos(.8*t+i);
       across:=.95*cos(2.2*i)+.12*sin(.7*t+i);
-      fish[i,:]:={4+7*flock+6*cos(phase)+along*cos(course)-across*sin(course),
-        -17-3*flock+3.5*sin(phase)+along*sin(course)+across*cos(course),
-        -2.4-2.2*flock+.55*cos(.085*t+i*.12)+.55*sin(1.9*i),course};
+      fish[i,:]:={centerEast+6*cos(phase)+along*cos(course)-across*sin(course),
+        centerNorth+3.5*sin(phase)+along*sin(course)+across*cos(course),
+        -2.4-2.2*site+.55*cos(.085*t+i*.12)+.55*sin(1.9*i),course};
     end for;
   end swim;
   function scan
-    input Real fish[36,4],p[6],isWhale;
-    output Real echoes[36,4],inside[36];
+    input Real fish[:,4],p[6],isWhale;
+    output Real echoes[size(fish,1),4],inside[size(fish,1)];
   protected
     Real dx,dy,dz,h,f,l,u,r,b,e,reach,width,gape,side,up;
   algorithm
     reach:=if isWhale>.5 then 3.9 else 2.0;
     width:=if isWhale>.5 then 1.03 else .28;
     gape:=if isWhale>.5 then .85 else .21;
-    for i in 1:36 loop
+    for i in 1:size(fish,1) loop
       dx:=fish[i,1]-p[1];dy:=fish[i,2]-p[2];dz:=fish[i,3]-p[3];
       h:=dx*cos(p[4])+dy*sin(p[4]);
       side:=-dx*sin(p[4])+dy*cos(p[4]);
@@ -56,6 +61,6 @@ equation
     else max(0,min(1,min(feedAge/.26,(.72-feedAge)/.21))));
   capture=noEvent(if whale>.5 then (if gape>.72 then 1 else 0)
     else (if feedAge>=.45 and feedAge<=.72 then 1 else 0));
-  school=swim(clock);
+  school=swim(clock,fishCount);
   (returns,inMouth)=scan(school,pose,whale);
 end FeedingGround;

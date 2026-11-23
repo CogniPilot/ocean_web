@@ -103,8 +103,8 @@ export function cruiserSonar(canvas,readout,rangeSelect,chart,showDisplay,observ
   return function ping(now,pose,surfaceAt,fishState,animalState){
     if(busy||now-last<400)return;
     last=now;if(!worker)start();
-    const fish=new Float64Array(144),school=fishState();
-    if(school)for(let i=0;i<36;i++){
+    const school=fishState(),fish=new Float64Array(school?.positions.length??0);
+    if(school)for(let i=0;i<school.restock.length;i++){
       const k=4*i;fish[k]=Number(school.restock[i]<=school.time);
       fish.set(school.positions.slice(k,k+3),k+1);
     }

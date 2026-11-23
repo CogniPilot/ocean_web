@@ -124,6 +124,8 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 #setup #physicsLayers{display:grid;padding:0}
 #setup #physicsLayers label{white-space:normal}
 #online{margin:0;overflow-wrap:anywhere}
+#spawnAnimal[data-state="added"]{background:#3a785d;border-color:#a3e5bd;color:#fff}
+#spawnAnimal[data-state="error"]{background:#714b2d;border-color:#efbc8b;color:#fff}
 @media(max-width:580px){
   footer{left:6px;right:6px;bottom:max(6px,env(safe-area-inset-bottom));width:auto;max-width:none;max-height:58dvh}
   footer button,footer select,footer input[type="text"],.control-toolbar #sound{min-height:42px}
@@ -228,7 +230,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-slider"><div class="control-label"><label for="ballX">Ballast fore–aft</label><output id="ballXValue" for="ballX">Auto</output></div>
 <input id="ballX" type="range" min="-72" max="72" value="0" aria-describedby="ballXScale"><div class="control-scale" id="ballXScale"><span>Forward</span><span>Aft</span></div></div>
 <div class="control-slider"><div class="control-label"><label for="ballY">Ballast port–starboard</label><output id="ballYValue" for="ballY">Auto</output></div>
-<input id="ballY" type="range" min="-84" max="84" value="0" aria-describedby="ballYScale"><div class="control-scale" id="ballYScale"><span>Port</span><span>Starboard</span></div></div>
+<input id="ballY" type="range" min="-210" max="210" value="0" aria-describedby="ballYScale"><div class="control-scale" id="ballYScale"><span>Port trapeze</span><span>Starboard trapeze</span></div></div>
 </div>
 <output id="weightPos"></output>
 </div></details>
@@ -254,8 +256,8 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <details class="control-pane"><summary>Wind &amp; sea</summary>
 <div class="control-fields">
 <div class="control-grid">
-<div class="control-slider"><div class="control-label"><label for="wind">Wind speed</label><output id="windOut" for="wind">21.4 kn</output></div>
-<input type="range" id="wind" min="0" max="22" value="11" aria-valuetext="21.4 kn" aria-describedby="windScale"><div class="control-scale" id="windScale"><span>Calm</span><span>42.8 kn</span></div></div>
+<div class="control-slider"><div class="control-label"><label for="wind">Wind speed</label><output id="windOut" for="wind">10.0 kn</output></div>
+<input type="range" id="wind" min="0" max="12.86" step=".01" value="5.14" aria-valuetext="10.0 kn" aria-describedby="windScale"><div class="control-scale" id="windScale"><span>Calm</span><span>25.0 kn</span></div></div>
 <label class="control-select"><span>Sea state</span><select id="seaState"><option value="0">Calm</option><option value=".45">Swell</option><option value="1.1">Steep swell</option><option value="1.5" selected>Long swell</option></select></label>
 <label class="control-select"><span>Time of day</span><select id="sky"><option>Day</option><option>Sunset</option><option>Moonlit</option><option>Cycle</option></select></label>
 </div>
@@ -338,7 +340,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-fields">
 <p id="gullKeys" hidden>↑/↓ pitch · ←/→ bank · A/D turn · W flap · S glide · Space call</p>
 <p id="flightKeys" hidden>RDD2 · ↑/↓ pitch · ←/→ roll · W/S climb/descend · A/D yaw · Space arm/disarm · hold Shift for fast horizontal flight · release direction to hover</p>
-<p data-boat>A and D steer. Hold S to haul in both sheets or W to ease them. Drag to orbit, right-drag to pan, and scroll or pinch to zoom.</p>
+<p data-boat>A and D steer. Hold S to haul in both sheets or W to ease them. Hold Shift to make finer steering and sheet adjustments. Drag to orbit, right-drag to pan, and scroll or pinch to zoom.</p>
 <p>Press M for the map, R to restart the simulator, or Enter for room chat.</p>
 </div></details>
 </div>

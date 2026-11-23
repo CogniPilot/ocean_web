@@ -1,6 +1,6 @@
 // The seam layout follows the reference Hobie 16 sail plan from tack to head.
 const design=[
-  {span:7.15,foot:2.78,rake:0,clewDrop:-.3713,
+  {span:7.36,foot:2.78,rake:0,clewDrop:-.3713,
     girth:[1,.945,.855,.746,.53,.015],
     luff:[.09,.20,.30,.40,.50,.61,.72,.86],leech:[.16,.263,.357,.455,.557,.666,.774,.886]},
   {span:4.56,foot:1.98,rake:4.56*1.82/5.1,clewDrop:0,

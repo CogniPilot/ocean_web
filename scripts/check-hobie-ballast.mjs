@@ -30,7 +30,7 @@ for(const side of [-1,1]){
   boat.set('ballastManual',1);
   boat.set('ballastCmdY',5*side);
   for(let i=0;i<350;i++)boat.advance(.02);
-  assert(Math.abs(boat.get('ballastY')-.84*side)<.001,'Manual trim stays within its deck range');
+  assert(Math.abs(boat.get('ballastY')-limit*side)<.001,'Manual trim reaches and clamps at the trapeze limit');
 }
 console.log({light:light.get('ballastY'),automatic});
 

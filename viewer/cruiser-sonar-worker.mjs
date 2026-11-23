@@ -3,7 +3,9 @@ const sonar=loadInstance('CruiserImagingSonar',{});
 self.onmessage=async ({data})=>{
   try{
     const model=await sonar;
-    model.set('pose',data.pose);model.set('fish',data.fish);model.set('animals',data.animals);model.set('waterLevel',data.level);
+    model.set('pose',data.pose);
+    const fish=new Float64Array(model.get('fish').length);fish.set(data.fish.subarray(0,fish.length));
+    model.set('fish',fish);model.set('animals',data.animals);model.set('waterLevel',data.level);
     model.set('rangeLimit',data.range);model.set('halfBearing',data.halfBearing);
     const rows=model.get('returns'),echoes=[];
     for(let i=0;i<rows.length;i+=4)if(rows[i+3])echoes.push(...rows.slice(i,i+4),i/4);

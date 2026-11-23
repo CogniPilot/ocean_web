@@ -68,17 +68,26 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   input Real throttleLever(start=0) "Astern -1 through neutral to ahead 1";
   input Real helmLever(start=0) "Positive port helm";
   input Real traffic[4,9](each start=0) "Peer surface vessel states";
+  input Real trafficTilt[4,2]=zeros(4,2),npcTilt[5,2]=zeros(5,2);
+  input Real npcVessels[5,9]=zeros(5,9);
   Real east(start=initialEast,fixed=true),north(start=initialNorth,fixed=true),yaw(start=initialHeading,fixed=true);
   Real surge(start=0,fixed=true),yawRate(start=0,fixed=true),shaftRPM(start=0,fixed=true);
   Real pitch(start=0,fixed=true),roll(start=0,fixed=true),z(start=0),vertical(start=0,fixed=true);
   input Real swimmerWater[15](each start=0) "Local swimmer-wave elevations at twelve hull panels, centre elevation, forward and port slopes";
+  input Real animalJoints[10,4]=zeros(10,4);
   input Real animalTraffic[10,9](each start=0);
   input Real animals[2,6](each start=0);
   discrete Real animalWrench[6](each start=0,each fixed=true);
   Real thrust,sway(start=0,fixed=true);
   Real rotation[3,3],spin[3];
   output Real boatPose[6],engine[4] "ENU pose; shaft rpm, through-water speed, thrust, rudder angle";
-  output Real peerForce[3],peerContact[4];
+  parameter Real engineOffAfter=1.8 "Neutral time before the starter is required again [s]";
+  parameter Real engineCrankTime=1 "Starter engagement time [s]";
+  discrete Real engineIdleTime(start=engineOffAfter,fixed=true);
+  discrete output Real starterRemaining(start=0,fixed=true) "Starter time left [s]";
+  Real effectiveThrottle;
+  discrete output Real peerForce[3](each start=0,each fixed=true),peerContact[4](each start=0,each fixed=true);
+  discrete output Real sceneForce[3](each start=0,each fixed=true),sceneContact[6](each start=0,each fixed=true);
   output Real shoreWrench[6] "Terrain force and moment in level heading axes";
 initial equation
   z=boatWater.tide;
@@ -107,7 +116,7 @@ equation
       BowWavePatch.localStrips(waves.sourceStrips,bowFrame),cruiserStations,halfStripBeam) else zeros(14,6);
   end when;
   when sample(0,.025) then
-    animalWrench=WildlifeContact(animals,boatPose,{der(east),der(north),yawRate},3250,7.6,1.22,.0,.58,animalTraffic);
+    animalWrench=WildlifeContact(animals,boatPose,{der(east),der(north),yawRate},3250,7.6,1.22,.0,.58,animalTraffic,animalJoints);
   end when;
   focus={east,north,z}; committeeLoad=zeros(6);
   rotation=[cos(pitch),sin(pitch)*sin(roll),sin(pitch)*cos(roll);
@@ -117,14 +126,25 @@ equation
   shoreWrench=hullContact(focus,cos(yaw),sin(yaw),rotation,
     {surge+cos(yaw)*boatWater.profile[1,2]+sin(yaw)*boatWater.profile[1,3],
     sway-sin(yaw)*boatWater.profile[1,2]+cos(yaw)*boatWater.profile[1,3],vertical},spin);
-  (peerForce,peerContact)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},traffic,2);
-  der(shaftRPM)=(if throttleLever>=0 then 1850*throttleLever-shaftRPM else 1100*throttleLever-shaftRPM)/.85;
-  thrust=.0025*shaftRPM*abs(shaftRPM);
-  der(surge)=(thrust+(animalWrench[1]+peerForce[1])*cos(yaw)+(animalWrench[2]+peerForce[2])*sin(yaw)+shoreWrench[1]
+  when sample(0,.02) then
+    (peerForce,peerContact)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},traffic,2,{roll,pitch},trafficTilt);
+    (sceneForce,sceneContact)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},
+      cat(1,npcVessels,[1,race.committeeEast,race.committeeNorth,prevailingBearing+Modelica.Constants.pi,0,0,0,race.launchPose[1],3]),
+      2,{roll,pitch},cat(1,npcTilt,[race.launchPose[2],-race.launchPose[3]]));
+  end when;
+  when sample(0,.01) then
+    starterRemaining=if abs(throttleLever)>.008 and pre(engineIdleTime)>=engineOffAfter
+      then engineCrankTime else max(0,pre(starterRemaining)-.01);
+    engineIdleTime=if abs(throttleLever)>.008 then 0 else min(engineOffAfter,pre(engineIdleTime)+.01);
+  end when;
+  effectiveThrottle=if starterRemaining>1e-8 then 0 else throttleLever;
+  der(shaftRPM)=(if effectiveThrottle>=0 then 1850*effectiveThrottle-shaftRPM else 1100*effectiveThrottle-shaftRPM)/.85;
+  thrust=if starterRemaining>1e-8 then 0 else .0025*shaftRPM*abs(shaftRPM);
+  der(surge)=(thrust+(animalWrench[1]+peerForce[1]+sceneForce[1])*cos(yaw)+(animalWrench[2]+peerForce[2]+sceneForce[2])*sin(yaw)+shoreWrench[1]
     -118*surge*abs(surge)-180*surge)/3250;
-  der(yawRate)=(.085*helmLever*surge+.025*helmLever*shaftRPM/1850-yawRate)/.9+(animalWrench[6]+shoreWrench[6]+peerForce[3])/14000;
+  der(yawRate)=(.085*helmLever*surge+.025*helmLever*shaftRPM/1850-yawRate)/.9+(animalWrench[6]+shoreWrench[6]+peerForce[3]+sceneForce[3])/14000;
   der(yaw)=yawRate;
-  der(sway)=(-sin(yaw)*(animalWrench[1]+peerForce[1])+cos(yaw)*(animalWrench[2]+peerForce[2])+shoreWrench[2])/3250-(1.5+.45*abs(sway))*sway;
+  der(sway)=(-sin(yaw)*(animalWrench[1]+peerForce[1]+sceneForce[1])+cos(yaw)*(animalWrench[2]+peerForce[2]+sceneForce[2])+shoreWrench[2])/3250-(1.5+.45*abs(sway))*sway;
   der(east)=surge*cos(yaw)-sway*sin(yaw)+boatWater.profile[1,2];
   der(north)=surge*sin(yaw)+sway*cos(yaw)+boatWater.profile[1,3];
   der(vertical)=(sum(stripForce)+shoreWrench[3]-16500*vertical)/(3250+addedHeaveMass);der(z)=vertical;

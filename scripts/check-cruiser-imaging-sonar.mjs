@@ -6,7 +6,7 @@ import {sonarFaces,sonarHalfBearing,sonarMount,sonarRanges} from '../viewer/crui
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
 const require=createRequire(import.meta.url),T=require('../viewer/vendor/three.min.js');
 const model=await loadInstance('CruiserImagingSonar',{},async url=>new Response(await readFile(url)));
-const fish=new Float64Array(36*4),animals=new Float64Array(40),tolerance=1e-6;
+const fish=new Float64Array(model.get('fish').length),animals=new Float64Array(40),tolerance=1e-6;
 function largeContact(rows){
   const points=[];
   for(let i=0;i<rows.length;i+=4){
@@ -37,6 +37,9 @@ assert.equal(largeContact(rows),null,'A lone baitfish triggered the large-target
 const offset=231*4;
 for(const [i,v] of [Math.sqrt(84),Math.atan2(2,8),Math.atan2(-4,Math.hypot(8,2)),3].entries())
   assert(Math.abs(rows[offset+i]-v)<tolerance);
+target(71,attitude,[9,2,-3]);
+assert.equal(scan(attitude)[offset+4*71+3],3,'The last fish in the expanded schools can return an echo');
+fish.fill(0,4*71);
 for(const i of [1,2,3])assert.equal(rows[offset+4*i+3],0,'out-of-aperture, occluded or distant target returned');
 fish[0]=0;assert.equal(scan(attitude)[offset+3],0,'depleted fish returned');
 assert(scan([-55,-38,2,0,0,0]).every(v=>v===0),'A dry transducer produced returns');

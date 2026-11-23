@@ -47,8 +47,8 @@ function assertNativeRows(boat){
 for (const windNorth of [-8, 8]) {
   const boat = await loadInstance('Hobie16', {
     windEast: 5.5, windNorth, launchSpeed: 2.4, launchHeading: 0,
-    // Two light crew keep this loaded, pre-release cloth fixture above water.
-    launchHeight: .2, mass: 255, ballastMass: 110, ballastManual: 1, ballastCmdY: -.84*Math.sign(windNorth),
+    // Two light crew on the trapeze keep the loaded cloth fixture above water.
+    launchHeight: .2, mass: 255, ballastMass: 110, ballastManual: 1, ballastCmdY: -1.65*Math.sign(windNorth),
     deckManual: 1, manualHelm: 1
   }, async url => new Response(await readFile(url)));
   boat.set('trimInput', -1);

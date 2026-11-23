@@ -1,7 +1,7 @@
 // Scenario initial conditions in east/north metres. Modelica uses the same gate
 // for the visible marks, contact forces and crossing score.
 export const windBearing = Math.PI / 2;
-export const windSpeed = 11;
+export const windSpeed = 10 * 1852 / 3600;
 export const startGate = {gateEast: -10, gateNorth: -6.5, lineLength: 64};
 
 export function sailingStart(catamaran, bearing = windBearing) {

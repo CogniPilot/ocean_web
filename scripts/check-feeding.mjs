@@ -5,7 +5,9 @@ import {loadInstance} from '../viewer/fmi3/instance.mjs';
 
 const read=async url=>({json:async()=>JSON.parse(await readFile(url))});
 const ground=await loadInstance('FeedingGround',{clock:1},read);
-const [east,north,depth]=ground.get('school');
+const points=ground.get('school');
+assert.equal(points.length,72*4);
+const [east,north,depth]=points;
 for(const whale of [1,0,1]){
   const reach=whale?3.9:2;
   ground.set('whale',whale);
@@ -26,4 +28,6 @@ for(const whale of [1,0,1]){
     assert.equal(echo[3]>0,visible);
   }
 }
+ground.set('pose',[points[71*4]-3.9,points[71*4+1],points[71*4+2]+.55,0,0,0]);
+assert.equal(ground.get('inMouth')[71],1);
 console.log('Whale lunge, shark bite and forward sonar observations passed.');

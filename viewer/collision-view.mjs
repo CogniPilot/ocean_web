@@ -72,7 +72,37 @@ export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768
     const color=tint(value);
     for(let axis=0;axis<3;axis++)ellipse(frame,center,radii,axis,color);
   }
+  function capsule(frame,center,radius,half,value){
+    const color=tint(value),coords=[];
+    for(const side of [-1,1]){
+      const end=center[0]+side*half;
+      ellipse(frame,[end,center[1],center[2]],[radius,radius,radius],0,color);
+      for(const [y,z] of [[radius,0],[0,radius],[-radius,0],[0,-radius]]){
+        coords.push(center[0]-half,center[1]+y,center[2]+z,center[0]+half,center[1]+y,center[2]+z);
+        for(let i=0;i<ringSteps/2;i++){
+          const a=Math.PI*i/(ringSteps/2),b=Math.PI*(i+1)/(ringSteps/2);
+          coords.push(end+side*radius*Math.sin(a),center[1]+y*Math.cos(a),center[2]+z*Math.cos(a),
+                      end+side*radius*Math.sin(b),center[1]+y*Math.cos(b),center[2]+z*Math.cos(b));
+        }
+      }
+    }
+    vertices(segments,frame,coords,value);
+  }
+  function swimmerShapes(frame,rows){
+    const local=new T.Matrix4(),shapeFrame=new T.Object3D();
+    for(let i=0;i<7;i++){
+      const k=207+i*16,kind=rows[k];
+      if(kind<2.5)continue;
+      local.set(rows[k+4],rows[k+5],rows[k+6],rows[k+1],
+                rows[k+7],rows[k+8],rows[k+9],rows[k+2],
+                rows[k+10],rows[k+11],rows[k+12],rows[k+3],0,0,0,1);
+      shapeFrame.matrixWorld.multiplyMatrices(frame.matrixWorld,local);
+      if(kind<3.5)capsule(shapeFrame,[0,0,0],rows[k+13],rows[k+14],'#f599d3');
+      else this.box(shapeFrame,[0,0,0],rows.subarray(k+13,k+16),'#f599d3');
+    }
+  }
   return {
+    swimmerShapes,
     begin(){segments.clear();samples.clear();},
     box(frame,center,half,value){
       const color=tint(value);
@@ -97,8 +127,6 @@ export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768
 
 // WildlifeContact's nominal animal envelopes, expanded by the opposing hull
 // sample in Modelica. Skin probes use the same offsets as each ground contact.
-const whaleHulls=[[[.35,0,0],[4.55,1,1.08]],[[-4.75,0,0],[.67,1.98,.20]],
-  [[.15,1.8,-.65],[.55,1.38,.20]],[[.15,-1.8,-.65],[.55,1.38,.20]]];
 const sharkHulls=[[[0,0,-.13],[2.4,.43,.46]],[[.05,0,.51],[.38,.09,.34]]];
 const whaleSkin=[-2,0,-.84, .5,0,-1.23, 4.35,0,-.3, -.55,3.42,-1.9, -.55,-3.42,-1.9];
 const sharkSkin=[2.32,0,-.09, 1.22,0,-.36, 0,0,-.47, -1.12,0,-.32, -2.18,0,-.55,
@@ -108,7 +136,8 @@ export function drawAnimalCollision(painter,frame,kind){
   if(kind!=='whale'&&kind!=='shark')return;
   frame.updateWorldMatrix(true,false);
   const pose=frame.userData.contactPose;
-  for(const [center,radii] of (kind==='whale'?whaleHulls:sharkHulls))painter.ellipsoid(frame,center,radii,'#f599d3');
+  if(kind==='whale'&&pose)painter.swimmerShapes(frame,pose);
+  if(kind==='shark')for(const [center,radii] of sharkHulls)painter.ellipsoid(frame,center,radii,'#f599d3');
   if(kind==='whale'){
     painter.points(frame,whaleSkin,'#f8ec9d');
     if(!pose)return;
@@ -131,13 +160,31 @@ export function drawAnimalCollision(painter,frame,kind){
 
 // Sailboat.contactWrench compares horizontal discs across a pair of boats,
 // with a separate heave gate. Each ring is the contribution of one sample.
-export function drawVesselContacts(painter,group,kind,peers){
+const discs=[
+  [[-.93,.18],[-.68,.26],[-.31,.335],[.12,.321],[.52,.258],[.83,.19],[1.10,.11]],
+  [[-1.9,.49],[-.95,.49],[0,.49],[.95,.49],[1.9,.49]],
+  [[-2.85,.91],[-2.18,1.13],[-1.14,1.26],[0,1.22],[1.02,1.12],[2.05,.87],[3.02,.45]],
+  [[-2.28,.72],[-1.79,.90],[-1.03,1.04],[0,1.02],[.88,.96],[1.73,.73],[2.57,.39]]
+];
+export function pontoonWires(vertices,faces){
+  const output=[];
+  for(const side of [-1.02,1.02]){
+    const drawn=new Set();
+    for(let i=0;i<faces.length;i+=3)for(let j=0;j<3;j++){
+      const a=faces[i+j]-1,b=faces[i+(j+1)%3]-1,key=Math.min(a,b)*96+Math.max(a,b);
+      if(drawn.has(key))continue;
+      drawn.add(key);
+      for(const v of [a,b])output.push(vertices[3*v],vertices[3*v+1]+side,vertices[3*v+2]);
+    }
+  }
+  return output;
+}
+export function drawVesselContacts(T,painter,group,kind,peers,peerTilts,patrols,patrolTilts,committee,pontoons){
+  const frame=new T.Object3D();
   function rings(east,north,height,yaw,kind){
-    const cruiser=kind===2,twin=kind===1;
-    const points=[],c=Math.cos(yaw),s=Math.sin(yaw),spacing=cruiser?1.50:twin?.95:.42;
-    for(const y of (twin?[1.02,-1.02]:[0]))for(let i=-2;i<=2;i++){
-      const radius=cruiser?(i===2?.65:i===-2?.81:1.07):twin?.49:.31;
-      const x=i*spacing,cx=east+x*c-y*s,cy=north+x*s+y*c;
+    const points=[],c=Math.cos(yaw),s=Math.sin(yaw);
+    for(const [x,radius] of discs[kind]){
+      const cx=east+x*c,cy=north+x*s;
       for(let j=0;j<ringSteps;j++){
         const a=ring[j],b=ring[(j+1)%ringSteps];
         points.push(cx+radius*a[0],cy+radius*a[1],height,cx+radius*b[0],cy+radius*b[1],height);
@@ -145,7 +192,20 @@ export function drawVesselContacts(painter,group,kind,peers){
     }
     painter.lines(null,points,'#69e2bb');
   }
-  rings(group.position.x,group.position.y,group.position.z,group.rotation.z,kind);
-  for(let i=0;peers&&i<peers.length;i+=9)if(peers[i]>.5)
-    rings(peers[i+1],peers[i+2],peers[i+7],peers[i+3],peers[i+8]);
+  function body(group,kind){
+    if(kind===1){if(pontoons)painter.lines(group,pontoons,'#69e2bb');}
+    else rings(group.position.x,group.position.y,group.position.z,group.rotation.z,kind);
+  }
+  if(group)body(group,kind);
+  if(committee)body(committee,3);
+  for(const [boats,tilts] of [[peers,peerTilts],[patrols,patrolTilts]]){
+    for(let i=0;boats&&i*9<boats.length;i++){
+      const k=i*9;
+      if(boats[k]<.5)continue;
+      frame.position.set(boats[k+1],boats[k+2],boats[k+7]);
+      frame.rotation.set(tilts?.[i*2]??0,tilts?.[i*2+1]??0,boats[k+3],'ZYX');
+      frame.updateMatrixWorld();
+      body(frame,boats[k+8]);
+    }
+  }
 }

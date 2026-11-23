@@ -21,7 +21,7 @@ export function elevation(frame,x,y){
  const at=(ix,iy)=>frame.tile[wrap(iy)*32+wrap(ix)];
  return frame.tide+(1-a)*(1-b)*at(i,j)+a*(1-b)*at(i+1,j)+(1-a)*b*at(i,j+1)+a*b*at(i+1,j+1);
 }
-const mastStationHeights=[.443,.97,2.40,3.83,5.26,6.69,8.12,8.44];
+const mastStationHeights=[.443,.97,2.442,3.914,5.386,6.858,8.33,8.44];
 export const sailingRigFields=['mastStations','mainGooseneck','mainBlockPins'];
 const poseFields=['east','north','heading','heave','heel','pitch','sheet','rudder'];
 const navFields=['buoyancy','vane','navE','navN','courseEstimate','speedE','speedN','cupSpeed','p11','fixE','fixN','drumAngle','payout'];
@@ -474,7 +474,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels){
    const positions=mastGeometry.attributes.position;
    mastRest=positions.clone();
    // This interpolates the six luff nodes reported by the cloth FMU.
-   mastWeights=Array.from({length:positions.count},(_,i)=>Math.min(5,Math.max(0,(positions.getZ(i)-.97)*5/7.15)));
+   mastWeights=Array.from({length:positions.count},(_,i)=>Math.min(5,Math.max(0,(positions.getZ(i)-.97)*5/7.36)));
    const lower=deckHardware(T),upper=lower.clone();upper.scale.z=-1;
    lower.name='Mainsheet lower triple block';upper.name='Mainsheet upper triple block';
    const cleat=deckHardware(T,true);cleat.scale.setScalar(.52);cleat.position.set(.027,.006,.021);lower.add(cleat);

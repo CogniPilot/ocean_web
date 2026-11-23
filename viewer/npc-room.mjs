@@ -1,3 +1,4 @@
+import {racerFrameSize} from './npc-sailing-frame.mjs';
 export function gullIndex(id){
   if(id==='gull')return 0;
   const numbered=typeof id==='string'&&/^gull-([1-6])$/.exec(id);
@@ -8,6 +9,7 @@ export const vesselNpcNames=Object.freeze({
   hobie:'Hobie 16',sloop:'Pilothouse sloop',motorboat:'Cabin cruiser',drone:'RDD2 drone',sub:'Piccard submarine'
 });
 const vesselLimit=5;
+const legacyFishCount=36,fishCount=72;
 
 // The elected or appointed host runs the NPCs and owns room weather.
 // RTTs use local monotonic clocks. Comparing two links needs at least three players.
@@ -16,15 +18,16 @@ export function npcRoom(){
   const validSpawn=point=>Array.isArray(point)&&point.length===2&&point.every(v=>Number.isFinite(v)&&Math.abs(v)<1000);
   let channel,self,joined,owner,last,lastPing=-Infinity,pingRound=0,issued=0,localRtt;
   const members=new Map();
+  const vesselFrames=new Map();
   let appointed,hostRevision=0;
   const maxGulls=6;
   const gullSeed=i=>[4+i*2,-12+i*2,8+i*.6,.6*i,13.4,0,2*i,0,.1,0,0,0];
-  const emptyHabitat=()=>({restock:Array(36).fill(0),gulls:[],gullSeats:[],vessels:[],sounds:[],sequence:0,time:0,raceStart:0});
+  const emptyHabitat=()=>({restock:Array(fishCount).fill(0),gulls:[],gullSeats:[],vessels:[],sounds:[],sequence:0,time:0,raceStart:0});
   let habitat=emptyHabitat(),habitatOwner,session=0,lastCall=-Infinity,callRequested=null;
   const finiteRow=(v,n)=>Array.isArray(v)&&v.length===n&&v.every(Number.isFinite);
   const validStart=time=>Number.isSafeInteger(time)&&time>0;
   function acceptHabitat(h){
-    return h&&finiteRow(h.restock,36)&&Array.isArray(h.gulls)&&h.gulls.length<=maxGulls&&h.gulls.every(r=>[12,19,22,25].includes(r?.length)&&finiteRow(r,r.length))&&
+    return h&&(finiteRow(h.restock,fishCount)||finiteRow(h.restock,legacyFishCount))&&Array.isArray(h.gulls)&&h.gulls.length<=maxGulls&&h.gulls.every(r=>[12,19,22,25].includes(r?.length)&&finiteRow(r,r.length))&&
       (h.vessels===undefined||(Array.isArray(h.vessels)&&h.vessels.length<=vesselLimit&&h.vessels.every(
         v=>v&&Object.hasOwn(vesselNpcNames,v.kind)&&Number.isFinite(v.started)&&
           (v.raceAt===undefined||validStart(v.raceAt))&&
@@ -40,7 +43,7 @@ export function npcRoom(){
       h.sounds.every(s=>Array.isArray(s)&&s.length===7&&['gull','spout','impact'].includes(s[2])&&s.every((v,i)=>i===2||Number.isFinite(v)));
   }
   let animals=new Map(),controls=new Map(),revision=0;
-  const validFrame=f=>Array.isArray(f)&&[65,70,202,203,205,207].includes(f.length)&&f.every(Number.isFinite);
+  const validFrame=f=>Array.isArray(f)&&[65,70,202,203,205,207,319].includes(f.length)&&f.every(Number.isFinite);
   const validKind=kind=>kind==='whale'||kind==='shark';
   function release(animal){
     if(animal.player){
@@ -113,10 +116,11 @@ export function npcRoom(){
         const shared=m.gullSwimMode?habitat:m.gullWater?{...habitat,gulls:habitat.gulls.map(r=>r.slice(0,22))}:
           m.extendedGulls?{...habitat,gulls:habitat.gulls.map(r=>r.slice(0,19))}:
           {...habitat,gulls:habitat.gulls.slice(0,2).map(r=>r.slice(0,12)),gullSeats:habitat.gullSeats.slice(0,2)};
-        const frameSize=m.swimReserve?207:m.sharkBank?205:203;
+        const fishHabitat=m.expandedFish?shared:{...shared,restock:shared.restock.slice(0,legacyFishCount)};
+        const frameSize=m.shapeFrames?319:m.swimReserve?207:m.sharkBank?205:203;
         const frame=last?.frame?.length>frameSize?last.frame.slice(0,frameSize):last?.frame;
         const roster=items.map(a=>a.frame?.length>frameSize?{...a,frame:a.frame.slice(0,frameSize)}:a);
-        delivery.push(send({type:'harbor',version:2,hostTransfer:true,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined,frame,items:roster,habitat:shared},id));
+        delivery.push(send({type:'harbor',version:2,hostTransfer:true,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,shapeFrames:true,expandedFish:true,joined,frame,items:roster,habitat:fishHabitat},id));
       }else{
         if(last?.frame)send([joined,...last.frame.slice(0,70)],id);
         send({type:'animals',items:items.map(a=>({...a,frame:a.frame?.slice(0,70)}))},id);
@@ -147,21 +151,36 @@ export function npcRoom(){
     if(owner===self)sync();
   }
   function send(data,target){return channel?.send(data,target?{target}:undefined).catch(()=>{});}
-  function hello(target){send([joined],target);send({type:'hello',version:2,hostTransfer:true,host:appointed,hostRevision,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined},target);}
+  function hello(target){send([joined],target);send({type:'hello',version:2,hostTransfer:true,host:appointed,hostRevision,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,shapeFrames:true,expandedFish:true,joined},target);}
   return {
+    vesselFrames,
+    publishVessels(frames){
+      if(owner!==self)return;
+      for(const {id,data} of frames)vesselFrames.set(id,data);
+      if(members.size)send({type:'vessel-frames',frames});
+    },
     connect(action,id){
-      channel=action;self=id;appointed=undefined;hostRevision=0;habitatOwner=id;session++;animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
+      channel=action;self=id;appointed=undefined;hostRevision=0;habitatOwner=id;session++;vesselFrames.clear();animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
       if(!action)return;
       action.onMessage=(data,{peerId})=>{
         if(action!==channel||!data)return;
         let m=members.get(peerId);
         if((data.type==='hello'||data.type==='harbor')&&data.version===2&&Number.isSafeInteger(data.joined)&&data.joined>0){
           if(!m){m={joined:data.joined,samples:[]};members.set(peerId,m);elect();hello(peerId);}
-          m.version=2;m.hostTransfer=data.hostTransfer===true;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.gullSwimMode=data.gullSwimMode===true;m.sharkBank=data.sharkBank===true;m.swimReserve=data.swimReserve===true;
+          m.version=2;m.hostTransfer=data.hostTransfer===true;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.gullSwimMode=data.gullSwimMode===true;m.sharkBank=data.sharkBank===true;m.swimReserve=data.swimReserve===true;m.shapeFrames=data.shapeFrames===true;m.expandedFish=data.expandedFish===true;
           if(data.type==='hello'){receiveHost(data,peerId,m);sync(peerId);return;}
         }
         if(!Array.isArray(data)){
           if(!m)return;
+          if(data.type==='vessel-frames'){
+            if(peerId===owner&&Array.isArray(data.frames)&&data.frames.length<=vesselLimit){
+              for(const frame of data.frames){
+                if(typeof frame?.id==='string'&&frame.id.length<=32&&finiteRow(frame.data,racerFrameSize))
+                  vesselFrames.set(frame.id,frame.data);
+              }
+            }
+            return;
+          }
           if(data.type==='host'){receiveHost(data,peerId,m);return;}
           if(data.type==='animals'||data.type==='harbor'){
             if(peerId!==owner||!Array.isArray(data.items)||data.items.length>10)return;
@@ -177,9 +196,9 @@ export function npcRoom(){
             if([...next.values()].some(a=>!animals.has(a.id)||animals.get(a.id).seat!==a.seat)||next.size!==animals.size)revision++;
             animals=next;
             if(data.type==='harbor'&&acceptHabitat(data.habitat)){
-              const {gulls,gullSeats=gulls.map(()=>null),vessels=[]}=data.habitat;
+              const {gulls,gullSeats=gulls.map(()=>null),vessels=[],restock}=data.habitat;
               if(gullSeats.length!==habitat.gullSeats.length||gullSeats.some((seat,index)=>seat!==habitat.gullSeats[index]))revision++;
-              habitat={...data.habitat,gullSeats,vessels};habitatOwner=peerId;
+              habitat={...data.habitat,gullSeats,vessels,restock:Array.from({length:fishCount},(_,i)=>restock[i]??0)};habitatOwner=peerId;
             }
             if(data.type==='harbor')last=data.frame?{frame:data.frame,owner}:undefined;
             return;
@@ -264,6 +283,7 @@ export function npcRoom(){
       }
       if(!next.get('whale')?.seat&&!next.get('shark')?.seat)last=undefined;
       animals=next;
+      vesselFrames.clear();
       controls.clear();
       session++;revision++;
       return sync();
@@ -321,8 +341,8 @@ export function npcRoom(){
 }
 
 // World contacts reserve the first two slots for the original whale and shark.
-export function writeAnimalContacts(roster,current,animals){
-  animals.fill(0);
+export function writeAnimalContacts(roster,current,animals,joints){
+  animals.fill(0);joints?.fill(0);
   if(!current)return animals;
   let extra=2;
   for(const a of roster.values()){
@@ -331,6 +351,7 @@ export function writeAnimalContacts(roster,current,animals){
     if(!row||slot>=10)continue;
     const k=whale?17:9,yaw=row[k+3],c=Math.cos(yaw),s=Math.sin(yaw);
     const surge=row[whale?27:65]??0,sway=row[whale?38:74]??0;
+    if(whale&&joints)joints.set([(row[31]??0)-(row[29]??0),row[39]??0,row[40]??0,row[41]??0],4*slot);
     animals.set([whale?1:2,row[k],row[k+1],row[k+2],yaw,row[whale?21:67]??0,
       surge*c-sway*s,surge*s+sway*c,row[whale?35:203]??0],9*slot);
   }

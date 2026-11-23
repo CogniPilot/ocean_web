@@ -147,11 +147,103 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
       profile:=profile+u*(pontoon[i+1,2:4]-pontoon[i,2:4]);
     end for;
   end pontoonSection;
-  function terrain
+  function pontoonVertices "Closed cross-section rings following the measured Hobie hull"
+    output Real vertices[96,3];
+  protected
+    constant Real profile[8,2]=[0,1;1,.92;.94,.60;.70,.24;0,0;-.70,.24;-.94,.60;-1,.92];
+  algorithm
+    for station in 1:12 loop
+      for point in 1:8 loop
+        vertices[8*(station-1)+point,:]:={pontoon[station,1],profile[point,1]*pontoon[station,2],
+          pontoon[station,4]+profile[point,2]*(pontoon[station,3]-pontoon[station,4])};
+      end for;
+    end for;
+  end pontoonVertices;
+
+  function pontoonFace "One oriented triangle on the lofted pontoon shell"
+    input Integer index;
+    output Integer face[3];
+  protected
+    Integer triangle,a,b,i;
+  algorithm
+    triangle:=index-1;
+    if triangle<176 then
+      a:=8*div(triangle,16)+1+mod(div(triangle,2),8);
+      b:=8*div(triangle,16)+1+mod(div(triangle,2)+1,8);
+      face:=if mod(triangle,2)==0 then {a,b+8,b} else {a,a+8,b+8};
+    else
+      i:=2+div(triangle-176,2);
+      face:=if mod(triangle,2)==0 then {1,i,i+1} else {89,89+i,88+i};
+    end if;
+  end pontoonFace;
+
+  function pontoonFaces
+    output Integer faces[188,3];
+  algorithm
+    faces:={pontoonFace(index) for index in 1:188};
+  end pontoonFaces;
+
+  function closestEdge
+    input Real p[3],a[3],b[3];
+    output Real closest[3];
+  protected Real edge[3],u;
+  algorithm
+    edge:=b-a;
+    u:=min(1,max(0,(p-a)*edge/max(1e-12,edge*edge)));
+    closest:=a+u*edge;
+  end closestEdge;
+
+  function pontoonGap "Signed distance and normal of the nearest face of the closed triangle mesh"
+    input Real p[3],vertices[96,3],margin;
+    input Integer faces[188,3];
+    output Real result[4];
+  protected
+    Real a[3],b[3],c[3],n[3],q[3],edge[3],delta[3],gap,best,d2,sgn,normal[3];
+  algorithm
+    result:={1e3,0,0,0};
+    if abs(p[2])>.2+margin or p[1]< -2.52-margin or p[1]>2.52+margin or p[3]< -.38-margin or p[3]>.24+margin then
+      return;
+    end if;
+    best:=1e6;sgn:=1;normal:={0,0,1};
+    for i in 1:188 loop
+      a:=vertices[faces[i,1],:];b:=vertices[faces[i,2],:];c:=vertices[faces[i,3],:];
+      gap:=max(0,max(min(a[1],min(b[1],c[1]))-p[1],p[1]-max(a[1],max(b[1],c[1]))));
+      if gap*gap<best then
+        n:=cross(b-a,c-a);
+        n:=n/sqrt(max(1e-12,n*n));
+        gap:=(p-a)*n;
+        q:=p-gap*n;
+        if cross(b-a,q-a)*n<0 or cross(c-b,q-b)*n<0 or cross(a-c,q-c)*n<0 then
+          q:=closestEdge(p,a,b);
+          edge:=closestEdge(p,b,c);
+          if (p-edge)*(p-edge)<(p-q)*(p-q) then q:=edge;end if;
+          edge:=closestEdge(p,c,a);
+          if (p-edge)*(p-edge)<(p-q)*(p-q) then q:=edge;end if;
+        end if;
+        delta:=p-q;d2:=delta*delta;
+        if d2<best then
+          best:=d2;sgn:=if gap>=0 then 1 else -1;
+          normal:=if d2>1e-10 then sgn*delta/sqrt(d2) else n;
+        end if;
+      end if;
+    end for;
+    result:=cat(1,{sgn*sqrt(best)},normal);
+  end pontoonGap;
+  function smoothStep
+    input Real x;
+    output Real blend;
+  protected Real u;
+  algorithm
+    u:=max(0,min(1,x));
+    blend:=u*u*(3-2*u);
+  end smoothStep;
+  function terrain "Sand slope with a zero-slope join to the surrounding seabed"
     input Real x,y;
     output Real z;
+  protected Real height;
   algorithm
-    z:=3.6-4.2*((x/17)^2+(y/11)^2)+.34*sin(x*.64)*cos(y*.55)+.37*cos(.34*x-.51*y);
+    height:=17.3-4.2*((x/17)^2+(y/11)^2)+.34*sin(x*.64)*cos(y*.55)+.37*cos(.34*x-.51*y);
+    z:=-13.7+max(0,height)*smoothStep(height/.8)*smoothStep((29-abs(x))/7)*smoothStep((23-abs(y))/7);
   end terrain;
 
   function seabed "Upper surface of the sand mesh and surrounding level bottom"

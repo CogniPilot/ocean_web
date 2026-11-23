@@ -94,11 +94,7 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
     lastSequence=h.sequence;
   }
   function fish(time){
-    if(!room.animals.size)return;
-    if(!school){
-      for(const animal of room.animals.values())if(!animal.player){loadSchool();break;}
-    }
-    if(!school)return;
+    if(!school){loadSchool();return;}
     if(stamp!==time){school.set('clock',time);positions=school.get('school');stamp=time;}
     return {positions,restock:room.habitat.restock,time};
   }

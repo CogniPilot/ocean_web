@@ -18,6 +18,7 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   Real whaleReserve(start=initialSwimReserve[1],fixed=true);
   Real sharkReserve(start=initialSwimReserve[2],fixed=true);
   Real whaleRequest,sharkRequest,whaleRoom,sharkRoom,sharkSprint;
+  output Real whaleShapeFrames[7,16] "MultiBodyLie shape tables in the displayed whale frame";
   output Real whaleContact[2],whaleFinLift[2] "Normal load (N), minimum gap (m); port and starboard lift (N)";
   parameter Real initialFish[10]={1.65,0,0,0,0,0,0,0,0,0};
   output Real sharkTrunkFlex "Anterior trunk flexion in radians";
@@ -31,12 +32,13 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   discrete output Real npcContact[6](each start=0,each fixed=true);
   discrete output Real hullReaction[2,3](each start=0,each fixed=true) "Forward/port reaction and yaw moment on each animal";
   function vesselReactions
-    input Real whale[9],shark[9],craft[32,8],hulls[32,5];
+    input Real whale[9],shark[9],craft[32,8],hulls[32,5],joints[4];
     output Real reaction[2,3];
   protected
-    Real a[9],traffic[10,9],load[6],mass,length,width,spacing,draft,dx,dy;
+    Real a[9],traffic[10,9],load[6],mass,length,width,spacing,draft,dx,dy,articulation[10,4];
   algorithm
-    reaction:=zeros(2,3);traffic:=zeros(10,9);
+    reaction:=zeros(2,3);traffic:=zeros(10,9);articulation:=zeros(10,4);
+    articulation[1,:]:=joints;
     for k in 1:2 loop
       a:=if k==1 then whale else shark;traffic[1,:]:=a;
       for i in 1:32 loop
@@ -48,7 +50,7 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
           spacing:=if hulls[i,1]<1.5 then 1.02 else 0;
           draft:=if hulls[i,1]>2.5 then .58 elseif hulls[i,1]>1.5 then .28 else .25;
           load:=WildlifeContact(zeros(2,6),{craft[i,3],craft[i,4],craft[i,5],hulls[i,3],hulls[i,4],hulls[i,2]},
-             {craft[i,6],craft[i,7],hulls[i,5]},mass,length,width,spacing,draft,traffic);
+             {craft[i,6],craft[i,7],hulls[i,5]},mass,length,width,spacing,draft,traffic,articulation);
           reaction[k,1]:=reaction[k,1]-load[1]*cos(a[5])-load[2]*sin(a[5]);
           reaction[k,2]:=reaction[k,2]+load[1]*sin(a[5])-load[2]*cos(a[5]);
           reaction[k,3]:=reaction[k,3]-load[6]-dx*load[2]+dy*load[1];
@@ -60,6 +62,7 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   parameter Real initialSwimmer[18]={2,-18,-3,1.7,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   input Real localSurface=0,currentVelocity[2]={0,0},strokeGain=1;
   Humpback swimmer(startState=initialSwimmer);
+  Real whaleJoints[4];
   output Real swimmerState[18],wetSections[6,3],tailForce,tailPower;
   input Real droneSubject=0 "0 alternates, 1 follows the Hobie, 2 follows the whale";
   output Real state[17](start=initialState,each fixed=true)
@@ -73,6 +76,8 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   Real subWeight,sharkE,sharkN,sharkZ,sharkHeading;
   Real followWhale,droneE,droneN,droneZ,lookYaw;
 equation
+  whaleJoints={swimmer.x[8]-swimmer.x[6],swimmer.x[16],swimmer.x[17],swimmer.x[18]};
+  whaleShapeFrames=SwimmerCollision.whale(whaleJoints[1],whaleJoints[2],whaleJoints[3],whaleJoints[4]);
   when sample(0,.025) then
     npcContact=WildlifeContact(zeros(2,6),{state[2],state[3],waterLevel+.18,state[17],0,state[4]},
       {state[5]*cos(state[4])-state[15]*sin(state[4]),state[5]*sin(state[4])+state[15]*cos(state[4]),.58*sin(steer-state[4])},
@@ -80,7 +85,7 @@ equation
     hullReaction=vesselReactions({1,swimmer.x[1],swimmer.x[2],swimmer.x[3],swimmer.x[10],swimmer.x[6],
       swimmer.x[4]*cos(swimmer.x[10])-swimmer.x[15]*sin(swimmer.x[10]),
       swimmer.x[4]*sin(swimmer.x[10])+swimmer.x[15]*cos(swimmer.x[10]),swimmer.x[12]},
-      {2,state[10],state[11],state[12],state[13],fish[3],whiteShark.velocity[1],whiteShark.velocity[2],sharkBankState[1]},craft,craftHull);
+      {2,state[10],state[11],state[12],state[13],fish[3],whiteShark.velocity[1],whiteShark.velocity[2],sharkBankState[1]},craft,craftHull,whaleJoints);
   end when;
   swimmer.boatLoad=hullReaction[1,:];whiteShark.boatLoad=hullReaction[2,:];
   der(state[1])=1;

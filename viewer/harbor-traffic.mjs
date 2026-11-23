@@ -279,7 +279,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       if(!frame){v.group.visible=false;continue;}
       if(entry.frame!==frame){
         entry.previous=entry.frame??frame;entry.frame=frame;
-        entry.shown??=new Float64Array(205);
+        entry.shown??=new Float64Array(319);
       }
       const row=entry.shown,previous=entry.previous;
       for(let k=0;k<row.length;k++)row[k]=(previous[k]??0)+f*((frame[k]??0)-(previous[k]??0));
@@ -353,7 +353,8 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     return disturbances;
   }
   const animals=new Float64Array(90);
-  function contacts(){return writeAnimalContacts(room.animals,current,animals);}
+  const animalJoints=new Float64Array(40);
+  function contacts(){return writeAnimalContacts(room.animals,current,animals,animalJoints);}
   function cameraSubject(view){
     const index=gullIndex(view);
     if(index>=0){
@@ -363,7 +364,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     const animal=visuals.get(view)?.visual;
     return animal?.group.visible ? animal.group : null;
   }
-  return {update,advanceHost,wakes,fish(){return current?feeding.fish(current[0]):null;},ping(a){return current?feeding.ping(a,a.frame??current,current[0]):null;},surfaceWakes,contacts,cameraSubject,watch(id){localActor=id;},frame(id){
+  return {update,advanceHost,wakes,fish(){return feeding.fish(current?.[0]??lastTime??0);},ping(a){return current?feeding.ping(a,a.frame??current,current[0]):null;},surfaceWakes,contacts,animalJoints,cameraSubject,watch(id){localActor=id;},frame(id){
     const index=gullIndex(id);
     return index>=0?room.habitat.gulls[index]:room.animals.get(id)?.frame??current;
   }};

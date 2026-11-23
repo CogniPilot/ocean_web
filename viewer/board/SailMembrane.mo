@@ -3,7 +3,9 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   parameter Real cutAngle=0 "Foot angle in the unstrained sail pattern";
   parameter Integer battenCount=0;
   final parameter Integer rows=if battenCount>0 then battenCount+2 else 6, n=cols*rows;
-  parameter Real battenEI(unit="N.m2")=.8 "Effective chordwise fiberglass flexural rigidity";
+  parameter Real battenEI[2](each unit="N.m2")={1.6,3.0} "Effective flexural rigidity at the forward and aft batten stations";
+  parameter Real battenRelaxation(unit="s")=.075 "Effective bending relaxation time of fiberglass and pocket";
+  parameter Real leechRelaxation(unit="s")=.025 "Effective transverse damping time of a loaded leech";
   parameter Real battenLinearMass(unit="kg/m")=.045;
   // Pocket ends measured from the Hobie sail plan. The main leech fractions
   // account for the lower clew in the simulated foot cut.
@@ -79,7 +81,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     output Real points[size(luff,1)*cols,3];
   protected
     Integer node;
-    Real t,f,leechWidth;
+    Real t,f,leechWidth,camber,draft;
   algorithm
     points:=zeros(size(luff,1)*cols,3);
     for row in 1:size(luff,1) loop
@@ -88,7 +90,13 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
         node:=(row-1)*cols+col;
         t:=(col-1)/(cols-1);
         f:=(1-t)*luff[row]+t*leech[row];
-        points[node,:]:={-rake*f-leechWidth*t,-.025*sin(3.14159*t)*(1-f),
+        // Broadseam the full mainsail around a forward draft. The chord
+        // length excess is concentrated forward of the stiff trailing batten.
+        draft:=.37;
+        camber:=if t<draft then (2*draft*t-t*t)/draft^2
+          else (1-2*draft+2*draft*t-t*t)/(1-draft)^2;
+        points[node,:]:={-rake*f-leechWidth*t,
+          if tracked then -.065*(1-.50*f)*leechWidth*camber else -.025*sin(3.14159*t)*(1-f),
           span*f+foot*sin(cutAngle)*(1-leech[row])*t};
       end for;
     end for;
@@ -208,7 +216,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     input Integer rows,n;
     input Real old[n,3], oldV[n,3],air[3],water[3],omega[3],gravity[3],plane[4],dt,mu,t,elevation,outhaul;
     input Boolean battenRows[rows];
-    input Real EI,lineMass,links[n,4,2];
+    input Real EI[2],bendingTime,leechTime,lineMass,links[n,4,2];
     input Boolean contact,trackedFoot;
     input Real airLiftSlope,inducedDrag;
     input Real footStay[2,3],headStay[3],tipOffset[3],shape[rows],edgeTension,shift[rows,3],wireMid[2,3],contactK[2];
@@ -216,8 +224,9 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
   protected
     Real invMass[n],boomArm[n],mass[n],nodal[n,3],normal[3],a[3],b[3],c[3],center[3],dv[3],q[3],load[3],relative[3];
     Real implicitFactor,gust,pressureSlope,stall,attached,normalWind,liftCoefficient,d[3],low,mid,high,wet,area,u,vn,dist,reference,extension,wa,wb,correction,restArea;
-    Real spacing,stiffness,wCenter,relaxation;
-    Real upper[rows],rhs[rows],leftK,rightK,pivot;
+    Real spacing,relaxation,bendDiagonal[2],bendCross,determinant,bendRhs[2,3],bendLoad[2,3];
+    Real battenMassWeights[4];
+    Real upper[rows],rhs[rows],leftK,rightK,pivot,distLeft,distRight;
     Real panelWind[3],wire[3],wireStart[3],wireEnd[3],offset[3],denom,along,edge,penetration,loadY,totalInv,direction;
     Real wireMinX,wireMaxX,wireMinZ,wireMaxZ,wireMinSide;
     Integer left,j,k,c1,c2,c3,backRow;
@@ -343,52 +352,33 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
         end for;
       end for;
     end for;
-    // Implicit discrete beam bending energy EI/2 * integral(curvature^2 ds).
-    for r in 1:rows loop
-      for col in 2:cols-1 loop
-        if battenRows[r] then
-          j:=(r-1)*cols+col;
-          d:=rest[j+1,:]-rest[j-1,:];
-          spacing:=max(.001,.5*sqrt(d*d));
-          stiffness:=EI/spacing^3;
-          wa:=if col==2 then 0 else 1/mass[j-1];
-          wb:=if j+1==cols then 0 else 1/mass[j+1];
-          wCenter:=1/mass[j];
-          // Kelvin-Voigt damping acts on changes of curvature within the pocket.
-          relaxation:=.06/dt;
-          q:=((1+relaxation)*(p[j-1,:]-2*p[j,:]+p[j+1,:])-relaxation*(old[j-1,:]-2*old[j,:]+old[j+1,:]))/(1/(stiffness*dt^2)+(1+relaxation)*(wa+4*wCenter+wb));
-          if col==2 then
-            mastLoad:=mastLoad-shape[r]*q/dt^2;
-          end if;
-          p[j-1,:]:=p[j-1,:]-wa*q;
-          p[j,:]:=p[j,:]+2*wCenter*q;
-          p[j+1,:]:=p[j+1,:]-wb*q;
-          if j+1==cols then
-            clewForce:=clewForce-q/dt^2;
-          end if;
-        end if;
-      end for;
-    end for;
-    // Implicit transverse balance along the loaded leech. Preserve the cut
-    // of the sail in X/Z. The clew and head supply the end reactions.
+    // Implicit transverse balance along the loaded leech. Pocket bending
+    // alone cannot damp rotations of a whole batten about the luff. The loaded
+    // reinforced edge dissipates motion between consecutive batten tips.
     if edgeTension>0 then
       upper:=zeros(rows);rhs:=zeros(rows);
+      relaxation:=leechTime/dt;
       rhs[1]:=p[cols,2];rhs[rows]:=p[n-cols+1,2];
       for r in 2:rows-1 loop
         j:=r*cols;
-        d:=rest[j,:]-rest[j-cols,:];leftK:=edgeTension/max(.001,sqrt(d*d));
-        d:=rest[j+cols,:]-rest[j,:];rightK:=edgeTension/max(.001,sqrt(d*d));
+        d:=rest[j,:]-rest[j-cols,:];distLeft:=max(.001,sqrt(d*d));
+        d:=rest[j+cols,:]-rest[j,:];distRight:=max(.001,sqrt(d*d));
+        leftK:=(1+relaxation)*edgeTension/distLeft;
+        rightK:=(1+relaxation)*edgeTension/distRight;
         pivot:=mass[j]/dt^2+leftK+rightK-leftK*upper[r-1];
         upper[r]:=rightK/pivot;
-        rhs[r]:=(mass[j]/dt^2*p[j,2]+leftK*rhs[r-1])/pivot;
+        rhs[r]:=(mass[j]/dt^2*p[j,2]+leftK*rhs[r-1]+relaxation*edgeTension*
+          ((old[j,2]-old[j-cols,2])/distLeft+(old[j,2]-old[j+cols,2])/distRight))/pivot;
       end for;
       for i in 2:rows-1 loop
         backRow:=rows+1-i;rhs[backRow]:=rhs[backRow]+upper[backRow]*rhs[backRow+1];p[backRow*cols,2]:=rhs[backRow];
       end for;
       d:=rest[2*cols,:]-rest[cols,:];
-      clewForce[2]:=clewForce[2]+edgeTension*(rhs[2]-rhs[1])/max(.001,sqrt(d*d));
+      clewForce[2]:=clewForce[2]+edgeTension*((1+relaxation)*(rhs[2]-rhs[1])
+        -relaxation*(old[2*cols,2]-old[cols,2]))/max(.001,sqrt(d*d));
       d:=rest[n,:]-rest[n-cols,:];
-      mastLoad[2]:=mastLoad[2]+edgeTension*(rhs[rows-1]-rhs[rows])/max(.001,sqrt(d*d));
+      mastLoad[2]:=mastLoad[2]+edgeTension*((1+relaxation)*(rhs[rows-1]-rhs[rows])
+        -relaxation*(old[n-cols,2]-old[n,2]))/max(.001,sqrt(d*d));
     end if;
     // The leech tension solve moves the ends of the battens. Equilibrate
     // the axial bar constraints with those updated endpoints before contact.
@@ -409,6 +399,33 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
           end if;
         end for;
       end for;
+    end for;
+    // The two curvature stations share the inner nodes. Solve their coupled
+    // implicit bending and pocket damping together so one correction cannot
+    // undo the other. The luff is pinned and takes the root reaction.
+    relaxation:=bendingTime/dt;
+    for r in 2:rows-1 loop
+      if battenRows[r] then
+        j:=(r-1)*cols+1;
+        battenMassWeights:=invMass[j:j+3];
+        for station in 1:2 loop
+          k:=j+station;
+          d:=rest[k+1,:]-rest[k-1,:];
+          spacing:=max(.001,.5*sqrt(d*d));
+          bendDiagonal[station]:=spacing^3/(EI[station]*dt^2)+(1+relaxation)*
+            (battenMassWeights[station]+4*battenMassWeights[station+1]+battenMassWeights[station+2]);
+          q:=p[k-1,:]-2*p[k,:]+p[k+1,:];
+          bendRhs[station,:]:=q+relaxation*(q-(old[k-1,:]-2*old[k,:]+old[k+1,:]));
+        end for;
+        bendCross:=-2*(1+relaxation)*(battenMassWeights[2]+battenMassWeights[3]);
+        determinant:=bendDiagonal[1]*bendDiagonal[2]-bendCross^2;
+        bendLoad[1,:]:=(bendDiagonal[2]*bendRhs[1,:]-bendCross*bendRhs[2,:])/determinant;
+        bendLoad[2,:]:=(bendDiagonal[1]*bendRhs[2,:]-bendCross*bendRhs[1,:])/determinant;
+        mastLoad:=mastLoad-shape[r]*bendLoad[1,:]/dt^2;
+        p[j+1,:]:=p[j+1,:]+battenMassWeights[2]*(2*bendLoad[1,:]-bendLoad[2,:]);
+        p[j+2,:]:=p[j+2,:]+battenMassWeights[3]*(2*bendLoad[2,:]-bendLoad[1,:]);
+        p[j+3,:]:=p[j+3,:]-battenMassWeights[4]*bendLoad[2,:];
+      end if;
     end for;
     // Intersect the projected shroud with all three edges of every cloth
     // triangle in the sail XZ plane. Signed separation varies linearly over
@@ -471,7 +488,7 @@ equation
   telltalePanelRows={telltaleRows[i] for i in 1:3};
   legacyVertex=if battenCount>0 then coarseVertices(vertex,coarseStencil(nativeSpan)) else vertex[1:24,:];
   when sample(0,stepSize) then
-    (vertex,velocity,fluidForce,fluidMoment,wetArea,leechSpeed,clewForce,mastLoad,wireReaction)=advanceCloth(mesh,rows,n,pre(vertex),pre(velocity),air,water,omega,gravity,waterPlane,stepSize,arealMass,time,boomElevation,clewOffset,battenRow,battenEI,battenLinearMass,linkProperties,hasShrouds,footInTrack,liftSlope,inducedDragFactor,shroudFoot,shroudHead,mastOffset,modeShape,leechTension,luffShift,shroudMid,wireK);
+    (vertex,velocity,fluidForce,fluidMoment,wetArea,leechSpeed,clewForce,mastLoad,wireReaction)=advanceCloth(mesh,rows,n,pre(vertex),pre(velocity),air,water,omega,gravity,waterPlane,stepSize,arealMass,time,boomElevation,clewOffset,battenRow,battenEI,battenRelaxation,(if battenCount>0 then leechRelaxation else 0),battenLinearMass,linkProperties,hasShrouds,footInTrack,liftSlope,inducedDragFactor,shroudFoot,shroudHead,mastOffset,modeShape,leechTension,luffShift,shroudMid,wireK);
     (faceTail,separated,luffLevel)=sailTelltales(vertex,velocity,air,omega,time,telltaleCount,telltaleRows);
   end when;
 end SailMembrane;

@@ -13,8 +13,11 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),outhaul(start=.65),deckManual,mainCar,jibCar,jibSheet;
   input Real manualJibAssist(start=1);
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
+  input Real trafficTilt[4,2]=zeros(4,2),npcTilt[5,2]=zeros(5,2);
+  input Real npcVessels[5,9]=zeros(5,9);
   Real sailLandingWrench[6],committeeLandingWrench[6],windProbe[2];
   input Real swimmerWater[15](each start=0) "Local swimmer-wave elevations at twelve hull panels, centre elevation, forward and port slopes";
+  input Real animalJoints[10,4]=zeros(10,4);
   input Real animalTraffic[10,9](each start=0);
   input Real animals[2,6](each start=0);
   discrete Real animalWrench[6](each start=0,each fixed=true);
@@ -25,7 +28,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     centerMassX=if hobie then -.28 else -.14846,
     stationX=if hobie then {-2.520,-1.9,-.9,.15,1.12,1.95,2.520} else {-1.1,-.82,-.3,.18,.63,.98,1.22},
     beamHalf=if hobie then {.09,.156,.185,.184,.155,.093,.009} else {.22,.29,.335,.32,.235,.12,.01},
-    spans=if hobie then {7.15,4.56} else {2.6,2.12},feet=if hobie then {2.78,1.98} else {1.28,.60},
+    spans=if hobie then {7.36,4.56} else {2.6,2.12},feet=if hobie then {2.78,1.98} else {1.28,.60},
     forestaySlope=if hobie then 1.82/5.1 else 1.04/2.69,
     yawInertia=if hobie then 315 else 19,
     rollInertia=if hobie then 520 else 28,pitchInertia=if hobie then 625 else 12,
@@ -36,6 +39,8 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     raceGoal={1,race.pilotTarget[1],race.pilotTarget[2]},manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,outhaulInput=outhaul,
     deckManual=deckManual,mainCarInput=mainCar,jibCarInput=jibCar,jibTrimInput=jibSheet,manualJibAssist=manualJibAssist,reachTrial=0,
     ballastManual=ballastManual,ballastCmdX=ballastX,ballastCmdY=ballastY,traffic=traffic,
+    trafficTilt=trafficTilt,sceneTilt=cat(1,npcTilt,[race.launchPose[2],-race.launchPose[3]]),
+    sceneTraffic=cat(1,npcVessels,[1,race.committeeEast,race.committeeNorth,prevailingBearing+Modelica.Constants.pi,0,0,0,race.launchPose[1],3]),
     windEast=wind.localEast,windNorth=wind.localNorth,currentEast=boatWater.meanFlow[1],currentNorth=boatWater.meanFlow[2],
     orbitalEast=boatWater.velocity[1]-boatWater.meanFlow[1],orbitalNorth=boatWater.velocity[2]-boatWater.meanFlow[2],orbitalUp=boatWater.velocity[3],
     useSectionWater=1,sectionWater=surfaceSections,previousWater=priorSections,waterStamp=sectionStamp,
@@ -93,7 +98,7 @@ equation
   when sample(0,.025) then
     animalWrench=WildlifeContact(animals,{boat.east,boat.north,boat.heave,boat.heel,boat.pitch,boat.heading},
       {boat.ve,boat.vn,boat.yawRate},boat.totalMass,if hobie then 5.04 else 2.32,
-      if hobie then .18 else .33,boat.halfSpacing,if hobie then .25 else .28,animalTraffic);
+      if hobie then .18 else .33,boat.halfSpacing,if hobie then .25 else .28,animalTraffic,animalJoints);
   end when;
   for hull in 1:2 loop
     stripAcross[hull]=(3-2*hull)*boat.halfSpacing*cos(boat.heel);
@@ -107,12 +112,12 @@ equation
     end for;
   end for;
   when sample(0,.1) then
-    bowFrame=if hobie and omitWake<.5 then {boat.east,boat.north,cos(boat.heading),sin(boat.heading)} else zeros(4);
-    bowSpeed=if hobie and omitWake<.5 then
+    bowFrame=if omitWake<.5 then {boat.east,boat.north,cos(boat.heading),sin(boat.heading)} else zeros(4);
+    bowSpeed=if omitWake<.5 then
       {bowFrame[3]*(boat.ve-waves.currentEast)+bowFrame[4]*(boat.vn-waves.currentNorth),
        bowFrame[3]*(boat.vn-waves.currentNorth)-bowFrame[4]*(boat.ve-waves.currentEast)} else zeros(2);
-    bowSources=if hobie and omitWake<.5 then BowWavePatch.hullSources(
-      bowSpeed,BowWavePatch.localStrips(waves.sourceStrips,bowFrame),boat.stationX,boat.beamHalf,separatedStern=true) else zeros(14,6);
+    bowSources=if omitWake<.5 then BowWavePatch.hullSources(
+      bowSpeed,BowWavePatch.localStrips(waves.sourceStrips,bowFrame),boat.stationX,boat.beamHalf,separatedStern=hobie) else zeros(14,6);
     for hull in 1:2 loop
       for panel in 1:6 loop
         surfaceSections[hull,panel]=swimmerWater[(hull-1)*6+panel]+waves.sectionHeight[hull,panel]+boatWater.tide+

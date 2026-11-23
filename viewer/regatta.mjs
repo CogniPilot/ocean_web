@@ -27,11 +27,111 @@ export function raceTarget(race,stage,east,north){
   if(range<.01 || !Number.isFinite(range))return null;
   return {label,range,angle:Math.atan2(dn,de),bearing:trueBearing(de,dn)};
 }
+function inflatableMark(T){
+  const body=new T.Group();
+  body.name='Inflatable race mark';
+  const bottom=-.10,apex=1.65,height=apex-bottom,radius=.85;
+  const corners=Array.from({length:3},(_,i)=>{
+    const a=-Math.PI/2+i*2*Math.PI/3;
+    return new T.Vector2(radius*Math.cos(a),radius*Math.sin(a));
+  });
+  const rim=[];
+  for(let side=0;side<3;side++){
+    const corner=corners[side],previous=corners[(side+2)%3],next=corners[(side+1)%3];
+    const start=corner.clone().lerp(previous,.065),end=corner.clone().lerp(next,.065);
+    // Round the welded corners, then span the inflated panel between them.
+    for(let j=0;j<6;j++){
+      const t=j/6,v=1-t;
+      rim.push({point:start.clone().multiplyScalar(v*v).addScaledVector(corner,2*v*t).addScaledVector(end,t*t),
+        bulge:0,seam:1-Math.min(1,Math.abs(t-.5)*2)});
+    }
+    const edgeEnd=next.clone().lerp(corner,.065);
+    for(let j=0;j<14;j++){
+      const t=j/14;
+      rim.push({point:end.clone().lerp(edgeEnd,t),bulge:Math.sin(Math.PI*t)**2,seam:0});
+    }
+  }
+  const positions=[],colors=[],faces=[];
+  const steps=[0,.012,.032,.06,.095,.15,.22,.3,.38,.46,.54,.62,.7,.78,.85,.91,.96,.986,.996,1];
+  const belly=u=>.037*Math.sin(Math.PI*u);
+  const ringScale=u=>Math.max(.011,1-u)*(1-.12*Math.exp(-u/.025));
+  for(const u of steps){
+    for(const {point,bulge,seam} of rim){
+      const bulged=point.clone().multiplyScalar(ringScale(u)).addScaledVector(point,belly(u)*bulge/point.length());
+      positions.push(bulged.x,bulged.y,bottom+u*height);
+      const weld=.09*seam+.085*Math.exp(-(((u-.06)/.014)**2));
+      const shade=1-weld;
+      colors.push(shade,shade*(1-.025*seam),shade*(1-.055*seam));
+    }
+  }
+  const n=rim.length;
+  for(let i=0;i<steps.length-1;i++)for(let j=0;j<n;j++){
+    const a=i*n+j,b=i*n+(j+1)%n;
+    faces.push(a,b,b+n,a,b+n,a+n);
+  }
+  for(let i=1;i<n-1;i++){
+    const a=(steps.length-1)*n;
+    faces.push(0,i+1,i,a,a+i,a+i+1);
+  }
+  const shell=new T.BufferGeometry();
+  shell.setAttribute('position',new T.Float32BufferAttribute(positions,3));
+  shell.setAttribute('color',new T.Float32BufferAttribute(colors,3));
+  shell.setIndex(faces);shell.computeVertexNormals();
+  const vinyl=new T.MeshPhysicalMaterial({color:0xff601d,vertexColors:true,roughness:.38,clearcoat:.33,clearcoatRoughness:.38});
+  const plainVinyl=new T.MeshPhysicalMaterial({color:0xff641b,roughness:.47,clearcoat:.2});
+  const rubber=new T.MeshStandardMaterial({color:0x292825,roughness:.72});
+  const fittings=new T.MeshStandardMaterial({color:0x666764,roughness:.35,metalness:.58});
+  function add(geometry,material,parent=body){
+    const mesh=new T.Mesh(geometry,material);
+    parent.add(mesh);showInLowWaterCapture(mesh);return mesh;
+  }
+  add(shell,vinyl);
+
+  // The reinforced lifting eye is welded around the tip.
+  const eyeShape=new T.Shape();
+  eyeShape.moveTo(-.054,-.045);eyeShape.lineTo(.054,-.045);
+  eyeShape.quadraticCurveTo(.057,.042,0,.067);eyeShape.quadraticCurveTo(-.057,.042,-.054,-.045);
+  const hole=new T.Path();hole.absellipse(0,.023,.018,.025,0,2*Math.PI,true);eyeShape.holes.push(hole);
+  const eyeGeometry=new T.ExtrudeGeometry(eyeShape,{depth:.017,bevelEnabled:true,bevelSize:.006,bevelThickness:.006,bevelSegments:2,steps:1});
+  eyeGeometry.translate(0,0,-.0085);
+  const eye=add(eyeGeometry,plainVinyl);
+  eye.rotation.x=Math.PI/2;eye.position.z=apex-.022;
+
+  function onPanel(x,z){
+    const u=(z-bottom)/height;
+    const panel=new T.Group();
+    panel.position.set(x,radius*.5*ringScale(u)+belly(u)+.005,z);
+    panel.rotation.set(Math.PI/2-Math.atan(radius/(2*height)),0,Math.PI,'ZYX');
+    body.add(panel);return panel;
+  }
+  const label=document.createElement('canvas');label.width=512;label.height=512;
+  const ink=label.getContext('2d');
+  ink.clearRect(0,0,512,512);
+  for(const [y,text] of [[88,'INFLATE'],[244,'DRAIN']]){
+    ink.fillStyle='#f5e7d4';ink.beginPath();ink.arc(256,y,59,0,2*Math.PI);ink.fill();
+    ink.fillStyle='#7c3c2a';ink.font='bold 18px sans-serif';ink.textAlign='center';ink.fillText(text,256,y-36);
+  }
+  ink.fillStyle='#eee8d8';ink.fillRect(137,329,238,133);
+  ink.fillStyle='#504b43';ink.textAlign='left';ink.font='bold 21px sans-serif';ink.fillText('RACE MARK',157,359);
+  ink.fillStyle='#aaa391';
+  for(let i=0;i<4;i++)ink.fillRect(157,375+17*i,174-(i%2)*29,3);
+  const texture=new T.CanvasTexture(label);texture.colorSpace=T.SRGBColorSpace;
+  const decal=new T.MeshStandardMaterial({map:texture,roughness:.52,alphaTest:.5,side:T.FrontSide});
+  add(new T.PlaneGeometry(.55,.52),decal,onPanel(0,.86));
+  for(const z of [.86+.52*(.5-88/512),.86+.52*(.5-244/512)]){
+    const socket=onPanel(0,z);
+    const flange=add(new T.TorusGeometry(.027,.005,6,18),fittings,socket);flange.position.z=.008;
+    const plug=add(new T.CylinderGeometry(.023,.023,.015,16),rubber,socket);
+    plug.rotation.x=Math.PI/2;plug.position.z=.009;
+  }
+  return body;
+}
+
 // Z-up committee launch and inflatable marks. Dimensions are in metres.
 export function courseScene(T,scene,race){
   const group=new T.Group();scene.add(group);
   const mat=(color,roughness=.55)=>new T.MeshStandardMaterial({color,roughness});
-  const white=mat(0xf1ede0),navy=mat(0x152c36),metal=mat(0xb7c0bc,.27),orange=mat(0xff5908);
+  const white=mat(0xf1ede0),navy=mat(0x152c36),metal=mat(0xb7c0bc,.27);
   const mesh=(parent,geometry,material,x,y,z)=>{
     const o=new T.Mesh(geometry,material);o.position.set(x,y,z);parent.add(o);return o;
   };
@@ -82,11 +182,11 @@ export function courseScene(T,scene,race){
     board.rotation.order='ZXY';board.rotation.x=Math.PI/2;board.rotation.z=side<0?0:Math.PI;
   }
   const marks=[];
+  const buoyParts=inflatableMark(T);
   function mark(x,y){
-    const body=new T.Group();group.add(body);marks.push(body);body.position.set(x,y,0);x=0;y=0;
-    const buoy=mesh(body,new T.ConeGeometry(.85,1.75,3,1),orange,x,y,.77);buoy.rotation.x=Math.PI/2;
-    const collar=mesh(body,new T.CylinderGeometry(.76,.81,.14,3),navy,x,y,.04);collar.rotation.x=Math.PI/2;
-    showInLowWaterCapture(buoy);showInLowWaterCapture(collar);
+    const body=buoyParts.clone();
+    body.position.set(x,y,0);
+    group.add(body);marks.push(body);
   }
   mark(race.get('pinEast'),race.get('pinNorth'));
   race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i]));
@@ -328,10 +428,11 @@ export function raceAudio(){
     if(effects)effects.gain.setTargetAtTime(level,audio.currentTime,.025);
     if(!level){silenceLuff();silenceWaves();}
   }
-  const loading=new Set();
+  const loading=new Set(),gullCalls=['1','2','4','5','6'].map(take=>'gull-'+take+'.mp3');
+  const gullRecordings=new Map();
   async function decodeRecording(file){
     const response=await fetch(new URL('./assets/audio/'+file,import.meta.url));
-    if(!response.ok)throw Error('Ambience HTTP '+response.status);
+    if(!response.ok)throw Error('Audio HTTP '+response.status);
     return audio.decodeAudioData(await response.arrayBuffer());
   }
   function startAmbience(file,destination){
@@ -538,17 +639,27 @@ export function raceAudio(){
   function wildlife(kind,distance,pan,underwater,strength){
     if(!enabled||audio.state!=='running'||distance>240)return;
     if(kind==='gull'){
-      const t=audio.currentTime,stereo=audio.createStereoPanner();stereo.pan.value=pan;stereo.connect(effects);
-      for(const [i,delay] of [0,.24,.53].entries()){
-        const osc=audio.createOscillator(),gain=audio.createGain(),filter=audio.createBiquadFilter(),start=t+delay;
-        osc.type='sawtooth';osc.frequency.setValueAtTime(1120-i*75,start);
-        osc.frequency.exponentialRampToValueAtTime(1690-i*100,start+.045);osc.frequency.exponentialRampToValueAtTime(770,start+.20);
-        filter.type='lowpass';filter.frequency.value=underwater?720:3650;
-        gain.gain.setValueAtTime(.0001,start);gain.gain.exponentialRampToValueAtTime(Math.max(.001,.19*strength/(1+distance/22)),start+.024);
-        gain.gain.exponentialRampToValueAtTime(.0001,start+.21);
-        osc.connect(filter).connect(gain).connect(stereo);osc.onended=()=>{osc.disconnect();gain.disconnect();filter.disconnect();if(i===2)stereo.disconnect();};
-        osc.start(start);osc.stop(start+.22);
+      const file=strength>=1?'gull-hit.mp3':gullCalls[Math.floor(Math.random()*gullCalls.length)];
+      let recording=gullRecordings.get(file);
+      if(!recording){
+        recording=decodeRecording(file);
+        gullRecordings.set(file,recording);
       }
+      void recording.then(buffer=>{
+        if(!enabled||audio.state!=='running')return;
+        const source=audio.createBufferSource(),gain=audio.createGain();
+        const filter=audio.createBiquadFilter(),stereo=audio.createStereoPanner();
+        source.buffer=buffer;stereo.pan.value=pan;
+        filter.type='lowpass';
+        filter.frequency.value=underwater?620:Math.max(1800,7800-25*distance);
+        gain.gain.value=.65*strength*(underwater?.32:1)/(1+distance/22);
+        source.connect(filter).connect(gain).connect(stereo).connect(effects);
+        source.onended=()=>{for(const node of [source,filter,gain,stereo])node.disconnect();};
+        source.start();
+      }).catch(error=>{
+        gullRecordings.delete(file);
+        console.warn('Gull recording unavailable',file,error);
+      });
       return;
     }
     const t=audio.currentTime,impact=kind==='impact',length=impact?2.35:1.05;
@@ -570,10 +681,10 @@ export function raceAudio(){
     rotors??=droneMixer(audio,effects,noise);
     rotors(local,peers,camera,underwater,running);
   }
-  function motorSound(local,peers,camera,underwater,running,throttle){
+  function motorSound(local,peers,camera,underwater,running,throttle,simulationRate){
     if(!enabled||(!engines&&!local&&!peers.length))return;
-    engines??=inboardMixer(audio,effects,noise);
-    engines(local,peers,camera,underwater,running,throttle);
+    engines??=inboardMixer(audio,effects,decodeRecording);
+    engines(local,peers,camera,underwater,running,throttle,simulationRate);
   }
   return {get enabled(){return enabled;},get audible(){return enabled&&level>0;},
     setEnabled,update,water,signal,thunder,setVolume,wildlife,imagingHit,motorSound,droneSound};

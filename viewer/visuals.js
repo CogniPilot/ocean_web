@@ -24,11 +24,14 @@ function batchScenery(T,group,attributes=[]){
 const seabedTime={value:0};
 function seabedMaterials(T,illumination){
  function textured(base,kind){
-   const m=new T.MeshStandardMaterial({color:0xffffff,roughness:.86,metalness:kind==='metal'?.22:0});
+   const shore=kind==='shore';
+   const m=new T.MeshStandardMaterial({color:0xffffff,roughness:.86,metalness:kind==='metal'?.22:0,vertexColors:shore});
    m.onBeforeCompile=s=>{
      s.vertexShader='varying vec3 location;\n'+s.vertexShader.replace('#include <worldpos_vertex>','#include <worldpos_vertex>\nlocation=(modelMatrix*vec4(transformed,1.)).xyz;');
      s.fragmentShader='varying vec3 location;\n'+skyNoiseGLSL+s.fragmentShader;
-     const code=kind==='sand'?`vec2 p=location.xy;float ridge=sin(6.*p.x+2.4*sin(p.y*.81)+cloud(p*.7)*5.); diffuseColor.rgb=vec3(.26,.31,.27)*(.65+.12*ridge+.53*cloud(p*2.));`:
+     const code=kind==='sand'||shore?`vec2 p=location.xy;float ridge=sin(6.*p.x+2.4*sin(p.y*.81)+cloud(p*.7)*5.);
+     vec3 bed=vec3(.26,.31,.27)*(.65+.12*ridge+.53*cloud(p*2.));
+     diffuseColor.rgb=${shore?'mix(bed,diffuseColor.rgb,smoothstep(-13.7,-7.,location.z))':'bed'};`:
      `vec2 p=vec2(location.x+.34*location.y,location.z+.25*location.y);float oxidation=cloud(p*vec2(.75,.38))+.16*noise2(p*vec2(7.,1.2));vec3 brown=vec3(.35,.125,.046);diffuseColor.rgb=mix(vec3(${base}),brown,smoothstep(.43,.69,oxidation))*(.63+.47*noise2(p*43.));`;
      Object.assign(s.uniforms,illumination);
      s.fragmentShader='uniform sampler2D wreckFlux,wreckDepth;uniform mat4 wreckProjection;uniform vec3 waterRay;uniform vec2 causticShift;uniform float sunStrength;\n'+s.fragmentShader;
@@ -48,19 +51,19 @@ function seabedMaterials(T,illumination){
    };
    m.customProgramCacheKey=()=>kind+base;return m;
  }
- return {iron:textured('.18,.25,.24','metal'),deck:textured('.20,.23,.19','metal'),rib:textured('.26,.28,.23','metal'),wood:textured('.35,.20,.085','wood'),sand:textured('','sand'),dark:new T.MeshStandardMaterial({color:0x172927})};
+ return {iron:textured('.18,.25,.24','metal'),deck:textured('.20,.23,.19','metal'),rib:textured('.26,.28,.23','metal'),wood:textured('.35,.20,.085','wood'),sand:textured('','sand'),shore:textured('','shore'),dark:new T.MeshStandardMaterial({color:0x172927})};
 }
 function marineLife(T,scene,webgl2,schoolState){
  const fish=new T.Group();scene.add(fish);
- const count=36,pose=new T.Object3D(),swimPhase={value:0};
+ const pose=new T.Object3D(),swimPhase={value:0};
  let school,swimmers=[],fishLoad;
  function updateSchool(){
    const shared=schoolState?.();
    fish.visible=!!shared;
    if(!shared)return;
-   fishLoad??=fetch('assets/fish.json').then(r=>r.json()).then(buildSchool).catch(console.error);
+   fishLoad??=fetch('assets/fish.json').then(r=>r.json()).then(asset=>buildSchool(asset,shared.positions.length/4)).catch(console.error);
    swimPhase.value=shared.time*6%8;
-   for(let i=0;i<(school?count:swimmers.length);i++){
+   for(let i=0;i<(school?school.count:swimmers.length);i++){
      const f=school?pose:swimmers[i],k=i*4,visible=shared.restock[i]<=shared.time;
      f.scale.setScalar(visible?.68+.4*Math.abs(Math.sin(i)):0);
      f.position.fromArray(shared.positions,k);
@@ -75,7 +78,7 @@ function marineLife(T,scene,webgl2,schoolState){
    }
    if(school)school.instanceMatrix.needsUpdate=true;
  }
- function buildSchool(asset){
+ function buildSchool(asset,count){
    const geo=fishGeometry(T,asset);
    const mat=new T.MeshStandardMaterial({vertexColors:true,roughness:.42,metalness:.08,side:T.DoubleSide});
    if(webgl2){
@@ -95,8 +98,8 @@ function marineLife(T,scene,webgl2,schoolState){
      school.morphTargetInfluences=new Array(geo.morphAttributes.position.length).fill(0);
      school.instanceMatrix.setUsage(T.DynamicDrawUsage);
      // Bounds cover all swim paths and the length of a fish, even between pose updates.
-     school.boundingSphere=new T.Sphere(new T.Vector3(11,-20,-5),23);
-     school.name='Survey fish school';fish.add(school);
+     school.boundingSphere=new T.Sphere(new T.Vector3(13,0,-5),36);
+     school.name='Harbor fish schools';fish.add(school);
    }else{
      for(let i=0;i<count;i++)fish.add(new T.Mesh(geo,mat));
      swimmers=fish.children;
@@ -158,11 +161,19 @@ function marineLife(T,scene,webgl2,schoolState){
 function coast(T,scene,instanceRocks=true){
  const land=new T.Group();scene.add(land); const center=[36,40],sand=new T.Color(0xc7ad7c),grass=new T.Color(0x566745),rock=new T.Color(0x827665);
  const geo=new T.PlaneGeometry(58,46,74,62),pos=geo.attributes.position,colors=[];
- function terrain(x,y){const r=Math.hypot(x/17,y/11);return 3.6-4.2*r*r+.34*Math.sin(x*.64)*Math.cos(y*.55)+.37*Math.cos(.34*x-.51*y);}
+ function smoothStep(value){
+   const u=Math.max(0,Math.min(1,value));
+   return u*u*(3-2*u);
+ }
+ function terrain(x,y){
+   // Keep the same slope, skirt and cell vertices as Shore.terrain.
+   const height=17.3-4.2*((x/17)**2+(y/11)**2)+.34*Math.sin(x*.64)*Math.cos(y*.55)+.37*Math.cos(.34*x-.51*y);
+   return -13.7+Math.max(0,height)*smoothStep(height/.8)*smoothStep((29-Math.abs(x))/7)*smoothStep((23-Math.abs(y))/7);
+ }
  land.userData.chartTerrain={center,height:terrain};
  for(let i=0;i<pos.count;i++){const x=pos.getX(i),y=pos.getY(i),z=terrain(x,y);pos.setZ(i,z);const c=sand.clone().lerp(grass,Math.min(1,Math.max(0,(z-1.1)*.8))).multiplyScalar(.92+.07*Math.cos(x*2+y));colors.push(c.r,c.g,c.b);}
  geo.setAttribute('color',new T.Float32BufferAttribute(colors,3));geo.computeVertexNormals();
- const island=new T.Mesh(geo,new T.MeshStandardMaterial({vertexColors:true,roughness:.96}));land.add(island);land.position.set(...center,0);
+ const island=new T.Mesh(geo,new T.MeshStandardMaterial({vertexColors:true,roughness:.86}));land.userData.sand=island;land.add(island);land.position.set(...center,0);
  let seed=13;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
  const rockCount=46,shape=new T.IcosahedronGeometry(1,1);
  const rocks=instanceRocks?new T.InstancedMesh(shape,new T.MeshStandardMaterial({flatShading:true}),rockCount):new T.Group();

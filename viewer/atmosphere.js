@@ -312,19 +312,24 @@ function hullFoam(scene,uniforms,cruiserHullGLSL,cruiserSurface){
        const spacing=Math.hypot(strips[i+3]-strips[i],strips[i+4]-strips[i+1]);
        const area=Math.max(0,wet)/Math.max(.1,spacing);
        // Normalize the volume of disturbed water per second to opacity.
-       const strength=Math.min(1,area*Math.max(0,speed)/.11);
+       const speedAhead=Math.max(0,speed),flux=area*speedAhead;
+       const strength=Math.min(1,flux/.11);
+       const breaking=cat&&!cruiser?strength*Math.max(0,Math.min(1,(speedAhead-4.0)/5.0)):0;
        const forward=wet>1e-9?inboard/wet:0;
        const east=strips[i]+forward*(strips[i+3]-strips[i]);
        const north=strips[i+1]+forward*(strips[i+4]-strips[i+1]);
-       track.unshift([east-dx,north-dy,time,strength]);
+       track.unshift([east-dx,north-dy,time,strength,breaking]);
        if(track.length>count)track.pop();
      }
      if(cruiser)continue;
      for(let j=0;j<count;j++){
-       const p=track[Math.min(j,track.length-1)]??[0,0,0,0];
+       const p=track[Math.min(j,track.length-1)]??[0,0,0,0,0];
        const before=track[Math.max(0,j-1)]??p,after=track[j+1]??p;
        const ux=before[0]-after[0],uy=before[1]-after[1],length=Math.hypot(ux,uy);
-       const width=(cat?.16:.20)+.16*p[3]+.08*Math.max(0,time-p[2]);
+       const age=Math.max(0,time-p[2]);
+       const breaking=p[4];
+       const width=(cat?.16:.20)+.16*p[3]+.08*age
+         +breaking*(.28+.34*(1-Math.exp(-1.6*age)));
        const strength=j<track.length&&length>.02?p[3]:0;
        visible||=strength>.025;
        for(let side=0;side<2;side++){
