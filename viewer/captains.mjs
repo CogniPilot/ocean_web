@@ -12,22 +12,3 @@ export function isCaptainName(value){
   const match=/^Captain ([A-Za-z]+)(?: ([1-9]\d*))?$/.exec(value);
   return !!match&&names.includes(match[1]);
 }
-
-export function captainRoster(peerIds){
-  const roster=new Map(),used=new Set();
-  for(const id of [...new Set(peerIds)].sort()){
-    let hash=2166136261;
-    for(let i=0;i<id.length;i++)hash=Math.imul(hash^id.charCodeAt(i),16777619);
-    const first=(hash>>>0)%names.length;
-    let offset=0,slot=first;
-    while(used.has(slot)){
-      offset++;
-      const group=Math.floor(offset/names.length);
-      slot=group*names.length+(first+offset)%names.length;
-    }
-    used.add(slot);
-    const group=Math.floor(slot/names.length);
-    roster.set(id,'Captain '+names[slot%names.length]+(group?' '+(group+1):''));
-  }
-  return roster;
-}

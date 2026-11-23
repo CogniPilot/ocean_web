@@ -4,6 +4,8 @@ import {isCaptainName} from './captains.mjs';
 // overwrite one another's laps. Only the ten fastest per course and hull survive.
 const limit=10;
 const classes={Hobie16:'Hobie 16',Sailboat:'Pilothouse sloop',RDD2:'RDD2 drone'};
+const playerNumber=/^Player #(?:0|[1-9]\d?)$/;
+const npcNumber=/^NPC #(?:0|[1-9]\d?)$/;
 
 export function lapClock(tenths){
   return Math.floor(tenths/600)+':'+((tenths%600)/10).toFixed(1).padStart(4,'0');
@@ -37,8 +39,8 @@ export function fleetFinishes(){
 function valid(row,hull){
   if(!row||typeof row.id!=='string'||!Number.isSafeInteger(row.tenths)||row.tenths<=0)return false;
   const npc=/^npc-([1-5])-\d{1,15}-(?:[a-f0-9]{16}|-?\d{1,15})$/.exec(row.id);
-  if(npc)return hull==='Hobie16'&&row.captain==='NPC '+npc[1];
-  return /^[a-f0-9]{32}$/.test(row.id)&&(row.captain==='You'||isCaptainName(row.captain));
+  if(npc)return hull==='Hobie16'&&(npcNumber.test(row.captain)||row.captain==='NPC '+npc[1]);
+  return /^[a-f0-9]{32}$/.test(row.id)&&(row.captain==='You'||playerNumber.test(row.captain)||isCaptainName(row.captain));
 }
 function compare(a,b){
   return a.tenths-b.tenths || (a.id<b.id?-1:a.id>b.id?1:0);
@@ -107,7 +109,7 @@ export function lapLeaderboard(hull,roomName,panel){
     list.replaceChildren();
     for(const row of rows){
       const item=document.createElement('li'),time=document.createElement('time');
-      item.append(channel||row.id.startsWith('npc-')?row.captain:'Your lap');
+      item.append(channel||row.id.startsWith('npc-')?(isCaptainName(row.captain)?'Player':row.captain):'Your lap');
       time.textContent=lapClock(row.tenths);
       item.append(time);
       list.append(item);
@@ -147,12 +149,12 @@ export function lapLeaderboard(hull,roomName,panel){
     if(shared)send();
     if((updated||shared)&&boat===hull)render();
   }
-  function observeNpc(number,vessel,status){
+  function observeNpc(number,vessel,status,name){
     // Peers and refreshed tabs can observe the same finish. Use the
     // synchronized vessel identity and scheduled heat to keep one entry.
     const spawn=vessel.raceId??Math.round(vessel.started*1000);
     const id='npc-'+number+'-'+status.heatStart+'-'+spawn;
-    record('Hobie16',{id,captain:'NPC '+number,tenths:Math.round(status.lapTime*10)});
+    record('Hobie16',{id,captain:name,tenths:Math.round(status.lapTime*10)});
   }
   window.addEventListener('storage',event=>{
     for(const table of [...personal.values(),...room.values()]){

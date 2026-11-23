@@ -707,16 +707,10 @@ export function raceAudio(T){
     src.onended=()=>{for(const n of [src,band,gain,stereo])n.disconnect();};
     src.start(t);src.stop(t+length);
   }
-  const defaultWhaleClips=['humpback-song-1.mp3','humpback-song-2.mp3'];
-  let whaleClips=defaultWhaleClips;
+  const whaleClips=['humpback-song-1.mp3','humpback-song-2.mp3'];
   const whaleBuffers=new Map();
   let whaleVoice,loadingWhale,nextWhale=0,whaleClip=0,lastWhaleMix=-Infinity;
   let whaleGain=0,whalePan=0,whaleCutoff=2000;
-  function replaceWhaleClips(files){
-    whaleClips=files.length?files:defaultWhaleClips;
-    whaleBuffers.clear();loadingWhale=undefined;whaleClip=0;nextWhale=0;
-    if(whaleVoice){whaleVoice.source.stop();whaleVoice=undefined;}
-  }
   function mixWhale(voice){
     const now=audio.currentTime;
     voice.gain.gain.setTargetAtTime(whaleGain,now,.14);
@@ -736,10 +730,7 @@ export function raceAudio(T){
     if(!wet){if(!whaleVoice)nextWhale=now;return;}
     if(!whaleGain||whaleVoice||loadingWhale||now<nextWhale)return;
     const file=whaleClips[whaleClip%whaleClips.length];
-    if(!whaleBuffers.has(file)){
-      const buffer=typeof file==='string'?decodeRecording(file):file.arrayBuffer().then(bytes=>audio.decodeAudioData(bytes));
-      whaleBuffers.set(file,buffer);
-    }
+    if(!whaleBuffers.has(file))whaleBuffers.set(file,decodeRecording(file));
     const recording=whaleBuffers.get(file);loadingWhale=recording;
     void recording.then(buffer=>{
       if(loadingWhale!==recording||!enabled||audio.state!=='running'||!whaleGain)return;
@@ -814,6 +805,6 @@ export function raceAudio(T){
     engines(local,peers,camera,underwater,running,throttle,simulationRate);
   }
   return {get enabled(){return enabled;},get audible(){return enabled&&level>0;},
-    setEnabled,update,water,signal,finishGun,thunder,setVolume,connectCabinRadio,wildlife,imagingHit,motorSound,droneSound,structureImpact,floodSound,whaleSong,replaceWhaleClips,
+    setEnabled,update,water,signal,finishGun,thunder,setVolume,connectCabinRadio,wildlife,imagingHit,motorSound,droneSound,structureImpact,floodSound,whaleSong,
     dispose(){if(audio&&audio.state!=='closed')void audio.close().catch(()=>{});}};
 }

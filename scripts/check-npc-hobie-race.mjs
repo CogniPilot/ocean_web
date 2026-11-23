@@ -3,6 +3,7 @@ import {readFile} from 'node:fs/promises';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
 import {hobieRace,nextFleetStart} from '../viewer/npc-hobie-race.mjs';
 import {startGate,windBearing} from '../viewer/sailing-start.mjs';
+import {drawRacerFrame,racerFrameSize} from '../viewer/npc-sailing-frame.mjs';
 
 assert.equal(nextFleetStart(579.97,20),600);
 assert.equal(nextFleetStart(600.01,299.99),900);
@@ -51,3 +52,15 @@ for(let i=0;i<14000;i++){
 }
 assert(peakChange<.4,'Rounded NPC tacks must avoid abrupt velocity changes');
 console.log({peakSpeedChangePer20ms:peakChange});
+
+const prior=new Float64Array(racerFrameSize),sample=prior.slice();
+prior[16]=Math.PI-.04;
+sample[5]=4;sample[6]=-.5;sample[7]=.20;
+sample[14]=10;sample[15]=2;sample[16]=-Math.PI+.06;sample[17]=.22;
+const visual={update(){}};
+const halfway=drawRacerFrame(visual,prior,sample,.5,0);
+assert(Math.abs(halfway[2]-(Math.PI+.01))<1e-12,'Headings interpolate across the shortest arc');
+const delayed=drawRacerFrame(visual,prior,sample,1,0,undefined,undefined,.18);
+assert.deepEqual(Array.from(delayed.slice(0,2)),[10.72,1.91]);
+assert.equal(delayed[3],.22);
+assert.equal(sample[14],10,'Presentation never changes the committed physics snapshot');

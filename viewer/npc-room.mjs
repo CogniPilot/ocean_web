@@ -9,6 +9,8 @@ export const vesselNpcNames=Object.freeze({
   hobie:'Hobie 16',sloop:'Pilothouse sloop',motorboat:'Cabin cruiser',drone:'RDD2 drone',sub:'Piccard submarine'
 });
 export const npcVesselLimit=5;
+export const npcGullLimit=6;
+export const npcAnimalLimit=10;
 const legacyFishCount=36,fishCount=72;
 
 // The elected or appointed host runs the NPCs and owns room weather.
@@ -20,7 +22,7 @@ export function npcRoom(){
   const members=new Map();
   const vesselFrames=new Map(),vesselForestays=new Map();
   let appointed,hostRevision=0;
-  const maxGulls=6;
+  const maxGulls=npcGullLimit;
   const gullSeed=i=>[4+i*2,-12+i*2,8+i*.6,.6*i,13.4,0,2*i,0,.1,0,0,0];
   const emptyHabitat=()=>({restock:Array(fishCount).fill(0),gulls:[],gullSeats:[],vessels:[],sounds:[],sequence:0,time:0,raceStart:0});
   let habitat=emptyHabitat(),habitatOwner,session=0,lastCall=-Infinity,callRequested=null;
@@ -92,7 +94,7 @@ export function npcRoom(){
       return;
     }
     let a=animals.get(msg.id);
-    if(!a&&msg.type==='occupy'&&validKind(msg.id)&&animals.size<10){
+    if(!a&&msg.type==='occupy'&&validKind(msg.id)&&animals.size<npcAnimalLimit){
       a={id:msg.id,kind:msg.id,seat:null,player:true};animals.set(a.id,a);
     }
     if(!a)return;
@@ -281,7 +283,7 @@ export function npcRoom(){
       habitat.gullSeats=habitat.gulls.map((_,i)=>habitat.gullSeats[i]===self?null:habitat.gullSeats[i]??null);
       const next=new Map([...animals].filter(([,a])=>a.seat&&a.seat!==self));
       let index=0;
-      for(const {kind,id} of roster.animals.slice(0,10)){
+      for(const {kind,id} of roster.animals.slice(0,npcAnimalLimit)){
         if(!validKind(kind)||next.has(id))continue;
         next.set(id,{kind,id,seat:null,spawn:[-88+17*index+randomBetween(-3,3),26+randomBetween(-8,8)]});
         index++;
@@ -317,7 +319,7 @@ export function npcRoom(){
       if(habitat.sounds.length>16)habitat.sounds.shift();
     },
     canSpawn(kind){return owner===self&&(Object.hasOwn(vesselNpcNames,kind)?habitat.vessels.length<npcVesselLimit:
-      kind==='gull'?habitat.gulls.length<maxGulls:validKind(kind)&&animals.size<10);},
+      kind==='gull'?habitat.gulls.length<maxGulls:validKind(kind)&&animals.size<npcAnimalLimit);},
     spawn(kind,started=0,raceAt,raceWind){
       if(!this.canSpawn(kind))return;
       if(Object.hasOwn(vesselNpcNames,kind)){

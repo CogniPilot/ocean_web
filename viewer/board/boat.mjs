@@ -185,7 +185,7 @@ function bowNumbers(T,hulls){
    for(const side of [-1,1]){
      const base=positions.length/3;
      for(let row=0;row<=rows;row++)for(let column=0;column<=columns;column++){
-       const u=column/columns,v=row/rows,x=1.72+side*(.5-u)*.56,z=-.032+.134*v;
+       const u=column/columns,v=row/rows,x=1.72+side*(.5-u)*.47,z=-.105+.207*v;
        ray.set(new T.Vector3(x,side*1.55,z),new T.Vector3(0,-side,0));
        const hit=ray.intersectObject(hulls,true).find(h=>Math.abs(h.point.y)>.9);
        positions.push(x,hit?hit.point.y+side*.003:side*1.02,z);
@@ -336,7 +336,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    sailNumber=number;
    const context=numberCanvas.getContext('2d');
    context.clearRect(0,0,256,128);
-   if(number){
+   if(Number.isInteger(number)){
      context.fillStyle='#1d2022';context.font='bold 124px Georgia, serif';
      context.textAlign='center';context.textBaseline='alphabetic';
      context.fillText(String(number),128,108,238);

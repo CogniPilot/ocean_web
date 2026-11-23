@@ -132,7 +132,6 @@ function readReset(){
 }
 const viewerLayout=[...document.body.children].filter(node=>node.tagName!=='SCRIPT').map(node=>node.cloneNode(true));
 const initialBodyStyle=document.body.style.cssText;
-let localWhaleRecordings=[];
 let localRadioRecording,localRadioUrl;
 async function run(saved=readReset(),carried){
   const lifetime=new AbortController(),{signal}=lifetime;
@@ -438,7 +437,7 @@ async function run(saved=readReset(),carried){
   };
   const remote=carried?.remote??fleet(T,scene,roomName,$('online'),weather,$('crew'),laps,playImagingHit,chat,audio.finishGun);
   function observeNpcFinish(number,row,status){
-    laps.observeNpc(number,row,status);
+    laps.observeNpc(number,row,status,remote.npcName('npc-'+number));
     remote.recordFinish(status.heatStart,status.heatStart+status.elapsed,number);
   }
   const goBelow=$('goBelow'),anchorSwitch=$('anchorSwitch'),anchorReadout=$('anchorReadout'),wiperSwitch=$('wiperSwitch');
@@ -775,7 +774,11 @@ async function run(saved=readReset(),carried){
     history.replaceState(history.state,'',url);
     multiplayer(on);
   };
-  on(window,'pagehide',()=>{lifetime.abort();remote.leave();},{once:true});
+  on(window,'pagehide',event=>{
+    if(!event.persisted){lifetime.abort();remote.leave();}
+  });
+  on(window,'pageshow',event=>{if(event.persisted)remote.recover();});
+  on(window,'online',remote.recover);
   $('invite').onclick=async()=>{const link=joinRoomLink(vehicleLink(location.href),roomName);
     try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Multiplayer room link',link.href);}};
   const theme=$('theme'),music=$('music');
@@ -799,17 +802,6 @@ async function run(saved=readReset(),carried){
   }
   volumeControl('effectsVolume',audio.setVolume);
   volumeControl('musicVolume',value=>musicGain?.gain.setTargetAtTime(value,musicContext.currentTime,.025));
-  const whaleRecordings=$('whaleRecordings'),whaleRecordingsStatus=$('whaleRecordingsStatus');
-  function applyWhaleRecordings(){
-    audio.replaceWhaleClips(localWhaleRecordings);
-    whaleRecordingsStatus.value=localWhaleRecordings.length?
-      localWhaleRecordings.map(file=>file.name).join(', ')+' · local playback':'NOAA recordings';
-  }
-  whaleRecordings.onchange=()=>{
-    localWhaleRecordings=[...whaleRecordings.files];
-    applyWhaleRecordings();
-  };
-  applyWhaleRecordings();
   function audioToggle(id,apply,describe){
     const button=$(id);
     let selected=saved?.audio[id]===true,revision=0;
@@ -1432,8 +1424,8 @@ async function run(saved=readReset(),carried){
   const fleetModels={...vesselNpcNames,gull:'Herring gull',whale:'Humpback whale',shark:'Great white shark'};
   function fleetModel(kind,id){
     const label=fleetModels[kind]??'—';
-    const number=kind==='hobie'?remote.sailNumber(id):0;
-    return number?label+' #'+number:label;
+    const number=kind==='hobie'?remote.fleetNumber(id):undefined;
+    return Number.isInteger(number)?label+' #'+number:label;
   }
   const racePanel=$('racePanel'),raceSidebar=racePanel.parentElement;
   const npcStage=['Prestart','Crossing start','Mark 1','Mark 2','Heading to finish','Finished'];
@@ -1456,15 +1448,18 @@ async function run(saved=readReset(),carried){
       if(id>0)health.set(id,Math.round(hp)+' HP');
     }
     const hpFor=id=>health.get(encounterId(id));
-    if(encounterFrame?.[0][0])npcs.push(['Breakwater','Great white shark']);
-    function addAnimal(seat,name,kind,id){
+    if(encounterFrame?.[0][0])npcs.push([remote.npcName('breakwater'),'Great white shark']);
+    function addAnimal(seat,kind,id){
       if(seat)occupied.set(seat,kind);
-      else npcs.push([name,fleetModels[kind],hpFor(id)]);
+      else npcs.push([remote.npcName(id),fleetModels[kind],hpFor(id)]);
     }
-    for(const [id,animal] of animals)addAnimal(animal.seat,animalLabel(animal),animal.kind,id);
-    for(let i=0;i<habitat.gulls.length;i++)addAnimal(remote.npc.seat('gull-'+(i+1)),'Gull '+(i+1),'gull','gull-'+(i+1));
+    for(const [id,animal] of animals)addAnimal(animal.seat,animal.kind,id);
+    for(let i=1;i<=habitat.gulls.length;i++){
+      const id='gull-'+i;
+      addAnimal(remote.npc.seat(id),'gull',id);
+    }
     const selected=targetSelect.value,localModel=occupied.get(self)??animalKind()??(selected==='boat'?(cat?'hobie':'sloop'):selected);
-    const name=remote.captain,peers=remote.players();
+    const name=remote.playerName(),peers=remote.players();
     hostControls.hidden=!chatScope||owner!==self;
     if(!hostControls.hidden){
       const options=peers.filter(peer=>remote.npc.canTransferTo(peer.id)).map(({id,name})=>[id,name]);
@@ -1478,12 +1473,12 @@ async function run(saved=readReset(),carried){
         hostTarget.onchange();
       }
     }
-    const players=[[name?name+' (you)':'You',fleetModel(localModel),penaltyTurns?'Flag · '+turnCount(penaltyTurns):hpFor(self),Boolean(name&&owner===self)]];
+    const players=[[name+' (you)',fleetModel(localModel),penaltyTurns?'Flag · '+turnCount(penaltyTurns):hpFor(self),remote.connected&&owner===self]];
     for(const peer of peers)players.push([peer.name,fleetModel(occupied.get(peer.id)??peer.model,peer.id),peer.penalty?'Flag · '+turnCount(peer.penalty):hpFor(peer.id),owner===peer.id]);
     for(const [i,row] of habitat.vessels.entries()){
       const id='npc-'+(i+1),status=npcTraffic?.raceStatus?.(id);
       const progress=status?.penalty?'Flag · '+turnCount(status.penalty)+(status.turnDegrees?' · '+Math.round(status.turnDegrees)+'°':''):status?.stage===5?`Finished ${lapClock(Math.round(status.lapTime*10))}`:npcStage[status?.stage];
-      npcs.push(['NPC '+(i+1),fleetModel(row.kind,id),hpFor(id)??progress]);
+      npcs.push([remote.npcName(id),fleetModel(row.kind,id),hpFor(id)??progress]);
     }
     const rows=[...players,...npcs],signature=JSON.stringify(rows);
     if(signature===fleetSignature)return;
@@ -1549,7 +1544,7 @@ async function run(saved=readReset(),carried){
     if(rows.length&&!npcTraffic&&!npcTrafficLoad){
       npcTrafficLoad=import('./npc-vessels.mjs').then(({vesselTraffic})=>{
         if(signal.aborted)return;
-        npcTraffic=vesselTraffic(T,scene,npcSurface,ocean.sampleWind,race,remote.npc,npcError,observeNpcFinish,npcIncidentSea,remote.sailNumber);
+        npcTraffic=vesselTraffic(T,scene,npcSurface,ocean.sampleWind,race,remote.npc,npcError,observeNpcFinish,npcIncidentSea,remote.fleetNumber);
       }).catch(reason=>{npcError(reason);npcTrafficLoad=undefined;});
     }
     while(npcCamCount>rows.length){
@@ -1558,7 +1553,7 @@ async function run(saved=readReset(),carried){
       option?.remove();
     }
     for(let i=0;i<rows.length;i++){
-      const id='npc-'+(i+1),name=vesselNpcNames[rows[i].kind]+' NPC '+(i+1);
+      const id='npc-'+(i+1),name=vesselNpcNames[rows[i].kind]+' · '+remote.npcName(id);
       let option=menu.querySelector('[value="'+id+'"]');
       if(!option){option=new Option(name,id);menu.add(option);}
       else if(option.text!==name)option.text=name;
@@ -1943,7 +1938,7 @@ async function run(saved=readReset(),carried){
     if(!message||!room)return;
     chatInput.value='';
     if(await remote.sendChat(message)){
-      if(chatScope===room)chatMessage(remote.captain?remote.captain+' (you)':'You',message);
+      if(chatScope===room)chatMessage(remote.playerName()+' (you)',message);
       $('chatStatus').value='';
     }else if(chatScope===room){
       if(!chatInput.value)chatInput.value=draft;
@@ -2119,12 +2114,17 @@ async function run(saved=readReset(),carried){
     });
     frameResult.textContent='Running the offline simulation at full speed for 15 seconds…';
   };
+  let hiddenAt;
   on(document,'visibilitychange',()=>{
     prev=physicsWall=performance.now();acc=0;world?.clearQueued();
     statsStart=undefined;
     if(document.hidden){
+      hiddenAt=Date.now();
       releaseControls();
       if(frameTest)finishTest('Test interrupted while the page was hidden.');
+    }else{
+      if(hiddenAt!==undefined&&Date.now()-hiddenAt>5000)remote.recover();
+      hiddenAt=undefined;
     }
   });
   function measureFrame(now,t){
@@ -2215,7 +2215,7 @@ async function run(saved=readReset(),carried){
   let physicsTimer,courseTarget,drawDeadline,appliedRaceStart=0;
   function draw(now){
     if(signal.aborted)return;
-    if(cat)boat?.setSailNumber(remote.sailNumber());
+    if(cat)boat?.setSailNumber(remote.fleetNumber());
     // Keep a 30 Hz deadline across refresh rates. If a frame missed a
     // whole period, reset phase instead of rendering catch-up frames.
     drawDeadline??=now;
@@ -2266,7 +2266,7 @@ async function run(saved=readReset(),carried){
         const normalSpeed=playbackRate===1&&!frameTest?.headroom;
         if(stage<2||!normalSpeed)timedLap=normalSpeed;
         observePenalties(stage);
-        if(!sub?.active&&(hasBoat||drone?.active)&&!penaltyTurns)laps.observe(stage,lap,remote.captain,timedLap);
+        if(!sub?.active&&(hasBoat||drone?.active)&&!penaltyTurns)laps.observe(stage,lap,remote.playerName(),timedLap);
         const heat=scorer.has('heatStart')?scorer.get('heatStart'):undefined;
         const finished=stage===5&&scorer.has('finishUtc')?scorer.get('finishUtc'):0;
         if(hasBoat&&!animalId&&!sub?.active&&!drone?.active&&timedLap&&!penaltyTurns&&finished>lastReportedFinish){

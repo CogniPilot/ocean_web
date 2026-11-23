@@ -32,7 +32,7 @@ function dispose(group){
   for(const resource of [...geometries,...materials,...textures])resource.dispose();
 }
 
-export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,incidentSea,sailNumber){
+export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,incidentSea,fleetNumber){
   const craft=new Map(),sailRigs=new Map(),wind=new T.Vector2(),contacts=new Float64Array(45),tilts=new Float64Array(10);
   const cruisers=[];
   const planners=new Map();
@@ -111,7 +111,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       // Advance to the same clock without dropping ticks when one reply is
       // briefly late. Bound catch-up batches so a slow browser can recover.
       planner.time=Math.max(planner.time,time-.35);
-      const step=Math.min(4,Math.floor((time-planner.time+1e-7)/.05));
+      const step=Math.min(2,Math.floor((time-planner.time+1e-7)/.05));
       if(step<2)continue;
       planner.time+=.05*step;
       planner.awaiting=true;
@@ -200,7 +200,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       const id='npc-'+(i+1),entry=craft.get(id)??begin(row,id,i,utc),visual=entry.visual;
       let east,north,speed,heading,orbit,height,angle;
       if(row.kind==='hobie'){
-        visual?.boat.setSailNumber(sailNumber(id));
+        visual?.boat.setSailNumber(fleetNumber(id));
         if(row.raceAt!==undefined)entry.raceAt=row.raceAt;
         const snapshot=room.vesselFrames.get(entry.pilotId);
         if(!snapshot){
@@ -222,9 +222,10 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
           }
         }
         if(visual)visual.group.visible=true;
-        const blend=Math.max(0,Math.min(1,(displayUtc-entry.received)/entry.interval));
-        const mix=i=>entry.prior[i]+blend*(snapshot[i]-entry.prior[i]);
-        east=mix(0);north=mix(1);heading=mix(3);speed=mix(4);orbit=12;
+        const age=Math.max(0,displayUtc-entry.received);
+        const blend=Math.min(1,age/entry.interval);
+        // Carry the visible hull forward briefly if the next committed snapshot is late.
+        const lead=Math.min(.18,Math.max(0,age-entry.interval));
         const [stage,elapsed,lapTime,heatStart,penalty,turnDegrees]=snapshot.slice(8,14);
         const status={stage,elapsed,lapTime,heatStart,penalty,turnDegrees};
         entry.raceStatus=status;
@@ -237,11 +238,11 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
             const from=entry.previousForestay[i];
             entry.forestay[i]=from+blend*(entry.nextForestay[i]-from);
           }
-          const state=drawRacerFrame(visual.boat,entry.prior,snapshot,blend,time,entry.shown,entry.forestay);
-          contacts.set([1,state[0],state[1],state[2],mix(5),mix(6),mix(7),state[3],1],i*9);
-          tilts.set([state[4],state[5]],i*2);
-          visual.group.userData.orbitDistance=orbit;
+          drawRacerFrame(visual.boat,entry.prior,snapshot,blend,time,entry.shown,entry.forestay,lead);
+          visual.group.userData.orbitDistance=12;
         }
+        contacts.set([1,snapshot[0],snapshot[1],snapshot[3],snapshot[5],snapshot[6],snapshot[7],snapshot[2],1],i*9);
+        tilts.set([snapshot[18],snapshot[19]],i*2);
         continue;
       }else{
         const {center,radius,speed:patrolSpeed,orbit:patrolOrbit,height:patrolHeight}=routes[row.kind];
