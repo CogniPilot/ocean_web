@@ -432,13 +432,17 @@ export function raceAudio(T){
     }
     return (emitter,camera)=>{
       emitter.getWorldPosition(position);
-      coordinates(speaker.positionX,speaker.positionY,speaker.positionZ,position);
+      if(speaker.positionX)coordinates(speaker.positionX,speaker.positionY,speaker.positionZ,position);
+      else speaker.setPosition(position.x,position.y,position.z);
       camera.getWorldDirection(direction);
       position.setFromMatrixPosition(camera.matrixWorld);
       up.setFromMatrixColumn(camera.matrixWorld,1).normalize();
-      coordinates(listener.positionX,listener.positionY,listener.positionZ,position);
-      coordinates(listener.forwardX,listener.forwardY,listener.forwardZ,direction);
-      coordinates(listener.upX,listener.upY,listener.upZ,up);
+      if(listener.positionX)coordinates(listener.positionX,listener.positionY,listener.positionZ,position);
+      else listener.setPosition(position.x,position.y,position.z);
+      if(listener.forwardX){
+        coordinates(listener.forwardX,listener.forwardY,listener.forwardZ,direction);
+        coordinates(listener.upX,listener.upY,listener.upZ,up);
+      }else listener.setOrientation(direction.x,direction.y,direction.z,up.x,up.y,up.z);
     };
   }
   const loading=new Set(),gullCalls=['1','2','4','5','6'].map(take=>'gull-'+take+'.mp3');
