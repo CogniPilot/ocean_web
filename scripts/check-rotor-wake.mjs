@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
+import {createRequire} from 'node:module';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
-import {sampleAirflow} from '../viewer/physics-view.mjs';
+import {physicsView,sampleAirflow} from '../viewer/physics-view.mjs';
 
 const read=async url=>new Response(await readFile(url));
 const initial={stationEast:-5,stationNorth:0,windENU:[0,0,0]};
@@ -51,6 +52,17 @@ const own=sampleAirflow(probe,[east,north,up],[0,0,0],{rotors:{
 assert(Math.abs(own.thrust-4*geometry.parameters[0]*800**2)<1e-8);
 assert(own.velocity[index(3,3,3)+2]<-4);
 assert.equal(own.velocity[index(3,3,6)+2],0);
+const T=createRequire(import.meta.url)('../viewer/vendor/three.min.js');
+const strokes=new Set(),noop=()=>{};
+const ink={setTransform:noop,clearRect:noop,beginPath:noop,moveTo:noop,lineTo:noop,arc:noop,fill:noop,
+  stroke(){strokes.add(this.strokeStyle);}};
+const canvas={clientWidth:440,clientHeight:820,getContext:()=>ink},status={};
+const camera=new T.PerspectiveCamera(55,canvas.clientWidth/canvas.clientHeight,.02,100);
+camera.position.set(east+3,north+3,up+1);camera.lookAt(east,north,up-1);
+globalThis.devicePixelRatio=1;
+physicsView(T,canvas,status).draw(camera,{group:new T.Group(),airflow:{...own,anchor:own.position,previous:grid,blend:.8}},{});
+assert(strokes.has('#ffc281'),'The 3D overlay must draw the downwash arrows');
+assert(status.textContent.includes('3D rotor wake'));
 advance(drone,60);
 advance(clear,60);
 assert(drone.get('position')[2]<clear.get('position')[2]-.04,'Downwash must change flight dynamics');

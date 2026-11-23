@@ -428,9 +428,9 @@ export function physicsView(T,canvas,status){
       if(!p)continue;
       const {x,y}=p,q=project(b,null);
       if(!q)continue;
-      const dx=q.x-x,dy=q.y-y,length=Math.hypot(dx,dy);
-      if(length<3){dot(a,null,color,1.5);continue;}
-      const ux=dx/length,uy=dy/length,head=Math.min(7,length*.38);
+      const dx=q.x-x,dy=q.y-y,pixels=Math.hypot(dx,dy);
+      if(pixels<3){dot(a,null,color,1.5);continue;}
+      const ux=dx/pixels,uy=dy/pixels,head=Math.min(7,pixels*.38);
       ink.beginPath();ink.moveTo(x,y);ink.lineTo(q.x,q.y);
       ink.moveTo(q.x-head*(ux-.50*uy),q.y-head*(uy+.50*ux));ink.lineTo(q.x,q.y);
       ink.lineTo(q.x-head*(ux+.50*uy),q.y-head*(uy-.50*ux));
