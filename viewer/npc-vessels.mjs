@@ -124,7 +124,8 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       const loading=Promise.all([loadVehicleShell(shell),loadInstance(cat?'Hobie16':'Sailboat',{
         windEast:0,windNorth:8})]).then(([,model])=>{
           const panels=cat?readSailPanels(model):null;
-          const geometry={rig:cat?model.getMany(sailingRigFields):null,
+          const geometry={mastRotation:cat&&model.has('mastRotation')?model.get('mastRotation'):undefined,
+            rig:cat?model.getMany(sailingRigFields):null,
             forestay:cat&&model.has('forestayPath')?model.get('forestayPath'):null,
             cloth:panels?model.getMany(sailPanelFields.map(fields=>fields[3])):null};
           const [axisX,axisZ,trim]=model.getMany(['axisX','axisZ','trim']);
@@ -214,6 +215,11 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
           const interval=entry.received===undefined?.10:Math.max(.08,Math.min(.55,displayUtc-entry.received));
           entry.interval=entry.interval===undefined?interval:.35*entry.interval+.65*interval;
           entry.snapshot=snapshot;entry.received=displayUtc;
+          const mastRotation=room.vesselMastRotations.get(entry.pilotId);
+          if(mastRotation!==undefined){
+            entry.previousMastRotation=entry.mastRotation??mastRotation;
+            entry.nextMastRotation=mastRotation;
+          }
           const forestay=room.vesselForestays.get(entry.pilotId);
           if(forestay){
             entry.forestay??=Float64Array.from(forestay);
@@ -238,7 +244,9 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
             const from=entry.previousForestay[i];
             entry.forestay[i]=from+blend*(entry.nextForestay[i]-from);
           }
-          drawRacerFrame(visual.boat,entry.prior,snapshot,blend,time,entry.shown,entry.forestay,lead);
+          if(entry.nextMastRotation!==undefined)
+            entry.mastRotation=entry.previousMastRotation+blend*(entry.nextMastRotation-entry.previousMastRotation);
+          drawRacerFrame(visual.boat,entry.prior,snapshot,blend,time,entry.shown,entry.forestay,lead,entry.mastRotation);
           visual.group.userData.orbitDistance=12;
         }
         contacts.set([1,snapshot[0],snapshot[1],snapshot[3],snapshot[5],snapshot[6],snapshot[7],snapshot[2],1],i*9);

@@ -46,3 +46,43 @@ for (let i=0; i<400; i++) {
 }
 assert(shortestStrop>.38 && shortestStrop<.55);
 console.log({shortestStrop});
+
+// The ball joint lets the mast rake aft until the forestay takes the load.
+const headToWind = await loadInstance('Hobie16', {
+  launchEast:-500, launchNorth:-500, launchHeading:0, launchSpeed:0, windEast:-5, manualHelm:1
+}, async url => new Response(await readFile(url)));
+function standingLoads(halyard, ticks) {
+  headToWind.set('jibHalyardInput', halyard);
+  for (let i=0; i<ticks; i++) headToWind.advance(.01);
+  const [forestay,jib,rake,path] = headToWind.getMany([
+    'forestayTension','jibHalyardTension','mastRake','forestayPath'
+  ]);
+  const sag = Math.hypot(...path.slice(3,6).map((v,i) => v-(path[i]+path[i+6])/2));
+  return {forestay,jib,rake,sag};
+}
+const sailingRig = standingLoads(.55, 300);
+const easedHalyard = standingLoads(0, 600);
+const hauledHalyard = standingLoads(.9, 400);
+assert(sailingRig.jib > sailingRig.forestay && sailingRig.sag > .2);
+assert(easedHalyard.forestay > 25 && easedHalyard.forestay > easedHalyard.jib);
+assert(easedHalyard.sag < .08 && easedHalyard.rake > sailingRig.rake);
+assert(hauledHalyard.jib > 100 && hauledHalyard.forestay < 8 && hauledHalyard.rake < sailingRig.rake);
+console.log({sailingRig,easedHalyard,hauledHalyard});
+
+// The boom can swing with the spar against either of the mast-step stops.
+for (const tack of [-1,1]) {
+  const rig = await loadInstance('Hobie16', {
+    launchEast:-500, launchNorth:-500, launchHeading:0, launchSpeed:1.5,
+    windEast:-4.5, windNorth:tack*8, manualHelm:1
+  }, async url => new Response(await readFile(url)));
+  const stop = rig.get('mastRotationStop');
+  let separation = 0;
+  for (let i=0; i<430; i++) {
+    rig.advance(.01);
+    const [mast,trim] = rig.getMany(['mastRotation','trim']);
+    assert(Math.abs(mast) < stop+.04, 'The spar stays within the compliance of the stops');
+    separation = Math.max(separation, Math.abs(mast-trim[0]));
+  }
+  assert(separation > .18, 'The boom rotates independently of the spar');
+  console.log({tack,separation,stop});
+}

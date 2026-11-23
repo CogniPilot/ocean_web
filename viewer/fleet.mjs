@@ -481,7 +481,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(peer.timeline.receive(data,performance.now())&&(kind==='boat'||kind==='motorboat'))trafficChanged=true;
     };report();
   }
-  function frame(now,s,cat,extra,sub,drone,kind,lampOn,aircraft,motor,motorState,radarTime){
+  function frame(now,s,cat,extra,sub,drone,kind,lampOn,aircraft,motor,motorState,radarTime,mastRotation){
     lamps.length=cruisers.length=drones.length=0;
     tickFinishes(now);
     if(!room)return;
@@ -524,6 +524,9 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(kind==='boat'){
         packet=new Float32Array(packetFloats);packet.set(s.subarray?s.subarray(0,207):s.slice(0,207));
         packet[207]=Number(cat);packet.set(extra,208);packet[215]=now/1000;
+        // Standalone sailboats have no sub pose. Use two of its inactive
+        // slots so earlier clients can continue reading the same packet.
+        if(Number.isFinite(mastRotation)){packet[217]=mastRotation;packet[218]=1;}
       }else{
         if(kind==='motorboat'&&motor){
           packet=new Float32Array(15);packet.set(posePacket(kind,now,motor));packet[0]=3;packet.set(motorState.slice(0,6),9);
@@ -582,7 +585,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       }
       if(!peer.mesh)continue;
       if(peer.rigFrame!==d){
-        peer.mesh.update(d,d.subarray(208,210),peer.cat?d.subarray(210,212):null,null);
+        peer.mesh.update(d,d.subarray(208,210),peer.cat?d.subarray(210,212):null,null,
+          null,null,null,undefined,{mastRotation:d[216]===0&&d[218]===1&&Math.abs(d[217])<2?d[217]:undefined});
         peer.rigFrame=d;
       }
       const state=peer.state;

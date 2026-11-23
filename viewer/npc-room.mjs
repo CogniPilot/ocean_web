@@ -20,7 +20,7 @@ export function npcRoom(){
   const validSpawn=point=>Array.isArray(point)&&point.length===2&&point.every(v=>Number.isFinite(v)&&Math.abs(v)<1000);
   let channel,self,joined,owner,last,lastPing=-Infinity,pingRound=0,issued=0,localRtt;
   const members=new Map();
-  const vesselFrames=new Map(),vesselForestays=new Map();
+  const vesselFrames=new Map(),vesselForestays=new Map(),vesselMastRotations=new Map();
   let appointed,hostRevision=0;
   const maxGulls=npcGullLimit;
   const gullSeed=i=>[4+i*2,-12+i*2,8+i*.6,.6*i,13.4,0,2*i,0,.1,0,0,0];
@@ -155,17 +155,18 @@ export function npcRoom(){
   function send(data,target){return channel?.send(data,target?{target}:undefined).catch(()=>{});}
   function hello(target){send([joined],target);send({type:'hello',version:2,hostTransfer:true,host:appointed,hostRevision,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,shapeFrames:true,expandedFish:true,joined},target);}
   return {
-    vesselFrames,vesselForestays,
+    vesselFrames,vesselForestays,vesselMastRotations,
     publishVessels(frames){
       if(owner!==self)return;
-      for(const {id,data,forestay} of frames){
+      for(const {id,data,forestay,mastRotation} of frames){
         vesselFrames.set(id,data);
         if(finiteRow(forestay,9))vesselForestays.set(id,forestay);
+        if(Number.isFinite(mastRotation)&&Math.abs(mastRotation)<2)vesselMastRotations.set(id,mastRotation);
       }
       if(members.size)send({type:'vessel-frames',frames});
     },
     connect(action,id){
-      channel=action;self=id;appointed=undefined;hostRevision=0;habitatOwner=id;session++;vesselFrames.clear();vesselForestays.clear();animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
+      channel=action;self=id;appointed=undefined;hostRevision=0;habitatOwner=id;session++;vesselFrames.clear();vesselForestays.clear();vesselMastRotations.clear();animals=new Map();habitat=emptyHabitat();callRequested=null;lastCall=-Infinity;controls.clear();last=undefined;revision++;joined=Date.now();members.clear();localRtt=undefined;lastPing=-Infinity;elect();
       if(!action)return;
       action.onMessage=(data,{peerId})=>{
         if(action!==channel||!data)return;
@@ -183,6 +184,8 @@ export function npcRoom(){
                 if(typeof frame?.id==='string'&&frame.id.length<=32&&finiteRow(frame.data,racerFrameSize)){
                   vesselFrames.set(frame.id,frame.data);
                   if(finiteRow(frame.forestay,9))vesselForestays.set(frame.id,frame.forestay);
+                  if(Number.isFinite(frame.mastRotation)&&Math.abs(frame.mastRotation)<2)
+                    vesselMastRotations.set(frame.id,frame.mastRotation);
                 }
               }
             }
@@ -290,7 +293,7 @@ export function npcRoom(){
       }
       if(!next.get('whale')?.seat&&!next.get('shark')?.seat)last=undefined;
       animals=next;
-      vesselFrames.clear();vesselForestays.clear();
+      vesselFrames.clear();vesselForestays.clear();vesselMastRotations.clear();
       controls.clear();
       session++;revision++;
       return sync();

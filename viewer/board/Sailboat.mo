@@ -7,7 +7,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     Integer row;
   algorithm
     for i in 1:7 loop
-      shapes[i,:]:=cat(1,mast[i,:],mast[i+1,:],{.043});
+      shapes[i,:]:=cat(1,mast[i,:],mast[i+1,:],{.065});
     end for;
     for i in 1:3 loop
       for j in 1:2 loop
@@ -292,13 +292,14 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   function standingRig "One moving midpoint per elastic cable, mast step fixed"
     input Real anchors[3,3],tang[3],previous[2],rate[2],sailMomentBody[3],jibLoad[3],clothReaction[2,3],gravityBody[3];
     input Real dt,EA,preload,entrainedMass,previousSag[4,3],previousSagRate[4,3],apparentAir[3],halyard;
+    input Real rigGravityMoment[3];
     output Real lean[2],velocity[2],path[4,3,3],tension[4],lateralK[4],midSag[4,3],sagRate[4,3];
   protected
     Real direction[3],head[3],force[3],q[3],weight[3],crossAir[3],base[3],drive[2],dragK,rest,L,L0,P,lo,hi,sag,halfSpan,Tline,wireMass;
   algorithm
     // Boom/mast share the overturning moment. The headsail load below is
     // already carried by the forestay and is omitted from this applied moment.
-    drive:={sailMomentBody[2],-sailMomentBody[1]}/(tang[3]-.41);
+    drive:={sailMomentBody[2]+rigGravityMoment[2],-sailMomentBody[1]-rigGravityMoment[1]}/(tang[3]-.41);
     head:=tang+{previous[1],previous[2],0};
     for i in 1:4 loop
       base:=anchors[min(i,3),:];
@@ -308,7 +309,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       // The hoisted jib contains its own luff wire. The longer forestay
       // supports the mast independently when the adjustable halyard is eased.
       rest:=if i==4 then L0+.055 else L0/(1+P/EA)+
-        (if i==3 then .123*(.55-halyard) else 0);
+        (if i==3 then .123*(.55-halyard)+.058*max(0,.55-halyard) else 0);
       weight:=.045*L0*.5*gravityBody;
       force:=weight+(if i<=2 then clothReaction[min(i,2),:] elseif i==3 then jibLoad else zeros(3));
       // Resolve wind load and inertia perpendicular to the local wire chord.
@@ -340,7 +341,9 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     end for;
     // First fore-aft and athwartship hounds sway mode. Backward damping
     // accounts for rig losses without a high-frequency cable time step.
-    velocity:=((14+entrainedMass)*rate+dt*(drive-850*previous))/(14+entrainedMass+dt*350);
+    // The spherical mast step allows fore-aft rake until the stays take
+    // the load. Keep the elastic support of the transverse mast mode.
+    velocity:=((14+entrainedMass)*rate+dt*(drive-{0,850*previous[2]}))/(14+entrainedMass+dt*350);
     lean:=previous+dt*velocity;
   end standingRig;
   input Real traffic[4,9] "Active, east, north, yaw, east/north velocity, yaw rate, height, hull type (0 sloop, 1 Hobie, 2 cruiser)";
@@ -445,7 +448,15 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     +(feet[1]*cos(footCut)-spans[1]*mainMastSlope)^2)+.012;
   Real leechDelta[3],leechDirection[3],leechLength,leechLoad,leechLift;
   Real blockContact,mainTension,jibTension;
-  Real jibTrimTarget;
+  Real jibTrimTarget,jibReach,jibDepower,apparentWindAngle;
+  parameter Real mastRotationStop(unit="rad")=1.02 "Estimated travel to the stops at the mast step";
+  output Real mastRotation(start=.17,fixed=true,unit="rad") "Rotation of the spar on its ball joint";
+  Real mastRotationRate(start=0,fixed=true),mastTrackOffset[3],boomCompression,mastTwist;
+  final parameter Real gooseneckEccentricity(unit="m")=.042;
+  final parameter Real bailFromGooseneck=attachRadius[1]-(if catamaran then gooseneckEccentricity else 0)
+    "Bail reach measured from the track rather than the mast axis";
+  parameter Real standingRigMass(unit="kg")=16 "Estimated weight of the mast, boom and sail rig";
+  Real rigGravityMoment[3];
   output Real exposedSheetSag[3] "Free-span deflection with excess line retained on deck";
   parameter Real stayEA(unit="N")=520000,shroudPreload(unit="N")=220;
   final parameter Real sideStayX=-.30;
@@ -561,7 +572,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   output Real sheetRotation[2,3,3] "Sail frame to hull frame";
   SailMembrane cloth[2](each attachedAirflow=catamaran,telltaleCount={if catamaran then 3 else 2,2},
     battenEI={{3.2,19.2},{1.6,3.0}},telltaleRows={if catamaran then {3,5,9} else {2,3,5},{2,4,5}},cutAngle={footCut,0},footInTrack={catamaran,false},each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={spans[1]*mainMastSlope,spans[2]*jibLuffSlope});
-  Real rotation[3,3],rig[2,3,3],trim[2](each start=.17,each fixed=true), waterRelative[3],spin[3],origin[2,3];
+  Real rotation[3,3],rig[2,3,3],trim[2](each start=.17,each fixed=true) "Boom sweep and jib angle";
+  Real waterRelative[3],spin[3],origin[2,3];
   Real pitchRate(start=launchPitchRate,fixed=true),rigMoment[2,3],rigForce[2,3],surfaceNormal[3];
   output Real sailVertex[2,24,3],wettedArea[2],leechSpeed[2],sailMoment[3];
   Real ve,vn,awx,awy,beta,fx,fy;
@@ -898,7 +910,8 @@ equation
   awx=(sailWind[1]-ve)*cos(heading)+(sailWind[2]-vn)*sin(heading);
   awy=-(sailWind[1]-ve)*sin(heading)+(sailWind[2]-vn)*cos(heading);
   beta=atan2(-awy,-awx);
-  sheetTarget=(if sin(vane)>=0 then 1 else -1)*min(1.40,max(0,abs(atan2(sin(vane),cos(vane)))-0.32));
+  apparentWindAngle=abs(atan2(sin(vane),cos(vane)));
+  sheetTarget=(if sin(vane)>=0 then 1 else -1)*min(1.40,max(0,apparentWindAngle-.32));
   boomLimit=2*asin(min(0.99,max(0,payout/(2*sheetArm))));
   lineSpeed=if rightingSide<>0 then max(0,min(.65,(.59-payout)/.22))
     elseif manualHelm>.5 then .24*trimInput else max(-.40,min(.40,(autoPayout+(if tacticalCourse[1]>.5 then .51*(1-tacticalCourse[3]) else 0)-payout)/.22));
@@ -935,9 +948,14 @@ equation
   mainCarResponse=.38-.28*mainCarEasing;
   der(mainCar)=if catamaran then max(-mainCarRate,min(mainCarRate,mainCarError/mainCarResponse)) else 0;
   der(jibCar)=if catamaran then max(-.40,min(.40,(min(.88,max(.18,jibCarTarget))-jibCar)/.38)) else 0;
+  // Headsail trim follows the apparent wind. Easing the main alone keeps the
+  // working jib sheet engaged, with some extra release for a deliberate dump.
+  jibReach=min(1,max(0,(apparentWindAngle-.75)/1.75));
+  jibDepower=max(0,min(1,(payout-.16)/.43));
   jibTrimTarget=if rightingSide<>0 then 1
-    elseif jibAssistSide<>0 or ((tackRecovery==1 or tackRecovery==2) and deckManual<.5) then .07 elseif manualHelm>.5 then min(1,max(0,(payout-.012)/.578+
-    (if deckManual>.5 then jibTrimInput-.35 else 0))) elseif deckManual>.5 then jibTrimInput else (1-poweredReach)*min(1,abs(sheetTarget)/1.5)+.21*poweredReach;
+    elseif jibAssistSide<>0 or ((tackRecovery==1 or tackRecovery==2) and deckManual<.5) then .07
+    elseif deckManual>.5 then jibTrimInput
+    else min(1,.050+.47*jibReach+.14*jibDepower^2);
   der(jibSheet)=if catamaran then max(-.7,min(.7,(jibTrimTarget-jibSheet)/.5)) else 0;
   sheet=trim[1];
   fairlead[1,:]=if catamaran then {travelerPinX-footX[1],mainCar,travelerDeckZ+travelerRiser-footZ[1]}
@@ -982,7 +1000,20 @@ equation
   end for;
   mainBlockClearance=max(0,lineSpan[1]-blockStack);
   blockContact=if catamaran and lineSpan[1]<blockStack then max(0,240000*(blockStack-lineSpan[1])-240*lineRate[1]) else 0;
-  gooseneckOffset={mainMastSlope*tackDrop,0,-tackDrop};
+  // The gooseneck slides along the rear mast track, with a separate yaw
+  // hinge for the boom. Compression at that offset can over-rotate the spar.
+  mastTrackOffset=if catamaran then -gooseneckEccentricity*{
+    axisX[1]^2+(1-axisX[1]^2)*cos(mastRotation),axisZ[1]*sin(mastRotation),
+    axisX[1]*axisZ[1]*(1-cos(mastRotation))} else zeros(3);
+  gooseneckOffset={mainMastSlope*tackDrop,0,-tackDrop}+mastTrackOffset;
+  boomCompression=max(0,sheetForce[1,:]*sheetRotation[1,:,1]);
+  mastTwist=trim[1]-mastRotation;
+  der(mastRotation)=if catamaran then mastRotationRate else 0;
+  der(mastRotationRate)=if catamaran then
+    ((4+.002*downhaulTension-gooseneckEccentricity*boomCompression)*sin(mastTwist)
+      -.028*awy*sqrt(awx^2+awy^2)-3.4*mastRotationRate
+      -220*(max(0,mastRotation-mastRotationStop)+min(0,mastRotation+mastRotationStop)))/.19
+    else 0;
   mainGooseneck={footX[1],0,footZ[1]}+gooseneckOffset;
   mainBlockPins[1,:]={footX[1],0,footZ[1]}+fairlead[1,:];
   mainBlockPins[2,:]={footX[1],0,footZ[1]}+attachment[1,:];
@@ -991,7 +1022,7 @@ equation
       (feet[1]+boomTailOverhang)*sin(boomElevation)-boomSectionBottom*cos(boomElevation)};
   // The endpoint displacement used by the leech is the same one used to
   // anchor the cloth. The raked axis carries the axial part of the load.
-  leechDelta=mastStations[7,:]-mainGooseneck-sheetRotation[1,:,:]*
+  leechDelta=mastStations[7,:]+mastTrackOffset-mainGooseneck-sheetRotation[1,:,:]*
     {-clewArm*cos(boomElevation),0,clewArm*sin(boomElevation)};
   leechLength=sqrt(leechDelta*leechDelta);
   leechDirection=leechDelta/leechLength;
@@ -1028,11 +1059,15 @@ equation
   forestayTension=standingTension[4];
   jibHalyardTension=standingTension[3];
   mastRake=atan2(mastStep[1]-standingPaths[3,3,1],standingPaths[3,3,3]-mastStep[3]);
+  // The rig's weight acts aft of the ball joint. Its moment tends to
+  // rake the mast back when the jib luff wire is let out.
+  rigGravityMoment=if catamaran then cross(.54*(tang+{tangLean[1],tangLean[2],0}-mastStep)
+    +sheetRotation[1,:,:]*{-.19,0,0},standingRigMass*(transpose(rotation)*{0,0,-9.80665})) else zeros(3);
   when sample(0,.01) then
     (tangLean,tangRate,standingPaths,standingTension,standingStiffness,midSag,midSagRate)=standingRig(stayAnchors,tang,
       pre(tangLean),pre(tangRate),if catamaran then pre(mainMomentBody) else zeros(3),
       if catamaran then pre(jibWireLoad) else zeros(3),pre(contactBody),transpose(rotation)*{0,0,-9.80665},.01,stayEA,shroudPreload,.5*sum(pre(rigWaterMass)),pre(midSag),pre(midSagRate),
-      transpose(rotation)*{awx,awy,-vertical},halyardSetting);
+      transpose(rotation)*{awx,awy,-vertical},halyardSetting,pre(rigGravityMoment));
   end when;
   mastStations[1,:]=mastStep;
   jibStation=cloth[2].rowLuff*spans[2]/(tang[3]-stayAnchors[3,3]);
@@ -1053,7 +1088,7 @@ equation
   for row in 1:cloth[1].rows loop
     cloth[1].luffShift[row,:]=if catamaran then transpose(sheetRotation[1,:,:])*(
       mastDeflection(cloth[1].rowLuff[row],stayFraction,mastTip,mainMastSlope,tangLean,lowerMastBow)
-      +gooseneckOffset*(1-cloth[1].rowLuff[row])) else zeros(3);
+      +gooseneckOffset*(1-cloth[1].rowLuff[row])+mastTrackOffset*cloth[1].rowLuff[row]) else zeros(3);
   end for;
   mastStations[8,:]=mastStations[7,:]+(podZ-footZ[1]-spans[1])*
     ({-mainMastSlope,0,1}+{tangLean[1],tangLean[2],0}/(tang[3]-footZ[1])+mastTip*mastHeadSlope*{1,0,mainMastSlope});
@@ -1110,13 +1145,14 @@ equation
   sailVertex[1,:,:]=cloth[1].legacyVertex;
   sailVertex[2,:,:]=cloth[2].legacyVertex;
   for m in 1:2 loop
-    tipLocal[m,:]=if m==1 then {-attachRadius[m]*cos(boomElevation)-mainBailDrop*sin(boomElevation),0,
-      attachRadius[m]*sin(boomElevation)-mainBailDrop*cos(boomElevation)}
+    tipLocal[m,:]=if m==1 then {-bailFromGooseneck*cos(boomElevation)-mainBailDrop*sin(boomElevation),0,
+      bailFromGooseneck*sin(boomElevation)-mainBailDrop*cos(boomElevation)}
       else {-attachRadius[m],0,0};
     attachment[m,:]=sheetRotation[m,:,:]*tipLocal[m,:]+(if m==1 then gooseneckOffset else zeros(3));
     tipVel[m,:]=cross(trimRate[m]*{axisX[m],0,axisZ[m]},sheetRotation[m,:,:]*tipLocal[m,:])+
       (if m==1 then sheetRotation[m,:,:]*cross({0,boomLiftRate,0},tipLocal[m,:])+
-        der(tackDrop)*{mainMastSlope,0,-1} else zeros(3));
+        der(tackDrop)*{mainMastSlope,0,-1}+mastRotationRate*cross({axisX[1],0,axisZ[1]},mastTrackOffset)
+        else zeros(3));
     rigWaterMass[m]=1025*.04*wettedArea[m];
     hingeWaterInertia[m]=rigWaterMass[m]*feet[m]^2/6;
     der(trim[m])=trimRate[m];

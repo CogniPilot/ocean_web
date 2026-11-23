@@ -353,10 +353,13 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
  function rod(a,b,r,mat,parent=group){a=new T.Vector3(...a);b=new T.Vector3(...b);const d=b.clone().sub(a);const m=mesh(new T.CylinderGeometry(r,r,d.length(),10),mat,parent);m.position.copy(a).lerp(b,.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return m;}
  let vane,drum,rudder,otherRudder,carriage,crossTiller,rightingLine;
  let jibHalyard,stayEyes,staySleeves;
- const deckCars=[],sheets=[],sheetBlocks=[],podParts=[],streamers=[],staySegments=[];
- const sideStays=[],chainplates=[];
+ const deckCars=[],sheets=[],sheetBlocks=[],podParts=[],streamers=[];
+ const stayCables=[],chainplates=[];
  const jibTackZ=.87,jibTackX=2.26-(jibTackZ-.75)*1.82/5.1;
- let mastGeometry,mastRest,mastWeights;
+ let mastGeometry,mastRest,mastRestNormal,mastWeights,mastHeel,gooseneckSlider;
+ const mastAxis=new T.Vector3(-Math.sin(.112),0,Math.cos(.112));
+ const mastQuaternion=new T.Quaternion();
+ const mastSection=new T.Vector3();
  const braids=new Map();
  function braidedCover(color){
    if(braids.has(color))return braids.get(color);
@@ -376,22 +379,21 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
  const stayUp=new T.Vector3(0,1,0);
  const connectorPose=new T.Matrix4(),connectorRotation=new T.Quaternion(),connectorAxis=new T.Vector3();
  const connectorScale=new T.Vector3(1,1,1),terminationLength=.064;
- function setForestaySegment(part,start,end){
-   const segment=staySegments[part],direction=tangent.subVectors(end,start);
-   segment.scale.y=direction.length()/segment.geometry.parameters.height;
-   segment.position.copy(start).lerp(end,.5);
-   segment.quaternion.setFromUnitVectors(stayUp,direction.normalize());
- }
  const side=new T.Vector3(),tangent=new T.Vector3(),binormal=new T.Vector3();
  const cableChord=new T.Vector3(),cableSag=new T.Vector3(),cableCenter=new T.Vector3(),cablePolar=new T.Vector3();
  const stayAnchor=new T.Vector3(),stayMid=new T.Vector3(),stayHead=new T.Vector3();
- const cableRings=13;
- function updateSidestay(index,anchor,mid,head){
-   const {position,normal}=sideStays[index].geometry.attributes;
+ const cableRings=25;
+ function updateStay(index,anchor,mid,head){
+   const {position,normal}=stayCables[index].geometry.attributes;
    cableChord.subVectors(head,anchor);
+   const length=cableChord.length();
+   if(length<.001)return;
+   // Interpolate the cable through the two pins and the Modelica sag point.
+   // The quadratic is straight under tension and smooth through the midpoint.
    cableSag.copy(mid).sub(cableCenter.copy(anchor).lerp(head,.50));
-   const inset=terminationLength/cableChord.length();
-   for(let end=0;end<2;end++){
+   const isSidestay=index<2;
+   const inset=isSidestay?terminationLength/length:0;
+   if(isSidestay)for(let end=0;end<2;end++){
      connectorAxis.copy(cableChord).addScaledVector(cableSag,end?-4:4).normalize();
      if(end)connectorAxis.negate();
      connectorRotation.setFromUnitVectors(stayUp,connectorAxis);
@@ -416,7 +418,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
      }
    }
    position.needsUpdate=normal.needsUpdate=true;
-   chainplates[index].position.copy(anchor);
+   if(isSidestay)chainplates[index].position.copy(anchor);
    streamers[index]?.position.copy(anchor).addScaledVector(cableChord,.28).addScaledVector(cableSag,4*.28*.72);
  }
  function sheetRope(color){
@@ -496,11 +498,6 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    }
    function installStay(index,anchor){
      const head=[-.168,0,5.85],mid=head.map((value,i)=>(value+anchor[i])/2);
-     if(index===2){
-       const lower=rod(anchor,mid,.003,pin),upper=rod(mid,head,.003,pin);
-       lower.name=upper.name='Forestay';staySegments.push(lower,upper);
-       return;
-     }
      const geometry=new T.BufferGeometry(),indices=[];
      for(const attribute of ['position','normal'])
        geometry.setAttribute(attribute,new T.BufferAttribute(new Float32Array(3*cableRings*ropeSides),3).setUsage(T.DynamicDrawUsage));
@@ -509,9 +506,14 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
        indices.push(a,b,b+ropeSides,a,b+ropeSides,a+ropeSides);
      }
      geometry.setIndex(indices);
-     const cable=mesh(geometry,jacket);
-     cable.name=index===0?'Port sidestay':'Starboard sidestay';cable.frustumCulled=false;
-     sideStays[index]=cable;
+     const isSidestay=index<2;
+     const cable=mesh(geometry,isSidestay?jacket:stainless);
+     cable.name=['Port sidestay','Starboard sidestay','Forestay'][index];cable.frustumCulled=false;
+     stayCables[index]=cable;
+     if(!isSidestay){
+       updateStay(index,stayAnchor.fromArray(anchor),stayMid.fromArray(mid),stayHead.fromArray(head));
+       return;
+     }
      const plate=new T.Group();plate.name=cable.name+' chainplate';group.add(plate);chainplates[index]=plate;
      const flange=new T.Mesh(new T.BoxGeometry(.123,.040,.013),stainless);
      flange.position.z=-.216;plate.add(flange);
@@ -531,7 +533,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
      }
      const clevis=new T.Mesh(new T.CylinderGeometry(.0042,.0042,.021,12),stainless);
      plate.add(clevis);
-     updateSidestay(index,stayAnchor.fromArray(anchor),stayMid.fromArray(mid),stayHead.fromArray(head));
+     updateStay(index,stayAnchor.fromArray(anchor),stayMid.fromArray(mid),stayHead.fromArray(head));
      stayEyes.instanceMatrix.needsUpdate=staySleeves.instanceMatrix.needsUpdate=true;
    }
    const hulls=vehicleShell('hobie-hulls');
@@ -581,11 +583,47 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    rightingLine.name='Hobie righting line';
    rightingLine.visible=false;
    const mastLength=8.07,mastStepZ=.41;
-   mastGeometry=new T.CylinderGeometry(.043,.043,mastLength,10,32);
-   mastGeometry.rotateX(Math.PI/2);mastGeometry.translate(.44,0,mastStepZ+mastLength/2);
-   mesh(mastGeometry,black).name='Hobie mast';
-   const positions=mastGeometry.attributes.position;
+   mastGeometry=new T.CylinderGeometry(1,1,mastLength,14,32);
+   mastGeometry.rotateX(Math.PI/2);
+   mastGeometry.translate(0,0,mastStepZ+mastLength/2);
+   const positions=mastGeometry.attributes.position,normals=mastGeometry.attributes.normal;
+   const finish=new Float32Array(positions.count*3);
+   for(let i=0;i<positions.count;i++){
+     const x=positions.getX(i),y=positions.getY(i);
+     // The extrusion is broad at the nose and narrows into the aft track.
+     positions.setXY(i,.009+.055*x,.039*y*(.80+.26*x));
+     if(Math.abs(normals.getZ(i))<.5){
+       const nx=.039*(x*(.80+.26*x)-.26*y*y),ny=.055*y;
+       const length=Math.hypot(nx,ny);
+       normals.setXYZ(i,nx/length,ny/length,0);
+     }
+     const tint=x<-.96?.46:x<-.88?.78:1;
+     finish.fill(tint,3*i,3*i+3);
+   }
+   mastGeometry.setAttribute('color',new T.BufferAttribute(finish,3));
+   const castAlloy=new T.MeshStandardMaterial({color:0x898981,roughness:.64,metalness:.46});
+   const step=mesh(new T.CylinderGeometry(.078,.093,.038,18).rotateX(Math.PI/2),castAlloy);
+   step.position.set(.44,0,mastStepZ+.011);
+   step.name='Cast mast step and stops';
+   const rim=mesh(new T.TorusGeometry(.057,.012,8,18),castAlloy,step);
+   rim.position.z=.021;
+   const bearing=mesh(new T.CylinderGeometry(.045,.045,.006,18).rotateX(Math.PI/2),paint(0xe6e3d8),step);
+   bearing.position.z=.024;
+   for(const sign of [-1,1]){
+     const stop=mesh(new T.BoxGeometry(.038,.022,.024),castAlloy,step);
+     stop.position.set(-.019,sign*.066,.030);stop.rotation.z=-sign*.19;
+   }
+   mastHeel=mesh(new T.SphereGeometry(.042,14,8).scale(1.22,.86,.68),castAlloy);
+   mastHeel.name='Rotating mast heel';
+   const heelStop=mesh(new T.BoxGeometry(.033,.027,.020),castAlloy,mastHeel);
+   heelStop.position.x=-.047;
+   gooseneckSlider=mesh(new T.BoxGeometry(.023,.028,.060),stainless);
+   gooseneckSlider.name='Sliding gooseneck';
+   const mastFinish=black.clone();mastFinish.vertexColors=true;
+   mesh(mastGeometry,mastFinish).name='Hobie mast';
    mastRest=positions.clone();
+   mastRestNormal=normals.clone();
+   positions.setUsage(T.DynamicDrawUsage);normals.setUsage(T.DynamicDrawUsage);
    // This interpolates the six luff nodes reported by the cloth FMU.
    mastWeights=Array.from({length:positions.count},(_,i)=>Math.min(5,Math.max(0,(positions.getZ(i)-.97)*5/7.36)));
    const lower=new T.Group(),casing=deckHardware(T,false,.50*blockStack);
@@ -725,13 +763,13 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    inspection.mastStations=mastStations;
    if(stayPath){
      for(let i=0;i<2;i++){
-       updateSidestay(i,stayAnchor.fromArray(stayPath,9*i),stayMid.fromArray(stayPath,9*i+3),
+       updateStay(i,stayAnchor.fromArray(stayPath,9*i),stayMid.fromArray(stayPath,9*i+3),
          stayHead.fromArray(stayPath,9*i+6));
      }
      const loose=geometry?.forestay;
      const forestay=loose??stayPath,offset=loose?0:18;
-     setForestaySegment(0,stayAnchor.fromArray(forestay,offset),stayMid.fromArray(forestay,offset+3));
-     setForestaySegment(1,stayMid,stayHead.fromArray(forestay,offset+6));
+     updateStay(2,stayAnchor.fromArray(forestay,offset),stayMid.fromArray(forestay,offset+3),
+       stayHead.fromArray(forestay,offset+6));
      stayEyes.instanceMatrix.needsUpdate=staySleeves.instanceMatrix.needsUpdate=true;
    }
    for(let i=0;i<streamers.length;i++){
@@ -830,11 +868,16 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
      }
    });
    if(mastGeometry){
-     const pos=mastGeometry.attributes.position;
+     const {position,normal}=mastGeometry.attributes;
+     const rotation=Number.isFinite(geometry?.mastRotation)
+       ?mastQuaternion.setFromAxisAngle(mastAxis,geometry.mastRotation):sails[0].pivot.quaternion;
+     gooseneckSlider.visible=Boolean(gooseneck);
+     if(gooseneck)gooseneckSlider.position.fromArray(gooseneck);
+     gooseneckSlider.quaternion.copy(rotation);
      let headX,headY,headZ=podHeight;
      if(mastStations){
        const last=mastStations.length-3;
-       for(let i=0;i<pos.count;i++){
+       for(let i=0;i<position.count;i++){
          const height=mastRest.getZ(i);
          let a=0;
          while(a+3<last&&mastStationHeights[a/3+1]<height)a+=3;
@@ -842,22 +885,30 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
          const t=T.MathUtils.clamp((height-lower)/(upper-lower),0,1);
          const x=T.MathUtils.lerp(mastStations[a],mastStations[b],t);
          const y=T.MathUtils.lerp(mastStations[a+1],mastStations[b+1],t);
-         pos.setX(i,mastRest.getX(i)-podX+x);
-         pos.setY(i,mastRest.getY(i)+y);
-         pos.setZ(i,T.MathUtils.lerp(mastStations[a+2],mastStations[b+2],t));
+         const z=T.MathUtils.lerp(mastStations[a+2],mastStations[b+2],t);
+         mastSection.set(mastRest.getX(i),mastRest.getY(i),0).applyQuaternion(rotation);
+         position.setXYZ(i,x+mastSection.x,y+mastSection.y,z+mastSection.z);
        }
+       mastHeel.position.fromArray(mastStations);mastHeel.position.z+=.031;
        headX=mastStations[last];headY=mastStations[last+1];headZ=mastStations[last+2];
      }else{
        const bend=Array.from({length:6},(_,r)=>s[186]*s[42+12*r]+s[187]*s[43+12*r]);
        const lateral=Array.from({length:6},(_,r)=>s[189]*s[42+12*r]+s[190]*s[43+12*r]);
-       for(let i=0;i<pos.count;i++){
+       for(let i=0;i<position.count;i++){
          const w=mastWeights[i],lo=Math.floor(w),hi=Math.min(5,lo+1);
-         pos.setX(i,mastRest.getX(i)+T.MathUtils.lerp(bend[lo],bend[hi],w-lo));
-         pos.setY(i,mastRest.getY(i)+T.MathUtils.lerp(lateral[lo],lateral[hi],w-lo));
+         mastSection.set(mastRest.getX(i),mastRest.getY(i),0).applyQuaternion(rotation);
+         position.setXYZ(i,podX+T.MathUtils.lerp(bend[lo],bend[hi],w-lo)+mastSection.x,
+           T.MathUtils.lerp(lateral[lo],lateral[hi],w-lo)+mastSection.y,mastRest.getZ(i)+mastSection.z);
        }
+       mastHeel.position.set(.44,0,.474);
        headX=podX+bend[5];headY=lateral[5];
      }
-     pos.needsUpdate=true;
+     mastHeel.quaternion.copy(rotation);
+     for(let i=0;i<normal.count;i++){
+       mastSection.fromBufferAttribute(mastRestNormal,i).applyQuaternion(rotation);
+       normal.setXYZ(i,mastSection.x,mastSection.y,mastSection.z);
+     }
+     position.needsUpdate=normal.needsUpdate=true;
      const dx=headX-pod.position.x,dy=headY-pod.position.y,dz=headZ-pod.position.z;
      for(const part of podParts){part.position.x+=dx;part.position.y+=dy;part.position.z+=dz;}
      for(const port of cameraPorts){port[0]+=dx;port[1]+=dy;port[2]+=dz;}

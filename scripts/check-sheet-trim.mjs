@@ -16,5 +16,6 @@ function hold(command){
 }
 const eased=hold(1),hauled=hold(-1);
 assert(hauled.main<eased.main&&hauled.jib<eased.jib);
+assert(eased.jib<.35, "Releasing the main in this wind does not fully ease the automatic jib");
 assert(Math.max(...eased.sag,...hauled.sag)<.12);
 console.log({eased,hauled});

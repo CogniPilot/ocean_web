@@ -255,6 +255,7 @@ async function run(saved=readReset(),carried){
   };
   const positionText=(cm,positive,negative)=>cm===0?'Centered':Math.abs(cm)+' cm '+(cm>0?positive:negative);
   const hasRigGeometry=cat&&sailingRigFields.every(name=>model.has(name));
+  const hasMastRotation=cat&&model.has("mastRotation");
   const sailPanels=cat?readSailPanels(model):null;
   const hasClothPanels=Boolean(sailPanels);
   const verticesFields=sailPanelFields.map(fields=>fields[3]);
@@ -2464,7 +2465,7 @@ async function run(saved=readReset(),carried){
       const s=observedBoat,subFrame=sub?.frame;
       const wind=model?[model.get('windEast'),model.get('windNorth')]:[windField.get('localEast'),windField.get('localNorth')];
       const focus=s??world.get('focus');
-      let extra;
+      let extra,mastRotation;
       if(s){
         const [ballastX,ballastY,k,direction,amplitude,phase,mainCar,jibCar,ve,vn,yawRate,sag,vang]=model.getMany(
           ['ballastX','ballastY','swellK','swellBearing','swellAmplitude','swellPhase','mainCar','jibCar','ve','vn','yawRate','exposedSheetSag',cat?'downhaulTension':'vangTension']);
@@ -2489,9 +2490,10 @@ async function run(saved=readReset(),carried){
             }
           }
         }
+        mastRotation=hasMastRotation?model.get('mastRotation'):undefined;
         extra=[cat?ballastX:0,cat?ballastY:0,mainCar,jibCar,ve,vn,yawRate,0];
         if(t!==meshTime){
-          const geometry={rig:hasRigGeometry?model.getMany(sailingRigFields):null,
+          const geometry={mastRotation,rig:hasRigGeometry?model.getMany(sailingRigFields):null,
             forestay:cat&&model.has('forestayPath')?model.get('forestayPath'):null,
             cloth:hasClothPanels?model.getMany(verticesFields):null};
           boat.update(s,ballast,cat?[mainCar,jibCar]:null,sag,cat?model.get('shroudTail'):null,
@@ -2588,7 +2590,7 @@ async function run(saved=readReset(),carried){
         if(imagingActive())imagingPing(now,pose,ocean.sampleSurface,visitors.fish,visitors.contacts);
         if(!animalId)$('readout').textContent=motor.starterRemaining>1e-6?'Starting engine…':Math.round(engine[0])+' rpm · '+(knotsPerMetrePerSecond*engine[1]).toFixed(1)+' kn';
       }
-      remote.frame(now,s,cat,extra,sub?.mesh,drone?.group,animalId?selectedRole:targetSelect.value,lamp?.visible,drone,motor?.group,motorState,roomTime);
+      remote.frame(now,s,cat,extra,sub?.mesh,drone?.group,animalId?selectedRole:targetSelect.value,lamp?.visible,drone,motor?.group,motorState,roomTime,mastRotation);
       updateEncounter(now,t,roomTime,running);
       reportFleet(now);
       if(motor)motorDisplay.apply(motor.group,t,now,running);

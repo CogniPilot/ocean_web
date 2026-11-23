@@ -36,7 +36,8 @@ self.onmessage=async({data})=>{
         model.advance(.05);
       }
       frames.push({id:racer.id,data:readRacerFrame(model),
-        forestay:model.has('boat.forestayPath')?model.get('boat.forestayPath'):undefined});
+        forestay:model.has('boat.forestayPath')?model.get('boat.forestayPath'):undefined,
+        mastRotation:model.has('boat.mastRotation')?model.get('boat.mastRotation'):undefined});
     }
     self.postMessage({frames});
   }catch(error){self.postMessage({error:error.message});}
