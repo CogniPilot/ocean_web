@@ -13,8 +13,7 @@ export function readRacerFrame(model){
 
 export const racerFrameSize=523;
 
-export function drawRacerFrame(boat,before,after,blend,time){
-  const interpolated=new Float64Array(racerFrameSize);
+export function drawRacerFrame(boat,before,after,blend,time,interpolated=new Float64Array(racerFrameSize)){
   for(let i=0;i<interpolated.length;i++)interpolated[i]=before[i]+blend*(after[i]-before[i]);
   const part=(from,to)=>interpolated.subarray(from,to);
   const state=part(14,221);

@@ -6,7 +6,7 @@ import {cabinCruiser} from './motorboat.mjs';
 import {remoteDroneMesh} from './drone.mjs';
 import {vesselNpcNames} from './npc-room.mjs';
 import {nextFleetStart} from './npc-hobie-race.mjs';
-import {drawRacerFrame} from './npc-sailing-frame.mjs';
+import {drawRacerFrame,racerFrameSize} from './npc-sailing-frame.mjs';
 import {startGate} from './sailing-start.mjs';
 
 // Non-racing patrols remain on the common sea clock.
@@ -32,25 +32,45 @@ function dispose(group){
   for(const resource of [...geometries,...materials,...textures])resource.dispose();
 }
 
-export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish){
+export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,incidentSea){
   const craft=new Map(),sailRigs=new Map(),wind=new T.Vector2(),contacts=new Float64Array(45),tilts=new Float64Array(10);
   const cruisers=[];
-  let worker,awaiting=false,lastUpdate,plannerSession;
+  const planners=new Map();
+  // Reserve capacity for the world worker and the renderer. Small devices
+  // can share a worker across several boats while larger ones get one each.
+  const plannerLimit=Math.max(1,Math.min(5,(navigator.hardwareConcurrency||4)-2));
+  let plannerSession;
   function stopPlanner(){
-    worker?.terminate();worker=null;awaiting=false;lastUpdate=undefined;
+    for(const {worker} of planners.values())worker.terminate();
+    planners.clear();
+  }
+  function createPlanner(slot){
+    const worker=new Worker(new URL('./npc-sailing-worker.mjs',import.meta.url),{type:'module'});
+    const planner={worker,awaiting:false,time:undefined};
+    const fail=error=>{
+      if(planners.get(slot)!==planner)return;
+      worker.terminate();planners.delete(slot);onError(error);
+    };
+    worker.onmessage=({data})=>{
+      if(planners.get(slot)!==planner)return;
+      if(data.error){fail(Error(data.error));return;}
+      planner.awaiting=false;
+      room.publishVessels(data.frames);
+    };
+    worker.onerror=event=>fail(Error(event.message));
+    planners.set(slot,planner);
+    return planner;
   }
   addEventListener('pagehide',stopPlanner,{once:true});
   function stepPilots(rows,utc,time,nearby){
     if(!room.host||!rows.some(row=>row.kind==='hobie')){
-      if(worker)stopPlanner();
+      if(planners.size)stopPlanner();
       return;
     }
     if(plannerSession!==room.session){stopPlanner();plannerSession=room.session;}
-    if(awaiting||lastUpdate!==undefined&&time-lastUpdate<.10)return;
-    const step=lastUpdate===undefined?1:Math.max(1,Math.min(4,Math.round((time-lastUpdate)/.05)));
-    lastUpdate=time;
+    const sea=incidentSea?.();
     const prevailing=race.get('windBearing'),upwind=prevailing+Math.PI,course=[Math.cos(upwind),Math.sin(upwind)];
-    const side=[-course[1],course[0]],racers=[],traffic=[];
+    const side=[-course[1],course[0]],groups=new Map(),traffic=[];
     function contact(id,pose,tilt){traffic.push({id,pose,tilt});}
     const [z,roll,pitch]=race.get('launchPose');
     contact('committee',[1,race.get('committeeEast'),race.get('committeeNorth'),upwind,0,0,0,z,3],[roll,-pitch]);
@@ -67,29 +87,36 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish)
         const north=previous?.[1]??(startGate.gateNorth+side[1]*lane-approach*Math.sin(heading));
         windAt(east,north,wind);
         const yaw=previous?.[3]??heading,dx=Math.cos(yaw),dy=Math.sin(yaw);
-        const seaRoll=Math.atan((surface(east-dy,north+dx)-surface(east+dy,north-dx))*.5);
-        const seaPitch=-Math.atan((surface(east+dx,north+dy)-surface(east-dx,north-dy))*.5);
-        racers.push({id:entry.pilotId,raceStart,water:surface(east,north),roll:seaRoll,pitch:seaPitch,wind:[wind.x,wind.y],
-          initial:{...startGate,prevailing,lane,initialEast:east,initialNorth:north,initialHeading:previous?.[3]??heading,initialSpeed:previous?.[4]??2.1,initialPenalty:previous?.[12]??0}});
+        const seaRoll=sea?0:Math.atan((surface(east-dy,north+dx)-surface(east+dy,north-dx))*.5);
+        const seaPitch=sea?0:-Math.atan((surface(east+dx,north+dy)-surface(east-dx,north-dy))*.5);
+        const slot=index%plannerLimit;
+        if(!groups.has(slot))groups.set(slot,[]);
+        groups.get(slot).push({id:entry.pilotId,raceStart,water:sea?.tide??surface(east,north),roll:seaRoll,pitch:seaPitch,wind:[wind.x,wind.y],
+          initial:{...startGate,prevailing,lane,initialEast:east,initialNorth:north,initialHeading:yaw,initialSpeed:previous?.[4]??2.1,initialPenalty:previous?.[12]??0}});
         if(previous)contact(entry.pilotId,[1,east,north,previous[3],previous[5],previous[6],previous[7],previous[2],1],previous.slice(18,20));
       }else{
         const offset=index*9;
         if(contacts[offset]>.5)contact(key,Array.from(contacts.slice(offset,offset+9)),Array.from(tilts.slice(index*2,index*2+2)));
       }
     });
-    if(!worker){
-      const current=new Worker(new URL('./npc-sailing-worker.mjs',import.meta.url),{type:'module'});
-      worker=current;
-      current.onmessage=({data})=>{
-        if(worker!==current)return;
-        awaiting=false;
-        if(data.error){stopPlanner();onError(Error(data.error));return;}
-        room.publishVessels(data.frames);
-      };
-      current.onerror=event=>{if(worker===current){stopPlanner();onError(Error(event.message));}};
+    for(const [slot,planner] of planners){
+      if(!groups.has(slot)){
+        planner.worker.terminate();planners.delete(slot);
+      }
     }
-    awaiting=true;
-    worker.postMessage({racers,utc,step,traffic});
+    for(const [slot,racers] of groups){
+      const planner=planners.get(slot)??createPlanner(slot);
+      if(planner.awaiting)continue;
+      planner.time??=time-.10;
+      // Advance to the same clock without dropping ticks when one reply is
+      // briefly late. Bound catch-up batches so a slow browser can recover.
+      planner.time=Math.max(planner.time,time-.35);
+      const step=Math.min(4,Math.floor((time-planner.time+1e-7)/.05));
+      if(step<2)continue;
+      planner.time+=.05*step;
+      planner.awaiting=true;
+      planner.worker.postMessage({racers,utc:utc-(time-planner.time),step,traffic,sea});
+    }
   }
   function rig(kind){
     if(!sailRigs.has(kind)){
@@ -159,7 +186,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish)
     craft.delete(id);
   };
   function attachView(bindings){
-    ({scene,surface,windAt,race,onError,onFinish}=bindings);
+    ({scene,surface,windAt,race,incidentSea,onError,onFinish}=bindings);
     for(const entry of craft.values())if(entry.visual)scene.add(entry.visual.group);
   }
   return {contacts,tilts,cruisers,attachView,draw(rows,time,utc,displayUtc,nearby){
@@ -179,10 +206,15 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish)
           continue;
         }
         if(snapshot!==entry.snapshot){
-          entry.prior=entry.snapshot??snapshot;entry.snapshot=snapshot;entry.received=displayUtc;
+          entry.prior??=new Float64Array(racerFrameSize);
+          entry.shown??=Float64Array.from(snapshot);
+          entry.prior.set(entry.shown);
+          const interval=entry.received===undefined?.10:Math.max(.08,Math.min(.55,displayUtc-entry.received));
+          entry.interval=entry.interval===undefined?interval:.35*entry.interval+.65*interval;
+          entry.snapshot=snapshot;entry.received=displayUtc;
         }
         if(visual)visual.group.visible=true;
-        const blend=Math.max(0,Math.min(1,(displayUtc-entry.received)/.10));
+        const blend=Math.max(0,Math.min(1,(displayUtc-entry.received)/entry.interval));
         const mix=i=>entry.prior[i]+blend*(snapshot[i]-entry.prior[i]);
         east=mix(0);north=mix(1);heading=mix(3);speed=mix(4);orbit=12;
         const [stage,elapsed,lapTime,heatStart,penalty,turnDegrees]=snapshot.slice(8,14);
@@ -193,7 +225,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish)
           onFinish(i+1,row,status);
         }
         if(visual){
-          const state=drawRacerFrame(visual.boat,entry.prior,snapshot,blend,time);
+          const state=drawRacerFrame(visual.boat,entry.prior,snapshot,blend,time,entry.shown);
           contacts.set([1,state[0],state[1],state[2],mix(5),mix(6),mix(7),state[3],1],i*9);
           tilts.set([state[4],state[5]],i*2);
           visual.group.userData.orbitDistance=orbit;

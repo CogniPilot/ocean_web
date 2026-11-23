@@ -1095,14 +1095,25 @@ async function run(saved=readReset(),carried){
     $('spawnResult').textContent=message;
     spawnFeedbackTimer=setTimeout(()=>delete button.dataset.state,2000);
   }
-  const npcSurface=(x,y)=>ocean.sampleSurface(x,y,true);
+  const npcSurface=(x,y)=>ocean.sampleSurface(x,y);
+  function npcIncidentSea(){
+    const tile=world?.get('boatWater.tile'),omega=world?.get('swellOmega');
+    if(!tile||!Number.isFinite(omega))return undefined;
+    let swell=world.get('swell');
+    if(model){
+      const [amplitude,phase,k,bearing,east,north]=model.getMany(['swellAmplitude','swellPhase','swellK','swellBearing','east','north']);
+      const x=k*Math.cos(bearing),y=k*Math.sin(bearing);
+      swell=[amplitude,phase-east*x-north*y,x,y];
+    }
+    return {tile,tide:world.get('boatWater.tide'),swell:[...swell,omega]};
+  }
   const npcError=reason=>{if(!signal.aborted)showSpawnResult('error',reason.message);};
   function syncNpcVessels(rows){
     const menu=$('cameraDepth');
     if(rows.length&&!npcTraffic&&!npcTrafficLoad){
       npcTrafficLoad=import('./npc-vessels.mjs').then(({vesselTraffic})=>{
         if(signal.aborted)return;
-        npcTraffic=vesselTraffic(T,scene,npcSurface,ocean.sampleWind,race,remote.npc,npcError,laps.observeNpc);
+        npcTraffic=vesselTraffic(T,scene,npcSurface,ocean.sampleWind,race,remote.npc,npcError,laps.observeNpc,npcIncidentSea);
       }).catch(reason=>{npcError(reason);npcTrafficLoad=undefined;});
     }
     while(npcCamCount>rows.length){
@@ -1725,7 +1736,7 @@ async function run(saved=readReset(),carried){
   if(carried){
     remote.attachView({scene,status:$('online'),weather,crew:$('crew'),laps,onImagingHit:playImagingHit,chat});
     chatLog.append(...carried.chatMessages);
-    npcTraffic?.attachView({scene,surface:npcSurface,windAt:ocean.sampleWind,race,onError:npcError,onFinish:laps.observeNpc});
+    npcTraffic?.attachView({scene,surface:npcSurface,windAt:ocean.sampleWind,race,incidentSea:npcIncidentSea,onError:npcError,onFinish:laps.observeNpc});
     if(carried.online&&!remote.connected)multiplayer(true);
     else{
       multiplayerButton.setAttribute('aria-pressed',String(carried.online));

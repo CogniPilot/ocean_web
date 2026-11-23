@@ -82,7 +82,7 @@ export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
    refineBows:hasBoat&&mode!=='sloop',
    optionalInputs:['animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
-   optionalOutputs:['wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame',...inertiaOutputs,
+   optionalOutputs:['swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame',...inertiaOutputs,
      ...(hasBoat&&mode!=='sloop'?['boat.ballastTrapezeReach','boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins',
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.stationX','boat.beamHalf','boat.pontoonContactVertices','boat.pontoonContactFaces']:[]),

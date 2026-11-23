@@ -2,6 +2,9 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
   parameter Real gateEast=-10,gateNorth=-6.5,lineLength=64,prevailing=Modelica.Constants.pi/2;
   parameter Real lane=0,initialEast=0,initialNorth=0,initialHeading=-.58,initialSpeed=2;
   input Real utc,raceStart,windEast,windNorth,seaHeight,seaRoll,seaPitch;
+  input Real incidentSea=0,seaTide=0,seaTile[32,32]=zeros(32,32);
+  input Real swellSample[5]=zeros(5) "Amplitude, origin phase, east/north wave number and angular frequency";
+  input Real swellSampleTime=0;
   input Real traffic[10,9]=zeros(10,9),trafficTilt[10,2]=zeros(10,2);
   output Real pose[8] "ENU, heading, water-relative speed, EN velocity, yaw rate";
   output Real raceStatus[6] "Stage, elapsed, lap time, heat start, turns owed, degrees through the current turn";
@@ -9,11 +12,12 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
   Real east,north,heading,speed,yawRate;
   Real ve,vn;
   Hobie16 boat(launchEast=initialEast,launchNorth=initialNorth,launchHeading=initialHeading,launchSpeed=initialSpeed,
-    launchHeight=.2,windEast=windEast,windNorth=windNorth,currentEast=.2,currentNorth=.04,
-    waveHeight=seaHeight,waveRoll=seaRoll,wavePitch=seaPitch,orbitalEast=0,orbitalNorth=0,orbitalUp=0,
-    swellAmplitude=0,manualJibAssist=1,reachTrial=0,
-    refinedSectionWater=zeros(2,boat.hydroPanelCount),previousRefinedSectionWater=zeros(2,boat.hydroPanelCount),
-    useSectionWater=0,sectionWater=zeros(2,6),previousWater=zeros(2,6),waterStamp=0,
+    heave(fixed=false),windEast=windEast,windNorth=windNorth,currentEast=.2,currentNorth=.04,
+    waveHeight=background,waveRoll=incidentRoll,wavePitch=incidentPitch,orbitalEast=0,orbitalNorth=0,orbitalUp=0,
+    swellAmplitude=swellSample[1]*incidentSea,swellK=swellNumber,swellOmega=swellFrequency,
+    seaClockOffset= -swellSample[2]/swellFrequency-swellSampleTime,manualJibAssist=1,reachTrial=0,
+    useRefinedSectionWater=true,refinedSectionWater=sectionSample,previousRefinedSectionWater=sectionPrevious,
+    useSectionWater=1,sectionWater=coarseSection,previousWater=coarsePrevious,waterStamp=sectionTime,
     mass=205,ballastMass=60,ballastManual=0,ballastCmdX=0,ballastCmdY=0,
     downhaulInput=.5,outhaulInput=.65,manualHelm=0,rudderInput=0,trimInput=0,vangInput=.5,
     deckManual=0,mainCarInput=0,jibCarInput=0,jibTrimInput=0,
@@ -21,6 +25,28 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
     traffic=traffic[1:4,:],trafficTilt=trafficTilt[1:4,:],sceneTraffic=traffic[5:10,:],
     sceneTilt=trafficTilt[5:10,:],wakeEast=0,wakeNorth=0,wakeYaw=0,droneLoad=race.racerLoad);
   Real upwind,wind,along,across,seconds,pace,markLoad;
+  Real background,incidentRoll,incidentPitch,swellNumber,swellFrequency;
+  Real lateralX,lateralY,forwardX,forwardY,coarseSection[2,6],coarsePrevious[2,6];
+  discrete Real sectionSample[2,boat.hydroPanelCount](each start=0,each fixed=true);
+  discrete Real sectionPrevious[2,boat.hydroPanelCount](each start=0,each fixed=true);
+  discrete Real sectionTime(start=0,fixed=true);
+  function samplePontoons
+    input Real field[32,32],tide,east,north,yaw,roll,pitch,baseHeight,enabled;
+    input Real stations[:];
+    output Real samples[2,size(stations,1)];
+  protected
+    Real c,s,along,across,x,y;
+  algorithm
+    c:=cos(yaw);s:=sin(yaw);
+    for side in 1:2 loop
+      across:=(3-2*side)*1.02*cos(roll);
+      for i in 1:size(stations,1) loop
+        along:=stations[i]*cos(pitch)+(3-2*side)*1.02*sin(roll)*sin(pitch);
+        x:=east+c*along-s*across;y:=north+s*along+c*across;
+        samples[side,i]:=if enabled>.5 then tide+Wreck.Perception.seaHeight(field,x,y) else baseHeight;
+      end for;
+    end for;
+  end samplePontoons;
   discrete Real contactFlag(start=0,fixed=true);
   Real markRange,buoyTraffic[3,9],finishAlong,finishAcross;
   Real goal[2],windward[2],crosswind[2],startLine[2],turnPoint[2],turnHeading;
@@ -34,11 +60,33 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
   discrete Real oldMark(start=0,fixed=true),heatSeen(start=0,fixed=true);
   discrete Boolean turning(start=false,fixed=true),finishReady(start=false,fixed=true);
   Regatta race(utc=utc,raceStart=raceStart,east=east,north=north,finishAllowed=if owed<.5 then 1 else 0,
-    gateEast=gateEast,gateNorth=gateNorth,lineLength=lineLength,windBearing=prevailing,tide=seaHeight,landingReaction=zeros(6),
+    gateEast=gateEast,gateNorth=gateNorth,lineLength=lineLength,windBearing=prevailing,tide=background,landingReaction=zeros(6),
     wakeTile=zeros(64,64),backgroundTile=zeros(32,32),driftEast=0,driftNorth=0,swellHeight=0,
     racerState={1,heading,boat.heel,boat.pitch,boat.heave,ve,vn,yawRate,boat.vertical,boat.rollRate,boat.pitchRate},
     hullStations={-2.520,-1.9,-.9,.15,1.12,1.95,2.520},hullWidths={.09,.156,.185,.184,.155,.093,.009},hullOffset=1.02);
+initial equation
+  boat.heave=background+.17+swellSample[1]*incidentSea*
+    sin(swellSample[2]+swellSample[3]*initialEast+swellSample[4]*initialNorth);
 equation
+  swellNumber=max(.0001,sqrt(swellSample[3]^2+swellSample[4]^2));
+  swellFrequency=max(.0001,swellSample[5]);
+  forwardX=cos(heading);forwardY=sin(heading);lateralX=-forwardY;lateralY=forwardX;
+  background=if incidentSea>.5 then seaTide+Wreck.Perception.seaHeight(seaTile,east,north) else seaHeight;
+  incidentRoll=if incidentSea>.5 then atan(.5*(Wreck.Perception.seaHeight(seaTile,east+lateralX,north+lateralY)
+    -Wreck.Perception.seaHeight(seaTile,east-lateralX,north-lateralY))) else seaRoll;
+  incidentPitch=if incidentSea>.5 then -atan(.5*(Wreck.Perception.seaHeight(seaTile,east+forwardX,north+forwardY)
+    -Wreck.Perception.seaHeight(seaTile,east-forwardX,north-forwardY))) else seaPitch;
+  for h in 1:2 loop
+    for j in 1:6 loop
+      coarseSection[h,j]=.5*(sectionSample[h,2*j-1]+sectionSample[h,2*j]);
+      coarsePrevious[h,j]=.5*(sectionPrevious[h,2*j-1]+sectionPrevious[h,2*j]);
+    end for;
+  end for;
+  when sample(0,.10) then
+    sectionSample=samplePontoons(seaTile,seaTide,east,north,heading,boat.heel,boat.pitch,seaHeight,incidentSea,boat.hydroStationGeometry[:,1]);
+    sectionPrevious=if initial() then sectionSample else pre(sectionSample);
+    sectionTime=time;
+  end when;
   east=boat.east;north=boat.north;heading=boat.heading;speed=boat.surge;yawRate=boat.yawRate;
   ve=boat.ve;vn=boat.vn;
   contact=cat(1,boat.peerContact,boat.sceneContact);
