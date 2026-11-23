@@ -72,10 +72,15 @@ try{
   assert(ghost.getObjectByName('RDD2 rotor 0').rotation.z>0);
   assert.deepEqual(Array.from(observer.drones[0].rotorSpeeds),aircraft.rotorSpeeds);
   assert.deepEqual(Array.from(observer.rotorWakes([1,2,6],start+63).slice(8,12)),aircraft.rotorSpeeds);
+  assert.equal(observer.droneContacts([1,2,7],start+63)[0],0,'Ignore coincident spawns');
+  assert.equal(observer.droneContacts([1,2,6],start+63)[0],1,'A distinct nearby player arms drone contacts');
+  assert.deepEqual(Array.from(observer.droneContacts([1.21,2,7],start+63).slice(0,8)),[1,1,2,7,1,0,0,0]);
   draw(start+3600);
   assert(ghost.visible,'A delayed snapshot must not hide a connected peer');
   assert.equal(observer.drones.length,0);
   assert.equal(observer.rotorWakes([1,2,6],start+3600)[0],0,'A frozen visual must not emit stale downwash');
+
+  assert.equal(observer.droneContacts([1,2,7],start+3600)[0],0,'Stale poses must not produce contact');
 
   const receiver=networks.get('observer');
   receiver.onPeerLeave('pilot');
@@ -88,6 +93,7 @@ try{
   receiver.actions.get('sail-pose').onMessage(new Uint8Array(fresh.buffer),{peerId:'pilot'});
   draw(performance.now()+130);
   assert.equal(ghost.position.x,4,'Accept a new sender clock after reconnect');
+  assert.equal(observer.droneContacts([4,2,6],performance.now()+130)[0],1,'A stopped drone remains collidable');
   const stopped=ghost.getObjectByName('RDD2 rotor 0').rotation.z;
   draw(performance.now()+160);
   assert.equal(ghost.getObjectByName('RDD2 rotor 0').rotation.z,stopped,'Zero RPM must stop the visual props');

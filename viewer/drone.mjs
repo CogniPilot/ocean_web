@@ -45,6 +45,7 @@ export async function surveyDrone(T,scene,world){
   scene.add(group);
   const hasNavigation=flight.has('estimatedPosition'),hasRotorSpeeds=flight.has('rotorSpeed');
   const hasRotorWake=world?.hasRotorWake??flight.has('rotorWakeTraffic');
+  const hasDroneContact=world?.hasDroneContact??flight.has('droneTraffic');
   const rotorFields=['aircraft.thrustCoefficient_N_s2','aircraft.hoverRotorSpeed_rad_s','aircraft.omegaMax','propellerRadius'];
   const wakeGeometry=rotorFields.every(name=>flight.has(name))?{hubs,parameters:flight.getMany(rotorFields)}:null;
   const bladeCount=flight.has('aircraft.bladeCount')?flight.get('aircraft.bladeCount'):2;
@@ -70,12 +71,13 @@ export async function surveyDrone(T,scene,world){
     const sigma=v=>Math.sqrt(Math.max(0,v));
     return {position:position.map(sigma),velocity:velocity.map(sigma),wind:sigma(wind)};
   }
-  return {group,instruments,hasNavigation,covariance,bladeCount,hasRotorWake,wakeGeometry,
+  return {group,instruments,hasNavigation,covariance,bladeCount,hasRotorWake,hasDroneContact,wakeGeometry,
     contactGeometry(){
       const names=['droneContactParts','droneContactFaces'];
       return names.every(name=>flight.has(name))?flight.getMany(names):null;
     },
     wakeSources(rows){if(hasRotorWake)flight.set('rotorWakeTraffic',rows);},
+    contactTraffic(rows){if(hasDroneContact)flight.set('droneTraffic',rows);},
     wakeLoad(){return flight.has('rotorWakeWrench')?flight.getMany(['rotorWakeWind','rotorWakeWrench']):null;},
     wakeSource(){
       if(!hasRotorSpeeds)return null;

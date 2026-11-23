@@ -191,9 +191,9 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
     ({scene,surface,windAt,race,incidentSea,onError,onFinish}=bindings);
     for(const entry of craft.values())if(entry.visual)scene.add(entry.visual.group);
   }
-  const droneWakes=[];
-  return {contacts,tilts,cruisers,droneWakes,attachView,draw(rows,time,utc,displayUtc,nearby){
-    contacts.fill(0);tilts.fill(0);cruisers.length=0;droneWakes.length=0;
+  const droneWakes=[],droneContactRows=[];
+  return {contacts,tilts,cruisers,droneWakes,droneContactRows,attachView,draw(rows,time,utc,displayUtc,nearby){
+    contacts.fill(0);tilts.fill(0);cruisers.length=0;droneWakes.length=0;droneContactRows.length=0;
     for(const [id,entry] of craft){
       const row=rows[Number(id.slice(4))-1];
       if(!row||row.started!==entry.started||row.kind!==entry.kind||row.raceId!==entry.raceId)remove(id,entry);
@@ -283,6 +283,10 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       if(row.kind==='drone'){
         const {w,x,y,z:up}=visual.group.quaternion;
         droneWakes.push([2,east,north,z,w,x,y,up,0,0,0,0]);
+        const [a,b]=routes.drone.radius,rate=speed/(.5*(a+b));
+        const ve=-a*Math.sin(angle)*rate,vn=b*Math.cos(angle)*rate,vu=1.6*Math.cos(2*angle)*rate;
+        const yawRate=a*b*rate**3/(ve**2+vn**2);
+        droneContactRows.push([1,east,north,z,w,x,y,up,ve,vn,vu,0,0,yawRate]);
       }
       visual.animate?.(time,speed,heading);
       visual.group.userData.orbitDistance=orbit;

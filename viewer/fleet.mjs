@@ -535,6 +535,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       }else if(peer.awaitingPose){
         peer.awaitingPose=false;
         peer.timeline=new PeerTimeline();
+        peer.droneContactArmed=false;
         peer.rotorSpeedSample=peer.rotorAudio=null;
         if(kind==='drone')peer.rotorTimeline=new PeerTimeline(0);
       }
@@ -722,6 +723,48 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     nearby.sort((a,b)=>a.distance2-b.distance2).slice(0,4).forEach(({row},i)=>rotorWakeRows.set(row,12*i));
     return rotorWakeRows;
   }
+  const droneContactRows=new Float64Array(4*14);
+  const contactPosition=new T.Vector3(),contactTarget=new T.Vector3();
+  const contactRotation=new T.Quaternion(),contactTurn=new T.Quaternion();
+  function droneContacts(position,now,patrols=[]){
+    const nearby=[];
+    function add(row){
+      const distance2=(row[1]-position[0])**2+(row[2]-position[1])**2+(row[3]-position[2])**2;
+      if(distance2<2.25)nearby.push({row,distance2});
+    }
+    for(const row of patrols)add(row);
+    for(const peer of peers.values()){
+      if(peer.kind!=='drone'||peer.leftAt!==undefined||peer.awaitingPose||peer.timeline.age(now)>650)continue;
+      const {left,right,fraction}=peer.timeline.at(now);
+      contactPosition.fromArray(left,225).lerp(contactTarget.fromArray(right,225),fraction);
+      const distance2=(contactPosition.x-position[0])**2+(contactPosition.y-position[1])**2+
+        (contactPosition.z-position[2])**2;
+      // Clients can start at the same coordinates. Enable contact once they
+      // have separated so the overlapping initial poses produce no impact.
+      if(distance2>.60**2)peer.droneContactArmed=true;
+      if(!peer.droneContactArmed||distance2>=2.25)continue;
+      contactRotation.fromArray(left,228).normalize().slerp(contactTurn.fromArray(right,228).normalize(),fraction);
+      const {x,y,z}=contactPosition,{w,x:qx,y:qy,z:qz}=contactRotation;
+      const latest=peer.timeline.latest,prior=peer.timeline.samples.at(-2);
+      const from=left===right?prior?.data:left,to=left===right?latest.data:right;
+      const dt=from&&(to[215]>0&&from[215]>0?to[215]-from[215]:(latest.sent-(prior?.sent??latest.sent))*.001);
+      let ve=0,vn=0,vu=0,we=0,wn=0,wu=0;
+      if(dt>.005&&dt<.5){
+        ve=(to[225]-from[225])/dt;vn=(to[226]-from[226])/dt;vu=(to[227]-from[227])/dt;
+        if(Math.hypot(ve,vn,vu)>40)ve=vn=vu=0;
+        contactTurn.fromArray(to,228).normalize().multiply(contactRotation.fromArray(from,228).normalize().invert());
+        const {x,y,z,w}=contactTurn,norm=Math.hypot(x,y,z);
+        if(norm>1e-7){
+          const rate=Math.min(30,2*Math.atan2(norm,Math.abs(w))/dt)*Math.sign(w||1)/norm;
+          we=x*rate;wn=y*rate;wu=z*rate;
+        }
+      }
+      add([1,x,y,z,w,qx,qy,qz,ve,vn,vu,we,wn,wu]);
+    }
+    droneContactRows.fill(0);
+    nearby.sort((a,b)=>a.distance2-b.distance2).slice(0,4).forEach(({row},i)=>droneContactRows.set(row,14*i));
+    return droneContactRows;
+  }
   const deck=new Float64Array(14);
   function nearbyDeck(east,north,now){
     let nearest,limit=10;
@@ -815,5 +858,5 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   }
   return {join,leave,recover:()=>room?.recover(),setResetHandler,resetFleet,frame,sendChat,sendEncounter,receiveEncounter,recordFinish,fleetNumber,playerName,npcName,raceWinner:finishes.get,hostCruiser:()=>peers.get(npc.owner)?.cruiser,detachView,attachView,resumeClock,get connected(){return Boolean(room);},get peerCount(){return participants.size;},setPenalty(turns){
     if(ourPenalty!==turns){ourPenalty=turns;lastPenaltySend=-Infinity;}
-  },lamps,cruisers,drones,imagingHit,contacts,rotorWakes,nearbyDeck,npc,vessels,players,contactPeers,contactTilts,get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
+  },lamps,cruisers,drones,imagingHit,contacts,rotorWakes,droneContacts,nearbyDeck,npc,vessels,players,contactPeers,contactTilts,get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
 }

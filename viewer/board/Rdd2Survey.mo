@@ -84,15 +84,17 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
       end for;
     end if;
   end rotorWake;
-  parameter Real bedHeight=-13.71, displacedVolume=.0012 "Flooded vehicle displacement [m3]";
+  parameter Real bedHeight=-13.71, displacedVolume=0 "Flooded vehicle displacement [m3]";
   parameter Real waterDragArea=.075,bodyHeight=.16;
   input Real motorCut,waterLevel,currentENU[3];
   output Real immersed;
   Real waterSlip[3],waterLoad[3];
+  input Real droneTraffic[4,14]=zeros(4,14) "Active, ENU position, WXYZ quaternion, ENU linear and angular velocity";
+  discrete output Real droneContactWrench[6](each start=0,each fixed=true) "Drone contact force and moment in ENU";
   Vehicles.Rdd2.Plant aircraft(initialGroundClearance_m=4.9-bedHeight,groundAltitude=bedHeight,
     windWorld=windENU+rotorWakeWind,exposedFraction=1-immersed,
-    fluidForceWorld=waterLoad+deckWrench[1:3]+sailWrench[1:3]+(1-immersed)*rotorWakeWrench[1:3],
-    contactMomentWorld=deckWrench[4:6]+sailWrench[4:6]+(1-immersed)*rotorWakeWrench[4:6]);
+    fluidForceWorld=waterLoad+deckWrench[1:3]+sailWrench[1:3]+droneContactWrench[1:3]+(1-immersed)*rotorWakeWrench[1:3],
+    contactMomentWorld=deckWrench[4:6]+sailWrench[4:6]+droneContactWrench[4:6]+(1-immersed)*rotorWakeWrench[4:6]);
 
   input Real deckEnabled,deckState[12];
   input Real sailDeckEnabled,sailDeckState[12],isCatamaran;
@@ -100,6 +102,164 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
   output Real deckWrench[12] "World force and torque on drone then launch";
   final parameter Real droneContactParts[9,8,3]=Shore.droneParts();
   final parameter Integer droneContactFaces[12,3]=Shore.boxFaces();
+
+  function contactAxis "Signed interval gap and B-to-A normal on one separating axis"
+    input Real a[8,3],b[8,3],axis[3];
+    output Real test[4];
+  protected
+    Real norm2,n[3],p[8],q[8],forward,backward;
+  algorithm
+    norm2:=axis*axis;
+    test:={-1e3,0,0,0};
+    if norm2>1e-16 then
+      n:=axis/sqrt(norm2);
+      p:=a*n;
+      q:=b*n;
+      forward:=min(p)-max(q);
+      backward:=min(q)-max(p);
+      test:=if forward>=backward then cat(1,{forward},n) else cat(1,{backward},-n);
+    end if;
+  end contactAxis;
+
+  function convexPartGap "Separating axis test for two closed airframe mesh components"
+    input Real a[8,3],b[8,3];
+    input Integer faces[12,3];
+    output Real best[4];
+  protected
+    constant Integer edges[12,2]=[1,2;1,3;1,5;2,4;2,6;3,4;3,7;4,8;5,6;5,7;6,8;7,8];
+    Real test[4],edge[3],vertices[8,3];
+    Integer k;
+  algorithm
+    best:={-1e3,0,0,0};
+    for body in 1:2 loop
+      vertices:=if body==1 then a else b;
+      // Each quad face in Shore.boxFaces contributes one independent plane.
+      for i in 1:6 loop
+        k:=2*i-1;
+        test:=contactAxis(a,b,cross(vertices[faces[k,2],:]-vertices[faces[k,1],:],
+          vertices[faces[k,3],:]-vertices[faces[k,1],:]));
+        if test[1]>best[1] then
+          best:=test;
+        end if;
+        if best[1]>=0 then
+          return;
+        end if;
+      end for;
+    end for;
+    for i in 1:12 loop
+      edge:=a[edges[i,2],:]-a[edges[i,1],:];
+      for j in 1:12 loop
+        test:=contactAxis(a,b,cross(edge,b[edges[j,2],:]-b[edges[j,1],:]));
+        if test[1]>best[1] then
+          best:=test;
+        end if;
+        if best[1]>=0 then
+          return;
+        end if;
+      end for;
+    end for;
+  end convexPartGap;
+
+  function contactSupport
+    input Real vertices[8,3],direction[3];
+    output Real point[3];
+  protected
+    Real projection[8],support;
+    Integer count;
+  algorithm
+    projection:=vertices*direction;
+    support:=max(projection);
+    point:=zeros(3);
+    count:=0;
+    for i in 1:8 loop
+      if support-projection[i]<1e-6 then
+        point:=point+vertices[i,:];
+        count:=count+1;
+      end if;
+    end for;
+    point:=point/count;
+  end contactSupport;
+
+  function droneMeshContacts "Compliant contact forces and moments from nearby RDD2 mesh components"
+    input Real traffic[4,14],position[3],quaternion[4],velocity[3],bodyRate[3],parts[9,8,3];
+    input Integer faces[12,3];
+    output Real wrench[6];
+  protected
+    Real ownRotation[3,3],peerRotation[3,3],relative[3],partA[9,8,3],partB[9,8,3],boundsA[9,2,3],boundsB[9,2,3];
+    Real candidate[4],gap,normal[3],contact[3],force[3],moment[3],reaction[3],reactionMoment[3];
+    Integer partI,partJ;
+    Boolean ready,separated;
+    MultiBodyLie.Collision.ContactPoint point;
+    MultiBodyLie.Collision.Material material(k=2000,d=.55,mu=.32,eps=.0003,v_eps=.08);
+  algorithm
+    wrench:=zeros(6);
+    ready:=false;
+    for peer in 1:4 loop
+      relative:=traffic[peer,2:4]-position;
+      ready:=ready or (traffic[peer,1]>.5 and relative*relative<.69^2);
+    end for;
+    if not ready then return; end if;
+    ownRotation:=transpose(MultiBodyLie.Math.quaternionToT(quaternion));
+    partA:=zeros(9,8,3);
+    boundsA:=zeros(9,2,3);
+    for i in 1:9 loop
+      for j in 1:8 loop
+        partA[i,j,:]:=ownRotation*parts[i,j,:];
+      end for;
+      for k in 1:3 loop
+        boundsA[i,1,k]:=min(partA[i,:,k]);
+        boundsA[i,2,k]:=max(partA[i,:,k]);
+      end for;
+    end for;
+    for peer in 1:4 loop
+      relative:=traffic[peer,2:4]-position;
+      if traffic[peer,1]>.5 and relative*relative<.69^2 then
+        peerRotation:=transpose(MultiBodyLie.Math.quaternionToT(traffic[peer,5:8]));
+        partB:=zeros(9,8,3);
+        boundsB:=zeros(9,2,3);
+        for i in 1:9 loop
+          for j in 1:8 loop
+            partB[i,j,:]:=relative+peerRotation*parts[i,j,:];
+          end for;
+          for k in 1:3 loop
+            boundsB[i,1,k]:=min(partB[i,:,k]);
+            boundsB[i,2,k]:=max(partB[i,:,k]);
+          end for;
+        end for;
+        gap:=0;
+        normal:=zeros(3);
+        partI:=1;
+        partJ:=1;
+        for i in 1:9 loop
+          for j in 1:9 loop
+            separated:=false;
+            for k in 1:3 loop
+              separated:=separated or boundsA[i,1,k]>boundsB[j,2,k] or boundsB[j,1,k]>boundsA[i,2,k];
+            end for;
+            if not separated then
+              candidate:=convexPartGap(partA[i,:,:],partB[j,:,:],faces);
+              if candidate[1]<gap then
+                gap:=candidate[1];
+                normal:=candidate[2:4];
+                partI:=i;
+                partJ:=j;
+              end if;
+            end if;
+          end for;
+        end for;
+        if gap<0 then
+          // The strongest contact per airframe pair avoids counting overlapping
+          // mounting pieces as extra stiffness.
+          contact:=.5*(contactSupport(partA[partI,:,:],-normal)+contactSupport(partB[partJ,:,:],normal));
+          gap:=max(-.065,gap);
+          point:=MultiBodyLie.Collision.ContactPoint(gap,normal,contact+.5*gap*normal,contact-relative-.5*gap*normal);
+          (force,moment,reaction,reactionMoment):=MultiBodyLie.Collision.pairWrenches(point,velocity,ownRotation*bodyRate,
+            traffic[peer,9:11],traffic[peer,12:14],material);
+          wrench:=wrench+cat(1,force,moment);
+        end if;
+      end if;
+    end for;
+  end droneMeshContacts;
 
   function pointBoxGap "Exact signed gap to the faces of a triangulated box"
     input Real p[3],lo[3],hi[3];
@@ -356,6 +516,10 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
 equation
   deckWrench=landingContact(deckEnabled,deckState,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts,0);
   sailWrench=landingContact(sailDeckEnabled,sailDeckState,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts,if isCatamaran>.5 then 1 else 2);
+  when sample(0,.01) then
+    droneContactWrench=droneMeshContacts(droneTraffic,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,
+      aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts,droneContactFaces);
+  end when;
   position=aircraft.truth.positionWorldEnu_m+{origin[1],origin[2],0};
   quaternion=aircraft.truth.quaternionWorldBody;
   immersed=min(1,max(0,.5+(waterLevel-position[3])/bodyHeight));

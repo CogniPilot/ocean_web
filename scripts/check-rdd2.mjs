@@ -41,8 +41,30 @@ for(let i=0;i<8500;i++){
 }
 const bottom=sinking.get('position')[2];
 console.log({lowest,bottom});
+assert.equal(sinking.get('displacedVolume'),0);
 assert(Math.abs(bottom+13.61)<.03 && lowest>-13.71);
 assert(sinking.get('immersed')>.99 && Math.max(...sinking.get('rotorSpeed'))<.01);
+
+// Immersion alone must shut down the rotors, even with the hover controller active.
+const flooded=await loadInstance('Rdd2Survey',{waterLevel:5.25},async u=>new Response(await readFile(u)));
+for(let i=0;i<1200;i++)flooded.advance(.005);
+assert(flooded.get('immersed')>.99 && flooded.get('position')[2]<3);
+assert(Math.max(...flooded.get('rotorSpeed'))<.01);
+
+// A near miss produces no force. A closing airframe transmits force and moment.
+const contact=await loadInstance('Rdd2Survey',{},async u=>new Response(await readFile(u)));
+for(const offset of [.4,.26]){
+  const [east,north,up]=contact.get('position');
+  const traffic=new Float64Array(4*14);
+  traffic.set([1,east+offset,north,up,...contact.get('quaternion'),-1,0,0,0,0,0]);
+  contact.set('droneTraffic',traffic);
+  contact.advance(.005);contact.advance(.005);
+  const wrench=contact.get('droneContactWrench');
+  if(offset===.4)assert.deepEqual(wrench,[0,0,0,0,0,0]);
+  else assert(wrench[0]<-1&&Math.hypot(...wrench.slice(3))>.01);
+}
+for(let i=0;i<10;i++)contact.advance(.005);
+assert(contact.get('aircraft.truth.velocityWorldEnu_m_s')[0]<-.1,'Contact must push the physical drone away');
 
 // Track a moving survey station across a rotating 8–14 m/s wind.
 const follower=await loadInstance('Rdd2Survey',{pilot:0,stationEast:-5,stationNorth:0,windENU:[10,4,0]},

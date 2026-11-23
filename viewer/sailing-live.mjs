@@ -2361,6 +2361,7 @@ async function run(saved=readReset(),carried){
           if(!omitWake)world.set('peerWake',visitors.wakes(sources));
         }
         if(drone?.hasRotorWake)drone.wakeSources(remote.rotorWakes(drone.position,now,npcTraffic?.droneWakes));
+        if(drone?.hasDroneContact)drone.contactTraffic(remote.droneContacts(drone.position,now,npcTraffic?.droneContactRows));
         if(mode==='flight'&&drone){
           const [east,north]=drone.position;
           world.set('peerDeck',remote.nearbyDeck(east,north,now));
@@ -2418,6 +2419,7 @@ async function run(saved=readReset(),carried){
       const deadline=performance.now()+8;
       if(!world)acc=Math.min(acc,.1);
       if(!world&&drone?.hasRotorWake)drone.wakeSources(remote.rotorWakes(drone.position,now,npcTraffic?.droneWakes));
+      if(!world&&drone?.hasDroneContact)drone.contactTraffic(remote.droneContacts(drone.position,now,npcTraffic?.droneContactRows));
       while(running&&!world&&acc>=.01&&performance.now()<deadline){
         // One in-flight step. A slower device can display and accept controls
         // while the worker finishes, without dropping or reordering hull samples.
