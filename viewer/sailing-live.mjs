@@ -108,6 +108,11 @@ function vehicleLink(url,choice){
   else if(choice==='hobie')link.searchParams.set('boat','Hobie16');
   return link;
 }
+function joinRoomLink(url,room){
+  url.searchParams.set('room',room);
+  url.searchParams.set('join','1');
+  return url;
+}
 async function chooseVehicle(){
   const dialog=$('vehiclePicker');
   dialog.addEventListener('cancel',event=>event.preventDefault());
@@ -143,6 +148,7 @@ async function run(saved=readReset(),carried){
     url=vehicleLink(url,await chooseVehicle());
     history.replaceState(history.state,'',url);
   }
+  const joinRoomOnLoad=url.searchParams.has('room')&&url.searchParams.get('join')==='1';
   const requestedHull=url.searchParams.get('boat');
   const mobile=matchMedia('(pointer: coarse)').matches;
   const selector=$('quality');
@@ -432,12 +438,14 @@ async function run(saved=readReset(),carried){
   const goBelow=$('goBelow'),anchorSwitch=$('anchorSwitch'),anchorReadout=$('anchorReadout'),wiperSwitch=$('wiperSwitch');
   let anchorLowered=cruiserRuntime?.anchorLowered??false;
   const cabinView=$('cabinControls'),cabinLight=$('cabinLight'),cabinRadio=$('cabinRadio'),integrityDisplay=$('cruiserIntegrity');
+  const radioState=$('cabinRadioState'),radioStatus=$('cabinRadioStatus');
   const cabinLook={yaw:0,pitch:0};
   const radioLocation=new URL('./assets/audio/spanish-ladies-radio.mp3',import.meta.url);
   const cruiserLampControls=['searchLamp','keelLamp','cameraKeelLamp'].map($);
   const encounterVariables=['encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage'];
   const targetData=new Float64Array(24*7),targetIds=Array(24).fill(null);
   let radio=cruiserRuntime?.radio,placeRadio=cruiserRuntime?.placeRadio,cabinLit=cruiserRuntime?.cabinLit??false;
+  let radioRequested=cruiserRuntime?.radioRequested??false,radioCommand=0;
   let cruiserPowerLost=false,encounterStarted=cruiserRuntime?.started??false,encounterSession=cruiserRuntime?.session;
   let encounterFrame,lastImpact=cruiserRuntime?.lastImpact??0,lastHostCruiser;
   const cruiserSunk=(shark,damage)=>damage?.[2]>=2||shark?.[0]===4;
@@ -465,7 +473,7 @@ async function run(saved=readReset(),carried){
   }
   if(backgroundCruiser){
     backgroundCruiser.setCabinLight(cabinLit);
-    backgroundCruiser.setRadio(Boolean(radio&&!radio.paused));
+    backgroundCruiser.setRadio(radioRequested);
   }
   anchorSwitch.onclick=toggleAnchor;
   $('wiperControl').hidden=!motor||!world.hasWiper;
@@ -478,8 +486,9 @@ async function run(saved=readReset(),carried){
     cabinLight.setAttribute('aria-pressed',String(cabinLit));
   }
   function setRadioIndicator(on){
-    motor.setRadio(on);
+    (motor??backgroundCruiser)?.setRadio(on);
     cabinRadio.setAttribute('aria-pressed',String(on));
+    radioState.textContent=on?'On':'Off';
   }
   function prepareCabinRadio(){
     if(radio)return;
@@ -488,33 +497,50 @@ async function run(saved=readReset(),carried){
     radio.loop=true;
     radio.src=radioLocation.href;
   }
-  function toggleRadio(){
+  function stopRadio(){
+    radioCommand++;
+    radioRequested=false;
+    radio?.pause();
+    setRadioIndicator(false);
+    radioStatus.value='';
+  }
+  async function toggleRadio(){
     if(!motor||cruiserPowerLost||cameraMenu.value!=='motorCabin')return;
-    if(radio&&!radio.paused){radio.pause();setRadioIndicator(false);return;}
-    if(!audio.enabled)enableSound();
-    prepareCabinRadio();
-    placeRadio??=audio.connectCabinRadio(radio);
-    placeRadio(motor.cabinObjects.get('radio'),camera);
-    if(!encounterStarted&&mayStartEncounter()&&isEncounterNight()){
-      encounterStarted=true;
-      encounterSession=remote.connected?remote.npc.session:null;
+    if(radioRequested){stopRadio();return;}
+    const command=++radioCommand;
+    radioRequested=true;
+    setRadioIndicator(true);
+    radioStatus.value='Starting…';
+    try{
+      if(!audio.enabled)enableSound();
+      prepareCabinRadio();
+      placeRadio??=audio.connectCabinRadio(radio);
+      placeRadio(motor.cabinObjects.get('radio'),camera);
+      if(radio.error)radio.load();
+      const playback=radio.play();
+      if(!encounterStarted&&mayStartEncounter()&&isEncounterNight()){
+        encounterStarted=true;
+        encounterSession=remote.connected?remote.npc.session:null;
+      }
+      await playback;
+      if(!signal.aborted&&command===radioCommand)radioStatus.value='';
+    }catch(error){
+      if(signal.aborted||command!==radioCommand)return;
+      stopRadio();
+      radioStatus.value='Playback failed. Press Radio to retry.';
+      console.warn('Cabin radio playback unavailable',error);
     }
-    radio.play().then(()=>{
-      if(!signal.aborted)setRadioIndicator(!radio.paused);
-    }).catch(error=>{
-      if(!signal.aborted&&error.name!=='AbortError')console.warn('Cabin radio playback unavailable',error);
-    });
   }
   cabinLight.onclick=()=>{if(motor)toggleCabinLight();};
   cabinRadio.onclick=toggleRadio;
   cleanup(()=>{
     cabinLight.onclick=cabinRadio.onclick=null;
-    if(!preserveCruiser&&radio){radio.pause();if(motor)setRadioIndicator(false);}
+    if(!preserveCruiser&&radio)stopRadio();
   });
   if(motor){
     motor.setCabinLight(cabinLit);
     cabinLight.setAttribute('aria-pressed',String(cabinLit));
-    setRadioIndicator(Boolean(radio&&!radio.paused));
+    setRadioIndicator(radioRequested);
     anchorSwitch.setAttribute('aria-pressed',String(anchorLowered));
     anchorSwitch.textContent=anchorLowered?'Raise anchor':'Lower anchor';
   }
@@ -536,8 +562,7 @@ async function run(saved=readReset(),carried){
     cruiserPowerLost=true;cabinLit=false;
     cruiser.setElectricalPower(false);
     cabinLight.setAttribute('aria-pressed','false');
-    radio?.pause();
-    if(motor)setRadioIndicator(false);
+    stopRadio();
     refreshCabinControls();
   }
   function encounterId(id){
@@ -705,20 +730,23 @@ async function run(saved=readReset(),carried){
     roomName=next;$('invite').textContent='Copy room link';
     if($('multiplayer').getAttribute('aria-pressed')==='true'){
       remote.leave();
-      url.searchParams.set('room',roomName);history.replaceState(history.state,'',url);
+      history.replaceState(history.state,'',joinRoomLink(url,roomName));
       multiplayer(true);
     }
   };
   roomField.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();roomField.blur();}});
   $('multiplayer').onclick=()=>{
     const on=$('multiplayer').getAttribute('aria-pressed')!=='true';
-    if(on)url.searchParams.set('room',roomName);
-    else url.searchParams.delete('room');
+    if(on)joinRoomLink(url,roomName);
+    else{
+      url.searchParams.delete('room');
+      url.searchParams.delete('join');
+    }
     history.replaceState(history.state,'',url);
     multiplayer(on);
   };
   on(window,'pagehide',()=>{lifetime.abort();remote.leave();},{once:true});
-  $('invite').onclick=async()=>{const link=vehicleLink(location.href);link.searchParams.set('room',roomName);
+  $('invite').onclick=async()=>{const link=joinRoomLink(vehicleLink(location.href),roomName);
     try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Multiplayer room link',link.href);}};
   const theme=$('theme'),music=$('music');
   let musicContext,musicGain;
@@ -974,6 +1002,7 @@ async function run(saved=readReset(),carried){
   }
   const viewport=$('view'),pointers=new Map();
   const cabinRay=new T.Raycaster(),cabinPointer=new T.Vector2();
+  const clickSlop=e=>!cabinView.hidden&&e.pointerType!=='mouse'?12:5;
   function pickCabinControl(event){
     if(!motor||animalId)return false;
     const view=cameraMenu.value,below=view==='motorCabin';
@@ -1004,7 +1033,9 @@ async function run(saved=readReset(),carried){
     const pan=e.pointerType==='mouse'&&e.button===2;
     if(e.pointerType==='mouse'&&e.button!==0&&!pan)return;
     if(pan)e.preventDefault();
-    pointers.set(e.pointerId,[e.clientX,e.clientY,pan,e.clientX,e.clientY]);
+    const multiTouch=pointers.size>0;
+    for(const point of pointers.values())point[5]=true;
+    pointers.set(e.pointerId,[e.clientX,e.clientY,pan,e.clientX,e.clientY,multiTouch]);
     viewport.setPointerCapture(e.pointerId);
   };
   viewport.onpointermove=e=>{
@@ -1020,6 +1051,8 @@ async function run(saved=readReset(),carried){
       return;
     }
     if(pointers.size!==1)return;
+    if(!cabinView.hidden&&!previous[5]&&Math.hypot(e.clientX-previous[3],e.clientY-previous[4])<clickSlop(e))return;
+    previous[5]=true;
     const dx=(e.clientX-x)*.008,dy=(e.clientY-y)*.006;
     if(!cabinView.hidden){
       cabinLook.yaw=T.MathUtils.clamp(cabinLook.yaw-dx,-1.55,1.55);
@@ -1038,7 +1071,8 @@ async function run(saved=readReset(),carried){
   viewport.onpointercancel=viewport.onlostpointercapture;
   viewport.onpointerup=e=>{
     const point=pointers.get(e.pointerId);
-    if(point&&!point[2]&&pointers.size===1&&Math.hypot(e.clientX-point[3],e.clientY-point[4])<5)pickCabinControl(e);
+    if(point&&!point[2]&&pointers.size===1&&
+        (cabinView.hidden||!point[5])&&Math.hypot(e.clientX-point[3],e.clientY-point[4])<clickSlop(e))pickCabinControl(e);
     pointers.delete(e.pointerId);
   };
   viewport.onwheel=e=>{
@@ -1600,8 +1634,8 @@ async function run(saved=readReset(),carried){
   function changeVehicle(choice){
     if(signal.aborted)return;
     const link=vehicleLink(url,choice),online=$('multiplayer').getAttribute('aria-pressed')==='true';
-    if(online)link.searchParams.set('room',roomName);
-    else link.searchParams.delete('room');
+    if(online)joinRoomLink(link,roomName);
+    else link.searchParams.delete('join');
     const state=rememberSettings();
     // Camera defaults follow the newly selected model.
     state.view=undefined;state.orbit=undefined;
@@ -1613,7 +1647,7 @@ async function run(saved=readReset(),carried){
       simulation.setAfterAdvance(null);simulation.clearQueued();
       simulation.set('throttleLever',0);simulation.set('helmLever',0);
       Object.assign(cruiserRuntime,{started:encounterStarted,session:encounterSession,cabinLit,anchorLowered,
-        radio,placeRadio,audio,lastImpact});
+        radio,placeRadio,radioRequested,audio,lastImpact});
       if(motor){
         const degrees=Math.PI/180;
         cruiserRuntime.lamps=[Number(cruiserLampControls[0].checked),Number(cruiserLampControls[1].checked),
@@ -1785,7 +1819,7 @@ async function run(saved=readReset(),carried){
     touchControls();
   }
   targetSelect.value=selectedRole;targetSelect.disabled=false;targetSelect.onchange=selectTarget;
-  if(!url.searchParams.has('room'))restoreNpcRoster();
+  if(!joinRoomOnLoad)restoreNpcRoster();
   if(fullWorld||(!packaged&&wreckSurvey))loadDrone().catch(error=>{targetSelect.title=error.message;});
   if(directControls.includes(initialTarget)){
     targetSelect.value=initialTarget;
@@ -2128,7 +2162,7 @@ async function run(saved=readReset(),carried){
       $('invite').hidden=!carried.online;
       updatePlayback();
     }
-  }else if(url.searchParams.has('room'))multiplayer(true);
+  }else if(joinRoomOnLoad)multiplayer(true);
   else updatePlayback();
   let physicsTimer,courseTarget,drawDeadline,appliedRaceStart=0;
   function draw(now){

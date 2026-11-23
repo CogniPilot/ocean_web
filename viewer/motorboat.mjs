@@ -577,14 +577,16 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     const z=cabinRoof(x)-.012;
     cabinPart(new T.BoxGeometry(.024,2*innerBeam(x,z)-.018,.022),ivoryLining,[x,0,z]);
   }
-  const radio=new T.Group();radio.name='Cabin radio';radio.position.set(2.46,.15,.66);cabin.add(radio);
-  cabinPart(roundedSeat(.245,.428,.019),cabinetEdge,[2.49,.15,.518]);
+  const radio=new T.Group();radio.name='Cabin radio';radio.position.set(2.46,.15,.75);cabin.add(radio);
+  cabinPart(roundedSeat(.245,.428,.019),cabinetEdge,[2.49,.15,.608]);
   cabinPart(new T.BoxGeometry(.20,.39,.23),0x332924,[0,0,0],radio);
   cabinPart(new T.BoxGeometry(.013,.354,.197),0x795739,[-.106,0,0],radio);
   for(let i=-3;i<=3;i++)cabinPart(new T.BoxGeometry(.006,.102,.007),0x322e2a,[-.114,.099,.019*i],radio);
   const display=cabinPart(new T.BoxGeometry(.012,.12,.068),0x465150,[-.116,-.074,.037],radio);
   const dial=cabinPart(new T.CylinderGeometry(.039,.039,.026,18),0xc0b58e,[-.119,-.083,-.042],radio);
   dial.rotation.z=Math.PI/2;
+  const radioHitArea=cabinPart(new T.BoxGeometry(.245,.46,.28),0x332924,[-.016,0,0],radio);
+  radioHitArea.visible=false;
   cabinObjects.set('radio',radio);
   const dome=new T.Group();dome.name='Cabin lamp';dome.position.set(2.05,-.11,cabinRoof(2.05)-.02);cabin.add(dome);
   const bezelCabin=cabinPart(new T.CylinderGeometry(.12,.126,.032,32),0x9d8e71,[0,0,0],dome);
