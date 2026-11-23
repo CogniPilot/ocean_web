@@ -70,6 +70,24 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   let selfId,room,action,lastSend=-Infinity,participants=new Set();
   let connectionIssue='';
   const failedPeers=new Map();
+  let resetChannel,resetHandler,pendingReset,lastReset;
+  let resetSequence=0;
+  function setResetHandler(handler){
+    resetHandler=handler;
+    if(handler&&pendingReset!==undefined){
+      const slot=pendingReset;
+      pendingReset=undefined;
+      queueMicrotask(()=>resetHandler===handler&&handler(slot));
+    }
+  }
+  function resetFleet(){
+    if(!resetChannel||!npc.host)return undefined;
+    const sequence=++resetSequence;
+    const order=[selfId,...participants].sort();
+    const sent=Promise.allSettled(order.map((id,slot)=>id===selfId?undefined:
+      resetChannel.send([sequence,slot],{target:id})));
+    return {slot:order.indexOf(selfId),sent};
+  }
   const npc=npcRoom();
   const offlineNumbers=fleetNumbers(String(Math.random()),['you']);
   let numbers=offlineNumbers;
@@ -258,7 +276,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(peer.kind==='boat'||peer.kind==='motorboat'){boatCount--;trafficChanged=true;}
       peers.delete(id);}
   }
-  function leave(){finishes.clear();finishChannel=null;if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();failedPeers.clear();report();}
+  function leave(){resetChannel=null;lastReset=pendingReset=undefined;finishes.clear();finishChannel=null;if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();failedPeers.clear();report();}
   function join(transport,name=roomName,turn={}){
     if(room)return;
     finishes.clear();
@@ -287,6 +305,17 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       report();
     };
     npc.connect(room.makeAction('harbor-npcs'),selfId);
+    resetChannel=room.makeAction('fleet-reset');
+    resetChannel.onMessage=(message,{peerId})=>{
+      if(room!==active||npc.owner!==peerId||!participants.has(peerId)||
+        !Array.isArray(message)||message.length!==2)return;
+      const [sequence,slot]=message;
+      if(!Number.isSafeInteger(sequence)||sequence<1||!Number.isInteger(slot)||slot<0||slot>99||
+        (lastReset?.peerId===peerId&&sequence<=lastReset.sequence))return;
+      lastReset={peerId,sequence};
+      if(resetHandler)resetHandler(slot);
+      else pendingReset=slot;
+    };
     encounterChannel=room.makeAction('shark-scene',{latest:true});
     encounterChannel.onMessage=(rows,{peerId})=>{
       if(room!==active||npc.host||peerId!==npc.owner||!participants.has(peerId))return;
@@ -651,6 +680,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     return result;
   }
   function detachView(){
+    setResetHandler(undefined);
     status=weather=crew=laps=onImagingHit=chat=onFinish=undefined;
   }
   function attachView(bindings){
@@ -669,7 +699,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     if(seaClock)seaClock.offset=phase;
     lastWakeStamp=-Infinity;
   }
-  return {join,leave,recover:()=>room?.recover(),frame,sendChat,sendEncounter,receiveEncounter,recordFinish,fleetNumber,playerName,npcName,raceWinner:finishes.get,hostCruiser:()=>peers.get(npc.owner)?.cruiser,detachView,attachView,resumeClock,get connected(){return Boolean(room);},get peerCount(){return participants.size;},setPenalty(turns){
+  return {join,leave,recover:()=>room?.recover(),setResetHandler,resetFleet,frame,sendChat,sendEncounter,receiveEncounter,recordFinish,fleetNumber,playerName,npcName,raceWinner:finishes.get,hostCruiser:()=>peers.get(npc.owner)?.cruiser,detachView,attachView,resumeClock,get connected(){return Boolean(room);},get peerCount(){return participants.size;},setPenalty(turns){
     if(ourPenalty!==turns){ourPenalty=turns;lastPenaltySend=-Infinity;}
   },lamps,cruisers,drones,imagingHit,contacts,nearbyDeck,npc,vessels,players,contactPeers,contactTilts,get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
 }

@@ -1681,9 +1681,14 @@ async function run(saved=readReset(),carried){
     // Camera defaults follow the newly selected model.
     state.view=undefined;state.orbit=undefined;
     if(choice==='hobie')delete state.toggles.showCompass;
+    const keepCruiser=Boolean(cruiserRuntime&&encounterStarted&&controlsEncounter());
+    restartViewer(link,state,keepCruiser);
+  }
+  function restartViewer(link,state,keepCruiser=false){
+    const online=remote.connected;
     if(animalId)remote.npc.release(animalId);
     const phase=remote.seaTime(world?.time??model.time,performance.now());
-    preserveCruiser=Boolean(cruiserRuntime&&encounterStarted&&controlsEncounter());
+    preserveCruiser=keepCruiser;
     if(preserveCruiser){
       const simulation=cruiserRuntime.world;
       simulation.setAfterAdvance(null);simulation.clearQueued();
@@ -1728,40 +1733,37 @@ async function run(saved=readReset(),carried){
       paused:!running};
   }
   let resetting=false;
-  async function resetSimulation(){
-    if(resetting)return;
+  async function resetSimulation(roomSlot){
+    if(resetting||signal.aborted)return;
     resetting=true;
     const state=rememberSettings();
-    if(remote.npc.host){
-      const roster=remote.npc.roster();
-      if(remote.hasPeers)await Promise.race([resetNpcs(roster),new Promise(resolve=>setTimeout(resolve,800))]);
-      else state.npcs=roster;
+    let slot=roomSlot;
+    if(slot===undefined&&remote.npc.host){
+      const npcReset=resetNpcs(remote.npc.roster());
+      const fleetReset=remote.resetFleet();
+      slot=fleetReset?.slot;
+      await Promise.race([Promise.allSettled([npcReset,fleetReset?.sent]),
+        new Promise(resolve=>setTimeout(resolve,800))]);
     }
     if(model||motor){
       const origin=model?sailingStart(cat):{launchEast:3,launchNorth:-15};
-      const boats=remote.vessels(performance.now()).filter(v=>v.hull);
-      const side=Math.random()<.5?-1:1;
-      for(let attempt=0;attempt<10&&!state.spawn;attempt++){
-        const ring=Math.floor(attempt/2),direction=attempt%2?-side:side;
-        const east=origin.launchEast+(8+Math.random()*6+ring*10)*direction;
-        const north=origin.launchNorth-6-ring*5-Math.random()*8;
-        if(boats.every(v=>Math.hypot(east-v.x,north-v.y)>13))state.spawn={launchEast:east,launchNorth:north};
+      if(slot!==undefined){
+        const column=slot%5-2,row=Math.floor(slot/5);
+        state.spawn={launchEast:origin.launchEast+18*column,launchNorth:origin.launchNorth-8-16*row};
+      }else if(remote.hasPeers){
+        const boats=remote.vessels(performance.now()).filter(v=>v.hull);
+        for(let i=0;i<16&&!state.spawn;i++){
+          const half=Math.ceil(i/2);
+          const east=origin.launchEast+(i%2?1:-1)*half*18;
+          const north=origin.launchNorth-(i>8?16:0);
+          if(boats.every(v=>Math.hypot(east-v.x,north-v.y)>13))state.spawn={launchEast:east,launchNorth:north};
+        }
       }
     }
-    try{sessionStorage.setItem(resetStorage,JSON.stringify(state));}
-    catch(error){console.warn('Unable to save reset settings',error);}
     const target=targetSelect.value;
     const role=gullIndex(target)>=0?'gull':remote.npc.animals.get(target)?.kind??target;
-    if(role!==selectedRole){
-      url.searchParams.delete('demo');
-      url.searchParams.delete('view');
-      if(role==='boat'){
-        url.searchParams.delete('control');
-        url.searchParams.set('boat',vessel);
-      }else url.searchParams.set('control',role);
-      history.replaceState(history.state,'',url);
-    }
-    location.reload();
+    const link=role===selectedRole?url:vehicleLink(url,role==='boat'?(cat?'hobie':'sloop'):role);
+    restartViewer(link,state);
   }
   let loadingDrone,droneScorer,scoredTime=0;
   const flightControl=$('flightMode');
@@ -1996,7 +1998,7 @@ async function run(saved=readReset(),carried){
     if(!halyardControl.hidden)model.set('jibHalyardInput',halyard.valueAsNumber/100);
   };
   halyard.oninput();
-  $('resetSimulation').onclick=resetSimulation;
+  $('resetSimulation').onclick=()=>resetSimulation();
   $('play').onclick=()=>{
     running=!running;
     acc=0;prev=physicsWall=performance.now();
@@ -2212,6 +2214,7 @@ async function run(saved=readReset(),carried){
     }
   }else if(joinRoomOnLoad)multiplayer(true);
   else updatePlayback();
+  remote.setResetHandler(resetSimulation);
   let physicsTimer,courseTarget,drawDeadline,appliedRaceStart=0;
   function draw(now){
     if(signal.aborted)return;
