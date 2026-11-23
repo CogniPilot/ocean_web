@@ -9,7 +9,8 @@ import {hobieNumbers} from './hobie-numbers.mjs';
 import {FleetSeaClock} from './fleet-sea-clock.mjs';
 import {loadVehicleShell,vehicleShell} from './vehicle-assets.mjs';
 import {sailboatMesh} from './board/boat.mjs';
-const relays=['wss://relay.damus.io','wss://nos.lol','wss://relay-rpi.edufeed.org','wss://nostr.tegila.com.br'];
+// Room discovery needs relays that accept and forward anonymous ephemeral Nostr events.
+const relays=['wss://relay.primal.net','wss://relay.ditto.pub','wss://relay.nostr.net','wss://yabu.me/v2'];
 const channels=4;
 const sailFloats=216;
 const packetFloats=sailFloats+16; // two presence flags and two xyz/xyzw poses

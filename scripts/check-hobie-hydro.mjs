@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {alignPontoonSamples} from '../viewer/physics-view.mjs';
 
 const read=async url=>new Response(await readFile(url));
 const root=async path=>import(pathToFileURL(resolve(path,'instance.mjs')));
@@ -101,4 +102,18 @@ for(let panel=0;panel<12;panel++){
   const expected=right===0?.1:right===-1?.6:.1*(right+(x-midpoint[right-1])/(midpoint[right]-midpoint[right-1]));
   assert(Math.abs(water[panel]-expected)<1e-12&&Math.abs(water[panel+12]+expected)<1e-12,
     'The old coarse water inputs interpolate to the refined stations');
+}
+
+// Old world locations must never displace the dots from the rendered slices.
+const stale=Float64Array.from({length:72},(_,i)=>i%3===2?Math.sin(i):1000+i);
+const yaw=.65,heel=.4,pitch=-.3,separation=1.02;
+const c=Math.cos(yaw),s=Math.sin(yaw),sx=Math.sin(heel),cx=Math.cos(heel),sy=Math.sin(pitch),cy=Math.cos(pitch);
+const transform=[c*cy,s*cy,-sy,0,c*sy*sx-s*cx,s*sy*sx+c*cx,cy*sx,0,0,0,0,0,35,-70,.8,1];
+const aligned=alignPontoonSamples(stale,geometry,separation,transform,new Float64Array(stale.length));
+for(let i=0;i<24;i++){
+  const x=geometry[6*(i%12)],y=i<12?separation:-separation;
+  const forward=x*cy+y*sx*sy,port=y*cx;
+  assert(Math.abs(aligned[3*i]-(35+forward*c-port*s))<1e-12);
+  assert(Math.abs(aligned[3*i+1]-(-70+forward*s+port*c))<1e-12);
+  assert.equal(aligned[3*i+2],stale[3*i+2]);
 }

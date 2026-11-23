@@ -2887,7 +2887,7 @@ async function run(saved=readReset(),carried){
           const data=model.getMany(battenInspectionFields);
           rig.battens=[data.slice(0,4),data.slice(4,8)];
         }
-        if(sailing&&showHulls&&(!inspectionHull||inspectionTime!==t)){
+        if(sailing&&(showHulls||cat&&waveGrids.checked)&&(!inspectionHull||inspectionTime!==t)){
           if(hullInspectionFields.every(name=>model.has(name))){
             const [stations,fractions,separation,volume,heights]=model.getMany(hullInspectionFields);
             const [fineStations,fineVolume]=cat&&refinedHullInspectionFields.every(name=>model.has(name))?

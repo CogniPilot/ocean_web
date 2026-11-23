@@ -8,6 +8,22 @@ export const refinedHullInspectionFields=['hydroStationGeometry','hydroSectionVo
 export const battenInspectionFields=[1,2].flatMap(sail=>
   ['battenCount','battenLuff','battenLeech','mesh'].map(name=>`cloth[${sail}].${name}`));
 
+export function alignPontoonSamples(points,stations,separation,transform,aligned){
+  const sections=stations.length/6;
+  for(let side=0;side<2;side++){
+    const y=(1-2*side)*separation;
+    for(let i=0;i<sections;i++){
+      const x=stations[6*i],offset=3*(side*sections+i);
+      // Both the slice and its probe start at the same hull-frame station.
+      // Only the elevation comes from the water sample.
+      aligned[offset]=transform[0]*x+transform[4]*y+transform[12];
+      aligned[offset+1]=transform[1]*x+transform[5]*y+transform[13];
+      aligned[offset+2]=points[offset+2];
+    }
+  }
+  return aligned;
+}
+
 export function physicsView(T,canvas,status){
   const ink=canvas.getContext('2d');
   const clip=new T.Vector3(),projected=new T.Vector2();
@@ -16,6 +32,7 @@ export function physicsView(T,canvas,status){
   const surfaceField={size:32,length:64,emphasis:true};
   let gridPixels=new Float64Array(32*32*2);
   const a=new T.Vector3(),b=new T.Vector3(),center=new T.Vector3();
+  let pontoonPoints;
   let width,height,camera;
   const labelRects=[],markCache=new WeakMap(),battenPaths=new WeakMap(),rigMeshes=new WeakMap();
 
@@ -349,6 +366,11 @@ export function physicsView(T,canvas,status){
     const {group}=body;
     camera=viewCamera;camera.updateMatrixWorld();group.updateMatrixWorld(true);
     const captions=[];
+    const probes=body.probes;
+    if(probes?.points&&hull?.separation>0&&hull.stations.length===6*probes.sections){
+      if(pontoonPoints?.length!==probes.points.length)pontoonPoints=new Float64Array(probes.points.length);
+      probes.points=alignPontoonSamples(probes.points,hull.stations,hull.separation,group.matrixWorld.elements,pontoonPoints);
+    }
     const pontoonTraces=options.water&&body.water?.pontoons&&['auto','pontoons'].includes(options.waveLayer);
     if(options.water)captions.push(drawWater(body.water,group.position.x,group.position.y,options.waveLayer));
     if(options.rig){
