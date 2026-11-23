@@ -27,7 +27,7 @@ export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1
  const workerUrl=new URL('./'+mode+'/ocean-world-worker.mjs',import.meta.url);
  workerUrl.search=new URL(import.meta.url).search;
  const worker=new Worker(workerUrl,{type:'module'});
- addEventListener('pagehide',()=>worker.terminate(),{once:true});
+ (options.signal??window).addEventListener(options.signal?'abort':'pagehide',()=>worker.terminate(),{once:true});
  let id=0,error,time=0;
  const pending=new Map();
  const state=new Map();

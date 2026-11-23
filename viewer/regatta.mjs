@@ -687,5 +687,6 @@ export function raceAudio(){
     engines(local,peers,camera,underwater,running,throttle,simulationRate);
   }
   return {get enabled(){return enabled;},get audible(){return enabled&&level>0;},
-    setEnabled,update,water,signal,thunder,setVolume,wildlife,imagingHit,motorSound,droneSound};
+    setEnabled,update,water,signal,thunder,setVolume,wildlife,imagingHit,motorSound,droneSound,
+    dispose(){if(audio&&audio.state!=='closed')void audio.close().catch(()=>{});}};
 }

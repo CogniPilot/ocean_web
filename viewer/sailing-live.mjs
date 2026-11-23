@@ -103,8 +103,12 @@ function readReset(){
     return JSON.parse(json);
   }catch{return null;}
 }
-async function run(){
-  const saved=readReset();
+const viewerLayout=[...document.body.children].filter(node=>node.tagName!=='SCRIPT').map(node=>node.cloneNode(true));
+const initialBodyStyle=document.body.style.cssText;
+async function run(saved=readReset(),carried){
+  const lifetime=new AbortController(),{signal}=lifetime;
+  const on=(target,type,listener,options)=>target.addEventListener(type,listener,{...options,signal});
+  const cleanup=callback=>signal.addEventListener('abort',callback,{once:true});
   for(const id of settingsFields){
     const field=$(id),value=saved?.fields[id];
     if(typeof value==='boolean')field.checked=value;
@@ -142,8 +146,6 @@ async function run(){
   const hasSub=fullWorld||mode==='submarine'||(!packaged&&!mode);
   const cat=hasBoat&&(mode==='world'||mode==='sailing'||requestedHull==='Hobie16');
   const vessel=cat?'Hobie16':'Sailboat';
-  $('vessel').value=vessel;
-  $('vessel').onchange=()=>changeVehicle($('vessel').value==='Hobie16'?'hobie':'sloop');
   document.querySelector('h1').textContent=cat?'Hobie 16':'Sailboat';
   $('trampoline').hidden=!cat;$('vangControl').hidden=false;
   $('luffControlName').textContent=cat?'Mainsail downhaul':'Boom vang';
@@ -152,12 +154,13 @@ async function run(){
   if(saved?.spawn)Object.assign(start,saved.spawn);
   const inputs={...start,launchHeight:cat ? .20 : .069,launchSeaState:Number($('seaState').value),windEast:initialWind*Math.cos(weatherBearing),windNorth:initialWind*Math.sin(weatherBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
   const simulationReady=Promise.all([
-    mode?import('./world-view.mjs').then(module=>module.openWorld(mode,Number($('seaState').value),omitWake,mobile&&mode==='sailing'?2:1,{start,weatherBearing,wind:initialWind,motorStart:saved?.spawn})):loadInstance(vessel,inputs),
+    mode?import('./world-view.mjs').then(module=>module.openWorld(mode,Number($('seaState').value),omitWake,mobile&&mode==='sailing'?2:1,{start,weatherBearing,wind:initialWind,motorStart:saved?.spawn,signal})):loadInstance(vessel,inputs),
     hasBoat?loadVehicleShell(cat?'hobie-hulls':'sloop-hull'):null,
     hasSub?Promise.all([import('./submarine.mjs?hud=2'),loadVehicleShell('survey-pressure-housing')]):null
   ]);
   const renderer=new T.WebGLRenderer({canvas:$('view'),antialias:!mobile});
   renderer.setPixelRatio(Math.min(mobile ? .8 : 1,devicePixelRatio));renderer.toneMapping=T.ACESFilmicToneMapping;
+  cleanup(()=>{renderer.dispose();renderer.forceContextLoss();});
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,objectDrawRange);camera.up.set(0,0,1);
   const clouds=harborClouds(T,scene);
   const island=coast(T,scene,renderer.capabilities.isWebGL2 || renderer.extensions.has('ANGLE_instanced_arrays'));
@@ -174,7 +177,7 @@ async function run(){
   if(worker){
     worker.onmessage=({data})=>{if(data.error)waterError=Error(data.error);else waterFrame=data;};
     worker.onerror=event=>{waterError=Error(event.message);};
-    addEventListener('pagehide',()=>worker.terminate(),{once:true});
+    cleanup(()=>worker.terminate());
   }
   function waveInputs(){
     const [east,north,heading,heel,pitch,volume]=model.getMany(['east','north','heading','heel','pitch','sectionVolume']);
@@ -296,6 +299,7 @@ async function run(){
     for(const [input,field] of [['hullStations','stationX'],['hullWidths','beamHalf'],['hullOffset','halfSpacing']])race.set(input,model.get(field));
   }
   const course=courseScene(T,scene,race),audio=raceAudio();
+  cleanup(audio.dispose);
   let lastCountdown=null,raceTick=0;
   const lastLaps=new Map();
   const normalizeRoom=value=>value.trim().slice(0,64)||'regatta';
@@ -354,7 +358,7 @@ async function run(){
     if(chatDialog.open)chatLog.scrollTop=chatLog.scrollHeight;
     else{unread=Math.min(99,unread+1);chatBadge();}
   }
-  const remote=fleet(T,scene,roomName,$('online'),{
+  const weather={
     read:()=>({wind:Number($('wind').value),bearing:ocean.U.bearing.value,sea:$('seaState').value,sky:$('sky').value,storm:$('storm').checked}),
     apply(settings){
       if(settings.wind!==undefined)$('wind').value=settings.wind;
@@ -364,7 +368,8 @@ async function run(){
       if(settings.sky!==undefined)$('sky').value=settings.sky;
       if(settings.storm!==undefined)$('storm').checked=settings.storm;
     }
-  },$('crew'),laps,playImagingHit,{
+  };
+  const chat={
     connected(room){
       if(chatScope===room)return;
       chatScope=room;
@@ -377,8 +382,10 @@ async function run(){
       unread=0;chatBadge();
     },
     receive:chatMessage
-  });camera.layers.enable(1);camera.layers.enable(3);
-  let npcTraffic,npcTrafficLoad,npcRows,npcRaceUtc,npcDisplayUtc,npcCamCount=0;
+  };
+  const remote=carried?.remote??fleet(T,scene,roomName,$('online'),weather,$('crew'),laps,playImagingHit,chat);
+  camera.layers.enable(1);camera.layers.enable(3);
+  let npcTraffic=carried?.npcTraffic,npcTrafficLoad,npcRows,npcRaceUtc,npcDisplayUtc,npcCamCount=0;
   let joinAttempt=0;
   async function multiplayer(on){
     const attempt=++joinAttempt;
@@ -389,12 +396,12 @@ async function run(){
     $('online').textContent='Joining…';
     try{
       const transport=await import('./vendor/trystero.mjs');
-      if(attempt!==joinAttempt)return;
+      if(signal.aborted||attempt!==joinAttempt)return;
       remote.join(transport,roomName);
       restoreNpcRoster();
       $('invite').hidden=false;
     }catch(error){
-      if(attempt!==joinAttempt)return;
+      if(signal.aborted||attempt!==joinAttempt)return;
       remote.leave();
       multiplayerButton.setAttribute('aria-pressed','false');
       updatePlayback();
@@ -420,11 +427,15 @@ async function run(){
     history.replaceState(history.state,'',url);
     multiplayer(on);
   };
-  addEventListener('pagehide',()=>multiplayer(false));
+  on(window,'pagehide',()=>{lifetime.abort();remote.leave();},{once:true});
   $('invite').onclick=async()=>{const link=vehicleLink(location.href);link.searchParams.set('room',roomName);
     try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Multiplayer room link',link.href);}};
   const theme=$('theme'),music=$('music');
   let musicContext,musicGain;
+  cleanup(()=>{
+    theme.pause();
+    if(musicContext&&musicContext.state!=='closed')void musicContext.close().catch(()=>{});
+  });
   function volumeControl(id,apply){
     const slider=$(id),key='ocean_web.'+id;
     try{
@@ -448,20 +459,21 @@ async function run(){
       const version=++revision;
       try{await apply(selected&&!document.hidden);}
       catch(error){
-        if(version!==revision||error.name==='AbortError'||error.name==='NotAllowedError'&&selected)return;
+        if(signal.aborted||version!==revision||error.name==='AbortError'||error.name==='NotAllowedError'&&selected)return;
         selected=false;show();await apply(false);
         if(error.name!=='NotAllowedError')console.warn('Simulator audio unavailable',error);
       }
     }
     button.onclick=()=>{selected=!selected;show();void sync();};
     if(selected){
+      if(carried)void sync();
       const resume=event=>{
         if(event.target!==button&&selected&&event.isTrusted)void sync();
       };
-      document.addEventListener('pointerup',resume,{once:true});
-      document.addEventListener('keydown',resume,{once:true});
+      on(document,'pointerup',resume,{once:true});
+      on(document,'keydown',resume,{once:true});
     }
-    document.addEventListener('visibilitychange',()=>{if(selected)void sync();});
+    on(document,'visibilitychange',()=>{if(selected)void sync();});
     show();
   }
   audioToggle('music',async on=>{
@@ -523,7 +535,7 @@ async function run(){
     const relative=position.clone().sub(camera.position),distance=relative.length();
     const pan=relative.normalize().dot(new T.Vector3(1,0,0).applyQuaternion(camera.quaternion));
     audio.wildlife(kind,distance,Math.max(-1,Math.min(1,pan)),camera.position.z<ocean.U.tide.value,strength);
-  },caustics,ocean.U.tide,gullEnvironment);
+  },caustics,ocean.U.tide,gullEnvironment,signal);
   // These objects are wholly below mean sea level, including their animation ranges.
   const submergedScenery=new T.Group();scene.add(submergedScenery);
   const materials=seabedMaterials(T,caustics.uniforms);
@@ -600,10 +612,10 @@ async function run(){
     const now=performance.now();
     if(range===null||!imagingActive()||now-lastImagingBeep<imagingBeepInterval(range))return;
     lastImagingBeep=now;playImagingHit(motor.group.position);remote.imagingHit(range,motor.group.position);
-  }):null;
+  },signal):null;
   wreckVisual.traverse(showInLowWaterCapture);
   let deferLife=mode==='sailing' && Boolean(omitWake);
-  function populateSea(){life=marineLife(T,submergedScenery,renderer.capabilities.isWebGL2,visitors.fish);}
+  function populateSea(){if(signal.aborted)return;life=marineLife(T,submergedScenery,renderer.capabilities.isWebGL2,visitors.fish);}
   if(!deferLife)populateSea();
   const underwaterFog=new T.FogExp2(0x124759,.075),split=splitCamera(T);
   const fpvForward=new T.Vector3(),drawInstruments=firstPersonInstruments($('flightHud'));
@@ -767,7 +779,7 @@ async function run(){
   $('sky').onchange=()=>remote.changeWeather('sky',$('sky').value);
   const keys=new Set();let drone;
   $('subSensors').open=!mobile;
-  const sub=subAssets ? subAssets[0].submarine(T,scene,world) : null, sensorCanvas=sub && $('sensorCam').getContext('2d');
+  const sub=subAssets ? subAssets[0].submarine(T,scene,world,signal) : null, sensorCanvas=sub && $('sensorCam').getContext('2d');
   const lampPass=(await import('./sub-lamp.mjs')).underwaterLamp(T,renderer,caustics.occluders,hullGlowLobes);
   const submergedLights=[],glowingHulls=[],lampScores=new WeakMap(),lampPosition=new T.Vector3(),beamDirection=new T.Vector3();
   const viewDirection=new T.Vector3(),aimPoint=new T.Vector3();
@@ -850,7 +862,7 @@ async function run(){
   $('cameraKeelLamp').onchange=()=>$('keelLamp').click();
   $('keelLamp').addEventListener('change',()=>{$('cameraKeelLamp').checked=$('keelLamp').checked;});
   const aimKeys={ArrowLeft:['lampYaw',4],ArrowRight:['lampYaw',-4],ArrowUp:['lampTilt',3],ArrowDown:['lampTilt',-3]};
-  addEventListener('keydown',e=>{
+  on(window,'keydown',e=>{
     if(e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||e.target.isContentEditable||e.target.tagName==='TEXTAREA'||
         (e.target.tagName==='INPUT'&&!['checkbox','range','button'].includes(e.target.type)))return;
     const formControl=['INPUT','SELECT','BUTTON','SUMMARY'].includes(e.target.tagName);
@@ -967,7 +979,7 @@ async function run(){
       heldLever=undefined;helm();
     }
     for(const event of ['blur','keyup'])shaftLever.addEventListener(event,releaseLever);
-    for(const event of ['pointerup','pointercancel'])addEventListener(event,releaseLever);
+    for(const event of ['pointerup','pointercancel'])on(window,event,releaseLever);
   }
   const subMode=$('subMode');
   subMode.onchange=()=>{
@@ -1070,13 +1082,15 @@ async function run(){
     $('spawnResult').textContent=message;
     spawnFeedbackTimer=setTimeout(()=>delete button.dataset.state,2000);
   }
+  const npcSurface=(x,y)=>ocean.sampleSurface(x,y,true);
+  const npcError=reason=>{if(!signal.aborted)showSpawnResult('error',reason.message);};
   function syncNpcVessels(rows){
     const menu=$('cameraDepth');
-    if(rows.length&&!npcTrafficLoad){
+    if(rows.length&&!npcTraffic&&!npcTrafficLoad){
       npcTrafficLoad=import('./npc-vessels.mjs').then(({vesselTraffic})=>{
-        npcTraffic=vesselTraffic(T,scene,(x,y)=>ocean.sampleSurface(x,y,true),ocean.sampleWind,race,
-          remote.npc,reason=>showSpawnResult('error',reason.message),laps.observeNpc);
-      }).catch(reason=>{showSpawnResult('error',reason.message);npcTrafficLoad=undefined;});
+        if(signal.aborted)return;
+        npcTraffic=vesselTraffic(T,scene,npcSurface,ocean.sampleWind,race,remote.npc,npcError,laps.observeNpc);
+      }).catch(reason=>{npcError(reason);npcTrafficLoad=undefined;});
     }
     while(npcCamCount>rows.length){
       const option=menu.querySelector('[value="npc-'+npcCamCount--+'"]');
@@ -1108,7 +1122,9 @@ async function run(){
   const fishDisplay=fishFinder($('animalSonar'));
   $('animalBreach').onclick=()=>{if(ownsAnimal())remote.npc.breach(animalId);$('view').focus();};
   const axis=(a,b)=>Math.max(-1,Math.min(1,keyboard.get(a)-keyboard.get(b)+(analog.get(a)||0)-(analog.get(b)||0)));
-  new ResizeObserver(([entry])=>document.body.style.setProperty('--panel-height',entry.target.offsetHeight+'px')).observe(panel.parentElement);
+  const panelSize=new ResizeObserver(([entry])=>document.body.style.setProperty('--panel-height',entry.target.offsetHeight+'px'));
+  panelSize.observe(panel.parentElement);
+  cleanup(()=>panelSize.disconnect());
   const manualSelected=()=>animalId?ownsAnimal():sub?.active?sub.manual:drone?.active?drone.manual:manual;
   function touchControls(){
     analog.clear();
@@ -1196,12 +1212,28 @@ async function run(){
   }
   $('showSticks').onclick=()=>{stickPreference=$('showSticks').getAttribute('aria-pressed')!=='true';touchControls();};
   const targetSelect=$('controlTarget');
-  if(hasBoat && !cat)targetSelect.querySelector('[value="boat"]').textContent='Sailboat: Pilothouse sloop';
+  if(hasBoat&&!cat){
+    targetSelect.querySelector('[value="boat"]').textContent='Pilothouse sloop';
+    $('otherSailboat').value='hobie';$('otherSailboat').textContent='Hobie 16';
+  }
   function changeVehicle(choice){
-    const link=vehicleLink(url,choice);
-    if($('multiplayer').getAttribute('aria-pressed')==='true')link.searchParams.set('room',roomName);
+    if(signal.aborted)return;
+    const link=vehicleLink(url,choice),online=$('multiplayer').getAttribute('aria-pressed')==='true';
+    if(online)link.searchParams.set('room',roomName);
     else link.searchParams.delete('room');
-    location.assign(link);
+    const state=rememberSettings();
+    // Camera defaults follow the newly selected model.
+    state.view=undefined;state.orbit=undefined;
+    if(animalId)remote.npc.release(animalId);
+    remote.resumeClock(remote.seaTime(world?.time??model.time,performance.now()));
+    const carry={remote,npcTraffic,online,chatMessages:[...chatLog.children].map(row=>row.cloneNode(true))};
+    remote.detachView();
+    lifetime.abort();
+    history.replaceState(history.state,'',link);
+    document.body.style.cssText=initialBodyStyle;
+    for(const key of ['runtime','simTime','east'])delete document.body.dataset[key];
+    document.body.replaceChildren(...viewerLayout.map(node=>node.cloneNode(true)));
+    run(state,carry).catch(showStartupError);
   }
   function resetNpcs(roster){
     const boundary=roster.raceStart>race.get('utc')?roster.raceStart:Math.floor(race.get('nextStart'));
@@ -1210,22 +1242,25 @@ async function run(){
   function restoreNpcRoster(){
     if(saved?.npcs){resetNpcs(saved.npcs);saved.npcs=null;}
   }
-  let resetting=false;
-  async function resetSimulation(){
-    if(resetting)return;
-    resetting=true;
+  function rememberSettings(){
     const fields=Object.fromEntries(settingsFields.map(id=>{
       const field=$(id);
       return [id,field.type==='checkbox'?field.checked:field.value];
     }));
     const active=id=>$(id).getAttribute('aria-pressed')==='true';
-    const state={fields,bearing:ocean.U.bearing.value,view:cameraMenu.value,sticks:stickPreference,
+    return {fields,bearing:ocean.U.bearing.value,view:cameraMenu.value,sticks:stickPreference,
       audio:{sound:active('sound'),music:active('music')},
       toggles:Object.fromEntries(toggleSettings.map(id=>[id,active(id)])),
       panels:[...settingPanels()].map(panel=>panel.open),controls:!panel.hidden,settings:!setup.hidden,
       map:mapDialog.open,mast:!mastPanel.hidden,sonarTab:$('cruiserSonarPanel').dataset.view,
       orbit:{angle,distance,tilt,skipper,zoom:[...cameraZoom],pan:[...cameraPan].map(([view,offset])=>[view,offset.toArray()])},
       paused:!running};
+  }
+  let resetting=false;
+  async function resetSimulation(){
+    if(resetting)return;
+    resetting=true;
+    const state=rememberSettings();
     if(remote.npc.host){
       const roster=remote.npc.roster();
       if(remote.hasPeers)await Promise.race([resetNpcs(roster),new Promise(resolve=>setTimeout(resolve,800))]);
@@ -1285,6 +1320,7 @@ async function run(){
   };
   let enteredSub=false,viewBeforeAnimal;
   async function selectTarget(){
+    if(['hobie','sloop'].includes(targetSelect.value)){changeVehicle(targetSelect.value);return;}
     if(animalId&&animalId!==targetSelect.value){
       remote.npc.release(animalId);animalId=undefined;visitors.watch(null);
       $('cameraDepth').value=viewBeforeAnimal??'deck';
@@ -1424,7 +1460,7 @@ async function run(){
       $('chatStatus').value='Message could not be sent.';
     }
   };
-  addEventListener('keydown',e=>{
+  on(window,'keydown',e=>{
     if(e.defaultPrevented||e.repeat||e.altKey||e.ctrlKey||e.metaKey||chatDialog.open||
       e.target.isContentEditable||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
     if(e.key==='Enter'&&chatScope&&e.target.tagName!=='BUTTON')openChat();
@@ -1434,7 +1470,7 @@ async function run(){
     else return;
     e.preventDefault();
   });
-  addEventListener('keydown',e=>{
+  on(window,'keydown',e=>{
     const fullRelease=e.shiftKey&&e.code==='ArrowUp';
     const formControl=['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName);
     if(!moveTraveler||chatDialog.open||targetSelect.value!=='boat'||!manual||
@@ -1443,14 +1479,14 @@ async function run(){
     e.preventDefault();
     if(!fullRelease||!e.repeat)moveTraveler(e.code,fullRelease,e.repeat);
   });
-  addEventListener('keydown',e=>{if(!e.defaultPrevented&&!chatDialog.open&&e.code!=='KeyM'&&manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){if(animalId){if(e.code==='KeyF'&&!flyingGull()){if(!e.repeat)$('animalFeed').click();return;}if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat){if(flyingGull())remote.npc.gullCall(gullIndex(animalId));else $('animalBreach').click();}return;}if(e.code.startsWith('Arrow'))e.preventDefault();}else if(drone?.active){
+  on(window,'keydown',e=>{if(!e.defaultPrevented&&!chatDialog.open&&e.code!=='KeyM'&&manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){if(animalId){if(e.code==='KeyF'&&!flyingGull()){if(!e.repeat)$('animalFeed').click();return;}if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat){if(flyingGull())remote.npc.gullCall(gullIndex(animalId));else $('animalBreach').click();}return;}if(e.code.startsWith('Arrow'))e.preventDefault();}else if(drone?.active){
       if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat)$('cutMotors').click();return;}
       if(e.code.startsWith('Arrow'))e.preventDefault();
     }else if(sub?.active&&e.code.startsWith('Arrow'))e.preventDefault();
     keys.add(e.code);keyboard.press(e.code,performance.now());helm();}});
-  addEventListener('keyup',e=>{keys.delete(e.code);keyboard.release(e.code,performance.now());helm();});
+  on(window,'keyup',e=>{keys.delete(e.code);keyboard.release(e.code,performance.now());helm();});
   function releaseControls(){keys.clear();keyboard.clear();analog.clear();heldLever=undefined;helm();}
-  addEventListener('blur',releaseControls);
+  on(window,'blur',releaseControls);
 
   $('helm').onclick=()=>{
     if(sub?.active)sub.manual=!sub.manual;
@@ -1485,7 +1521,7 @@ async function run(){
     camera.aspect=innerWidth/innerHeight;
     camera.updateProjectionMatrix();
   }
-  resize();addEventListener('resize',resize);
+  resize();on(window,'resize',resize);
   const hullDisplay=displayPose(),flightDisplay=displayPose(),motorDisplay=motor?displayPose():null;
   prev=performance.now();
   function updatePlayback(){
@@ -1585,7 +1621,7 @@ async function run(){
     });
     frameResult.textContent='Running the offline simulation at full speed for 15 seconds…';
   };
-  document.addEventListener('visibilitychange',()=>{
+  on(document,'visibilitychange',()=>{
     prev=physicsWall=performance.now();acc=0;world?.clearQueued();
     statsStart=undefined;
     if(document.hidden){
@@ -1648,10 +1684,12 @@ async function run(){
     if(saved.map)toggleMap();
     if(saved.mast&&hasBoat)mastButton.click();
     if(saved.paused)$('play').click();
-    ({angle,distance,tilt}=saved.orbit);
-    Object.assign(skipper,saved.orbit.skipper);
-    for(const [view,zoom] of saved.orbit.zoom)cameraZoom.set(view,zoom);
-    for(const [view,offset] of saved.orbit.pan)cameraPan.set(view,new T.Vector3().fromArray(offset));
+    if(saved.orbit){
+      ({angle,distance,tilt}=saved.orbit);
+      Object.assign(skipper,saved.orbit.skipper);
+      for(const [view,zoom] of saved.orbit.zoom)cameraZoom.set(view,zoom);
+      for(const [view,offset] of saved.orbit.pan)cameraPan.set(view,new T.Vector3().fromArray(offset));
+    }
   }
   let savedView=saved?.view;
   function restoreCamera(){
@@ -1661,10 +1699,21 @@ async function run(){
     }
   }
   restoreCamera();
-  if(url.searchParams.has('room'))multiplayer(true);
+  if(carried){
+    remote.attachView({scene,status:$('online'),weather,crew:$('crew'),laps,onImagingHit:playImagingHit,chat});
+    chatLog.append(...carried.chatMessages);
+    npcTraffic?.attachView({scene,surface:npcSurface,windAt:ocean.sampleWind,race,onError:npcError,onFinish:laps.observeNpc});
+    if(carried.online&&!remote.connected)multiplayer(true);
+    else{
+      multiplayerButton.setAttribute('aria-pressed',String(carried.online));
+      $('invite').hidden=!carried.online;
+      updatePlayback();
+    }
+  }else if(url.searchParams.has('room'))multiplayer(true);
   else updatePlayback();
   let physicsTimer,courseTarget,drawDeadline,appliedRaceStart=0;
   function draw(now){
+    if(signal.aborted)return;
     // Keep a 30 Hz deadline across refresh rates. If a frame missed a
     // whole period, reset phase instead of rendering catch-up frames.
     drawDeadline??=now;
@@ -2443,8 +2492,9 @@ async function run(){
         try{advanceWorld(now);}catch{clearInterval(physicsTimer);} // draw reports worker faults
       }
     },25);
-    addEventListener('pagehide',()=>clearInterval(physicsTimer),{once:true});
+    cleanup(()=>clearInterval(physicsTimer));
   }
   requestAnimationFrame(draw);
 }
-run().catch(e=>{document.getElementById('readout').textContent=e.message;console.error(e);});
+function showStartupError(error){$('readout').textContent=error.message;console.error(error);}
+run().catch(showStartupError);

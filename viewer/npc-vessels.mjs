@@ -158,7 +158,11 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish)
     if(visual)(visual.dispose??(()=>dispose(visual.group)))();
     craft.delete(id);
   };
-  return {contacts,tilts,cruisers,draw(rows,time,utc,displayUtc,nearby){
+  function attachView(bindings){
+    ({scene,surface,windAt,race,onError,onFinish}=bindings);
+    for(const entry of craft.values())if(entry.visual)scene.add(entry.visual.group);
+  }
+  return {contacts,tilts,cruisers,attachView,draw(rows,time,utc,displayUtc,nearby){
     contacts.fill(0);tilts.fill(0);cruisers.length=0;
     for(const [id,entry] of craft){
       const row=rows[Number(id.slice(4))-1];

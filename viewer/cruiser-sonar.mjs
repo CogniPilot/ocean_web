@@ -39,7 +39,7 @@ export function nearestSonarContact(points){
 
 export const imagingBeepInterval=range=>900+85*range;
 
-export function cruiserSonar(canvas,readout,rangeSelect,chart,showDisplay,observe){
+export function cruiserSonar(canvas,readout,rangeSelect,chart,showDisplay,observe,signal){
   const view=sonarView(canvas);
   let worker,busy=false,last=-Infinity,points,displayed,selected,chosenBeam,scanPose,requestPose;
   let range=sonarRanges[0];
@@ -76,6 +76,7 @@ export function cruiserSonar(canvas,readout,rangeSelect,chart,showDisplay,observ
   });
   function start(){
     worker=new Worker(new URL('./cruiser-sonar-worker.mjs',import.meta.url),{type:'module'});
+    (signal??window).addEventListener(signal?'abort':'pagehide',()=>worker.terminate(),{once:true});
     worker.onmessage=({data})=>{
       busy=false;
       if(data.error){readout.value='Sonar unavailable · '+data.error;return;}

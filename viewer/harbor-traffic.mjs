@@ -90,7 +90,7 @@ async function marineAnimal(T,name,length,caustics,tideUniform){
   return {group,articulate,mouth,edgePoints,socket:model.getObjectByName('HumpbackBlowholes')};
 }
 
-export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tideUniform,gullEnvironment){
+export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tideUniform,gullEnvironment,signal){
   const room=fleet.npc,feeding=feedingHarbor(T,scene,room,playSound,gullEnvironment);
   const visuals=new Map(),started=new Set();
   let worker,pending,session,lastTime,lastEnvironment,acc=0;
@@ -195,7 +195,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       }
     };
   }
-  addEventListener('pagehide',stopWorker,{once:true});
+  (signal??window).addEventListener(signal?'abort':'pagehide',stopWorker,{once:true});
 
   function advanceHost(time,now){
     if(!lastEnvironment)return;

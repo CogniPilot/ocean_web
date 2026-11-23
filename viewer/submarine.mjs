@@ -50,7 +50,7 @@ export function submarinePilot(axis,mode=0){
     attitude:mode===0?[0,0]:[roll,pitch]};
 }
 
-export function submarine(T,scene,world){
+export function submarine(T,scene,world,signal){
   const mesh=surveyVehicle(T,vehicleShell('survey-pressure-housing'));scene.add(mesh);mesh.position.set(-5,0,-10);
   const bubbles=bubbleWake(T,scene,mesh), map=sonarMap(T,scene);
   const doppler=dopplerDisplay(T,mesh);
@@ -82,7 +82,7 @@ export function submarine(T,scene,world){
     worker=new Worker(new URL('./sub-worker.mjs',import.meta.url),{type:'module'});
     worker.onmessage=({data})=>receive(data);
     worker.onerror=e=>{error=e.message;busy=false;};
-    addEventListener('pagehide',()=>worker.terminate(),{once:true});
+    (signal??window).addEventListener(signal?'abort':'pagehide',()=>worker.terminate(),{once:true});
   }
   return {manual:true,mode:0,active:false,mapVisible:false,mapGroup:map.group,get frame(){return frame;},get error(){return error;},mesh,
     drawDvl(show,now){doppler.draw(this.active&&show,now);},
