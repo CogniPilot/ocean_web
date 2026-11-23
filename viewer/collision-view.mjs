@@ -131,10 +131,12 @@ export function drawAnimalCollision(painter,frame,kind){
 
 // Sailboat.contactWrench compares horizontal discs across a pair of boats,
 // with a separate heave gate. Each ring is the contribution of one sample.
-export function drawSailboatContacts(painter,group,cat,peers){
-  function rings(east,north,height,yaw,twin){
-    const points=[],c=Math.cos(yaw),s=Math.sin(yaw),spacing=twin?.95:.42,radius=twin?.49:.31;
+export function drawVesselContacts(painter,group,kind,peers){
+  function rings(east,north,height,yaw,kind){
+    const cruiser=kind===2,twin=kind===1;
+    const points=[],c=Math.cos(yaw),s=Math.sin(yaw),spacing=cruiser?1.50:twin?.95:.42;
     for(const y of (twin?[1.02,-1.02]:[0]))for(let i=-2;i<=2;i++){
+      const radius=cruiser?(i===2?.65:i===-2?.81:1.07):twin?.49:.31;
       const x=i*spacing,cx=east+x*c-y*s,cy=north+x*s+y*c;
       for(let j=0;j<ringSteps;j++){
         const a=ring[j],b=ring[(j+1)%ringSteps];
@@ -143,7 +145,7 @@ export function drawSailboatContacts(painter,group,cat,peers){
     }
     painter.lines(null,points,'#69e2bb');
   }
-  rings(group.position.x,group.position.y,group.position.z,group.rotation.z,cat);
+  rings(group.position.x,group.position.y,group.position.z,group.rotation.z,kind);
   for(let i=0;peers&&i<peers.length;i+=9)if(peers[i]>.5)
-    rings(peers[i+1],peers[i+2],peers[i+7],peers[i+3],peers[i+8]>.5);
+    rings(peers[i+1],peers[i+2],peers[i+7],peers[i+3],peers[i+8]);
 }

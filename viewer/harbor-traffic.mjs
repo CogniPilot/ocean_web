@@ -126,6 +126,16 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       ...(frame.length>=205?{initialSharkBank:frame.slice(203,205)}:{}),
       ...(frame.length>=207?{initialSwimReserve:frame.slice(205,207)}:{})}:{};
   }
+  function useSpawn(seed,animal){
+    if(!animal?.spawn||animal.frame)return;
+    if(animal.kind==='whale'){
+      seed.initialSwimmer??=[2,-18,-3,1.7,0,0,0,0,0,0,0,0,0,0,0,0,0,0];
+      [seed.initialSwimmer[0],seed.initialSwimmer[1]]=animal.spawn;
+    }else{
+      seed.initialState??=[0,-28,6,0,2,-25,2,6,0,9,-12,-4,0,-.06,0,0,0];
+      [seed.initialState[9],seed.initialState[10]]=animal.spawn;
+    }
+  }
   function pilotInputs(a,frame){
     if(!a)return {};
     const isWhale=a.kind==='whale',pose=isWhale?(frame?.slice(17,21)??[2,-18,-3,0]):(frame?.slice(9,13)??[9,-12,-4,0]);
@@ -169,7 +179,13 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       let base;
       for(const {id,frame} of data.frames){
         frame[23]=sampleSurface(frame[17],frame[18]);
-        if(id==='harbor')base=frame;
+        if(id==='harbor'){
+          base=frame;
+          for(const kind of ['whale','shark']){
+            const a=room.animals.get(kind);
+            if(a?.spawn)a.spawn=undefined;
+          }
+        }
         else if(room.animals.has(id))room.animals.get(id).frame=frame;
       }
       if(base){
@@ -218,7 +234,11 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     }
     const inputs={...pilotInputs(room.animals.get('whale'),frame),...pilotInputs(room.animals.get('shark'),frame)};
     const actors=[{id:'harbor',inputs}];
-    if(!started.has('harbor'))actors[0].seed=resumed(frame);
+    if(!started.has('harbor')){
+      const seed=resumed(frame);
+      for(const kind of ['whale','shark'])useSpawn(seed,room.animals.get(kind));
+      actors[0].seed=seed;
+    }
     for(const [id,animal] of room.animals){
       if(id===animal.kind)continue;
       const actor={id,inputs:pilotInputs(animal,animal.frame)};
@@ -230,6 +250,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
           seed.initialState[9]+=5*offset;seed.initialState[10]-=6;
           seed.initialSwimmer[0]+=7*offset;seed.initialSwimmer[1]-=8;
         }
+        useSpawn(seed,animal);
         actor.seed=seed;
       }
       actors.push(actor);

@@ -1,5 +1,6 @@
 model Regatta "Five-minute fleet starts and an equilateral triangular course"
   input Real utc "Unix seconds from the browser clock";
+  input Real finishAllowed=1 "Zero while the racer owes a turn penalty";
   input Real raceStart=0 "UTC of a host-scheduled start, zero for the regular UTC cycle";
   input Real east,north;
   parameter Real windBearing=atan2(4,10) "Direction the prevailing wind travels, counterclockwise from east";
@@ -330,7 +331,8 @@ equation
             {gateEast,gateNorth},{markEast[2],markNorth[2]},zone) then 3
           elseif pre(stage)==3 and passedToPort(pre(lastPosition),{east,north},{markEast[2],markNorth[2]},
             {markEast[1],markNorth[1]},{gateEast,gateNorth},zone) then 4
-          elseif pre(stage)==4 and finishCross then 5 else pre(stage);
+          elseif pre(stage)==5 and finishAllowed<.5 then 4
+          elseif pre(stage)==4 and finishCross and finishAllowed>.5 then 5 else pre(stage);
     // Keep the departure target through the crossing. A miss outside the
     // scored segment sends the pilot back to the approach side for another try.
     roundingReady=if stage<>pre(stage) or (stage<>2 and stage<>3) then false
@@ -339,9 +341,9 @@ equation
       else pre(roundingReady);
     started=if scheduleChanged then raceStart
       elseif fleetHeat>pre(heat) and (pre(stage)<=1 or pre(stage)==5) then fleetHeat else pre(started);
-    elapsed=if stage>=2 and pre(stage)<>5 then utc-started elseif stage==5 then pre(elapsed) else 0;
+    elapsed=if stage>=2 and (stage<>5 or pre(stage)<>5) then utc-started elseif stage==5 then pre(elapsed) else 0;
     crossed=if scheduleChanged then 0 elseif stage==2 and pre(stage)<>2 then utc else pre(crossed);
-    lapTime=if stage>=2 and pre(stage)<>5 then utc-crossed elseif stage==5 then pre(lapTime) else 0;
+    lapTime=if stage>=2 and (stage<>5 or pre(stage)<>5) then utc-crossed elseif stage==5 then pre(lapTime) else 0;
     lastAlong=along;
     lastAcross=across;
     lastPosition={east,north};

@@ -23,14 +23,14 @@ function crossing(a,b,origin,normal,across,min,max){
   return distance>=min&&distance<max?fraction:null;
 }
 
-export function hobieRace(race,index,startAt,windSpeed=11){
+export function hobieRace(race,index,startAt,windSpeed=11,resetLane){
   const prevailing=race.get('windBearing');
   const upwind=prevailing+Math.PI,up=direction(upwind),crosswind=left(up);
   const gate=[startGate.gateEast,startGate.gateNorth],halfLine=startGate.lineLength/2;
   const markEast=race.get('markEast'),markNorth=race.get('markNorth');
   const marks=Array.from(markEast,(east,i)=>[east,markNorth[i]]);
-  const lane=[13,-13,22,-22,5,-5,26,-26][index%8];
-  const tack=index%2?-1:1,launchHeading=upwind+tack*noGo,launchDirection=direction(launchHeading);
+  const lane=resetLane===undefined?[13,-13,22,-22,5,-5,26,-26][index%8]:-26+13*resetLane;
+  const tack=resetLane===undefined&&index%2?-1:1,launchHeading=upwind+tack*noGo,launchDirection=direction(launchHeading);
   const speedScale=Math.min(1.45,Math.max(.10,windSpeed/11))*(1-.016*(index%5));
   const launchSpeed=3.1*speedScale,startDelay=.32+.15*(index%7);
   const approachSeconds=11,startPoint=add(gate,crosswind,lane);
@@ -122,7 +122,9 @@ export function hobieRace(race,index,startAt,windSpeed=11){
       const waiting=returning?visualTime-at:visualTime-segments[0].time;
       const rate=returning?returnOrbitRate:orbitRate;
       const phase=-.5*Math.PI+waiting*rate;
-      const p=add(add(launch,launchDirection,6*Math.cos(phase)),offset,3.5*(1+Math.sin(phase)));
+      const far=resetLane!==undefined&&!returning?Math.max(0,Math.min(1,(-waiting-3)/28)):0;
+      const holding=add(launch,up,-55*far*far*(3-2*far));
+      const p=add(add(holding,launchDirection,6*Math.cos(phase)),offset,3.5*(1+Math.sin(phase)));
       const velocity=add(launchDirection.map(x=>-x*Math.sin(phase)),offset,3.5/6*Math.cos(phase));
       position.east=p[0];position.north=p[1];position.heading=Math.atan2(velocity[1],velocity[0]);
       position.speed=6*rate*Math.hypot(...velocity);

@@ -6,10 +6,10 @@ import {boatInertiaFields,cruiserInertiaFields,droneInertiaFields,subInertiaFiel
 import {hullInspectionFields,refinedHullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
 const group=(prefix,names)=>names.split(' ').map(name=>prefix+'.'+name);
 const sailingOutputs=[
- ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail sailLuff mainClewOffset stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
+ ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail sailLuff mainClewOffset stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm peerContact waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
 ];
 const environmentOutputs=[
- ...group('race','utc nextStart countdown stage elapsed lapTime markPose launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
+ ...group('race','utc nextStart countdown stage elapsed lapTime markWrench markPose launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
  ...group('wind','period field thunderArrival strikeBearing strikeFlash travelE travelN localEast localNorth'),
  ...group('waves','height driftE driftN period'),
  ...group('boatWater','tile tide wind'),
@@ -22,7 +22,7 @@ const submarineOutputs=[...group('sub','surveyTelemetry position orientation pro
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',outhaulInput:'outhaul',deckManual:'deckManual',
  mainCarInput:'mainCar',jibCarInput:'jibCar',jibTrimInput:'jibSheet',manualJibAssist:'manualJibAssist',
  ballastManual:'ballastManual',ballastCmdX:'ballastX',ballastCmdY:'ballastY',traffic:'traffic'};
-export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1){
+export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1,options={}){
  const hasBoat=mode==='world'||mode==='sailing'||mode==='sloop',hasSub=mode==='world'||mode==='submarine',hasFlight=mode==='world'||mode==='flight';
  const workerUrl=new URL('./'+mode+'/ocean-world-worker.mjs',import.meta.url);
  workerUrl.search=new URL(import.meta.url).search;
@@ -50,13 +50,14 @@ export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1
      worker.postMessage({...message,id});
    });
  }
- const initial={windSpeed,windBearing,seaState,epoch:Date.now()/1000};
+ const initial={windSpeed:options.wind??windSpeed,windBearing:options.weatherBearing??windBearing,seaState,epoch:Date.now()/1000};
  const inputs=['seaState','raceStart'];
  if(hasBoat){
    Object.assign(initial,{sailingManual:1,vang:.5,downhaul:.5,outhaul:.65,manualJibAssist:1});
-   inputs.push(...Object.values(boatInputs));
+   inputs.push(...Object.values(boatInputs),'finishAllowed');
+   initial.finishAllowed=1;
  }
- if(mode==='motorboat')inputs.push('throttleLever','helmLever');
+ if(mode==='motorboat')inputs.push('throttleLever','helmLever','traffic');
  if(mode==='habitat')initial.animalPosition=[-5,0,0];
  if(hasSub){initial.subManual=1;inputs.push('subPilot');}
  if(hasFlight){initial.flightManual=1;inputs.push('flightPilot','motorCut','flightMode','racePilot');}
@@ -66,7 +67,11 @@ export async function openWorld(mode='world',seaState=1.5,omitWake=0,stepTicks=1
  for(const [key,value] of Object.entries(startGate))parameters['race.'+key]=value;
  if(hasBoat){
    parameters['boat.launchSeaState']=seaState;
-   for(const [key,value] of Object.entries(sailingStart(mode!=='sloop')))parameters['boat.'+key]=value;
+   for(const [key,value] of Object.entries(options.start??sailingStart(mode!=='sloop')))parameters['boat.'+key]=value;
+ }
+ if(mode==='motorboat'&&options.motorStart){
+   parameters.initialEast=options.motorStart.launchEast;
+   parameters.initialNorth=options.motorStart.launchNorth;
  }
  const outputs=[...environmentOutputs,...(hasBoat?sailingOutputs:['focus','swell','waterStamp','waterFraction']),
    ...(mode==='motorboat'?['boatPose','engine']:[]),...(hasSub?submarineOutputs:[]),...(hasFlight?flightOutputs:[])];

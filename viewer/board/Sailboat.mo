@@ -46,7 +46,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     for p in 1:4 loop
       if traffic[p,1]>.5 then
         dx:=east-traffic[p,2]; dy:=north-traffic[p,3];
-        height:=if traffic[p,9]>.5 then 7.15 else 2.6;
+        height:=if traffic[p,9]>1.5 then 2.25 elseif traffic[p,9]>.5 then 7.15 else 2.6;
         if dx*dx+dy*dy<(8*height)^2 then
           u:=windEast-traffic[p,5]; v:=windNorth-traffic[p,6];
           speed:=sqrt(u*u+v*v);
@@ -66,32 +66,52 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     end for;
     localWind:={windEast,windNorth}-loss/max(1,total/.65);
   end shadowWind;
-  function contactWrench "Horizontal compliant hull contact at sampled waterline sections"
-    input Real pose[7], traffic[4,9];
-    input Boolean twin;
-    output Real wrench[3];
-  protected
-    Real a,b,x,y,u,v,dx,dy,d,r,rate,f,armX,armY,otherX,otherY;
+  function contactSection
+    input Real kind;
+    input Integer hull,station;
+    output Real centerRadius[3];
   algorithm
-    wrench:=zeros(3);
+    // Coarse discs along each hull's waterline. Use the same sections for
+    // both sides of the pair so classification and contact are reciprocal.
+    centerRadius:=if kind>1.5 then {1.50*station,0,if station==2 then .65 elseif station==-2 then .81 else 1.07}
+      elseif kind>.5 then {.95*station,(3-2*hull)*1.02,.49}
+      else {.42*station,0,.31};
+  end contactSection;
+
+  function contactWrench "Horizontal compliant vessel contact at sampled waterline sections"
+    input Real pose[7],traffic[4,9],kind;
+    output Real wrench[3],contact[4];
+  protected
+    Real sliceA[3],sliceB[3],x,y,u,v,dx,dy,d,r,rate,f,armX,armY,otherX,otherY,mass,otherMass,scale,localDraft,peerDraft;
+  algorithm
+    wrench:=zeros(3);contact:=zeros(4);
+    mass:=if kind>1.5 then 3250 elseif kind>.5 then 206 else 64;
+    localDraft:=if kind>1.5 then .62 else .325;
     for p in 1:4 loop
-      if traffic[p,1]>.5 and abs(pose[7]-traffic[p,8])<.65 then
-        for i in 1:(if twin then 2 else 1) loop
-          for j in 1:(if traffic[p,9]>.5 then 2 else 1) loop
+      peerDraft:=if traffic[p,9]>1.5 then .62 else .325;
+      if traffic[p,1]>.5 and abs(pose[7]-traffic[p,8])<localDraft+peerDraft
+        and (pose[1]-traffic[p,2])^2+(pose[2]-traffic[p,3])^2<100 then
+        otherMass:=if traffic[p,9]>1.5 then 3250 elseif traffic[p,9]>.5 then 206 else 64;
+        scale:=max(1,mass*otherMass/((mass+otherMass)*103));
+        for i in 1:(if kind>.5 and kind<1.5 then 2 else 1) loop
+          for j in 1:(if traffic[p,9]>.5 and traffic[p,9]<1.5 then 2 else 1) loop
             for k in -2:2 loop
+              sliceA:=contactSection(kind,i,k);
+              armX:=sliceA[1]*cos(pose[3])-sliceA[2]*sin(pose[3]);
+              armY:=sliceA[1]*sin(pose[3])+sliceA[2]*cos(pose[3]);
               for l in -2:2 loop
-                a:=k*(if twin then .95 else .42); b:=if twin then (3-2*i)*1.02 else 0;
-                armX:=a*cos(pose[3])-b*sin(pose[3]);armY:=a*sin(pose[3])+b*cos(pose[3]);
-                a:=l*(if traffic[p,9]>.5 then .95 else .42);b:=if traffic[p,9]>.5 then (3-2*j)*1.02 else 0;
-                otherX:=a*cos(traffic[p,4])-b*sin(traffic[p,4]);otherY:=a*sin(traffic[p,4])+b*cos(traffic[p,4]);
+                sliceB:=contactSection(traffic[p,9],j,l);
+                otherX:=sliceB[1]*cos(traffic[p,4])-sliceB[2]*sin(traffic[p,4]);
+                otherY:=sliceB[1]*sin(traffic[p,4])+sliceB[2]*cos(traffic[p,4]);
                 dx:=pose[1]+armX-traffic[p,2]-otherX;dy:=pose[2]+armY-traffic[p,3]-otherY;
-                d:=sqrt(dx*dx+dy*dy);r:=(if twin then .49 else .31)+(if traffic[p,9]>.5 then .49 else .31);
+                d:=sqrt(dx*dx+dy*dy);r:=sliceA[3]+sliceB[3];
                 if d<r and d>.0001 then
                   x:=dx/d;y:=dy/d;
                   u:=pose[4]-pose[6]*armY-traffic[p,5]+traffic[p,7]*otherY;
                   v:=pose[5]+pose[6]*armX-traffic[p,6]-traffic[p,7]*otherX;
-                  rate:=u*x+v*y;f:=max(0,850*(r-d)-55*rate);
+                  rate:=u*x+v*y;f:=scale*max(0,850*(r-d)-55*rate);
                   wrench:=wrench+f*{x,y,armX*y-armY*x};
+                  contact[p]:=max(contact[p],f);
                 end if;
               end for;
             end for;
@@ -145,8 +165,9 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     velocity:=((14+entrainedMass)*rate+dt*(drive-850*previous))/(14+entrainedMass+dt*350);
     lean:=previous+dt*velocity;
   end standingRig;
-  input Real traffic[4,9] "Active, east, north, yaw, east/north velocity, yaw rate, height, twin hull";
+  input Real traffic[4,9] "Active, east, north, yaw, east/north velocity, yaw rate, height, hull type (0 sloop, 1 Hobie, 2 cruiser)";
   output Real peerForce[3] "World east/north force and yaw moment";
+  output Real peerContact[4] "Maximum normal contact force against each peer [N]";
   input Real wakeEast,wakeNorth,wakeYaw "Free-surface pressure reaction from the local wave FMU";
   input Real useSectionWater,sectionWater[2,6],previousWater[2,6],waterStamp;
   parameter Boolean useRefinedSectionWater=false "Supply water at the native hull integration stations";
@@ -945,7 +966,7 @@ equation
   frictionCoefficient=if hullRe<5e5 then 1.328/sqrt(max(1,hullRe)) else .075/(log10(hullRe)-2)^2;
   skinDrag=.5*1025*skinArea*(1+formFactor)*frictionCoefficient*waterRelative[1]*abs(waterRelative[1]);
   shoreWrench=Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing);
-  peerForce=contactWrench({east,north,heading,ve,vn,yawRate,heave},traffic,catamaran);
+  (peerForce,peerContact)=contactWrench({east,north,heading,ve,vn,yawRate,heave},traffic,if catamaran then 1 else 0);
   swellForce=hullSwellForce[1,:]+(if catamaran then hullSwellForce[2,:] else zeros(2));
   der(surge)=((wakeEast+droneLoad[1]+peerForce[1])*cos(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*sin(heading)+fx+shoreWrench[1]+sum(foilAxial)+skinDrag+swellForce[1])/totalMass+yawRate*sway;
   der(sway)=(-(wakeEast+droneLoad[1]+peerForce[1])*sin(heading)+(wakeNorth+droneLoad[2]+peerForce[2])*cos(heading)+fy+shoreWrench[2]+sum(foilSide)+swellForce[2]-80*sway*abs(sway)-40*sway)/totalMass-yawRate*surge;

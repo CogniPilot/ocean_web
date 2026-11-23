@@ -12,6 +12,8 @@ const vesselLimit=5;
 // The elected or appointed host runs the NPCs and owns room weather.
 // RTTs use local monotonic clocks. Comparing two links needs at least three players.
 export function npcRoom(){
+  const randomBetween=(low,high)=>low+(high-low)*Math.random();
+  const validSpawn=point=>Array.isArray(point)&&point.length===2&&point.every(v=>Number.isFinite(v)&&Math.abs(v)<1000);
   let channel,self,joined,owner,last,lastPing=-Infinity,pingRound=0,issued=0,localRtt;
   const members=new Map();
   let appointed,hostRevision=0;
@@ -26,6 +28,9 @@ export function npcRoom(){
       (h.vessels===undefined||(Array.isArray(h.vessels)&&h.vessels.length<=vesselLimit&&h.vessels.every(
         v=>v&&Object.hasOwn(vesselNpcNames,v.kind)&&Number.isFinite(v.started)&&
           (v.raceAt===undefined||validStart(v.raceAt))&&
+          (v.lane===undefined||Number.isInteger(v.lane)&&v.lane>=0&&v.lane<5)&&
+          (v.patrol===undefined||Number.isInteger(v.patrol)&&v.patrol>=0&&v.patrol<5)&&
+          (v.phase===undefined||Number.isFinite(v.phase)&&Math.abs(v.phase)<=Math.PI*2)&&
           (v.raceId===undefined||typeof v.raceId==='string'&&/^[a-f0-9]{16}$/.test(v.raceId))&&
           (v.raceWind===undefined||Number.isFinite(v.raceWind)&&v.raceWind>=0&&v.raceWind<=22))))&&
       (h.gullSeats===undefined||(Array.isArray(h.gullSeats)&&h.gullSeats.length===h.gulls.length&&
@@ -101,7 +106,7 @@ export function npcRoom(){
   function request(msg){if(owner===self){act(self??'local',msg);if(msg.type==='release'||msg.type==='occupy')sync();}else send(msg,owner);}
   function sync(target){
     if(owner!==self)return;
-    const items=[...animals.values()];
+    const items=[...animals.values()],delivery=[];
     for(const [id,m] of members){
       if(target&&id!==target)continue;
       if(m.version===2){
@@ -111,12 +116,13 @@ export function npcRoom(){
         const frameSize=m.swimReserve?207:m.sharkBank?205:203;
         const frame=last?.frame?.length>frameSize?last.frame.slice(0,frameSize):last?.frame;
         const roster=items.map(a=>a.frame?.length>frameSize?{...a,frame:a.frame.slice(0,frameSize)}:a);
-        send({type:'harbor',version:2,hostTransfer:true,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined,frame,items:roster,habitat:shared},id);
+        delivery.push(send({type:'harbor',version:2,hostTransfer:true,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined,frame,items:roster,habitat:shared},id));
       }else{
         if(last?.frame)send([joined,...last.frame.slice(0,70)],id);
         send({type:'animals',items:items.map(a=>({...a,frame:a.frame?.slice(0,70)}))},id);
       }
     }
+    return Promise.all(delivery);
   }
   function elect(){
     const candidates=[[self,joined,localRtt],...[...members].map(([id,m])=>[id,m.joined,m.rtt])];
@@ -140,7 +146,7 @@ export function npcRoom(){
     appointed=host;hostRevision=sequence;elect();
     if(owner===self)sync();
   }
-  function send(data,target){channel?.send(data,target?{target}:undefined).catch(()=>{});}
+  function send(data,target){return channel?.send(data,target?{target}:undefined).catch(()=>{});}
   function hello(target){send([joined],target);send({type:'hello',version:2,hostTransfer:true,host:appointed,hostRevision,extendedGulls:true,gullWater:true,gullSwimMode:true,sharkBank:true,swimReserve:true,joined},target);}
   return {
     connect(action,id){
@@ -166,7 +172,7 @@ export function npcRoom(){
             for(const a of data.items){
               if(!a||!validKind(a.kind)||typeof a.id!=='string'||a.id.length>32||
                 (a.seat!==null&&typeof a.seat!=='string')||(a.frame&&!validFrame(a.frame)))return;
-              next.set(a.id,{id:a.id,kind:a.kind,seat:a.seat,player:a.player===true,frame:a.frame,feedAt:Number.isFinite(a.feedAt)?a.feedAt:undefined,lastBite:Number.isFinite(a.lastBite)?a.lastBite:undefined,gape:Math.max(0,Math.min(1,Number(a.gape)||0)),caught:Number.isSafeInteger(a.caught)?a.caught:0,breachAt:Number.isFinite(a.breachAt)?a.breachAt:undefined});
+              next.set(a.id,{id:a.id,kind:a.kind,seat:a.seat,spawn:validSpawn(a.spawn)?a.spawn:undefined,player:a.player===true,frame:a.frame,feedAt:Number.isFinite(a.feedAt)?a.feedAt:undefined,lastBite:Number.isFinite(a.lastBite)?a.lastBite:undefined,gape:Math.max(0,Math.min(1,Number(a.gape)||0)),caught:Number.isSafeInteger(a.caught)?a.caught:0,breachAt:Number.isFinite(a.breachAt)?a.breachAt:undefined});
             }
             if([...next.values()].some(a=>!animals.has(a.id)||animals.get(a.id).seat!==a.seat)||next.size!==animals.size)revision++;
             animals=next;
@@ -227,6 +233,40 @@ export function npcRoom(){
       for(const vessel of habitat.vessels)if(vessel.kind==='hobie')vessel.raceAt=start;
       sync();
       return true;
+    },
+    roster(){return {vessels:habitat.vessels.map(v=>v.kind),gulls:habitat.gulls.length,animals:[...animals.values()].filter(a=>!a.player).map(({kind,id})=>({kind,id})),raceStart:habitat.raceStart};},
+    reseed(started,boundary,wind,roster=this.roster()){
+      if(owner!==self)return;
+      habitat.raceStart=validStart(roster.raceStart)?roster.raceStart:0;
+      const available=[0,1,2,3,4],phase=randomBetween(0,2*Math.PI);
+      habitat.vessels=roster.vessels.filter(kind=>Object.hasOwn(vesselNpcNames,kind)).slice(0,vesselLimit).map((kind,patrol)=>{
+        if(kind!=='hobie')return {kind,started,patrol,phase};
+        const [lane]=available.splice(Math.floor(Math.random()*available.length),1);
+        return {kind,started,raceAt:boundary,raceWind:wind,lane,
+          raceId:Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('')};
+      });
+      habitat.gulls=Array.from({length:Math.min(maxGulls,roster.gulls)},(_,i)=>{
+        if(habitat.gullSeats[i]&&habitat.gullSeats[i]!==self)return habitat.gulls[i];
+        const row=gullSeed(i);
+        row[0]=-48+16*i+randomBetween(-3,3);
+        row[1]=-55+randomBetween(-6,6);
+        row[2]=11+randomBetween(0,5);
+        row[3]=randomBetween(-Math.PI,Math.PI);
+        return row;
+      });
+      habitat.gullSeats=habitat.gulls.map((_,i)=>habitat.gullSeats[i]===self?null:habitat.gullSeats[i]??null);
+      const next=new Map([...animals].filter(([,a])=>a.seat&&a.seat!==self));
+      let index=0;
+      for(const {kind,id} of roster.animals.slice(0,10)){
+        if(!validKind(kind)||next.has(id))continue;
+        next.set(id,{kind,id,seat:null,spawn:[-88+17*index+randomBetween(-3,3),26+randomBetween(-8,8)]});
+        index++;
+      }
+      if(!next.get('whale')?.seat&&!next.get('shark')?.seat)last=undefined;
+      animals=next;
+      controls.clear();
+      session++;revision++;
+      return sync();
     },
     get owner(){return owner;},get host(){return owner===self;},get latest(){return last;},
     get animals(){return animals;},get revision(){return revision;},get self(){return self??'local';},

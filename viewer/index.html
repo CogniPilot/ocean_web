@@ -11,6 +11,7 @@ aside{position:fixed;right:18px;top:20px;background:#071f2be8;border-left:3px so
 #physicsCanvas{pointer-events:none}#physicsLayers{display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center}
 #physicsLayers label{white-space:nowrap}#physicsStatus{display:block}
 #runStats{display:block;margin-top:4px;font-variant-numeric:tabular-nums}#vehiclePanel{display:inline}#online{display:inline-block;margin:0 .6em 0 .25em}#sticks{position:fixed;inset:auto 12px calc(var(--panel-height,66px) + 20px);display:flex;justify-content:space-between;pointer-events:none}.stick{touch-action:none;user-select:none;pointer-events:auto;background:#082936bc;color:white;border:1px solid #92c9ce;width:88px;height:88px;border-radius:50%;display:grid;place-items:center;position:relative}.knob{width:32px;height:32px;border-radius:50%;background:#c6eddfaa;border:1px solid white}.stick small{position:absolute;top:-16px;white-space:nowrap;color:white;text-shadow:0 1px 3px black;font-size:11px}#sound,#music{min-width:44px;min-height:44px;font-size:18px;vertical-align:middle}#collapsePanel{margin-right:5px}
+#racePenalty{padding:.45em .65em;background:#8c2237;color:#fff;border-radius:4px;font-variant-numeric:tabular-nums}
  [hidden]{display:none!important}#dial{position:static;width:274px;max-width:100%;height:auto;inset:auto;display:block}nav{flex-wrap:wrap}#droneCovariance{display:block;white-space:pre-line}#setup{margin-top:6px}@media(pointer:coarse){footer{left:6px;right:6px;bottom:6px;max-width:none}button,select{min-height:36px}}#flightHud{position:fixed;left:50%;top:50%;width:min(96vw,680px);height:min(64vh,510px);translate:-50% -50%;pointer-events:none}
 #vehiclePicker{color:#ecf6f5;background:#0b2938;border:1px solid #5c868b;border-radius:12px;padding:clamp(18px,4vw,36px);width:min(460px,calc(100vw - 50px));box-sizing:border-box}#vehiclePicker::backdrop{background:#071d27e6}#vehiclePicker h2{font:32px Georgia,serif;margin:0 0 18px}#vehiclePicker form{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}#vehiclePicker button{min-height:46px}
 #subPanel{position:fixed;right:12px;top:145px;background:#092632;padding:8px;border-radius:4px}
@@ -166,7 +167,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <details id="racePanel" open>
 <summary><span>Next fleet start</span><output id="countdown">—</output></summary>
 <div><small id="raceCourse"></small><output id="raceStatus"></output></div>
-<section id="bestLaps" aria-label="Best laps"><strong>Best laps</strong><small></small><ol></ol><p>No finished laps yet.</p></section>
+<p id="racePenalty" role="status" hidden></p><section id="bestLaps" aria-label="Best laps"><strong>Best laps</strong><small></small><ol></ol><p>No finished laps yet.</p></section>
 </details><details id="fleetRoster" open><summary>Players &amp; NPCs <span id="fleetCount"></span></summary><div><table aria-label="Players and NPCs"><thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead><tbody id="fleetEntries"></tbody></table></div></details><section id="mastPanel" aria-label="Live mast cameras" hidden><label>Mast camera <select id="mastPort"><option value="0">Forward</option><option value="1">Port</option><option value="2">Aft</option><option value="3">Starboard</option></select></label><canvas id="mastImage" width="256" height="256" aria-label="Live mast fisheye image"></canvas><button type="button" id="mastExport">Export calibrated capture</button></section></aside><footer aria-label="Simulator controls">
 <div class="control-toolbar"><div class="control-row">
 <button id="sound" type="button" aria-label="Sound" title="Turn sound effects on" aria-pressed="false"><span aria-hidden="true">🔇</span></button>
@@ -260,7 +261,6 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 </div>
 <div class="control-row">
 <label class="control-check"><input id="storm" type="checkbox"><span>Rain and storm</span></label>
-<button data-boat id="luff">Head into wind</button>
 </div>
 </div></details>
 <details class="control-pane"><summary>View &amp; diagnostics</summary>

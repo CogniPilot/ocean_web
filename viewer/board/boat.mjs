@@ -105,12 +105,13 @@ function sailMaterial(T,cat,sail,telltaleRows,panelTexture){
    g.fillStyle=finish;g.fillRect(0,0,512,1024);
    g.fillStyle='rgba(52,39,31,.21)';
    g.fillRect(0,0,7,1024);g.fillRect(508,0,4,1024);g.fillRect(0,1018,512,6);
-   // Opaque woven tabs behind the paired ribbons share the sail's lighting.
+   // Tinted inspection windows make the ribbon on the far face visible.
    const tabs=panelTexture?.telltaleTabs??telltaleRows.map(row=>1-(row+.48)/5);
    for(const v of tabs){
      const x=.20*512,y=v*1024;
      g.beginPath();g.moveTo(x+6,y);g.lineTo(x+55,y-13);g.lineTo(x+55,y+13);g.closePath();
-     g.fillStyle='#254560';g.fill();
+     g.save();g.clip();g.clearRect(x+4,y-16,54,32);g.restore();
+     g.fillStyle='rgba(52,86,105,.56)';g.fill();
      g.strokeStyle='#4b5260';g.lineWidth=3;g.stroke();
      g.beginPath();g.arc(x,y,4.2,0,2*Math.PI);g.fillStyle='#7d6a51';g.fill();
    }

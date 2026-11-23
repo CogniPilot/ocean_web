@@ -82,7 +82,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,onError,onFinish){
   }
   function begin(row,id,index,utc){
     const entry={kind:row.kind,started:row.started,raceId:row.raceId,raceAt:row.raceAt};
-    if(row.kind==='hobie')entry.racer=hobieRace(race,index,row.raceAt??nextFleetStart(utc,race.get('countdown')),row.raceWind);
+    if(row.kind==='hobie')entry.racer=hobieRace(race,index,row.raceAt??nextFleetStart(utc,race.get('countdown')),row.raceWind,row.lane);
     craft.set(id,entry);
     load(row.kind).then(visual=>{
       if(craft.get(id)!==entry){(visual.dispose??(()=>dispose(visual.group)))();return;}
@@ -108,7 +108,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,onError,onFinish){
       if(entry.racer){
         if(row.raceAt!==entry.raceAt){
           entry.raceAt=row.raceAt;
-          entry.racer=hobieRace(race,i,row.raceAt,row.raceWind);
+          entry.racer=hobieRace(race,i,row.raceAt,row.raceWind,row.lane);
         }
         const sample=entry.racer.sample(utc,displayUtc);
         ({east,north,speed,heading}=sample);
@@ -121,8 +121,11 @@ export function vesselTraffic(T,scene,surface,windAt,race,onError,onFinish){
       }else{
         const {center,radius,speed:patrolSpeed,orbit:patrolOrbit,height:patrolHeight}=routes[row.kind];
         const [a,b]=radius,clock=Math.max(0,time-row.started);
-        angle=i*2.399963+clock*patrolSpeed/(.5*(a+b));
-        east=center[0]+a*Math.cos(angle);north=center[1]+b*Math.sin(angle);
+        angle=i*2.399963+(row.phase??0)+clock*patrolSpeed/(.5*(a+b));
+        // Move each reset patrol to its own patch of open water.
+        const patrolEast=row.patrol===undefined?0:105+68*row.patrol-center[0];
+        const patrolNorth=row.patrol===undefined?0:45-center[1];
+        east=center[0]+patrolEast+a*Math.cos(angle);north=center[1]+patrolNorth+b*Math.sin(angle);
         heading=Math.atan2(b*Math.cos(angle),-a*Math.sin(angle));
         speed=patrolSpeed;orbit=patrolOrbit;height=patrolHeight;
       }
