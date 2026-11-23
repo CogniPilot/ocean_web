@@ -226,13 +226,19 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   Real markApproach[2],markDeparture[2],markPosition[2];
   discrete output Real elapsed(start=0,fixed=true);
   discrete output Real lapTime(start=0,fixed=true) "Time from the boat crossing the start until it crosses the finish";
+  discrete output Real earlyStart(start=0,fixed=true) "One when the whole hull must return to the prestart side";
+  discrete output Real finishUtc(start=0,fixed=true);
+  output Real heatStart "Scheduled start of the scored heat";
   discrete Real crossed(start=0,fixed=true);
-  Real along,across;
-  discrete Real lastAlong(start=0,fixed=true),lastAcross(start=0,fixed=true),heat(start=-1,fixed=true),started(start=0,fixed=true);
+  Real along,across,frontAlong,sternAlong;
+  Real axes[3,3],projectedFore,projectedPort;
+  discrete Real lastAcross(start=0,fixed=true),lastFront(start=0,fixed=true),lastStern(start=0,fixed=true),lastUtc(start=0,fixed=true);
+  discrete Real heat(start=-1,fixed=true),started(start=0,fixed=true);
+  discrete Boolean startReady(start=false,fixed=true);
   discrete Real lastPosition[2](each start=0,each fixed=true);
   Real fleetHeat;
-  discrete Real crossingAt,lastSchedule(start=0,fixed=true);
-  discrete Boolean onLine,startCross,finishCross,scheduleChanged;
+  discrete Real startFraction,finishFraction,startedUtc,finishedUtc,lastSchedule(start=0,fixed=true);
+  discrete Boolean startCross,finishCross,scheduleChanged;
 equation
   committeeEast=gateEast+rightE*lineLength/2;
   committeeNorth=gateNorth+rightN*lineLength/2;
@@ -305,23 +311,36 @@ equation
   markNorth=markOffset[2:3,2]+{gateNorth+legLength*upN,gateNorth+legLength*(upN/2-sqrt(3.0)*rightN/2)};
   along=(east-gateEast)*upE+(north-gateNorth)*upN;
   across=(east-gateEast)*rightE+(north-gateNorth)*rightN;
+  axes=hullAxes(racerState[2],racerState[3],racerState[4]);
+  projectedFore=axes[1,1]*upE+axes[1,2]*upN;
+  projectedPort=axes[2,1]*upE+axes[2,2]*upN;
+  frontAlong=along+(if racerState[1]>.5 then
+    max({hullStations[i]*projectedFore+(hullOffset+hullWidths[i])*abs(projectedPort) for i in 1:7}) else 0);
+  sternAlong=along+(if racerState[1]>.5 then
+    min({hullStations[i]*projectedFore-(hullOffset+hullWidths[i])*abs(projectedPort) for i in 1:7}) else 0);
   (markApproach,markDeparture,markPosition)=roundingApproach({east,north},
     if stage==2 then {markEast[1],markNorth[1]} else {markEast[2],markNorth[2]},
     if stage==2 then {gateEast,gateNorth} else {markEast[1],markNorth[1]},
     if stage==2 then {markEast[2],markNorth[2]} else {gateEast,gateNorth});
   pilotTarget=if stage==2 or stage==3 then (if roundingReady then markDeparture else markApproach)
-    else {gateEast,gateNorth}+{upE,upN}*(if stage==1 and (along<=0 or along<2 and abs(across)<lineLength*.4) then 14
+    else {gateEast,gateNorth}+{upE,upN}*(if stage==1 and earlyStart<.5 then 14
       elseif stage==4 and along<0 and abs(across)>lineLength*.4 then 15 else -14);
   fleetHeat=raceStart+floor((utc-raceStart)/300)*300;
   nextStart=if utc<raceStart then raceStart else fleetHeat+300;
   countdown=nextStart-utc;
+  heatStart=if stage>=2 then started else max(raceStart,fleetHeat);
   when sample(0,.05) then
     lastSchedule=raceStart;
     scheduleChanged=abs(raceStart-pre(lastSchedule))>.5;
-    crossingAt=pre(lastAcross)+(across-pre(lastAcross))*(-pre(lastAlong))/(if abs(along-pre(lastAlong))>1e-8 then along-pre(lastAlong) else 1);
-    onLine=abs(crossingAt)<lineLength/2;
-    startCross=onLine and pre(lastAlong)<=0 and along>0;
-    finishCross=onLine and pre(lastAlong)>=0 and along<0;
+    startFraction=-pre(lastFront)/max(1e-8,frontAlong-pre(lastFront));
+    finishFraction=pre(lastStern)/max(1e-8,pre(lastStern)-sternAlong);
+    startedUtc=pre(lastUtc)+min(1,max(0,startFraction))*(utc-pre(lastUtc));
+    finishedUtc=pre(lastUtc)+min(1,max(0,finishFraction))*(utc-pre(lastUtc));
+    startCross=not initial() and pre(startReady) and pre(lastFront)<=0 and frontAlong>0
+      and abs(pre(lastAcross)+startFraction*(across-pre(lastAcross)))<lineLength/2
+      and startedUtc>=max(fleetHeat,raceStart);
+    finishCross=not initial() and pre(lastStern)>=0 and sternAlong<0
+      and abs(pre(lastAcross)+finishFraction*(across-pre(lastAcross)))<lineLength/2;
     heat=fleetHeat;
     stage=if scheduleChanged then (if utc<raceStart then 0 else 1)
           elseif utc<raceStart then 0
@@ -333,19 +352,23 @@ equation
             {markEast[1],markNorth[1]},{gateEast,gateNorth},zone) then 4
           elseif pre(stage)==5 and finishAllowed<.5 then 4
           elseif pre(stage)==4 and finishCross and finishAllowed>.5 then 5 else pre(stage);
+    startReady=frontAlong<=0;
+    earlyStart=if stage<2 and not startReady then 1 else 0;
     // Keep the departure target through the crossing. A miss outside the
     // scored segment sends the pilot back to the approach side for another try.
     roundingReady=if stage<>pre(stage) or (stage<>2 and stage<>3) then false
       elseif markPosition[2]<-2 and markPosition[1]>3 and markPosition[1]<zone-2 then true
       elseif markPosition[2]>1 and (markPosition[1]<.70 or markPosition[1]>zone) then false
       else pre(roundingReady);
-    started=if scheduleChanged then raceStart
-      elseif fleetHeat>pre(heat) and (pre(stage)<=1 or pre(stage)==5) then fleetHeat else pre(started);
-    elapsed=if stage>=2 and (stage<>5 or pre(stage)<>5) then utc-started elseif stage==5 then pre(elapsed) else 0;
-    crossed=if scheduleChanged then 0 elseif stage==2 and pre(stage)<>2 then utc else pre(crossed);
-    lapTime=if stage>=2 and (stage<>5 or pre(stage)<>5) then utc-crossed elseif stage==5 then pre(lapTime) else 0;
-    lastAlong=along;
+    started=if stage==2 and pre(stage)<>2 then max(fleetHeat,raceStart) else pre(started);
+    finishUtc=if stage<>5 then 0 elseif pre(stage)<>5 then finishedUtc else pre(finishUtc);
+    elapsed=if stage==5 then finishUtc-started elseif stage>=2 then utc-started else 0;
+    crossed=if scheduleChanged then 0 elseif stage==2 and pre(stage)<>2 then startedUtc else pre(crossed);
+    lapTime=if stage==5 then finishUtc-crossed elseif stage>=2 then utc-crossed else 0;
     lastAcross=across;
+    lastFront=frontAlong;
+    lastStern=sternAlong;
+    lastUtc=utc;
     lastPosition={east,north};
   end when;
 end Regatta;

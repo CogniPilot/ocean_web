@@ -646,6 +646,17 @@ export function raceAudio(T){
     tone.onended=()=>{tone.disconnect();gain.disconnect();};
     tone.start(t);tone.stop(t+.38);
   }
+  function finishGun(){
+    if(!enabled)return;
+    const blast=audio.createBufferSource(),filter=audio.createBiquadFilter(),gain=audio.createGain(),t=audio.currentTime;
+    blast.buffer=noise;filter.type='lowpass';
+    filter.frequency.setValueAtTime(2400,t);filter.frequency.exponentialRampToValueAtTime(170,t+.36);
+    gain.gain.setValueAtTime(.002,t);gain.gain.exponentialRampToValueAtTime(.65,t+.005);
+    gain.gain.exponentialRampToValueAtTime(.10,t+.075);gain.gain.exponentialRampToValueAtTime(.001,t+.44);
+    blast.connect(filter).connect(gain).connect(effects);
+    blast.onended=()=>{blast.disconnect();filter.disconnect();gain.disconnect();};
+    blast.start(t,.35);blast.stop(t+.45);
+  }
   function thunder(){
     if(!enabled)return;
     const src=audio.createBufferSource(),low=audio.createBiquadFilter(),gain=audio.createGain(),t=audio.currentTime;
@@ -803,6 +814,6 @@ export function raceAudio(T){
     engines(local,peers,camera,underwater,running,throttle,simulationRate);
   }
   return {get enabled(){return enabled;},get audible(){return enabled&&level>0;},
-    setEnabled,update,water,signal,thunder,setVolume,connectCabinRadio,wildlife,imagingHit,motorSound,droneSound,structureImpact,floodSound,whaleSong,replaceWhaleClips,
+    setEnabled,update,water,signal,finishGun,thunder,setVolume,connectCabinRadio,wildlife,imagingHit,motorSound,droneSound,structureImpact,floodSound,whaleSong,replaceWhaleClips,
     dispose(){if(audio&&audio.state!=='closed')void audio.close().catch(()=>{});}};
 }

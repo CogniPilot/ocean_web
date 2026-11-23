@@ -1,8 +1,9 @@
 // Exercise the shipped WebAssembly scorer with a rotated course and timed crossings.
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {lapTable,lapClock} from '../viewer/lap-board.mjs';
+import {fleetFinishes,lapTable,lapClock} from '../viewer/lap-board.mjs';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
+import {hobieNumbers} from '../viewer/hobie-numbers.mjs';
 import {raceTarget} from '../viewer/regatta.mjs';
 import {sailingStart,startGate} from '../viewer/sailing-start.mjs';
 const read=async url=>new Response(await readFile(url));
@@ -59,11 +60,13 @@ for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
     assert.equal(move(point(-.3,clearance),time+3),current,'A starboard crossing should not count');
     assert.equal(move(point(.3,clearance),time+4),current+1,'A port rounding with clearance should count');
   }
-  assert.equal(move(gate(-1,0),390),5);
+  assert.equal(move(gate(1,0),389),4);
+  assert.equal(move(gate(-1,0),391),5);
+  near(race.get('finishUtc'),390);
   near(race.get('elapsed'),90);
-  near(race.get('lapTime'),87);
+  near(race.get('lapTime'),87.5);
   assert.equal(move(gate(-2,0),399),5);
-  near(race.get('lapTime'),87);
+  near(race.get('lapTime'),87.5);
 
   race.set('raceStart',707);
   assert.equal(move(gate(-2,0),407),0);
@@ -71,11 +74,59 @@ for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
   near(race.get('nextStart'),707);
   near(race.get('lapTime'),0);
   assert.equal(move(gate(2,0),500),0,'Crossings before the reset start cannot count');
-  assert.equal(move(gate(-2,0),706.9),0);
-  assert.equal(move(gate(1,0),707.1),2,'The moved fleet start opens at the new UTC boundary');
+  assert.equal(move(gate(-1,0),706.9),0);
+  assert.equal(move(gate(3,0),707.1),1,'A crossing between samples before the gun is invalid');
+  assert.equal(race.get('earlyStart'),1);
+  assert.equal(move(gate(4,0),708),1);
+  assert.equal(move(gate(-2,0),710),1);
+  assert.equal(race.get('earlyStart'),0);
+  assert.equal(move(gate(1,0),711),2,'A new crossing after clearing the line counts');
   near(race.get('nextStart'),1007);
 }
 console.log('Three wind bearings passed start, port roundings at 4 m and 7 m, finish and lap time.');
+const hullRace=await loadInstance('Regatta',{...startGate,windBearing:0,utc:299,raceStart:300,
+  hullStations:[-2.52,-1.9,-.9,.15,1.12,1.95,2.52],hullWidths:[.09,.156,.185,.184,.155,.093,.009],hullOffset:1.02,
+  racerState:[1,Math.PI,0,0,.2,0,0,0,0,0,0]},read);
+function moveHull(distance,utc){
+  hullRace.set('east',hullRace.get('gateEast')+distance);
+  hullRace.set('north',hullRace.get('gateNorth'));
+  hullRace.set('utc',utc);hullRace.advance(.05);
+}
+moveHull(4,299.8);
+moveHull(2,299.95);
+moveHull(2,300.1);
+assert.equal(hullRace.get('stage'),1);
+assert.equal(hullRace.get('earlyStart'),1,'The bow can be over early while the boat center is clear');
+moveHull(4,300.3);
+assert.equal(hullRace.get('earlyStart'),0);
+moveHull(2,300.4);
+assert.equal(hullRace.get('stage'),2);
+
+const finishes=fleetFinishes(),awards=[];
+const award=(...winner)=>awards.push(winner);
+finishes.propose(300,390.2,'npc-1','NPC 1',100);
+finishes.propose(300,389.9,'peer','Captain Kai',450);
+finishes.propose(300,299,'invalid','Invalid time',500);
+finishes.settle(1100,1100,award);
+assert.deepEqual(awards,[]);
+finishes.settle(1200,1100,award);
+assert.deepEqual(awards,[[300,389.9,'Captain Kai']]);
+finishes.propose(300,391,'later','Captain Mira',1500);
+finishes.settle(3000,1100,award);
+assert.equal(awards.length,1);
+const [record]=finishes.history();
+const guest=fleetFinishes();
+assert.equal(guest.accept(record.heat,record.at,record.name),true);
+assert.equal(guest.accept(record.heat,record.at,record.name),false);
+assert.deepEqual(guest.get(300),finishes.get(300));
+
+const players=Array.from({length:95},(_,i)=>'captain-'+i);
+const numbers=hobieNumbers('regatta',players);
+assert.deepEqual(numbers,hobieNumbers('regatta',players.slice().reverse()));
+assert.equal(new Set(numbers.values()).size,100);
+assert.equal(Math.min(...numbers.values()),1);
+assert.equal(Math.max(...numbers.values()),100);
+for(let i=1;i<=5;i++)assert.equal(numbers.get('npc-'+i),hobieNumbers('regatta',[]).get('npc-'+i));
 const launch=await loadInstance('Regatta',{windBearing:-Math.PI},read);
 const settle=seconds=>{for(let i=0;i<seconds*20;i++)launch.advance(.05);};
 const pose=()=>Array.from(launch.get('launchPose'));

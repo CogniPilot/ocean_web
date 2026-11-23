@@ -405,7 +405,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     clear:=z-radius> -13.7 and (abs(east-36)>29+radius or abs(north-40)>23+radius);
   end aboveFlatBottom;
   function skinContact "Compressive terrain force on one swimmer skin point, in level heading axes"
-    input Real pos[3],cy,sy,velocity[3],damping;
+    input Real pos[3],cy,sy,velocity[3],damping,radius=0;
     output Real contact[5] "Force XYZ, normal load, signed clearance";
   protected
     constant Real dx=58/74,dy=46/62;
@@ -431,6 +431,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
       surface:=rockSurface(pos,{normal[1],normal[2],normal[3],clearance},rocks,planes);
       normal:=surface[1:3];clearance:=surface[4];
     end if;
+    clearance:=clearance-radius;
     force:=zeros(3);load:=0;
     if clearance<0 then
       n:={cy*normal[1]+sy*normal[2],-sy*normal[1]+cy*normal[2],normal[3]};

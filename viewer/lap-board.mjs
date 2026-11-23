@@ -8,6 +8,32 @@ const classes={Hobie16:'Hobie 16',Sailboat:'Pilothouse sloop',RDD2:'RDD2 drone'}
 export function lapClock(tenths){
   return Math.floor(tenths/600)+':'+((tenths%600)/10).toFixed(1).padStart(4,'0');
 }
+
+export function fleetFinishes(){
+  const pending=new Map(),results=new Map();
+  function valid(heat,at){return Number.isFinite(heat)&&Number.isFinite(at)&&at>heat&&at-heat<3600;}
+  function propose(heat,at,id,name,now){
+    if(!valid(heat,at)||results.has(heat))return;
+    const prior=pending.get(heat);
+    if(!prior||at<prior.at||at===prior.at&&id<prior.id)
+      pending.set(heat,{heat,at,id,name,since:prior?.since??now});
+  }
+  function accept(heat,at,name){
+    if(!valid(heat,at)||typeof name!=='string'||!name||name.length>80||results.has(heat))return false;
+    results.set(heat,{heat,at,name});pending.delete(heat);
+    if(results.size>8)results.delete(Math.min(...results.keys()));
+    return true;
+  }
+  return {
+    propose,accept,get:heat=>results.get(heat),history:()=>Array.from(results.values()),
+    settle(now,delay,announce){
+      for(const {heat,at,name,since} of pending.values()){
+        if(now-since>=delay&&accept(heat,at,name))announce(heat,at,name);
+      }
+    },
+    clear(){pending.clear();results.clear();}
+  };
+}
 function valid(row,hull){
   if(!row||typeof row.id!=='string'||!Number.isSafeInteger(row.tenths)||row.tenths<=0)return false;
   const npc=/^npc-([1-5])-\d{1,15}-(?:[a-f0-9]{16}|-?\d{1,15})$/.exec(row.id);

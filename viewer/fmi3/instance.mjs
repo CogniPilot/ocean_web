@@ -22,7 +22,7 @@ export async function loadInstance(name,inputs,read=fetch){
   }
   function get(name, destination) {
     const [reference,kind,count]=metadata.variables[name];
-    check(kind==='Int64' ? m._read_integer(reference) : m._read_real(reference,count));
+    check(kind==='Int64' ? m._read_integer(reference,count) : m._read_real(reference,count));
     const offset=m._buffer()/8;
     if(destination===undefined)return result(offset,count);
     if(destination.length!==count)throw Error('Wrong output dimensions for '+name);

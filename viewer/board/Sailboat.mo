@@ -1,4 +1,59 @@
 model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
+  function rigCapsules "Mast, sagging stays and three strips per rudder blade"
+    input Real mast[8,3],stays[3,3,3],helm;
+    output Real shapes[19,7] "Capsule endpoints and radius in hull axes";
+  protected
+    Real cs,sn,upper,lower;
+    Integer row;
+  algorithm
+    for i in 1:7 loop
+      shapes[i,:]:=cat(1,mast[i,:],mast[i+1,:],{.043});
+    end for;
+    for i in 1:3 loop
+      for j in 1:2 loop
+        shapes[7+2*(i-1)+j,:]:=cat(1,stays[i,j,:],stays[i,j+1,:],{if i<3 then .006 else .004});
+      end for;
+    end for;
+    cs:=cos(helm);sn:=sin(helm);
+    for side in 1:2 loop
+      for i in 1:3 loop
+        row:=13+3*(side-1)+i;
+        upper:=-.071-.066*i;lower:=-.163-.017*i;
+        shapes[row,:]:={-2.545+cs*upper,(3-2*side)*1.02-sn*upper,.195,
+          -2.545+cs*lower,(3-2*side)*1.02-sn*lower,-.53+.033*(i-1),.039};
+      end for;
+    end for;
+  end rigCapsules;
+
+  function rigTerrainContact "Terrain reaction of the standing rig and rudders"
+    input Real pos[3],heading,rotation[3,3],velocity[3],spin[3],shapes[19,7];
+    output Real wrench[6];
+  protected
+    Real cs,sn,arm[3],p[3],delta[3],contact[5],force[3],lever[3],peak;
+    Integer intervals;
+  algorithm
+    wrench:=zeros(6);
+    if Shore.aboveFlatBottom(pos[1],pos[2],pos[3],8.7) then return;end if;
+    cs:=cos(heading);sn:=sin(heading);
+    for i in 1:19 loop
+      delta:=shapes[i,4:6]-shapes[i,1:3];
+      intervals:=if i<=7 then 5 elseif i<=13 then 9 else 3;
+      peak:=0;force:=zeros(3);lever:=zeros(3);
+      for j in 0:9 loop
+        if j>intervals then break;end if;
+        arm:=rotation*(shapes[i,1:3]+j/intervals*delta);
+        p:=pos+{cs*arm[1]-sn*arm[2],sn*arm[1]+cs*arm[2],arm[3]};
+        if not Shore.aboveFlatBottom(p[1],p[2],p[3],shapes[i,7]) then
+          contact:=Shore.skinContact(p,cs,sn,velocity+cross(spin,arm),if i<=13 then 16 else 85,shapes[i,7]);
+          if contact[4]>peak then
+            peak:=contact[4];force:=contact[1:3];lever:=arm;
+          end if;
+        end if;
+      end for;
+      wrench:=wrench+cat(1,force,cross(lever,force));
+    end for;
+  end rigTerrainContact;
+
   function mastDeflection "Displacement of a luff station from the unloaded mast centreline"
     input Real fraction,support,tip,slope,tangLean[2],lowerBow;
     output Real displacement[3];
@@ -347,6 +402,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real lowerMastBow;
   output Real mastBend "Largest fore-aft distance from the tack-to-head chord [m]";
   output Real mastStations[8,3] "Mast step, six luff stations and masthead in hull axes";
+  output Real rigCollision[19,7] "Modelica collision capsules for mast, stays and rudder blades";
+  discrete Real rigShoreWrench[6](each start=0,each fixed=true);
   output Real mainGooseneck[3] "Actual main boom hinge in hull axes";
   output Real mainBlockPins[2,3] "Lower and upper mainsheet tackle pins in hull axes";
   output Real boomDeckClearance(unit="m") "Vertical clearance under the aft end of the boom relative to the aft crossbar";
@@ -1114,8 +1171,11 @@ equation
   hullRe=abs(waterRelative[1])*(stationX[7]-stationX[1])/waterViscosity;
   frictionCoefficient=if hullRe<5e5 then 1.328/sqrt(max(1,hullRe)) else .075/(log10(hullRe)-2)^2;
   skinDrag=.5*1025*skinArea*(1+formFactor)*frictionCoefficient*waterRelative[1]*abs(waterRelative[1]);
-  shoreWrench=Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing);
+  rigCollision=if catamaran then rigCapsules(mastStations,cat(1,stayPath[1:2,:,:],{forestayPath}),rudder) else zeros(19,7);
+  shoreWrench=Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing)+rigShoreWrench;
   when sample(0,.02) then
+    rigShoreWrench=if catamaran then rigTerrainContact({east,north,heave},heading,rotation,
+      {surge,sway,vertical},spin,rigCollision) else zeros(6);
     (sceneForce,sceneContact)=contactWrench({east,north,heading,ve,vn,yawRate,heave},sceneTraffic,if catamaran then 1 else 0,{heel,pitch},sceneTilt);
     (peerForce,peerContact)=contactWrench({east,north,heading,ve,vn,yawRate,heave},traffic,if catamaran then 1 else 0,{heel,pitch},trafficTilt);
   end when;

@@ -57,7 +57,7 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
   discrete Real turnSide(start=1,fixed=true),headingBefore(start=initialHeading,fixed=true);
   Real contact[10];
   discrete Real contactMemory[10](each start=0,each fixed=true);
-  discrete Real oldMark(start=0,fixed=true),heatSeen(start=0,fixed=true);
+  discrete Real oldMark(start=0,fixed=true);
   discrete Boolean turning(start=false,fixed=true),finishReady(start=false,fixed=true);
   Regatta race(utc=utc,raceStart=raceStart,east=east,north=north,finishAllowed=if owed<.5 then 1 else 0,
     gateEast=gateEast,gateNorth=gateNorth,lineLength=lineLength,windBearing=prevailing,tide=background,landingReaction=zeros(6),
@@ -103,6 +103,7 @@ equation
   seconds=max(0,raceStart-utc);
   turnPoint={east,north}-12*windward+4*crosswind;
   goal=if owed>.5 and not turning then turnPoint
+    elseif race.earlyStart>.5 then startLine-18*courseUp
     elseif race.stage==0 and seconds>27 then startLine-40*courseUp-13*courseSide
     elseif race.stage==0 or race.stage==1 then
       (if along>1 then startLine-18*courseUp else startLine+14*courseUp)
@@ -119,12 +120,11 @@ equation
     1,race.markEast[1],race.markNorth[1],0,0,0,0,seaHeight,4;
     1,race.markEast[2],race.markNorth[2],0,0,0,0,seaHeight,4];
   turnHeading=heading+pre(turnSide)*.64;
-  raceStatus={race.stage,race.elapsed,race.lapTime,heatSeen,owed,arc*180/Modelica.Constants.pi};
+  raceStatus={race.stage,race.elapsed,race.lapTime,race.heatStart,owed,arc*180/Modelica.Constants.pi};
   when sample(0,.2) then
     contactFlag=if pre(race.stage)<5 then SailingTactics.newBreach({east,north},heading,upwind,traffic,contact,pre(contactMemory),markLoad,pre(oldMark)) else 0;
     finishReady=if race.stage<>4 or finishAlong< -5 then false
       elseif finishAlong>5 and abs(finishAcross)<lineLength*.31 then true else pre(finishReady);
-    heatSeen=if race.stage<2 then max(raceStart,race.nextStart-300) else pre(heatSeen);
     contactMemory={if contact[i]>10 or (pre(contactMemory[i])>10 and
         abs(east-traffic[i,2])+abs(north-traffic[i,3])<7 and traffic[i,1]>.5) then 100 else 0 for i in 1:10};
     oldMark=if markLoad>1 or (pre(oldMark)>1 and markRange<7) then 100 else 0;

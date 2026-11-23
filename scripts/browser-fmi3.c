@@ -16,10 +16,12 @@ int initialize(void) {return fmi3ExitInitializationMode(instance);}
 int set_real(unsigned vr,double v) {return fmi3SetFloat64(instance,&vr,1,&v,1);}
 int set_reals(unsigned vr,unsigned n) {return n>16384 ? fmi3Error : fmi3SetFloat64(instance,&vr,1,values,n);}
 int read_real(unsigned vr,unsigned n) {return n>16384 ? fmi3Error : fmi3GetFloat64(instance,&vr,1,values,n);}
-int read_integer(unsigned vr) {
-    fmi3Int64 integer=0;
-    int status=fmi3GetInt64(instance,&vr,1,&integer,1);
-    values[0]=(double)integer;
+int read_integer(unsigned vr,unsigned n) {
+    if (!n || n > sizeof(values)/sizeof(*values)) return fmi3Error;
+    fmi3Int64 integers[n];
+    int status=fmi3GetInt64(instance,&vr,1,integers,n);
+    if (status <= fmi3Warning)
+        for (unsigned i=0;i<n;i++) values[i]=(double)integers[i];
     return status;
 }
 int advance(double time,double dt) {

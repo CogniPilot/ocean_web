@@ -4,6 +4,8 @@ import {joinFleetRoom} from './fleet-room.mjs';
 import {captainRoster} from './captains.mjs';
 // Snapshot transport only. Each boat owns its local Rumoca FMU.
 import {PeerTimeline} from './fleet-timeline.mjs';
+import {fleetFinishes} from './lap-board.mjs';
+import {hobieNumbers} from './hobie-numbers.mjs';
 import {FleetSeaClock} from './fleet-sea-clock.mjs';
 import {loadVehicleShell,vehicleShell} from './vehicle-assets.mjs';
 import {sailboatMesh} from './board/boat.mjs';
@@ -43,10 +45,28 @@ function drawGhost(T,scene,peer,kind,template,offset,p,d,f){
   ghost.position.fromArray(old,offset+1).lerp(peer.target.fromArray(d,offset+1),f);
   ghost.quaternion.fromArray(old,offset+4).normalize().slerp(peer.rotation.fromArray(d,offset+4).normalize(),f);
 }
-export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,chat){
+export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,chat,onFinish){
   let remoteAirframe,loadingAirframe,remoteSub,loadingSub,retrySubAt=0;
   let selfId,room,action,poseSend,lastSend=-Infinity,participants=new Set();
   const npc=npcRoom();
+  const offlineNumbers=hobieNumbers(String(Math.random()),['you']);
+  let numbers=offlineNumbers;
+  const sailNumber=id=>numbers.get(id??(room?selfId:'you'))??0;
+  const finishes=fleetFinishes();
+  let finishChannel;
+  function recordFinish(heat,at,npcNumber){
+    if(npcNumber&&room&&!npc.host)return;
+    if(!room||npc.host)finishes.propose(heat,at,npcNumber?'npc-'+npcNumber:selfId??'you',
+      npcNumber?'NPC '+npcNumber:roster.get(selfId)??'You',performance.now());
+    else finishChannel.send(['crossed',heat,at],{target:npc.owner}).catch(()=>{});
+  }
+  function tickFinishes(now){
+    if(room&&!npc.host)return;
+    finishes.settle(now,room&&participants.size?1100:0,(heat,at,name)=>{
+      onFinish?.();
+      if(room&&participants.size)finishChannel.send(['winner',heat,at,name]).catch(()=>{});
+    });
+  }
   const peers=new Map(),lamps=[],cruisers=[],drones=[],lampStates=new Map();
   let starterChannel,engineChannel,encounterChannel,encounter,lastEncounterSend=-Infinity;
   function sendEncounter(now,snapshot){
@@ -140,6 +160,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   }
   function report(){
     roster=room?captainRoster([selfId,...participants]):new Map();
+    numbers=room?hobieNumbers(roomName,[selfId,...participants]):offlineNumbers;
+    for(const peer of peers.values())if(peer.cat)peer.mesh?.setSailNumber(sailNumber(peer.id));
     if(!status)return;
     status.textContent=room?roomName+' · '+roster.get(selfId)+' · '+roster.size+' online'+(npc.host?' · Host':'')+(roster.size===1?' · Waiting for peers':''):'Offline';
     for(const id of ['wind','sky','storm','seaState']){
@@ -180,6 +202,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       await loadVehicleShell(peer.cat?'hobie-hulls':'sloop-hull');
       if(peers.get(id)!==peer)return;
       peer.mesh=sailboatMesh(T,peer.cat);
+      if(peer.cat)peer.mesh.setSailNumber(sailNumber(id));
       peer.mesh.group.traverse(o=>{o.layers.disable(0);o.layers.enable(1);});
       peer.mesh.group.visible=false;
       scene.add(peer.mesh.group);
@@ -206,9 +229,10 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(peer.kind==='boat'||peer.kind==='motorboat'){boatCount--;trafficChanged=true;}
       peers.delete(id);}
   }
-  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;poseSend=undefined;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
+  function leave(){finishes.clear();finishChannel=null;if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;poseSend=undefined;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
   function join(transport,name=roomName){
     if(room)return;
+    finishes.clear();
     if(name!==roomName)retainedOffset=0;
     roomName=name;
     selfId=transport.selfId;
@@ -245,6 +269,16 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     };
     lapChannel=room.makeAction('best-laps');
     laps?.connect(lapChannel,roomName);
+    finishChannel=room.makeAction('race-finish');
+    finishChannel.onMessage=(packet,{peerId})=>{
+      if(room!==active||!participants.has(peerId)||!Array.isArray(packet))return;
+      const [type,heat,at,name]=packet;
+      if(type==='crossed'&&npc.host&&packet.length===3)
+        finishes.propose(heat,at,peerId,roster.get(peerId)??'Player',performance.now());
+      else if(peerId===npc.owner&&packet.length===4&&(type==='winner'||type==='history')){
+        if(finishes.accept(heat,at,name)&&type==='winner')onFinish?.();
+      }
+    };
     seaClock=new FleetSeaClock(selfId);
     seaClock.offset=retainedOffset;
     clockChannel=room.makeAction('sea-clock');
@@ -326,6 +360,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(room!==active)return;
       participants.add(id);npc.join(id);
       laps?.send(id);
+      if(npc.host)for(const {heat,at,name} of finishes.history())
+        finishChannel.send(['history',heat,at,name],{target:id}).catch(()=>{});
       sentLamp=undefined;
       wakePreference.send(Number(acceptsWakes),{target:id}).catch(()=>{});
       lastWeatherSend=-Infinity;
@@ -366,6 +402,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   }
   function frame(now,s,cat,extra,sub,drone,kind,lampOn,aircraft,motor,motorState,radarTime){
     lamps.length=cruisers.length=drones.length=0;
+    tickFinishes(now);
     if(!room)return;
     npc.tick(now);
     if(participants.size&&now-lastPenaltySend>=1500){
@@ -559,10 +596,10 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     return result;
   }
   function detachView(){
-    status=weather=crew=laps=onImagingHit=chat=undefined;
+    status=weather=crew=laps=onImagingHit=chat=onFinish=undefined;
   }
   function attachView(bindings){
-    ({scene,status,weather,crew,laps,onImagingHit,chat}=bindings);
+    ({scene,status,weather,crew,laps,onImagingHit,chat,onFinish}=bindings);
     for(const peer of peers.values()){
       for(const part of [peer.mesh?.group,peer.sub,peer.drone,peer.motorboat,peer.label]){
         if(part)scene.add(part);
@@ -577,7 +614,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     if(seaClock)seaClock.offset=phase;
     lastWakeStamp=-Infinity;
   }
-  return {join,leave,frame,sendChat,sendEncounter,receiveEncounter,hostCruiser:()=>peers.get(npc.owner)?.cruiser,detachView,attachView,resumeClock,get connected(){return Boolean(room);},setPenalty(turns){
+  return {join,leave,frame,sendChat,sendEncounter,receiveEncounter,recordFinish,sailNumber,raceWinner:finishes.get,hostCruiser:()=>peers.get(npc.owner)?.cruiser,detachView,attachView,resumeClock,get connected(){return Boolean(room);},setPenalty(turns){
     if(ourPenalty!==turns){ourPenalty=turns;lastPenaltySend=-Infinity;}
   },lamps,cruisers,drones,imagingHit,contacts,nearbyDeck,npc,vessels,players,contactPeers,contactTilts,get captain(){return roster.get(selfId);},captainName:id=>roster.get(id),get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
 }

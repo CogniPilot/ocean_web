@@ -10,7 +10,7 @@ import {sailingStart,startGate,windBearing} from './sailing-start.mjs';
 import {waterCaptureLayer,showInLowWaterCapture} from './render-layers.mjs';
 import {wreckCaustics} from './caustics.mjs';
 import {loadVehicleShell} from './vehicle-assets.mjs';
-import {loadInstance} from './fmi3/instance.mjs?api=2';
+import {loadInstance} from './fmi3/instance.mjs?api=3';
 import {sailboatMesh,observeBoat,sailingRigFields} from './board/boat.mjs';
 import {sailPanelFields,readSailPanels} from './board/sail-battens.mjs';
 import {fineBowGrid} from './bow-grid.mjs';
@@ -316,7 +316,8 @@ async function run(saved=readReset(),carried){
     scene.add(motor.group);
     for(const [title,id] of [['Helm','motorHelm'],['Cabin','motorCabin'],['Aft cockpit','motorCockpit'],['Underwater bow camera','motorBow'],['Underwater stern camera','motorStern'],['Underwater port camera','motorPort'],['Underwater starboard camera','motorStarboard']])$('cameraDepth').add(new Option(title,id));
   }
-  const race=world?.race??await loadInstance('Regatta',{...startGate,windBearing,east:model.get('east'),north:model.get('north'),utc:Date.now()/1000});
+  const race=world?.race??await loadInstance('Regatta',{...startGate,windBearing,east:model.get('east'),north:model.get('north'),utc:Date.now()/1000,
+    hullStations:model.get('stationX'),hullWidths:model.get('beamHalf'),hullOffset:model.get('halfSpacing')});
   const windField=world?.wind??await loadInstance('MarineWind',{meanEast:inputs.windEast,meanNorth:inputs.windNorth,east:model.get('east'),north:model.get('north')});
   let mast,lastMastPreview=-Infinity;
   const mastPanel=$('mastPanel'),mastButton=$('mastCapture');
@@ -347,7 +348,7 @@ async function run(saved=readReset(),carried){
   }
   const course=courseScene(T,scene,race),audio=cruiserRuntime?.audio??raceAudio(T);
   cleanup(()=>{if(!preserveCruiser)audio.dispose();});
-  let lastCountdown=null,raceTick=0;
+  let lastCountdown=null,raceTick=0,lastReportedFinish=0;
   const lastLaps=new Map();
   const normalizeRoom=value=>value.trim().slice(0,64)||'regatta';
   let roomName=normalizeRoom(url.searchParams.get('room')??saved?.fields.roomName??'');
@@ -435,7 +436,11 @@ async function run(saved=readReset(),carried){
     },
     receive:chatMessage
   };
-  const remote=carried?.remote??fleet(T,scene,roomName,$('online'),weather,$('crew'),laps,playImagingHit,chat);
+  const remote=carried?.remote??fleet(T,scene,roomName,$('online'),weather,$('crew'),laps,playImagingHit,chat,audio.finishGun);
+  function observeNpcFinish(number,row,status){
+    laps.observeNpc(number,row,status);
+    remote.recordFinish(status.heatStart,status.heatStart+status.elapsed,number);
+  }
   const goBelow=$('goBelow'),anchorSwitch=$('anchorSwitch'),anchorReadout=$('anchorReadout'),wiperSwitch=$('wiperSwitch');
   let anchorLowered=cruiserRuntime?.anchorLowered??false;
   const cabinView=$('cabinControls'),cabinLight=$('cabinLight'),cabinRadio=$('cabinRadio'),integrityDisplay=$('cruiserIntegrity');
@@ -947,6 +952,7 @@ async function run(saved=readReset(),carried){
     }
     drawVesselContacts(T,collisionPainter,vessel,motor?2:Number(cat),peerCollisionSamples,remote.contactTilts,
       npcTraffic?.contacts,npcTraffic?.tilts,course.committee,pontoonWire,cruiserWire,cabinWire);
+    if(cat&&model?.has('rigCollision'))collisionPainter.rigCapsules(boat.group,model.get('rigCollision'));
     if(backgroundCruiser?.group.visible&&cruiserWire){
       collisionPainter.lines(backgroundCruiser.group,cruiserWire,'#69e2bb');
       if(cabinWire)collisionPainter.lines(backgroundCruiser.group,cabinWire,'#69e2bb');
@@ -1537,7 +1543,7 @@ async function run(saved=readReset(),carried){
     if(rows.length&&!npcTraffic&&!npcTrafficLoad){
       npcTrafficLoad=import('./npc-vessels.mjs').then(({vesselTraffic})=>{
         if(signal.aborted)return;
-        npcTraffic=vesselTraffic(T,scene,npcSurface,ocean.sampleWind,race,remote.npc,npcError,laps.observeNpc,npcIncidentSea);
+        npcTraffic=vesselTraffic(T,scene,npcSurface,ocean.sampleWind,race,remote.npc,npcError,observeNpcFinish,npcIncidentSea,remote.sailNumber);
       }).catch(reason=>{npcError(reason);npcTrafficLoad=undefined;});
     }
     while(npcCamCount>rows.length){
@@ -2188,10 +2194,10 @@ async function run(saved=readReset(),carried){
   restoreCamera();
   if(carried){
     remote.resumeClock(carried.phase-(world?.time??model.time));
-    remote.attachView({scene,status:$('online'),weather,crew:$('crew'),laps,onImagingHit:playImagingHit,chat});
+    remote.attachView({scene,status:$('online'),weather,crew:$('crew'),laps,onImagingHit:playImagingHit,chat,onFinish:audio.finishGun});
     chatLog.append(...carried.chatMessages);
     if(chatScope)chatPanel.open=carried.chatOpen;
-    npcTraffic?.attachView({scene,surface:npcSurface,windAt:ocean.sampleWind,race,incidentSea:npcIncidentSea,onError:npcError,onFinish:laps.observeNpc});
+    npcTraffic?.attachView({scene,surface:npcSurface,windAt:ocean.sampleWind,race,incidentSea:npcIncidentSea,onError:npcError,onFinish:observeNpcFinish});
     if(carried.online&&!remote.connected)multiplayer(true);
     else{
       multiplayerButton.setAttribute('aria-pressed',String(carried.online));
@@ -2203,6 +2209,7 @@ async function run(saved=readReset(),carried){
   let physicsTimer,courseTarget,drawDeadline,appliedRaceStart=0;
   function draw(now){
     if(signal.aborted)return;
+    if(cat)boat?.setSailNumber(remote.sailNumber());
     // Keep a 30 Hz deadline across refresh rates. If a frame missed a
     // whole period, reset phase instead of rendering catch-up frames.
     drawDeadline??=now;
@@ -2254,9 +2261,15 @@ async function run(saved=readReset(),carried){
         if(stage<2||!normalSpeed)timedLap=normalSpeed;
         observePenalties(stage);
         if(!sub?.active&&(hasBoat||drone?.active)&&!penaltyTurns)laps.observe(stage,lap,remote.captain,timedLap);
+        const heat=scorer.has('heatStart')?scorer.get('heatStart'):undefined;
+        const finished=stage===5&&scorer.has('finishUtc')?scorer.get('finishUtc'):0;
+        if(hasBoat&&!animalId&&!sub?.active&&!drone?.active&&timedLap&&!penaltyTurns&&finished>lastReportedFinish){
+          remote.recordFinish(heat,finished);lastReportedFinish=finished;
+        }
         if(stage===5&&!penaltyTurns)lastLaps.set(raceClass,timer);
         const lastLap=lastLaps.get(raceClass);
-        let cue=['Wait for start','Cross upwind','Mark 1','Mark 2','Cross finish downwind','Finished'][stage];
+        let cue=scorer.has('earlyStart')&&scorer.get('earlyStart')?'Over early · Return behind the start line':
+          ['Wait for start','Cross upwind','Mark 1','Mark 2','Cross finish downwind','Finished'][stage];
         const racer=drone?.active?drone.estimatedPosition:model?[model.get('east'),model.get('north')]:null;
         courseTarget=racer?raceTarget(race,stage,racer[0],racer[1]):null;
         if(courseTarget && (drone?.active || stage===2 || stage===3)){
@@ -2264,6 +2277,11 @@ async function run(saved=readReset(),carried){
         }
         $('raceCourse').textContent='TRI 1 · First leg '+firstLeg(race)+' · 1 & 2 to port';
         $('raceStatus').textContent=cue+(stage>=2?' · Lap '+timer:lastLap?' · Last lap '+lastLap:'');
+        const winner=remote.raceWinner(heat);
+        const winnerLine=$('raceWinner');
+        const winnerLabel=winner?'First across · '+winner.name:'';
+        if(winnerLine.textContent!==winnerLabel)winnerLine.textContent=winnerLabel;
+        winnerLine.hidden=!winner;
       }
       frameCost=.94*frameCost+.06*Math.min(120,now-prev);
       const adaptive=adaptiveWater();

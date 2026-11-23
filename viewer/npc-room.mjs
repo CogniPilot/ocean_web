@@ -8,7 +8,7 @@ export function gullIndex(id){
 export const vesselNpcNames=Object.freeze({
   hobie:'Hobie 16',sloop:'Pilothouse sloop',motorboat:'Cabin cruiser',drone:'RDD2 drone',sub:'Piccard submarine'
 });
-const vesselLimit=5;
+export const npcVesselLimit=5;
 const legacyFishCount=36,fishCount=72;
 
 // The elected or appointed host runs the NPCs and owns room weather.
@@ -28,7 +28,7 @@ export function npcRoom(){
   const validStart=time=>Number.isSafeInteger(time)&&time>0;
   function acceptHabitat(h){
     return h&&(finiteRow(h.restock,fishCount)||finiteRow(h.restock,legacyFishCount))&&Array.isArray(h.gulls)&&h.gulls.length<=maxGulls&&h.gulls.every(r=>[12,19,22,25].includes(r?.length)&&finiteRow(r,r.length))&&
-      (h.vessels===undefined||(Array.isArray(h.vessels)&&h.vessels.length<=vesselLimit&&h.vessels.every(
+      (h.vessels===undefined||(Array.isArray(h.vessels)&&h.vessels.length<=npcVesselLimit&&h.vessels.every(
         v=>v&&Object.hasOwn(vesselNpcNames,v.kind)&&Number.isFinite(v.started)&&
           (v.raceAt===undefined||validStart(v.raceAt))&&
           (v.lane===undefined||Number.isInteger(v.lane)&&v.lane>=0&&v.lane<5)&&
@@ -176,7 +176,7 @@ export function npcRoom(){
         if(!Array.isArray(data)){
           if(!m)return;
           if(data.type==='vessel-frames'){
-            if(peerId===owner&&Array.isArray(data.frames)&&data.frames.length<=vesselLimit){
+            if(peerId===owner&&Array.isArray(data.frames)&&data.frames.length<=npcVesselLimit){
               for(const frame of data.frames){
                 if(typeof frame?.id==='string'&&frame.id.length<=32&&finiteRow(frame.data,racerFrameSize)){
                   vesselFrames.set(frame.id,frame.data);
@@ -263,7 +263,7 @@ export function npcRoom(){
       if(owner!==self)return;
       habitat.raceStart=validStart(roster.raceStart)?roster.raceStart:0;
       const available=[0,1,2,3,4],phase=randomBetween(0,2*Math.PI);
-      habitat.vessels=roster.vessels.filter(kind=>Object.hasOwn(vesselNpcNames,kind)).slice(0,vesselLimit).map((kind,patrol)=>{
+      habitat.vessels=roster.vessels.filter(kind=>Object.hasOwn(vesselNpcNames,kind)).slice(0,npcVesselLimit).map((kind,patrol)=>{
         if(kind!=='hobie')return {kind,started,patrol,phase};
         const [lane]=available.splice(Math.floor(Math.random()*available.length),1);
         return {kind,started,raceAt:boundary,raceWind:wind,lane,
@@ -316,7 +316,7 @@ export function npcRoom(){
       habitat.sounds.push([++habitat.sequence,time,kind,...position,gain]);
       if(habitat.sounds.length>16)habitat.sounds.shift();
     },
-    canSpawn(kind){return owner===self&&(Object.hasOwn(vesselNpcNames,kind)?habitat.vessels.length<vesselLimit:
+    canSpawn(kind){return owner===self&&(Object.hasOwn(vesselNpcNames,kind)?habitat.vessels.length<npcVesselLimit:
       kind==='gull'?habitat.gulls.length<maxGulls:validKind(kind)&&animals.size<10);},
     spawn(kind,started=0,raceAt,raceWind){
       if(!this.canSpawn(kind))return;

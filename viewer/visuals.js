@@ -29,9 +29,14 @@ function seabedMaterials(T,illumination){
    m.onBeforeCompile=s=>{
      s.vertexShader='varying vec3 location;\n'+s.vertexShader.replace('#include <worldpos_vertex>','#include <worldpos_vertex>\nlocation=(modelMatrix*vec4(transformed,1.)).xyz;');
      s.fragmentShader='varying vec3 location;\n'+skyNoiseGLSL+s.fragmentShader;
+     const shoreline=`
+     float footprint=max(length(dFdx(p)),length(dFdy(p)));
+     float grain=noise2(p*38.)*(1.-smoothstep(.012,.065,footprint));
+     vec3 beach=diffuseColor.rgb*(.91+.13*noise2(p*3.)+.10*grain);
+     diffuseColor.rgb=mix(bed,beach,smoothstep(-13.7,-7.,location.z));`;
      const code=kind==='sand'||shore?`vec2 p=location.xy;float ridge=sin(6.*p.x+2.4*sin(p.y*.81)+cloud(p*.7)*5.);
      vec3 bed=vec3(.26,.31,.27)*(.65+.12*ridge+.53*cloud(p*2.));
-     diffuseColor.rgb=${shore?'mix(bed,diffuseColor.rgb,smoothstep(-13.7,-7.,location.z))':'bed'};`:
+     ${shore?shoreline:'diffuseColor.rgb=bed;'}`:
      `vec2 p=vec2(location.x+.34*location.y,location.z+.25*location.y);float oxidation=cloud(p*vec2(.75,.38))+.16*noise2(p*vec2(7.,1.2));vec3 brown=vec3(.35,.125,.046);diffuseColor.rgb=mix(vec3(${base}),brown,smoothstep(.43,.69,oxidation))*(.63+.47*noise2(p*43.));`;
      Object.assign(s.uniforms,illumination);
      s.fragmentShader='uniform sampler2D wreckFlux,wreckDepth;uniform mat4 wreckProjection;uniform vec3 waterRay;uniform vec2 causticShift;uniform float sunStrength;\n'+s.fragmentShader;
@@ -158,8 +163,132 @@ function marineLife(T,scene,webgl2,schoolState){
    motes.position.set(.35*Math.sin(t*.23),.15*Math.sin(t*.18),.14*Math.cos(t*.12));
  };
 }
+// Build the coconut grove in three indexed meshes. Each palm keeps its own wind sample.
+function islandGrove(T,land,terrain,center){
+ const trees=[[-12.5,-2.8,4.4],[-10,2.7,7.7],[-8.3,-4.1,8.7],[-7,1,5.9],[-7,5.7,6.8],
+   [-4.6,-5,5.6],[-3.8,-.8,8.7],[-3.9,4.5,7.9],[-1.3,6.7,5.6],[-.4,2.6,6.9],
+   [1,0,8.3],[2.7,4.8,9],[4.6,-3,6.2],[5.6,.9,7.5],[7.4,4.7,6.3],[9,1.2,8.6],
+   [12,-2.4,5.5],[11.1,4.3,7.1]];
+ let seed=2897;
+ const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
+ const tau=2*Math.PI,palmTime={value:0},palmWind={value:trees.map(()=>new T.Vector2())};
+ const makeBatch=()=>({positions:[],colors:[],flex:[],indices:[]});
+ const trunks=makeBatch(),fronds=makeBatch(),shrubs=makeBatch();
+ function vertex(batch,p,color,tree,flex,tip,shade){
+   const index=batch.positions.length/3;
+   batch.positions.push(p.x,p.y,p.z);batch.colors.push(color.r*shade,color.g*shade,color.b*shade);
+   batch.flex.push(tree,flex,tip);return index;
+ }
+ function blade(batch,base,tip,width,color,tree,flex){
+   const middle=base.clone().lerp(tip,.5),d=tip.clone().sub(base);
+   const across=new T.Vector3(-d.y,d.x,0).normalize().multiplyScalar(width);
+   const a=vertex(batch,base,color,tree,flex,.4,.70);
+   vertex(batch,middle.clone().add(across),color,tree,flex,.75,.80);
+   vertex(batch,middle.clone().sub(across),color,tree,flex,.75,.96);
+   middle.z+=width*.38;
+   vertex(batch,middle,color,tree,flex,.75,1.10);
+   vertex(batch,tip,color,tree,flex,1,.91);
+   batch.indices.push(a,a+1,a+3,a,a+3,a+2,a+3,a+1,a+4,a+3,a+4,a+2);
+ }
+ function bendPalm(shader){
+   shader.uniforms.palmTime=palmTime;shader.uniforms.palmWind=palmWind;
+   shader.vertexShader=`attribute vec3 palmBend;uniform float palmTime;uniform vec2 palmWind[${trees.length}];\n`+
+     shader.vertexShader.replace('#include <begin_vertex>',`#include <begin_vertex>
+       vec2 wind=palmWind[int(palmBend.x)];
+       float speed=length(wind),bend=(1.-exp(-speed/11.))*palmBend.y*palmBend.y;
+       vec2 direction=wind/max(.001,speed),across=vec2(-direction.y,direction.x);
+       float phase=.89*palmTime+palmBend.x*2.;
+       transformed.xy+=bend*(direction*(.48+.14*sin(phase))+.08*across*cos(phase));
+       transformed.z+=bend*palmBend.z*.16*sin(2.6*palmTime+3.*palmBend.z+palmBend.x);`);
+ }
+ const bark=new T.Color(0x796651),oldLeaf=new T.Color(0xa6943b),newLeaf=new T.Color(0x83a841),matureLeaf=new T.Color(0x45682c);
+ const up=new T.Vector3(0,0,1);
+ for(const [i,[x,y,height]] of trees.entries()){
+   const z=terrain(x,y)-.13;
+   const lean=(i===0||i===16?.40:.09+.22*random())*height,az=random()*tau;
+   const dx=Math.cos(az)*lean,dy=Math.sin(az)*lean,thickness=.16+.085*random();
+   const sides=9,rings=Math.ceil(height*11),first=trunks.positions.length/3;
+   for(let row=0;row<=rings;row++){
+     const u=row/rings,curve=u**1.65;
+     const radius=thickness*(1-.43*u+.46*Math.exp(-24*u)+.18*u**8)*(row%3===0?1.065:1);
+     for(let edge=0;edge<sides;edge++){
+       const a=tau*edge/sides;
+       vertex(trunks,new T.Vector3(x+dx*curve+Math.cos(a)*radius,y+dy*curve+Math.sin(a)*radius,z+height*u),
+         bark,i,u,0,(row%3===0?.70:.91)+.12*random());
+       if(row){
+         const prev=first+(row-1)*sides+edge,next=first+(row-1)*sides+(edge+1)%sides;
+         trunks.indices.push(prev,next,prev+sides,next,next+sides,prev+sides);
+       }
+     }
+   }
+   const head=new T.Vector3(x+dx,y+dy,z+height),phase=random()*tau;
+   for(let j=0;j<16;j++){
+     const upright=j<5,weathered=j>=12,a=phase+j*2.39996+.30*random();
+     const forward=new T.Vector3(Math.cos(a),Math.sin(a),0),side=new T.Vector3(-forward.y,forward.x,0);
+     const length=(upright?1.4:2)+1.3*random(),rise=(upright?1.18:.38)+.42*random();
+     const fall=upright?.05:weathered?1.70+.55*random():.82+.65*random();
+     const shade=matureLeaf.clone().lerp(weathered?oldLeaf:newLeaf,.25+.60*random());
+     const point=u=>head.clone().addScaledVector(forward,length*u)
+       .addScaledVector(side,.22*Math.sin(a+j)*u*u).addScaledVector(up,rise*Math.sin(Math.PI*u*.77)-fall*u**3);
+     const ribs=18,stemStart=fronds.positions.length/3;
+     for(let step=0;step<=ribs;step++){
+       const u=step/ribs,p=point(u),stem=.017*(1-u)+.002;
+       vertex(fronds,p.clone().addScaledVector(side,stem),oldLeaf,i,1,u,.88);
+       vertex(fronds,p.clone().addScaledVector(side,-stem),oldLeaf,i,1,u,.88);
+       if(step){const n=stemStart+2*step;fronds.indices.push(n-2,n-1,n,n,n-1,n+1);}
+     }
+     for(let step=0;step<ribs;step++)for(const flip of [-1,1]){
+       const u=.12+.84*(step+(flip===1?.34:0))/ribs,p=point(u);
+       const spread=(.36+.47*Math.sin(Math.PI*u))*(1-u)**.63*(.82+.34*random());
+       const tip=p.clone().addScaledVector(forward,.42*spread+.10*u).addScaledVector(side,flip*spread);
+       tip.z-=spread*(upright?.11:.44)+.16*u*u;
+       blade(fronds,p,tip,.085*(1-.51*u)*(.84+.32*random()),shade,i,1);
+     }
+   }
+ }
+ const deepGreen=new T.Color(0x234426),brush=new T.Color(0x58773b);
+ for(let i=0;i<155;i++){
+   const a=random()*tau,r=Math.sqrt(random()),x=15*r*Math.cos(a),y=.8+8.5*r*Math.sin(a);
+   const z=terrain(x,y);
+   if(z<1.1+.48*Math.sin(.8*x+.3*y)||(y<-3.4&&x>1))continue;
+   const height=.38+1.04*random();
+   for(let branch=0;branch<10;branch++){
+     const az=random()*tau,dx=Math.cos(az),dy=Math.sin(az),length=height*(.48+.62*random()),pitch=.32+.62*random();
+     for(let leaf=0;leaf<7;leaf++){
+       const u=(leaf+1)/7,flip=leaf%2?1:-1;
+       const base=new T.Vector3(x+dx*u*length,y+dy*u*length,z+.08+height*(pitch*u+.21*Math.sin(Math.PI*u)));
+       const tip=base.clone().add(new T.Vector3((dx*.23-dy*.26*flip)*height,(dy*.23+dx*.26*flip)*height,
+         height*(.33*random()-.17)));
+       const width=height*(.15+.11*random())*(1-.48*u);
+       blade(shrubs,base,tip,width,deepGreen.clone().lerp(brush,.25+.67*random()),0,0);
+     }
+   }
+ }
+ for(const [name,batch,doubleSide,animated] of [
+   ['Curved coconut trunks',trunks,false,true],['Coconut palm fronds',fronds,true,true],['Island understory',shrubs,true,false]
+ ]){
+   const geometry=new T.BufferGeometry(),{positions,colors,indices,flex}=batch;
+   geometry.setAttribute('position',new T.Float32BufferAttribute(positions,3));
+   geometry.setAttribute('color',new T.Float32BufferAttribute(colors,3));
+   geometry.setIndex(indices);geometry.computeVertexNormals();geometry.computeBoundingSphere();
+   const material=new T.MeshStandardMaterial({vertexColors:true,roughness:doubleSide?.75:.92,
+     side:doubleSide?T.DoubleSide:T.FrontSide});
+   if(animated){
+     geometry.setAttribute('palmBend',new T.Float32BufferAttribute(flex,3));
+     geometry.boundingSphere.radius+=.75;
+     material.onBeforeCompile=bendPalm;
+   }
+   const mesh=new T.Mesh(geometry,material);mesh.name=name;land.add(mesh);
+ }
+ return (time,sampleWind)=>{
+   palmTime.value=time;
+   trees.forEach(([x,y],i)=>sampleWind(center[0]+x,center[1]+y,palmWind.value[i]));
+ };
+}
+
 function coast(T,scene,instanceRocks=true){
- const land=new T.Group();scene.add(land); const center=[36,40],sand=new T.Color(0xc7ad7c),grass=new T.Color(0x566745),rock=new T.Color(0x827665);
+ const land=new T.Group();scene.add(land);
+ const center=[36,40],sand=new T.Color(0xdcc69d),wet=new T.Color(0xa29276),grass=new T.Color(0x687641),rock=new T.Color(0x827665);
  const geo=new T.PlaneGeometry(58,46,74,62),pos=geo.attributes.position,colors=[];
  function smoothStep(value){
    const u=Math.max(0,Math.min(1,value));
@@ -171,12 +300,20 @@ function coast(T,scene,instanceRocks=true){
    return -13.7+Math.max(0,height)*smoothStep(height/.8)*smoothStep((29-Math.abs(x))/7)*smoothStep((23-Math.abs(y))/7);
  }
  land.userData.chartTerrain={center,height:terrain};
- for(let i=0;i<pos.count;i++){const x=pos.getX(i),y=pos.getY(i),z=terrain(x,y);pos.setZ(i,z);const c=sand.clone().lerp(grass,Math.min(1,Math.max(0,(z-1.1)*.8))).multiplyScalar(.92+.07*Math.cos(x*2+y));colors.push(c.r,c.g,c.b);}
+ const color=new T.Color();
+ for(let i=0;i<pos.count;i++){
+   const x=pos.getX(i),y=pos.getY(i),z=terrain(x,y),variation=.31*Math.sin(.65*x+.2*y)+.23*Math.cos(.6*y-.36*x);
+   pos.setZ(i,z);
+   color.copy(wet).lerp(sand,smoothStep((z+.23+variation*.22)/.68))
+     .lerp(grass,smoothStep((z-1.03+variation)/1.6))
+     .multiplyScalar(.95+.07*Math.cos(x*1.27+y*.84)*Math.cos(y*1.6-x*.29));
+   colors.push(color.r,color.g,color.b);
+ }
  geo.setAttribute('color',new T.Float32BufferAttribute(colors,3));geo.computeVertexNormals();
  const island=new T.Mesh(geo,new T.MeshStandardMaterial({vertexColors:true,roughness:.86}));land.userData.sand=island;land.add(island);land.position.set(...center,0);
  let seed=13;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
  const rockCount=46,shape=new T.IcosahedronGeometry(1,1);
- const rocks=instanceRocks?new T.InstancedMesh(shape,new T.MeshStandardMaterial({flatShading:true}),rockCount):new T.Group();
+ const rocks=instanceRocks?new T.InstancedMesh(shape,new T.MeshStandardMaterial({roughness:.93}),rockCount):new T.Group();
  const pose=new T.Object3D(),tint=new T.Color();
  for(let i=0;i<rockCount;i++){const a=random()*6.28,r=.84+.25*random(),x=17*r*Math.cos(a),y=11*r*Math.sin(a);
    tint.copy(rock).multiplyScalar(.65+.45*random());
@@ -184,40 +321,11 @@ function coast(T,scene,instanceRocks=true){
    pose.updateMatrix();
    if(instanceRocks){rocks.setColorAt(i,tint);rocks.setMatrixAt(i,pose.matrix);}
    else {
-     const mesh=new T.Mesh(shape,new T.MeshStandardMaterial({flatShading:true,color:tint}));
+     const mesh=new T.Mesh(shape,new T.MeshStandardMaterial({roughness:.93,color:tint}));
      mesh.position.copy(pose.position);mesh.quaternion.copy(pose.quaternion);mesh.scale.copy(pose.scale);rocks.add(mesh);
    }
  }
  if(instanceRocks)rocks.computeBoundingSphere();
- const bark=new T.MeshStandardMaterial({color:0x71634a}),leaf=new T.MeshStandardMaterial({color:0x4e7349,side:T.DoubleSide});
- const palms=[],palmTime={value:0},palmWind={value:Array.from({length:9},()=>new T.Vector2())};
- function bendPalm(shader){
-   shader.uniforms.palmTime=palmTime;shader.uniforms.palmWind=palmWind;
-   shader.vertexShader='attribute vec3 palmBend; uniform float palmTime; uniform vec2 palmWind[9];\n'+shader.vertexShader.replace('#include <begin_vertex>',
-     `#include <begin_vertex>
-      vec2 wind=palmWind[int(palmBend.x)];float speed=length(wind);
-      vec2 direction=wind/max(.001,speed),across=vec2(-direction.y,direction.x);
-      float bend=(1.-exp(-speed/11.))*palmBend.y*palmBend.y;
-      float phase=.89*palmTime+palmBend.x*2.;
-      transformed.xy+=bend*(direction*(.64+.14*sin(phase))+.08*across*cos(phase));
-      transformed.z+=bend*palmBend.z*.24*sin(2.6*palmTime+3.*palmBend.z+palmBend.x);`);
- }
- bark.onBeforeCompile=bendPalm;leaf.onBeforeCompile=bendPalm;
- for(let i=0;i<9;i++){
-   const x=(random()-.5)*18,y=(random()-.5)*12,z=terrain(x,y),h=2.9+random()*2.4;
-   palms.push([center[0]+x,center[1]+y]);
-   const trunk=new T.Mesh(new T.CylinderGeometry(.10,.20,h,8),bark);trunk.rotation.x=Math.PI/2+.13;trunk.position.set(x,y-.065*h,z+h/2);
-   const local=trunk.geometry.attributes.position,weights=[];
-   for(let k=0;k<local.count;k++)weights.push(i,Math.max(0,Math.min(1,.5+local.getY(k)/h)),0);
-   trunk.geometry.setAttribute('palmBend',new T.Float32BufferAttribute(weights,3));land.add(trunk);
-   for(let j=0;j<8;j++){
-     const a=j*.785+random()*.3,vertices=[],indices=[],weights=[];
-     for(let b=0;b<=10;b++){const u=b/10,l=2.3*u,w=.29*Math.sin(Math.PI*u)*(b%2?.65:1);
-       for(const side of [-1,1])vertices.push(x+l*Math.cos(a)-side*w*Math.sin(a),y-.13*h+l*Math.sin(a)+side*w*Math.cos(a),z+h+.7*Math.sin(Math.PI*u)-u*u);
-       weights.push(i,1,u,i,1,u);
-       if(b)indices.push(2*b-2,2*b-1,2*b,2*b,2*b-1,2*b+1);}
-     const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(vertices,3));g.setAttribute('palmBend',new T.Float32BufferAttribute(weights,3));g.setIndex(indices);g.computeVertexNormals();land.add(new T.Mesh(g,leaf));}
- }
  const blades=[],indices=[];
  for(let i=0;i<200;i++){
    const x=random()*48-14,y=random()*25-12;
@@ -227,10 +335,7 @@ function coast(T,scene,instanceRocks=true){
  }
  const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(blades,3));g.setIndex(indices);g.computeVertexNormals();
  scene.add(new T.Mesh(g,new T.MeshStandardMaterial({color:0x42624c,side:T.DoubleSide})));
- batchScenery(T,land,['palmBend']);land.add(rocks);
- land.userData.updatePalms=(time,sampleWind)=>{
-   palmTime.value=time;
-   palms.forEach(([x,y],i)=>sampleWind(x,y,palmWind.value[i]));
- };
+ land.add(rocks);
+ land.userData.updatePalms=islandGrove(T,land,terrain,center);
  return land;
 }

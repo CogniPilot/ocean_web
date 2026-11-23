@@ -3,7 +3,7 @@ import {battenTexturePaths,clothTopology,sailPanelTexture,sailTopology} from './
 import {vehicleShell} from '../vehicle-assets.mjs';
 import {showInLowWaterCapture} from '../render-layers.mjs';
 import {hobieTrampoline,forwardBeam} from './trampoline.mjs';
-import {loadInstance} from '../fmi3/instance.mjs?api=2';
+import {loadInstance} from '../fmi3/instance.mjs?api=3';
 export function advanceHullWake(model,wake){
   for(const name of ['east','north','heading','surge','sway','sectionVolume'])wake.set(name,model.get(name));
   wake.set('hullHeel',model.get('heel'));
@@ -74,7 +74,7 @@ function sailStitches(context,path,width,height){
  context.stroke();
 }
 
-function sailMaterial(T,cat,sail,telltaleRows,panelTexture){
+function sailMaterial(T,cat,sail,telltaleRows,panelTexture,numbers){
  const c=document.createElement('canvas');c.width=512;c.height=1024;
  let pocketRelief;
  const g=c.getContext('2d');g.fillStyle='#e9edef';g.fillRect(0,0,512,1024);
@@ -161,8 +161,47 @@ function sailMaterial(T,cat,sail,telltaleRows,panelTexture){
  const material=new T.MeshPhysicalMaterial({name:'Woven sailcloth and vinyl windows',map:tex,bumpMap:pocketRelief,bumpScale:.001,
    roughness:.46,clearcoat:.22,clearcoatRoughness:.36,sheen:.20,sheenColor:0xcfc3b7,
    sheenRoughness:.58,side:T.DoubleSide,transparent:true,forceSinglePass:true});
- material.onBeforeCompile=sailclothLighting;
+ material.onBeforeCompile=shader=>{
+   sailclothLighting(shader);
+   shader.uniforms.hobieNumber={value:numbers};
+   const [left,bottom,width,height]=sail===0?['.49','.249','.44','.065']:['.40','.230','.44','.097'];
+   shader.fragmentShader='uniform sampler2D hobieNumber;\n'+shader.fragmentShader.replace('#include <map_fragment>',`#include <map_fragment>
+     vec2 printUV=(vMapUv-vec2(${left},${bottom}))/vec2(${width},${height});
+     if(all(greaterThanEqual(printUV,vec2(0.)))&&all(lessThanEqual(printUV,vec2(1.)))){
+       printUV.x=gl_FrontFacing?printUV.x:1.-printUV.x;
+       float ink=texture2D(hobieNumber,printUV).a;
+       diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.013,.016,.018),ink);
+     }`);
+ };
+ material.customProgramCacheKey=()=>`hobie-race-number-${sail}`;
  return material;
+}
+
+let bowNumberTemplate;
+function bowNumbers(T,hulls){
+ if(!bowNumberTemplate){
+   hulls.updateMatrixWorld(true);
+   const ray=new T.Raycaster(),positions=[],uvs=[],faces=[],columns=10,rows=6;
+   for(const side of [-1,1]){
+     const base=positions.length/3;
+     for(let row=0;row<=rows;row++)for(let column=0;column<=columns;column++){
+       const u=column/columns,v=row/rows,x=1.72+side*(.5-u)*.56,z=-.032+.134*v;
+       ray.set(new T.Vector3(x,side*1.55,z),new T.Vector3(0,-side,0));
+       const hit=ray.intersectObject(hulls,true).find(h=>Math.abs(h.point.y)>.9);
+       positions.push(x,hit?hit.point.y+side*.003:side*1.02,z);
+       uvs.push(u,v);
+       if(row&&column){
+         const d=base+row*(columns+1)+column,a=d-columns-2;
+         faces.push(a,a+1,d,a,d,d-1);
+       }
+     }
+   }
+   bowNumberTemplate=new T.BufferGeometry();
+   bowNumberTemplate.setAttribute('position',new T.Float32BufferAttribute(positions,3));
+   bowNumberTemplate.setAttribute('uv',new T.Float32BufferAttribute(uvs,2));
+   bowNumberTemplate.setIndex(faces);bowNumberTemplate.computeVertexNormals();
+ }
+ return bowNumberTemplate.clone();
 }
 // Bake the small fixed fittings by material so each swivel moves as one unit.
 function deckHardware(T,traveler=false,blockFace=.1475){
@@ -287,6 +326,23 @@ function ballastMarker(T){
 
 export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
  const group=new T.Group();
+ let numberCanvas,numberMap,sailNumber;
+ if(cat){
+   numberCanvas=document.createElement('canvas');numberCanvas.width=256;numberCanvas.height=128;
+   numberMap=new T.CanvasTexture(numberCanvas);numberMap.colorSpace=T.SRGBColorSpace;numberMap.anisotropy=4;
+ }
+ function setSailNumber(number){
+   if(!cat||number===sailNumber)return;
+   sailNumber=number;
+   const context=numberCanvas.getContext('2d');
+   context.clearRect(0,0,256,128);
+   if(number){
+     context.fillStyle='#1d2022';context.font='bold 124px Georgia, serif';
+     context.textAlign='center';context.textBaseline='alphabetic';
+     context.fillText(String(number),128,108,238);
+   }
+   numberMap.needsUpdate=true;
+ }
  const paint=(c)=>new T.MeshStandardMaterial({color:c,roughness:.42,metalness:.12});
  const red=paint(0xca2526);
  const white=cat?new T.MeshPhysicalMaterial({name:'White gelcoat',color:0xe9ebe5,roughness:.34,
@@ -481,6 +537,8 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    const hulls=vehicleShell('hobie-hulls');
    hulls.traverse(showInLowWaterCapture);
    group.add(hulls);
+   const identifiers=new T.MeshStandardMaterial({map:numberMap,roughness:.72,side:T.DoubleSide,alphaTest:.42});
+   showInLowWaterCapture(mesh(bowNumbers(T,hulls),identifiers)).name='Bow race numbers';
    for(const side of [-1,1]){
      const blade=new T.Group();group.add(blade);blade.position.set(-2.545,side*1.02,.16);
      showInLowWaterCapture(mesh(foilShape,white,blade));
@@ -595,7 +653,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    }
    geo.setAttribute('position',coords);geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
    geo.setIndex(new T.BufferAttribute(panel?sailTopology(rows):clothTopology,1));
-   showInLowWaterCapture(mesh(geo,sailMaterial(T,cat,index,telltaleRows,panelTexture),pivot)).frustumCulled=false;
+   showInLowWaterCapture(mesh(geo,sailMaterial(T,cat,index,telltaleRows,panelTexture,numberMap),pivot)).frustumCulled=false;
    const boomHinge=new T.Group();pivot.add(boomHinge);
    let outhaul,bail,downhaulBase;
    if(cat&&index===0){
@@ -661,7 +719,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    group.position.set(s[0],s[1],s[3]);
    group.rotation.set(s[4],s[5],s[2],'ZYX');
  }
- return {group,cameraPorts,inspection,setPose,ballastPosition:carriage?.position,setBallastVisible(visible){if(carriage)carriage.visible=visible;},
+ return {group,cameraPorts,inspection,setPose,setSailNumber,ballastPosition:carriage?.position,setBallastVisible(visible){if(carriage)carriage.visible=visible;},
    update(s,ballast,cars,rope,tails,faceTails,stayPath,time,geometry){
    const [mastStations,gooseneck,blockPins]=geometry?.rig??[];
    inspection.mastStations=mastStations;

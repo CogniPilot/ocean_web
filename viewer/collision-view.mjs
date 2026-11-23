@@ -101,8 +101,24 @@ export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768
       else this.box(shapeFrame,[0,0,0],rows.subarray(k+13,k+16),'#f599d3');
     }
   }
+  const rigFrame=new T.Object3D(),rigEnd=new T.Vector3(),rigAxis=new T.Vector3(1,0,0);
   return {
     swimmerShapes,
+    rigCapsules(frame,rows){
+      frame.updateWorldMatrix(true,false);
+      for(let i=0;i<rows.length;i+=7){
+        const radius=rows[i+6];
+        if(!(radius>0))continue;
+        rigFrame.position.fromArray(rows,i);
+        rigEnd.fromArray(rows,i+3).sub(rigFrame.position);
+        const length=rigEnd.length();
+        if(length<1e-4)continue;
+        rigFrame.position.addScaledVector(rigEnd,.5);
+        rigFrame.quaternion.setFromUnitVectors(rigAxis,rigEnd.divideScalar(length));
+        rigFrame.updateMatrix();rigFrame.matrixWorld.multiplyMatrices(frame.matrixWorld,rigFrame.matrix);
+        capsule(rigFrame,[0,0,0],radius,length/2,'#69e2bb');
+      }
+    },
     begin(){segments.clear();samples.clear();},
     box(frame,center,half,value){
       const color=tint(value);

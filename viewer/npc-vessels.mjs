@@ -32,7 +32,7 @@ function dispose(group){
   for(const resource of [...geometries,...materials,...textures])resource.dispose();
 }
 
-export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,incidentSea){
+export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,incidentSea,sailNumber){
   const craft=new Map(),sailRigs=new Map(),wind=new T.Vector2(),contacts=new Float64Array(45),tilts=new Float64Array(10);
   const cruisers=[];
   const planners=new Map();
@@ -200,6 +200,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       const id='npc-'+(i+1),entry=craft.get(id)??begin(row,id,i,utc),visual=entry.visual;
       let east,north,speed,heading,orbit,height,angle;
       if(row.kind==='hobie'){
+        visual?.boat.setSailNumber(sailNumber(id));
         if(row.raceAt!==undefined)entry.raceAt=row.raceAt;
         const snapshot=room.vesselFrames.get(entry.pilotId);
         if(!snapshot){
