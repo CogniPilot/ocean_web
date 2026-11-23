@@ -155,6 +155,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 #chatLog strong{margin-inline-end:.5em;color:#a4e4d9}
 #chatMessage{min-width:0;flex:1;border:1px solid #659995;background:#103540;color:#effdf9;border-radius:5px;padding:8px;font:inherit}
 #chatStatus:not(:empty){display:block;padding:0 8px 6px}
+#chatInvite{margin:0 8px 8px}
 @media(max-width:960px){
   #harborMap{right:6px;bottom:calc(var(--panel-height,66px) + 14px);width:min(75vw,325px);max-height:36dvh}
   #harborMapCanvas{max-height:22dvh}
@@ -169,6 +170,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button type="submit">Send</button>
 </form>
 <output id="chatStatus" aria-live="polite"></output>
+<button id="chatInvite" type="button" hidden>Copy room link</button>
 </details>
 </header>
 <section id="motorSensors" aria-label="Cruiser sensors" hidden><details id="cruiserSonarPanel" data-view="sonar"><summary>Argos 350 · 3D imaging sonar</summary>

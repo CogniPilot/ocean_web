@@ -21,7 +21,10 @@ function patch(file,edits){
 // subscribing or a fast local clock will exclude a live peer's SDP/candidates.
 patch('nostr/dist/index.mjs',[
   ['const since = now();','const since = now() - 120;'],
-  ['since: now(),','since: now() - 120,']
+  ['since: now(),','since: now() - 120,'],
+  ['subIds: [],','client,\n\t\tsubIds: [],'],
+  ['const resubscribeOnReconnect = (client) => {',
+   'export function refreshRelaySubscriptions() {\n\tfor (const {client} of Object.values(batchers)) {\n\t\tif (client.socket.readyState === WebSocket.OPEN) flushBatch(client);\n\t}\n}\nconst resubscribeOnReconnect = (client) => {']
 ]);
 // Expose the existing announcement restart without touching live connections.
 // Ignore completions from a prior announcement cycle when refreshing it.
@@ -32,6 +35,6 @@ patch('core/dist/strategy.mjs',[
   ['ctx.requeueAnnounce = () => {','ctx.requeueAnnounce = () => {\n\t\t\t\tannounceGeneration++;'],
   ['}, roomOptions);','}, roomOptions);\n\t\tjoinedRoom.reannounce = () => ctx.requeueAnnounce?.();']
 ]);
-writeFileSync(work+'/entry.mjs',"export {joinRoom,selfId} from '@trystero-p2p/nostr';\n");
+writeFileSync(work+'/entry.mjs',"export {joinRoom,selfId,refreshRelaySubscriptions} from '@trystero-p2p/nostr';\n");
 JS
 "$work/node_modules/.bin/esbuild" "$work/entry.mjs" --bundle --minify --format=esm --outfile=viewer/vendor/trystero.mjs

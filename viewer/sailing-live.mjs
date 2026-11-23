@@ -200,7 +200,7 @@ async function run(saved=readReset(),carried){
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(52,1,.045,objectDrawRange);camera.up.set(0,0,1);
   const clouds=harborClouds(T,scene);
   const island=coast(T,scene,renderer.capabilities.isWebGL2 || renderer.extensions.has('ANGLE_instanced_arrays'));
-  cleanup(()=>island.userData.terrainTextures.dispose());
+  cleanup(()=>{island.userData.terrainTextures.dispose();island.userData.bed.texture.dispose();});
   island.traverse(showInLowWaterCapture);
   const [simulation,,subAssets]=await simulationReady;
   const world=mode?simulation:null;
@@ -396,7 +396,8 @@ async function run(saved=readReset(),carried){
       peers,marks,windFrom:ocean.U.bearing.value+Math.PI}));
   }
   const chatPanel=$('roomChat'),chatTitle=$('roomChatTitle'),chatButton=$('openChat'),chatLog=$('chatLog'),chatInput=$('chatMessage');
-  let chatScope=null,unread=0;
+  let chatScope=null,chatPeers=0,unread=0;
+  const chatWaiting="Waiting for someone to join this room.";
   function chatBadge(){
     const count=unread?' ('+unread+')':'';
     chatTitle.textContent='Room chat'+count;
@@ -422,17 +423,21 @@ async function run(saved=readReset(),carried){
     }
   };
   const chat={
-    connected(room){
-      if(chatScope===room)return;
-      chatScope=room;
-      if(model)resetPenalties();
-      chatButton.hidden=!room;
-      chatPanel.hidden=!room;
-      chatPanel.open=Boolean(room);
-      chatLog.replaceChildren();
-      chatInput.value='';
-      $('chatStatus').value='';
-      unread=0;chatBadge();
+    connected(room,peerCount){
+      if(chatScope===room&&chatPeers===peerCount)return;
+      if(chatScope!==room){
+        chatScope=room;
+        if(model)resetPenalties();
+        chatButton.hidden=!room;
+        chatPanel.hidden=!room;
+        chatPanel.open=Boolean(room);
+        chatLog.replaceChildren();
+        chatInput.value='';
+        unread=0;chatBadge();
+      }
+      chatPeers=peerCount;
+      $('chatInvite').hidden=!room||peerCount>0;
+      $('chatStatus').value=room&&!peerCount?chatWaiting:'';
     },
     receive:chatMessage
   };
@@ -757,7 +762,8 @@ async function run(saved=readReset(),carried){
   roomField.onchange=()=>{
     const next=normalizeRoom(roomField.value);roomField.value=next;
     if(next===roomName)return;
-    roomName=next;$('invite').textContent='Copy room link';
+    roomName=next;
+    for(const id of ['invite','chatInvite'])$(id).textContent='Copy room link';
     if($('multiplayer').getAttribute('aria-pressed')==='true'){
       remote.leave();
       history.replaceState(history.state,'',joinRoomLink(url,roomName));
@@ -780,8 +786,11 @@ async function run(saved=readReset(),carried){
   });
   on(window,'pageshow',event=>{if(event.persisted)remote.recover();});
   on(window,'online',remote.recover);
-  $('invite').onclick=async()=>{const link=joinRoomLink(vehicleLink(location.href),roomName);
-    try{await navigator.clipboard.writeText(link.href);$('invite').textContent='Copied';}catch{prompt('Multiplayer room link',link.href);}};
+  for(const id of ['invite','chatInvite'])$(id).onclick=async event=>{
+    const button=event.currentTarget,link=joinRoomLink(vehicleLink(location.href),roomName);
+    try{await navigator.clipboard.writeText(link.href);button.textContent='Copied';}
+    catch{prompt('Multiplayer room link',link.href);}
+  };
   const theme=$('theme'),music=$('music');
   let musicContext,musicGain;
   cleanup(()=>{
@@ -848,8 +857,9 @@ async function run(saved=readReset(),carried){
   const sun=new T.DirectionalLight(0xffe6b4,2.5);sun.position.set(15,10,20);scene.add(sun);
   showInLowWaterCapture(hemi);showInLowWaterCapture(sun);
   const makeWater=(T,u)=>wildlifeWater(T,u,undefined,renderer.capabilities.isWebGL2);
-  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface:Boolean(motor),bowRefinement:cat,fineBowGrid},makeWater,surfaceSpray,
+  const ocean=atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface:Boolean(motor),bowRefinement:cat,fineBowGrid,islandBed:island.userData.bed},makeWater,surfaceSpray,
     cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes);
+  cleanup(()=>ocean.dispose());
   const sea={tile:new Float32Array(1024),wind:Math.hypot(inputs.windEast,inputs.windNorth),tide:0};
   ocean.U.windPeriod.value=windField.get('period');
   let lastReflection=-Infinity;
@@ -1944,11 +1954,13 @@ async function run(saved=readReset(),carried){
     if(!message||!room)return;
     chatInput.value='';
     if(await remote.sendChat(message)){
-      if(chatScope===room)chatMessage(remote.playerName()+' (you)',message);
-      $('chatStatus').value='';
+      if(chatScope===room){
+        chatMessage(remote.playerName()+' (you)',message);
+        $('chatStatus').value=remote.peerCount?'':chatWaiting;
+      }
     }else if(chatScope===room){
       if(!chatInput.value)chatInput.value=draft;
-      $('chatStatus').value=remote.peerCount?'Message could not be sent.':'Waiting for a peer to connect.';
+      $('chatStatus').value=remote.peerCount?'Message could not be sent.':chatWaiting;
     }
   };
   on(window,'keydown',e=>{
@@ -2265,7 +2277,7 @@ async function run(saved=readReset(),carried){
         if(lastCountdown!==null&&lastCountdown<5&&left>295)audio.signal();
         lastCountdown=left;const label=left>298&&stage>0?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
         const sceneryTime=world?.time??model.time;
-        course.update(label,sceneryTime,ocean.sampleWind);island.userData.updatePalms(sceneryTime,ocean.sampleWind);$('countdown').textContent=label;
+        course.update(label,sceneryTime,ocean.sampleWind);$('countdown').textContent=label;
         const lap=scorer.get('lapTime');
         const tenths=Math.round(lap*10);
         const timer=lapClock(tenths);
@@ -2717,6 +2729,7 @@ async function run(saved=readReset(),carried){
       }
       if(opticalTime===undefined||!running||Math.abs(t-opticalTime)>.4)opticalTime=t;
       else opticalTime=Math.min(t+.05,opticalTime+frameSeconds*Math.max(0,Math.min(opticalRateLimit,simulationRate+4*(t-opticalTime))));
+      island.userData.updatePalms(opticalTime,ocean.sampleWind);
       ocean.U.tm.value=opticalTime;ocean.drawSpray(opticalTime);
       swell.y+=Math.max(-.08,Math.min(.08,opticalTime-t))*Math.max(-3,Math.min(3,swellRate));
       let hullBlend=1;

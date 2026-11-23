@@ -195,7 +195,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   }
   async function sendChat(message){
     const active=chatChannel;
-    if(!active||!participants.size)return false;
+    if(!active)return false;
+    if(!participants.size){room?.recover(0);return false;}
     try{
       await active.send(message);
     }catch{return false;}
@@ -216,7 +217,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       el.disabled=Boolean(room&&!npc.host);
       el.title=el.disabled?'The room host controls the weather':'';
     }
-    chat?.connected(room?roomName:null);
+    chat?.connected(room?roomName:null,participants.size);
     crew.hidden=!room;
     if(!room)crew.open=false;
     const list=crew.querySelector('ul');

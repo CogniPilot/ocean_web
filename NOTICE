@@ -74,12 +74,8 @@ simulator piano performance is distributed under Apache-2.0. The melody
 follows the setting sung by Mr. Leatherday and collected by Ralph Vaughan
 Williams, Journal of the Folk-Song Society, vol. 2, no. 8 (1905), p. 179.
 
-Island material photoscans from Poly Haven, CC0 1.0. Converted to WebP and
-resampled for real-time rendering. The terrain relief texture packs the
-displacement maps for field grass, leaf litter and coastal sand.
+Island sand and palm bark photoscans from Poly Haven, CC0 1.0.
+Converted to WebP and resampled for real-time rendering.
 https://polyhaven.com/license
-Leafy Grass by Charlotte Baglioni, https://polyhaven.com/a/leafy_grass
-Forest Ground 01 by Rob Tuytel, https://polyhaven.com/a/forrest_ground_01
 Coast Sand 01 by Rob Tuytel, https://polyhaven.com/a/coast_sand_01
 Palm Tree Bark by Dimitrios Savva and Rico Cilliers, https://polyhaven.com/a/palm_tree_bark
-Bark Brown 01 by Rob Tuytel, https://polyhaven.com/a/bark_brown_01
