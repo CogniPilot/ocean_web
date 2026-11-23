@@ -125,6 +125,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
         windEast:0,windNorth:8})]).then(([,model])=>{
           const panels=cat?readSailPanels(model):null;
           const geometry={rig:cat?model.getMany(sailingRigFields):null,
+            forestay:cat&&model.has('forestayPath')?model.get('forestayPath'):null,
             cloth:panels?model.getMany(sailPanelFields.map(fields=>fields[3])):null};
           const [axisX,axisZ,trim]=model.getMany(['axisX','axisZ','trim']);
           const axes=axisX.map((x,i)=>new T.Vector3(x,0,axisZ[i]).normalize());
@@ -212,6 +213,12 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
           const interval=entry.received===undefined?.10:Math.max(.08,Math.min(.55,displayUtc-entry.received));
           entry.interval=entry.interval===undefined?interval:.35*entry.interval+.65*interval;
           entry.snapshot=snapshot;entry.received=displayUtc;
+          const forestay=room.vesselForestays.get(entry.pilotId);
+          if(forestay){
+            entry.forestay??=Float64Array.from(forestay);
+            entry.previousForestay=entry.forestay.slice();
+            entry.nextForestay=forestay;
+          }
         }
         if(visual)visual.group.visible=true;
         const blend=Math.max(0,Math.min(1,(displayUtc-entry.received)/entry.interval));
@@ -225,7 +232,11 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
           onFinish(i+1,row,status);
         }
         if(visual){
-          const state=drawRacerFrame(visual.boat,entry.prior,snapshot,blend,time,entry.shown);
+          if(entry.nextForestay)for(let i=0;i<9;i++){
+            const from=entry.previousForestay[i];
+            entry.forestay[i]=from+blend*(entry.nextForestay[i]-from);
+          }
+          const state=drawRacerFrame(visual.boat,entry.prior,snapshot,blend,time,entry.shown,entry.forestay);
           contacts.set([1,state[0],state[1],state[2],mix(5),mix(6),mix(7),state[3],1],i*9);
           tilts.set([state[4],state[5]],i*2);
           visual.group.userData.orbitDistance=orbit;

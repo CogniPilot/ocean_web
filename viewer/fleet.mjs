@@ -48,7 +48,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   let selfId,room,action,lastSend=-Infinity,participants=new Set();
   const npc=npcRoom();
   const peers=new Map(),lamps=[],cruisers=[],drones=[],lampStates=new Map();
-  let starterChannel,encounterChannel,encounter,lastEncounterSend=-Infinity;
+  let starterChannel,engineChannel,encounterChannel,encounter,lastEncounterSend=-Infinity;
   function sendEncounter(now,snapshot){
     if(!room||!npc.host||!participants.size||now-lastEncounterSend<85)return;
     lastEncounterSend=now;
@@ -57,7 +57,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   function receiveEncounter(now){
     return encounter&&encounter.owner===npc.owner&&now-encounter.at<2000?encounter.rows:undefined;
   }
-  const starters=new Map();
+  const starters=new Map(),engineStates=new Map();
   let lampChannel,sentLamp,rotorChannel,imagingChannel,imagingSequence=0;
   const imagingSource=new T.Vector3();
   function imagingHit(range,position){
@@ -191,7 +191,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     }
   }
   function remove(id){
-    penalties.delete(id);starters.delete(id);
+    penalties.delete(id);starters.delete(id);engineStates.delete(id);
     clearWake(id);
     const peer=peers.get(id);
     if(peer){peer.mesh?.group.removeFromParent();peer.sub?.removeFromParent();peer.drone?.removeFromParent();peer.motorboat?.removeFromParent();
@@ -206,7 +206,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(peer.kind==='boat'||peer.kind==='motorboat'){boatCount--;trafficChanged=true;}
       peers.delete(id);}
   }
-  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;starters.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
+  function leave(){if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();report();}
   function join(transport,name=roomName){
     if(room)return;
     if(name!==roomName)retainedOffset=0;
@@ -222,6 +222,10 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(!Array.isArray(rows)||rows.length!==sizes.length||!rows.every((row,i)=>
         Array.isArray(row)&&row.length===sizes[i]&&row.every(Number.isFinite)))return;
       encounter={owner:peerId,at:performance.now(),rows};
+    };
+    engineChannel=room.makeAction('engine-run');
+    engineChannel.onMessage=(running,{peerId})=>{
+      if(room===active&&participants.has(peerId)&&typeof running==='boolean')engineStates.set(peerId,running);
     };
     starterChannel=room.makeAction('engine-start');
     starterChannel.onMessage=(remaining,{peerId})=>{
@@ -398,6 +402,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
         if(kind==='motorboat'&&motor){
           packet=new Float32Array(15);packet.set(posePacket(kind,now,motor));packet[0]=3;packet.set(motorState.slice(0,6),9);
           starterChannel.send(motorState[6]).catch(()=>{});
+          if(typeof motorState[7]==='boolean')engineChannel.send(motorState[7]).catch(()=>{});
         }
         const vehicle=kind==='drone'?drone:kind==='sub'?sub:null;
         if(vehicle)packet=posePacket(kind,now,vehicle);
@@ -416,6 +421,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
         drawGhost(T,scene,peer,'motorboat',peer.motorboat,216,p,d,f);
         peer.cruiser.update(now/1000,d[208],d[209],d.subarray(210,214),radarTime);
         const starter=starters.get(peer.id);
+        peer.cruiser.engineRunning=engineStates.get(peer.id);
         peer.cruiser.starterRemaining=starter?Math.max(0,starter.remaining-(now-starter.received)/1000):0;
         cruisers.push(peer.cruiser);
         if(peer.label){peer.label.position.copy(peer.motorboat.position);peer.label.position.z+=3;}

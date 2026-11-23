@@ -4,7 +4,7 @@ package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
   constant Real length=64 "Periodic tile size [m]";
   constant Real swellWavelength=30.48 "100 ft independent swell wavelength [m]";
   constant Real swellK=2*pi/swellWavelength "Swell wavenumber [rad/m]";
-  constant Real longSwellWavelength=90 "Wavelength of the long-swell preset [m]";
+  constant Real longSwellWavelength=2*swellWavelength "Wavelength of the long-swell preset [m]";
   constant Real longSwellPreset=1.5;
   constant Real swellBearing=1.04159 "Swell propagation direction from east [rad]";
   constant Real nearshoreDepth=13.7 "Default still-water depth [m]";
@@ -22,10 +22,12 @@ package SpectralSea "Directional, finite-depth Fourier sea on a periodic patch"
     steep:=min(1,max(0,(state-.45)/.65));
     windHeight:=smoothHeight*(1-mid)+.62*mid+.53*steep;
     peakPeriod:=2.3+1.35*mid+1.15*steep;
-    swellAmplitude:=.65*mid+.55*steep;
+    swellAmplitude:=.325*mid+.275*steep;
     if state>=longSwellPreset then
-      windHeight:=.18*min(1.7,max(0,wind)/11);
-      peakPeriod:=3.65;
+      // Move the directional spectrum toward longer, crossing waves while
+      // keeping the shorter wind sea below the regular Swell preset.
+      windHeight:=.47*min(1.7,max(0,wind)/11);
+      peakPeriod:=5.2;
       swellAmplitude:=1.70;
     end if;
   end seaPreset;

@@ -10,6 +10,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   input Real windAnchor[5](each start=0);
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
   input Real raceStart=0,finishAllowed=1;
+  input Real jibHalyardInput=.55;
   input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),outhaul(start=.65),deckManual,mainCar,jibCar,jibSheet;
   input Real manualJibAssist(start=1);
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
@@ -37,7 +38,7 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     foilArea=if hobie then {.62,.11,.62,.11} else {.115,.044,0,0},
     aspect=if hobie then {.65,3.4,.65,3.4} else {3.5,2.6,1,1},
     raceGoal={1,race.pilotTarget[1],race.pilotTarget[2]},manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,outhaulInput=outhaul,
-    deckManual=deckManual,mainCarInput=mainCar,jibCarInput=jibCar,jibTrimInput=jibSheet,manualJibAssist=manualJibAssist,reachTrial=0,
+    deckManual=deckManual,jibHalyardInput=jibHalyardInput,mainCarInput=mainCar,jibCarInput=jibCar,jibTrimInput=jibSheet,manualJibAssist=manualJibAssist,reachTrial=0,
     ballastManual=ballastManual,ballastCmdX=ballastX,ballastCmdY=ballastY,traffic=traffic,
     trafficTilt=trafficTilt,sceneTilt=cat(1,npcTilt,[race.launchPose[2],-race.launchPose[3]]),
     sceneTraffic=cat(1,npcVessels,[1,race.committeeEast,race.committeeNorth,prevailingBearing+Modelica.Constants.pi,0,0,0,race.launchPose[1],3]),

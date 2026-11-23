@@ -24,7 +24,7 @@ While steering by hand, use **↑/↓** to move the main traveler leeward/windwa
 
 **Auto ballast** starts enabled on the Hobie. It shifts crew weight windward as the rig loads up. Under sustained load, it can move the weight to the trapeze stance, 2.10 m from the centerline on either side. It also moves fore and aft to trim against the local wave face and shifts aft as the foredeck runs low on clearance. After a side capsize, Auto ballast eases both sheets and shifts the simulated crew onto the lower hull to lean out on the righting line. Gravity on the displaced crew supplies the righting moment.
 
-The default **Long swell** has a 90 m wavelength and 3.4 m crest-to-trough height. At 21.4 kn of wind, the short wind sea has a significant wave height of about 0.18 m. Choose **Swell** or **Steep swell** for the 100 ft (30.48 m) waves, with crest-to-trough heights of 1.3 m and 2.4 m. The Hobie can catch a following wave as the pressure on its immersed hull accelerates it down the face.
+The default **Long swell** has a 60.96 m primary wavelength and a 3.4 m crest-to-trough height. At 21.4 kn, the directional wind sea has a significant wave height of 0.47 m and a peak period of 5.2 s. **Swell** and **Steep swell** use a 30.48 m wavelength and crest-to-trough heights of 0.65 m and 1.2 m. The Hobie can catch a following wave as the pressure on its immersed hull accelerates it down the face.
 
 With sound enabled, simulated water motion near the listener drives the surface wash. Passing steep crests trigger a crash, and slow hull motion adds close gurgles and lapping.
 

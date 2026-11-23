@@ -48,7 +48,12 @@ for(let i=0;i<150;i++)calm.advance(.02);
 const eased=calm.get('mastStations');
 calm.set('trimInput',-1);
 for(let i=0;i<350;i++)calm.advance(.02);
-const [hauled,force]=calm.getMany(['mastStations','mainTension']);
+const [hauled,force,gap,span,stack]=calm.getMany(['mastStations','mainTension','mainBlockClearance','lineSpan','blockStack']);
 const bend=hauled[21]-eased[21];
 assert(bend>.05&&force>1700,'The stock 6:1 purchase must apply enough leech load to bend the mast');
-console.log({calmSheetInducedMastheadTravelM:bend,tackleForceN:force});
+assert(gap<.002&&span[0]>stack-.006,'At full haul the blocks meet without passing through each other');
+console.log({calmSheetInducedMastheadTravelM:bend,tackleForceN:force,blockGapM:gap});
+
+calm.set('downhaulInput',.5);
+for(let i=0;i<200;i++)calm.advance(.02);
+assert(calm.get('mastBend')>.012,'The lower mast retains measurable bow at the default downhaul setting');

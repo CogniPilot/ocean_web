@@ -1,10 +1,17 @@
 model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   function mastDeflection "Displacement of a luff station from the unloaded mast centreline"
-    input Real fraction,support,tip,slope,tangLean[2];
+    input Real fraction,support,tip,slope,tangLean[2],lowerBow;
     output Real displacement[3];
+  protected
+    Real z,lowerShape;
   algorithm
+    z:=(fraction-support)/(1-support);
+    // Parabolic curvature between the tack and tang under the eccentric
+    // compression load. Continue its slope into the unsupported top.
+    lowerShape:=if fraction<=support then 4*(fraction/support)*(1-fraction/support)
+      else -4*(1-support)/support*z*(1-z)^2;
     displacement:={tangLean[1],tangLean[2],0}*fraction/support+
-      tip*SailMembrane.bendShape(fraction,support)*{1,0,slope};
+      (tip*SailMembrane.bendShape(fraction,support)+lowerBow*lowerShape)*{1,0,slope};
   end mastDeflection;
   function wetTriangle "Fraction below a planar water surface, linear depth across a triangle"
     input Real depths[3] "Positive below water [m]";
@@ -205,27 +212,35 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       end if;
     end for;
   end contactWrench;
-  function standingRig "One loaded midpoint per elastic cable, mast step fixed"
+  function standingRig "One moving midpoint per elastic cable, mast step fixed"
     input Real anchors[3,3],tang[3],previous[2],rate[2],sailMomentBody[3],jibLoad[3],clothReaction[2,3],gravityBody[3];
-    input Real dt,EA,preload,entrainedMass,previousSag[3,3];
-    output Real lean[2],velocity[2],path[3,3,3],tension[3],lateralK[3],midSag[3,3];
+    input Real dt,EA,preload,entrainedMass,previousSag[4,3],previousSagRate[4,3],apparentAir[3],halyard;
+    output Real lean[2],velocity[2],path[4,3,3],tension[4],lateralK[4],midSag[4,3],sagRate[4,3];
   protected
-    Real direction[3],head[3],force[3],q[3],weight[3],drive[2],dragK,rest,L,L0,P,lo,hi,sag,halfSpan,Tline;
+    Real direction[3],head[3],force[3],q[3],weight[3],crossAir[3],base[3],drive[2],dragK,rest,L,L0,P,lo,hi,sag,halfSpan,Tline,wireMass;
   algorithm
     // Boom/mast share the overturning moment. The headsail load below is
     // already carried by the forestay and is omitted from this applied moment.
     drive:={sailMomentBody[2],-sailMomentBody[1]}/(tang[3]-.41);
     head:=tang+{previous[1],previous[2],0};
-    for i in 1:3 loop
-      direction:=head-anchors[i,:];L:=sqrt(direction*direction);direction:=direction/L;
-      q:=tang-anchors[i,:];L0:=sqrt(q*q);
+    for i in 1:4 loop
+      base:=anchors[min(i,3),:];
+      direction:=head-base;L:=sqrt(direction*direction);direction:=direction/L;
+      q:=tang-base;L0:=sqrt(q*q);
       P:=if i<=2 then preload else preload*(2*.96/1.82)*L0/sqrt(.96^2+1.02^2+5.51^2);
-      rest:=L0/(1+P/EA);
+      // The hoisted jib contains its own luff wire. The longer forestay
+      // supports the mast independently when the adjustable halyard is eased.
+      rest:=if i==4 then L0+.055 else L0/(1+P/EA)+
+        (if i==3 then .123*(.55-halyard) else 0);
       weight:=.045*L0*.5*gravityBody;
-      force:=weight+(if i<=2 then clothReaction[min(i,2),:] else jibLoad);
-      // Implicit transverse damping of the moving wire and attached wet cloth.
-      dragK:=(8+entrainedMass/dt)/dt;
-      force:=force+dragK*previousSag[i,:];
+      force:=weight+(if i<=2 then clothReaction[min(i,2),:] elseif i==3 then jibLoad else zeros(3));
+      // Resolve wind load and inertia perpendicular to the local wire chord.
+      // Once unloaded the wire can move freely until its available length is used.
+      crossAir:=apparentAir-direction*(apparentAir*direction);
+      wireMass:=if i<>3 then .5*.045*L0 else 0;
+      force:=force+(if i<>3 then .25*1.225*1.15*.006*L0*sqrt(crossAir*crossAir)*crossAir else zeros(3));
+      dragK:=((if i<>3 then 1.85 else 8)+(wireMass+entrainedMass)/dt)/dt;
+      force:=force+dragK*previousSag[i,:]+wireMass/dt*previousSagRate[i,:];
       force:=force-direction*(force*direction);
       P:=sqrt(force*force);
       // Midpoint transverse force balance. Either half may carry tension
@@ -237,9 +252,10 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
         if (2*Tline+dragK*halfSpan)*sag<P*halfSpan then lo:=sag;else hi:=sag;end if;
       end for;
       sag:=(lo+hi)/2;halfSpan:=sqrt(.25*L^2+sag^2);
-      path[i,1,:]:=anchors[i,:];path[i,3,:]:=head;
+      path[i,1,:]:=base;path[i,3,:]:=head;
       midSag[i,:]:=sag*force/max(1e-10,P);
-      path[i,2,:]:=(head+anchors[i,:])/2+midSag[i,:];
+      sagRate[i,:]:=(midSag[i,:]-previousSag[i,:])/dt;
+      path[i,2,:]:=(head+base)/2+midSag[i,:];
       tension[i]:=EA*max(0,2*halfSpan/rest-1);
       q:=(path[i,2,:]-head)*tension[i]/halfSpan;
       drive:=drive+q[1:2];
@@ -324,6 +340,10 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real luffTrackOffset(unit="m")=.060 "Eccentricity of the luff tension at the aft mast track";
   Real mastTip(start=0,fixed=true),mastTipRate(start=0,fixed=true);
   Real mastAxialLoad,mastLoadedStiffness,gooseneckOffset[3];
+  final parameter Real lowerMastSpan=spans[1]*stayFraction;
+  final parameter Real lowerMastBucklingLoad=Modelica.Constants.pi^2*mastEI/lowerMastSpan^2;
+  Real lowerMastBow;
+  output Real mastBend "Largest fore-aft distance from the tack-to-head chord [m]";
   output Real mastStations[8,3] "Mast step, six luff stations and masthead in hull axes";
   output Real mainGooseneck[3] "Actual main boom hinge in hull axes";
   output Real mainBlockPins[2,3] "Lower and upper mainsheet tackle pins in hull axes";
@@ -332,11 +352,11 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real mainsheetEA(unit="N")=30000 "Assumed working axial rigidity of one sheet part";
   parameter Real sheetTail(unit="m")=2 "Loaded line between tackle and cam cleat";
   final parameter Integer purchase=6;
-  parameter Real sheetHaulForce(unit="N")=330 "Peak two-handed force at the working tail";
-  parameter Real sheetHoldingForce(unit="N")=500 "Assumed slip load at the working tail";
+  parameter Real sheetHaulForce(unit="N")=if catamaran then 560 else 330 "Peak sustained force at the working tail";
+  parameter Real sheetHoldingForce(unit="N")=if catamaran then 620 else 500 "Assumed slip load at the working tail";
   Real haulFraction,brakeSlip;
   Real mainSheetStiffness(unit="N/m") "Effective stiffness across both blocks";
-  parameter Real blockStack(unit="m")=.20 "Estimated pin-to-pin height of a closed low-profile tackle";
+  parameter Real blockStack(unit="m")=if catamaran then .295 else .20 "Estimated closed pin-to-pin stack including both fittings";
   output Real mainBlockClearance "Free distance between the mainsheet block cheeks [m]";
   // The hoisted sail supports the boom when the sheet is slack. The sewn
   // leech length establishes the unstrained foot angle independently of the block stack.
@@ -349,11 +369,16 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real jibTrimTarget;
   output Real exposedSheetSag[3] "Free-span deflection with excess line retained on deck";
   parameter Real stayEA(unit="N")=520000,shroudPreload(unit="N")=220;
-  final parameter Real stayAnchors[3,3]=[-.52,1.02,.34;-.52,-1.02,.34;footX[2],0,footZ[2]];
+  final parameter Real sideStayX=-.30;
+  final parameter Real stayAnchors[3,3]=[sideStayX,1.02,.34;sideStayX,-1.02,.34;footX[2],0,footZ[2]];
   final parameter Real tang[3]={mastStep[1]-(5.85-mastStep[3])*mainMastSlope,0,5.85};
   Real jibStation[6];
-  discrete output Real stayPath[3,3,3],stayTension[3],stayStiffness[3];
-  discrete Real midSag[3,3](each start=0,each fixed=true);
+  input Real jibHalyardInput=.55 "Halyard adjustment from eased zero to hauled one";
+  Real halyardSetting(start=.55,fixed=true);
+  output Real stayPath[3,3,3],stayTension[3],stayStiffness[3];
+  output Real forestayPath[3,3],forestayTension,jibHalyardTension,mastRake;
+  discrete Real standingPaths[4,3,3],standingTension[4],standingStiffness[4];
+  discrete Real midSag[4,3](each start=0,each fixed=true),midSagRate[4,3](each start=0,each fixed=true);
   discrete Real tangLean[2](each start=0,each fixed=true),tangRate[2](each start=0,each fixed=true);
   Real contactBody[2,3],mainMomentBody[3],jibWireLoad[3];
   output Real sailTail[2,6,3] "Paired face telltales on main and jib";
@@ -877,7 +902,7 @@ equation
     sheetYaw[j]=ropeTorque[j,:]*{axisX[sailOf[j]],0,axisZ[sailOf[j]]};
   end for;
   mainBlockClearance=max(0,lineSpan[1]-blockStack);
-  blockContact=if catamaran and lineSpan[1]<blockStack then max(0,65000*(blockStack-lineSpan[1])-180*lineRate[1]) else 0;
+  blockContact=if catamaran and lineSpan[1]<blockStack then max(0,240000*(blockStack-lineSpan[1])-240*lineRate[1]) else 0;
   gooseneckOffset={mainMastSlope*tackDrop,0,-tackDrop};
   mainGooseneck={footX[1],0,footZ[1]}+gooseneckOffset;
   mainBlockPins[1,:]={footX[1],0,footZ[1]}+fairlead[1,:];
@@ -899,6 +924,13 @@ equation
   // First-order beam-column compliance under leech and luff compression.
   // This approximation keeps the one-mode elastic model below buckling.
   mastLoadedStiffness=mastStiffness/(1+max(0,mastAxialLoad)*mastGeometricFactor/mastStiffness);
+  // The loaded sail track is aft of the spar. Its eccentric compression
+  // bows the spar between the fixed gooseneck region and the stay tang.
+  lowerMastBow=if catamaran then max(0,mastAxialLoad)*luffTrackOffset*lowerMastSpan^2/(8*mastEI)*
+    (1+min(1.15,max(0,mastAxialLoad)/lowerMastBucklingLoad)) else 0;
+  mastBend=max({abs(mastStations[row,1]-mastStations[2,1]-
+    (mastStations[7,1]-mastStations[2,1])*(mastStations[row,3]-mastStations[2,3])/
+    (mastStations[7,3]-mastStations[2,3])) for row in 3:6});
   (mastModalMass+.25*rigWaterMass[1])*der(mastTipRate)=(if catamaran then
       (sheetRotation[1,1,:]+mainMastSlope*sheetRotation[1,3,:])*cloth[1].mastLoad
       -leechLoad*(leechDirection[1]+mainMastSlope*leechDirection[3])
@@ -909,16 +941,25 @@ equation
   for wire in 1:2 loop
     contactBody[wire,:]=sheetRotation[1,:,:]*{0,cloth[1].wireReaction[wire],0};
   end for;
+  der(halyardSetting)=if catamaran then (max(0,min(1,jibHalyardInput))-halyardSetting)/.32 else 0;
+  stayPath=standingPaths[1:3,:,:];
+  stayTension=standingTension[1:3];
+  stayStiffness=standingStiffness[1:3];
+  forestayPath=standingPaths[4,:,:];
+  forestayTension=standingTension[4];
+  jibHalyardTension=standingTension[3];
+  mastRake=atan2(mastStep[1]-standingPaths[3,3,1],standingPaths[3,3,3]-mastStep[3]);
   when sample(0,.01) then
-    (tangLean,tangRate,stayPath,stayTension,stayStiffness,midSag)=standingRig(stayAnchors,tang,
+    (tangLean,tangRate,standingPaths,standingTension,standingStiffness,midSag,midSagRate)=standingRig(stayAnchors,tang,
       pre(tangLean),pre(tangRate),if catamaran then pre(mainMomentBody) else zeros(3),
-      if catamaran then pre(jibWireLoad) else zeros(3),pre(contactBody),transpose(rotation)*{0,0,-9.80665},.01,stayEA,shroudPreload,.5*sum(pre(rigWaterMass)),pre(midSag));
+      if catamaran then pre(jibWireLoad) else zeros(3),pre(contactBody),transpose(rotation)*{0,0,-9.80665},.01,stayEA,shroudPreload,.5*sum(pre(rigWaterMass)),pre(midSag),pre(midSagRate),
+      transpose(rotation)*{awx,awy,-vertical},halyardSetting);
   end when;
   mastStations[1,:]=mastStep;
   jibStation=cloth[2].rowLuff*spans[2]/(tang[3]-stayAnchors[3,3]);
   for row in 1:6 loop
     mastStations[row+1,:]={footX[1]-spans[1]*mainMastSlope*(row-1)/5,0,footZ[1]+spans[1]*(row-1)/5}
-      +mastDeflection((row-1)/5,stayFraction,mastTip,mainMastSlope,tangLean);
+      +mastDeflection((row-1)/5,stayFraction,mastTip,mainMastSlope,tangLean,lowerMastBow);
     cloth[2].luffShift[row,:]=if catamaran then transpose(sheetRotation[2,:,:])*(
       (if jibStation[row]<=.5 then (1-2*jibStation[row])*stayPath[3,1,:]+2*jibStation[row]*stayPath[3,2,:]
        else (2-2*jibStation[row])*stayPath[3,2,:]+(2*jibStation[row]-1)*stayPath[3,3,:])
@@ -926,7 +967,7 @@ equation
   end for;
   for row in 1:cloth[1].rows loop
     cloth[1].luffShift[row,:]=if catamaran then transpose(sheetRotation[1,:,:])*(
-      mastDeflection(cloth[1].rowLuff[row],stayFraction,mastTip,mainMastSlope,tangLean)
+      mastDeflection(cloth[1].rowLuff[row],stayFraction,mastTip,mainMastSlope,tangLean,lowerMastBow)
       +gooseneckOffset*(1-cloth[1].rowLuff[row])) else zeros(3);
   end for;
   mastStations[8,:]=mastStations[7,:]+(podZ-footZ[1]-spans[1])*
@@ -1007,7 +1048,7 @@ equation
     origin[m,:]=rotation*{footX[m],0,footZ[m]};
     for side in 1:2 loop
       cloth[m].shroudFoot[side,:]=transpose(sheetRotation[m,:,:])*{
-        (if catamaran then -.52 else -.05)-footX[m],
+        (if catamaran then sideStayX else -.05)-footX[m],
         (3-2*side)*(if catamaran then 1.02 else .31),
         (if catamaran then .34 else .09)-footZ[m]};
     end for;

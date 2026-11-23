@@ -98,7 +98,7 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   Real thrust,sway(start=0,fixed=true);
   Real rotation[3,3],spin[3];
   output Real boatPose[6],engine[4] "ENU pose; shaft rpm, through-water speed, thrust, rudder angle";
-  parameter Real engineOffAfter=1.8 "Neutral time before the starter is required again [s]";
+  parameter Real engineOffAfter=10 "Neutral time before the starter is required again [s]";
   parameter Real engineCrankTime=1 "Starter engagement time [s]";
   discrete Real engineIdleTime(start=engineOffAfter,fixed=true);
   discrete output Real starterRemaining(start=0,fixed=true) "Starter time left [s]";

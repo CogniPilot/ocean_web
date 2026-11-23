@@ -36,6 +36,8 @@ const glslFloat=n=>Number.isInteger(n)?n.toFixed(1):String(n);
 const hullSections=[[-3.74,1.07,.77,-.39],[-3.53,1.19,.78,-.44],[-2.75,1.29,.80,-.52],
   [-1.55,1.36,.84,-.57],[-.20,1.35,.91,-.61],[1.05,1.24,1.00,-.58],[2.1,1.00,1.11,-.49],
   [2.93,.67,1.20,-.32],[3.49,.33,1.27,-.06],[3.80,.018,1.32,.25]];
+const hullPlating=[[1,1],[.993,.87],[.972,.65],[.931,.43],[.85,.23],[.57,.12],[.27,.045],[0,0]];
+const cabinPorts={stations:[1.64,2.15],height:.69,radiusX:.157,radiusZ:.118};
 // Use an inset of the same stations as the render hull to exclude the
 // exterior water surface from the sealed hull and recessed cockpit.
 export const cruiserHullGLSL=`
@@ -143,8 +145,9 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
         '#include <begin_vertex>\n hullPoint=position;');
       shader.fragmentShader='varying vec3 hullPoint;uniform float panelCondition,holeRadius,holeX;\n'+
         shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
-          vec2 portA=(hullPoint.xz-vec2(1.64,.69))/vec2(.157,.118);
-          vec2 portB=(hullPoint.xz-vec2(2.15,.69))/vec2(.157,.118);
+          vec2 portSize=vec2(${cabinPorts.radiusX},${cabinPorts.radiusZ});
+          vec2 portA=(hullPoint.xz-vec2(${cabinPorts.stations[0]},${cabinPorts.height}))/portSize;
+          vec2 portB=(hullPoint.xz-vec2(${cabinPorts.stations[1]},${cabinPorts.height}))/portSize;
           if(abs(hullPoint.y)>.54&&min(dot(portA,portA),dot(portB,portB))<1.)discard;
           vec2 rel=hullPoint.xz-vec2(holeX,-.30);
           float bearing=atan(rel.y,rel.x);
@@ -226,8 +229,8 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     const splits=[0,sections.findIndex(k=>k.x>=-1.40),sections.findIndex(k=>k.x>=.95),sections.length-1];
     for(let i=0;i<3;i++){
       const plating=sections.slice(splits[i],splits[i+1]+1),material=panelMaterials[i+(side>0?0:3)];
-      surface(plating.map(k=>[row(k,1,1),row(k,.993,.87),row(k,.972,.65),row(k,.931,.43),row(k,.85,.23)]),ivory,material);
-      surface(plating.map(k=>[row(k,.85,.23),row(k,.57,.12),row(k,.27,.045),row(k,0,0)]),0x9f9e96,material);
+      surface(plating.map(k=>hullPlating.slice(0,5).map(([f,t])=>row(k,f,t))),ivory,material);
+      surface(plating.map(k=>hullPlating.slice(4).map(([f,t])=>row(k,f,t))),0x9f9e96,material);
     }
     // Molded lifting strakes fade into the forward V rather than extending
     // all the way to the bow. The bottom remains one continuous plating mesh.
@@ -453,31 +456,79 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     }
     rodeGeometry.attributes.position.needsUpdate=true;
   }
+  // Intersect the rendered plating triangles so fittings and joinery follow
+  // both the narrowing bow in plan and the V of the lower hull in section.
+  const bowPlating=sections.filter(section=>section.x>1)
+    .map(section=>hullPlating.map(([f,t])=>v3(...section.point(1,f,t))));
+  const mouldRay=new T.Ray(v3(0,2,0),v3(0,-1,0)),mouldHit=v3(0,0,0);
+  function bowHalfBeam(x,z){
+    mouldRay.origin.set(x,2,z);
+    for(let i=1;i<bowPlating.length;i++){
+      const aft=bowPlating[i-1],forward=bowPlating[i];
+      if(x<aft.at(-1).x||x>forward[0].x)continue;
+      for(let j=1;j<aft.length;j++){
+        if(mouldRay.intersectTriangle(aft[j-1],forward[j-1],aft[j],false,mouldHit)||
+           mouldRay.intersectTriangle(aft[j],forward[j-1],forward[j],false,mouldHit))return mouldHit.y;
+      }
+    }
+    return 0;
+  }
   const cabinWood=0x866445,ivoryLining=0xdbd4bf;
-  cabinPart(new T.BoxGeometry(1.64,1.46,.04),0x89664c,[2.0,0,-.38]);
-  for(let i=-5;i<=5;i++)cabinPart(new T.BoxGeometry(1.59,.006,.006),0x4a3c2d,[2.0,i*.13,-.357]);
-  cabinPart(new T.BoxGeometry(1.74,1.55,.045),ivoryLining,[2.0,0,1.12]);
-  cabinPart(new T.BoxGeometry(.04,1.40,1.46),cabinWood,[2.83,0,.35]);
+  const cabinAft=1.19,cabinFore=2.80,cabinSole=.23,cabinInset=.052;
+  const cabinRoof=x=>.963+.118*(x-cabinAft);
+  const innerBeam=(x,z)=>bowHalfBeam(x,z)-cabinInset;
+  function cabinSurface(geometry,color,name,place){
+    const points=geometry.attributes.position;
+    for(let i=0;i<points.count;i++)points.setXYZ(i,...place(points.getX(i),points.getY(i),points.getZ(i)));
+    geometry.computeVertexNormals();
+    const mesh=cabinPart(geometry,color,[0,0,0]);
+    mesh.name=name;mesh.material.side=T.DoubleSide;
+    return mesh;
+  }
+  for(const [name,height,color] of [['Cabin sole',()=>cabinSole,0x89664c],['Cabin ceiling',cabinRoof,ivoryLining]]){
+    cabinSurface(new T.PlaneGeometry(cabinFore-cabinAft,2,24,1),color,name,(u,v)=>{
+      const x=u+(cabinAft+cabinFore)/2,z=height(x);
+      return [x,v*innerBeam(x,z),z];
+    });
+  }
+  for(let i=-5;i<=5;i++){
+    cabinSurface(new T.PlaneGeometry(cabinFore-cabinAft,.006,24,1),0x4a3c2d,'Cabin sole seam',(u,v)=>{
+      const x=u+(cabinAft+cabinFore)/2;
+      return [x,i*.175*innerBeam(x,cabinSole)+v,cabinSole+.0015];
+    });
+  }
+  cabinSurface(new T.PlaneGeometry(2,1,1,16),cabinWood,'Cabin forward bulkhead',(u,v)=>{
+    const z=T.MathUtils.lerp(cabinSole,cabinRoof(cabinFore),v+.5);
+    return [cabinFore,u*innerBeam(cabinFore,z),z];
+  });
+  const {stations:portStations,height:portHeight,radiusX,radiusZ}=cabinPorts;
+  const portRim=.013;
   for(const side of [-1,1]){
     const lining=new T.Shape();
-    lining.moveTo(1.22,-.35);lining.lineTo(2.81,-.35);lining.lineTo(2.77,1.11);lining.lineTo(1.22,1.11);lining.closePath();
-    for(const x of [1.64,2.15]){
-      const hole=new T.Path();hole.absellipse(x,.69,.157,.118,0,2*Math.PI,true);lining.holes.push(hole);
+    lining.moveTo(cabinAft,cabinSole);lining.lineTo(cabinFore,cabinSole);
+    lining.lineTo(cabinFore,cabinRoof(cabinFore));lining.lineTo(cabinAft,cabinRoof(cabinAft));lining.closePath();
+    for(const x of portStations){
+      const hole=new T.Path();hole.absellipse(x,portHeight,radiusX,radiusZ,0,2*Math.PI,true);lining.holes.push(hole);
     }
-    const wall=cabinPart(new T.ShapeGeometry(lining,28),ivoryLining,[0,side*.78,0]);
-    wall.rotation.x=Math.PI/2;wall.material.side=T.DoubleSide;
-    for(const [x,outerY] of [[1.64,1.09],[2.15,.935]]){
-      for(const y of [.776,outerY]){
-        const rim=cabinPart(new T.TorusGeometry(.148,.014,10,36),0xa6a9a2,[x,side*y,.69]);
-        rim.rotation.x=Math.PI/2;rim.scale.y=.75;rim.material.metalness=.62;
+    cabinSurface(new T.ShapeGeometry(lining,24),ivoryLining,'Cabin side liner',
+      (x,z)=>[x,side*innerBeam(x,z),z]);
+    for(const station of portStations){
+      for(const [name,offset] of [['Cabin inner port rim',-cabinInset-.004],['Cabin outer port rim',.003]]){
+        const rim=cabinSurface(new T.TorusGeometry(radiusX,portRim,10,36),0xa6a9a2,name,(u,v,w)=>{
+          const x=station+u,z=portHeight+v*radiusZ/radiusX;
+          return [x,side*(bowHalfBeam(x,z)+offset+w),z];
+        });
+        rim.material.metalness=.62;
       }
-      const pane=cabinPart(new T.CircleGeometry(.148,36),0xa6d4e0,[x,side*.797,.69]);
-      pane.rotation.x=Math.PI/2;pane.scale.y=.75;pane.material=glass.clone();pane.material.opacity=.18;
+      const pane=cabinSurface(new T.CircleGeometry(radiusX,36),0xa6d4e0,'Cabin port glass',(u,v)=>{
+        const x=station+u,z=portHeight+v*radiusZ/radiusX;
+        return [x,side*(bowHalfBeam(x,z)-cabinInset/2),z];
+      });
+      pane.material.dispose();pane.material=glass.clone();pane.material.opacity=.18;
     }
-    cabinPart(new T.BoxGeometry(1.06,.42,.21),cabinWood,[2.22,side*.53,-.22]);
-    cabinPart(new T.BoxGeometry(1.07,.42,.10),0x405b61,[2.22,side*.53,-.067]);
+    cabinPart(new T.BoxGeometry(.92,.30,.13),cabinWood,[2.13,side*.435,cabinSole+.065]);
+    cabinPart(new T.BoxGeometry(.93,.30,.073),0x405b61,[2.13,side*.435,cabinSole+.166]);
   }
-  cabinPart(new T.BoxGeometry(.06,1.54,.11),cabinWood,[1.21,0,-.27]);
   const radio=new T.Group();radio.name='Cabin radio';radio.position.set(2.46,.15,.66);cabin.add(radio);
   cabinPart(new T.BoxGeometry(.20,.39,.23),0x332924,[0,0,0],radio);
   cabinPart(new T.BoxGeometry(.013,.354,.197),0x795739,[-.106,0,0],radio);
@@ -486,13 +537,14 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   const dial=cabinPart(new T.CylinderGeometry(.039,.039,.026,18),0xc0b58e,[-.119,-.083,-.042],radio);
   dial.rotation.z=Math.PI/2;
   cabinObjects.set('radio',radio);
-  const dome=new T.Group();dome.name='Cabin lamp';dome.position.set(2.05,-.11,1.07);cabin.add(dome);
+  const dome=new T.Group();dome.name='Cabin lamp';dome.position.set(2.05,-.11,cabinRoof(2.05)-.02);cabin.add(dome);
   const bezelCabin=cabinPart(new T.CylinderGeometry(.12,.126,.032,32),0x9d8e71,[0,0,0],dome);
   bezelCabin.rotation.x=Math.PI/2;
   const filament=cabinPart(new T.SphereGeometry(1,24,12),0xbdb69d,[0,0,-.022],dome);
   filament.scale.set(.106,.106,.040);
   const cabinLamp=new T.PointLight(0xffce8f,8,3.0,2);
-  cabinLamp.name='Cabin lamp emitter';cabinLamp.position.set(2.05,-.11,1.01);cabinLamp.visible=false;cabin.add(cabinLamp);
+  cabinLamp.name='Cabin lamp emitter';cabinLamp.position.copy(dome.position);cabinLamp.position.z-=.07;
+  cabinLamp.visible=false;cabin.add(cabinLamp);
   cabinObjects.set('light',dome);
   function setCabinLight(on){
     cabinLamp.visible=on;filament.material.emissive.setHex(on?0xffc77a:0);filament.material.emissiveIntensity=on?.8:0;

@@ -2308,7 +2308,7 @@ async function run(saved=readReset(),carried){
           idle<idleLimit-1e-7&&motor.starterRemaining<1e-6:undefined;
         $('yawDegrees').value=$('lampYaw').value+'°';$('tiltDegrees').value=$('lampTilt').value+'°';
         motor.group.position.fromArray(pose);motor.group.rotation.set(pose[3],pose[4],pose[5],'ZYX');
-        motorState=[engine[0],engine[3],Number($('searchLamp').checked),Number($('keelLamp').checked),rad*$('lampYaw').value,-rad*$('lampTilt').value,motor.starterRemaining];
+        motorState=[engine[0],engine[3],Number($('searchLamp').checked),Number($('keelLamp').checked),rad*$('lampYaw').value,-rad*$('lampTilt').value,motor.starterRemaining,motor.engineRunning];
         motor.update(t,...motorState.slice(0,2),motorState.slice(2,6),roomTime);
         motor.setWiper(world.get('wiperAngle')??0);
         motor.setHelmSwitch('search',Boolean(motorState[2]));

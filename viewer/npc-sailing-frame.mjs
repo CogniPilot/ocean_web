@@ -13,11 +13,11 @@ export function readRacerFrame(model){
 
 export const racerFrameSize=523;
 
-export function drawRacerFrame(boat,before,after,blend,time,interpolated=new Float64Array(racerFrameSize)){
+export function drawRacerFrame(boat,before,after,blend,time,interpolated=new Float64Array(racerFrameSize),forestay){
   for(let i=0;i<interpolated.length;i++)interpolated[i]=before[i]+blend*(after[i]-before[i]);
   const part=(from,to)=>interpolated.subarray(from,to);
   const state=part(14,221);
-  const geometry={rig:[part(221,245),part(245,248),part(248,254)],cloth:[part(254,374),part(374,446)]};
+  const geometry={forestay,rig:[part(221,245),part(245,248),part(248,254)],cloth:[part(254,374),part(374,446)]};
   boat.update(state,part(446,449),part(449,451),part(451,454),part(454,460),part(460,496),part(496,523),time,geometry);
   return state;
 }

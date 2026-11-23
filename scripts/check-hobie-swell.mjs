@@ -17,8 +17,8 @@ async function ride(amplitude,heading){
     launchPitch:-Math.atan(slope),windEast:0,windNorth:0,manualHelm:1,swellBearing:0,swellAmplitude:amplitude},read);
   assert(Math.abs(boat.get('swellK')-k)<1e-9);
   assert(Math.abs(boat.get('swellOmega')-omega)<1e-9);
-  assert.deepEqual(boat.get('swellPresetAmplitudes').map(value=>Math.round(value*100)),[0,65,120,170]);
-  assert(Math.abs(boat.get('swellPresetWaveNumbers')[3]-2*Math.PI/90)<1e-9);
+  assert.deepEqual(boat.get('swellPresetAmplitudes').map(value=>Math.round(value*1000)),[0,325,600,1700]);
+  assert(Math.abs(boat.get('swellPresetWaveNumbers')[3]-2*Math.PI/60.96)<1e-9);
   const initialForce=boat.get('swellForce')[0];
   let peakForward=0;
   for(let i=0;i<600;i++){

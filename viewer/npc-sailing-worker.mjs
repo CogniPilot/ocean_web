@@ -35,7 +35,8 @@ self.onmessage=async({data})=>{
         model.set('utc',utc-.05*(step-j-1));
         model.advance(.05);
       }
-      frames.push({id:racer.id,data:readRacerFrame(model)});
+      frames.push({id:racer.id,data:readRacerFrame(model),
+        forestay:model.has('boat.forestayPath')?model.get('boat.forestayPath'):undefined});
     }
     self.postMessage({frames});
   }catch(error){self.postMessage({error:error.message});}

@@ -9,9 +9,9 @@ import {scalarNames} from '../.deps/microduck_web/site/fmu-page-contract.js';
 const root=resolve(process.argv[2]??'build/pages');
 const cases=[
   {seaState:0,windWaveHeight:.08,swellAmplitude:0},
-  {seaState:.45,windWaveHeight:.62,swellAmplitude:.65},
-  {seaState:1.1,windWaveHeight:1.15,swellAmplitude:1.20},
-  {seaState:1.5,windWaveHeight:.18,swellAmplitude:1.70,wavelength:90},
+  {seaState:.45,windWaveHeight:.62,swellAmplitude:.325},
+  {seaState:1.1,windWaveHeight:1.15,swellAmplitude:.60},
+  {seaState:1.5,windWaveHeight:.47,swellAmplitude:1.70,wavelength:60.96},
 ];
 const rms=values=>Math.sqrt(values.reduce((sum,x)=>sum+x*x,0)/values.length);
 const phase=.31,clockOffset=125,trials=[];
