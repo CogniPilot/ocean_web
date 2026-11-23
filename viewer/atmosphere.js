@@ -714,6 +714,52 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
  }
  return geometry;
  }
+ function compactWaterMesh(){
+   const cells=80,radius=4,row=cells+1;
+   const positions=[],indices=[];
+   for(let y=0;y<=cells;y++)for(let x=0;x<=cells;x++){
+     positions.push((2*x/cells-1)*radius,(2*y/cells-1)*radius,0);
+     if(x<cells&&y<cells){
+       const a=y*row+x;
+       indices.push(a,a+1,a+row+1,a,a+row+1,a+row);
+     }
+   }
+   const perimeter=(segments,point)=>{
+     const vertices=[];
+     for(let edge=0;edge<4;edge++)for(let i=0;i<segments;i++){
+       const [x,y]=edge===0?[i,0]:edge===1?[segments,i]:
+         edge===2?[segments-i,segments]:[0,segments-i];
+       vertices.push(point(x,y));
+     }
+     return vertices;
+   };
+   let inner=perimeter(cells,(x,y)=>y*row+x);
+   // Keep 10 cm cells around the hull. The square rings share every edge
+   // vertex with their neighbours, including where resolution halves.
+   const rings=[[5.25,40],[6.65,40],[8.2,40],[10.2,40],[13,20],[17,20],
+     [22,20],[31,20],[43,10],[64,10],[96,10],[145,10],[225,5],[350,5],
+     [550,5],[objectDrawRange+128,5]];
+   for(const [extent,segments] of rings){
+     const outer=perimeter(segments,(x,y)=>{
+       const index=positions.length/3;
+       positions.push((2*x/segments-1)*extent,(2*y/segments-1)*extent,0);
+       return index;
+     });
+     const stride=inner.length/outer.length;
+     for(let i=0;i<outer.length;i++){
+       const end=(i+1)*stride;
+       indices.push(outer[i],outer[(i+1)%outer.length],inner[end%inner.length]);
+       for(let j=end;j>i*stride;j--)
+         indices.push(outer[i],inner[j%inner.length],inner[j-1]);
+     }
+     inner=outer;
+   }
+   const geometry=new THREE.BufferGeometry();
+   geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));
+   geometry.setIndex(indices);
+   return geometry;
+ }
+ let waterMeshKey=144;
  U.foamTexture={value:makeFoamTexture(THREE)};
  const water=new THREE.Mesh(waterMesh(144),new THREE.ShaderMaterial({uniforms:U,side:THREE.DoubleSide,
  vertexShader:field+`varying vec3 wp;
@@ -1211,12 +1257,17 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,bowR
    if(spray)spray.points.visible=sprayVisible;
  }
  function setQuality(profile,vertexSlope,multisampling,mobileWater=false){
-   if(water.geometry.parameters.widthSegments!==profile.mesh){
-     water.geometry.dispose();water.geometry=waterMesh(profile.mesh);
+   const compact=mobileWater&&profile.compactOnMobile;
+   const meshKey=compact?'compact':profile.mesh;
+   if(waterMeshKey!==meshKey){
+     water.geometry.dispose();
+     water.geometry=compact?compactWaterMesh():waterMesh(profile.mesh);
+     waterMeshKey=meshKey;
    }
    whitecaps.setResolution(vertexSlope||mobileWater||profile.skipCaptures?320:512);
    simpleCapture=vertexSlope;
-   water.material.defines=vertexSlope?{VERTEX_SLOPE:1,DISABLE_BOW_FIELD:1}:{};
+   water.material.defines=vertexSlope||compact?{VERTEX_SLOPE:1}:{};
+   if(vertexSlope)water.material.defines.DISABLE_BOW_FIELD=1;
    if(mobileWater)water.material.defines.MOBILE_WATER=1;
    if(profile.skipCaptures)water.material.defines.SIMPLE_SURFACE=1;
    if(profile.omitWake||!cruiserSurface)water.material.defines.DISABLE_STERN_FOAM=1;

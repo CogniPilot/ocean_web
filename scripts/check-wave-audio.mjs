@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {hullGurgle,waveAmbience} from '../viewer/regatta.mjs';
+import {hullWashMix,waveAmbience} from '../viewer/regatta.mjs';
 
 const silent={swell:0,crest:0,wake:0};
 const probes=waveAmbience();
@@ -53,9 +53,16 @@ for(let i=0;i<=3.5*period/step;i++){
 }
 assert(crestPeak>.08);
 
-assert.equal(hullGurgle(undefined,.3,.2),0);
-assert.equal(hullGurgle(0,0,0),0);
-assert(hullGurgle(0,.3,0)>0);
-assert(hullGurgle(1,0,0)>.2);
-assert.equal(hullGurgle(4,.3,.2),0);
+assert.deepEqual(hullWashMix(undefined,.3,.2),{gurgle:0,rush:0});
+assert.deepEqual(hullWashMix(0,0,0),{gurgle:0,rush:0});
+assert(hullWashMix(0,.3,0).gurgle>0);
+const slow=hullWashMix(1,0,0),crossfade=hullWashMix(6*1852/3600,0,0),fast=hullWashMix(13*1852/3600,0,0);
+assert(slow.gurgle>.2&&slow.rush===0);
+assert(crossfade.gurgle>.2&&crossfade.rush>.3);
+assert(fast.gurgle===0&&fast.rush>.60);
+assert.deepEqual(hullWashMix(-4,0,0),hullWashMix(4,0,0));
+for(let speed=1.35;speed<=4.5;speed+=.01){
+  const {gurgle,rush}=hullWashMix(speed,0,0);
+  assert(Math.hypot(gurgle,rush)>.35,'Hull wash stays audible throughout the blend');
+}
 console.log({calm,rough,wake,crestPeak});

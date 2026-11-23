@@ -386,11 +386,14 @@ export function waveAmbience(){
   return {sample,reset};
 }
 
-export function hullGurgle(speed,swell,wake){
-  if(!Number.isFinite(speed))return 0;
+export function hullWashMix(speed,swell,wake){
+  if(!Number.isFinite(speed))return {gurgle:0,rush:0};
   const flow=Math.abs(speed);
-  const fade=Math.max(0,Math.min(1,(3.2-flow)/1.65));
-  return fade*fade*(3-2*fade)*Math.min(1,.52*flow/(.55+flow)+.45*swell+.45*wake);
+  const transition=Math.max(0,Math.min(1,(flow-1.35)/3.15));
+  const blend=transition*transition*(3-2*transition);
+  const low=Math.min(1,.52*flow/(.55+flow)+.45*swell+.45*wake);
+  const high=Math.min(1,.90*flow/(1.45+flow)+.22*wake);
+  return {gurgle:Math.sqrt(1-blend)*low,rush:Math.sqrt(blend)*high};
 }
 
 export function raceAudio(T){
@@ -406,7 +409,7 @@ export function raceAudio(T){
     if(!wavesActive)return;
     wavesActive=false;
     waves?.reset();
-    hullWash?.gain.setTargetAtTime(0,audio.currentTime,.20);
+    for(const gain of hullWash??[])gain.gain.setTargetAtTime(0,audio.currentTime,.20);
     for(const gain of waveGains??[])gain.gain.setTargetAtTime(0,audio.currentTime,.15);
   }
   function setVolume(value){
@@ -600,14 +603,22 @@ export function raceAudio(T){
       waveGains[1].gain.setTargetAtTime(.32*crest*exposure,wall,.09);
       waveGains[2].gain.setTargetAtTime(.66*wake*exposure,wall,.12);
     }
-    const wash=hullGurgle(hullSpeed,swell,wake)*exposure/(1+(hullDistance/15)**2);
-    if(!hullWash&&wash>.015){
-      hullWash=audio.createGain();
-      hullWash.gain.value=0;
-      hullWash.connect(effects);
-      startAmbience('hull-wash.mp3',hullWash);
+    const {gurgle,rush}=hullWashMix(hullSpeed,swell,wake);
+    const listenerGain=.86*exposure/(1+(hullDistance/15)**2);
+    if(!hullWash&&Math.max(gurgle,rush)*listenerGain>.015){
+      // Start both loops together so the next blend needs no audio fetch.
+      hullWash=['hull-wash.mp3','hull-rush.mp3'].map(file=>{
+        const gain=audio.createGain();
+        gain.gain.value=0;
+        gain.connect(effects);
+        startAmbience(file,gain);
+        return gain;
+      });
     }
-    hullWash?.gain.setTargetAtTime(.86*wash,wall,.24);
+    if(hullWash){
+      hullWash[0].gain.setTargetAtTime(gurgle*listenerGain,wall,.24);
+      hullWash[1].gain.setTargetAtTime(rush*listenerGain,wall,.24);
+    }
   }
   function signal(){
     if(!enabled)return;

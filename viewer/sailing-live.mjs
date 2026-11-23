@@ -36,7 +36,7 @@ const directControls=['drone','sub','whale','shark','gull','motorboat'];
 const profiles={
   fast:{target:20,ratio:.6,min:.4,mesh:48,sky:.375,omitWake:true,skipCaptures:true},
   low:{target:20,captureInterval:1000/15,ratio:.75,min:.5,capture:.375,reflectSamples:0,mesh:88,sky:.5,omitWake:true},
-  balanced:{target:10,captureInterval:1000/30,ratio:1,min:.75,capture:.75,reflectSamples:2,mesh:120,sky:.75},
+  balanced:{target:10,captureInterval:1000/30,ratio:1,min:.75,capture:.75,reflectSamples:2,mesh:120,sky:.75,compactOnMobile:true},
   high:{target:5,captureInterval:0,ratio:1,min:1,capture:1.25,mesh:144,sky:1,reflectSamples:2}
 };
 // Present two committed world poses between worker packets. Restore the
