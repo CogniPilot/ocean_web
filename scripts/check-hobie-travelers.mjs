@@ -10,17 +10,18 @@ async function setting(speed,angle,extra={}){
   const bow=angle*Math.PI/180;
   const boat=await loadInstance('Hobie16',{launchHeading:0,manualHelm:0,
     windEast:-speed*Math.cos(bow),windNorth:-speed*Math.sin(bow),...extra},read);
-  const [main,jib,payout,line,min,max]=boat.getMany(['mainCarTarget','jibCarTarget','autoPayout','travelerCommand','travelerMinLine','travelerMaxLine']);
-  return {main,jib,payout,ease:(line-min)/(max-min)};
+  const [main,jib,payout,line,min,max,jibAtLaunch]=boat.getMany(['mainCarTarget','jibCarTarget','autoPayout','travelerCommand','travelerMinLine','travelerMaxLine','jibCar']);
+  return {main,jib,payout,ease:(line-min)/(max-min),jibAtLaunch};
 }
 const light=await setting(3,50),moderate=await setting(8,50),gust=await setting(15,50);
 const heavyCrew=await setting(15,50,{ballastMass:135});
 const otherTack=await setting(8,-50),downwind=await setting(8,150);
 const manual=await setting(8,50,{deckManual:1,mainCarInput:.66,jibCarInput:.72});
 console.log({light,moderate,gust,heavyCrew,otherTack,downwind,manual});
-assert(light.main<.03&&Math.abs(light.jib-.18)<1e-9);
+assert(light.main<.03&&Math.abs(light.jib-.50)<1e-9);
+assert.equal(light.jibAtLaunch,.53);
 assert(moderate.main<.03,'Automatic upwind trim keeps the main centered in moderate wind');
-assert(moderate.jib>.18&&moderate.jib<.38);
+assert(moderate.jib>=.50&&moderate.jib<=.56);
 assert(gust.main>.15&&gust.main<.25&&gust.jib>moderate.jib,'Heavy-air upwind trim travels out by part of the rail');
 assert(Math.abs(gust.payout-.030)<1e-9,'Automatic upwind trim hauls the main with enough lead for the battens to twist');
 assert(heavyCrew.main<gust.main&&heavyCrew.jib<gust.jib);
@@ -64,6 +65,12 @@ for(const [windNorth,step] of [[-6,.01],[6,.02]]){
   advance(2.7);
   const released=boat.get('mainCar');
   assert(working*released>working*initial+.2,'Sheet load moves the released traveler leeward');
+  const mounts=boat.get('travelerMounts');
+  const legLength=(fixed,car)=>Math.hypot(...Array.from({length:3},(_,k)=>
+    mounts[3*car+k]-mounts[3*fixed+k]+(k===1?released:0)));
+  assert(Math.abs(boat.get('travelerSpan')-legLength(0,1)-legLength(3,2))<1e-10,
+    'The two exposed spans use the cam eye and aft crossbar deadeye locations');
+  assert(mounts[11]<mounts[8]&&mounts[9]<mounts[6],'The return line descends aft to the beam');
   assert(Math.abs(released)<.93,'The car stays on the rail');
   assert(Math.abs(boat.get('jibCar')-jib)<.001&&Math.abs(boat.get('jibSheet')-.07)<.001,
     'The traveler line and jib controls are independent');

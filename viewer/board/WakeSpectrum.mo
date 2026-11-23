@@ -219,11 +219,12 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     output Real wr[n,n],wi[n,n],displacedR[n,n],displacedI[n,n],tile[n,n],probe[3],load[3],wake[n,n];
   protected
     Real rowR[n],rowI[n],windR[n],windI[n],sourceR[n],sourceI[n],dx,kx,ky,k,omega,c,s,atten,along,across,ex,ny,a,b,amplitude,phase,slope;
-    Integer mx,my,strip,oppositeRow,opposite[n];
+    Integer mx,my,wetStrips,oppositeRow,opposite[n];
     Real km,peak,windSpeed,directional,seed,trial;
     Real sr,si,mr,mi,stripR,stripI,momentArm,crossTerm,forceScale;
     Real cx[12,n],sx[12,n],cy[12,n],sy[12,n],ka,kb,weight;
-    Real armAlong[12],armAcross[12],stripLength[12],stripWidth[12],stripDraft[12];
+    Real armAlong[12],armAcross[12],stripLength[12],stripWidth[12],stripDraft[12],sectionVolume[12];
+    Real waveNumber[n],cosHeading,sinHeading,cosPitch,sinPitch,cosHeel,sinHeel;
     Real re[n,n],im[n,n],packedR[n,n],packedI[n,n],unused[n,n];
   algorithm
     // OceanRace supplies incident waves separately. With wake radiation off
@@ -235,28 +236,34 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     end if;
     windSpeed:=sqrt(ue*ue+un*un);peak:=max(.19,1.4/max(2,windSpeed));
     dx:=L/n;probe:=zeros(3);load:=zeros(3);forceScale:=1025*9.80665*dx^2/n^2;
-    // Fourier transform of six immersed strips on each hull. Separable phase
-    // tables preserve the exact subcell locations and avoid a forward FFT.
-    armAlong:=zeros(12);armAcross:=zeros(12);stripLength:=zeros(12);stripWidth:=zeros(12);stripDraft:=zeros(12);
+    // A dry hull strip gives exactly zero forcing and reaction. Pack the
+    // wet strips once in hull order before evaluating the spectral modes.
+    wetStrips:=0;
+    waveNumber:={2*pi*(if i<=div(n,2) then i-1 else i-1-n)/L for i in 1:n};
+    cosHeading:=cos(bearing);sinHeading:=sin(bearing);
+    cosPitch:=cos(pitch);sinPitch:=sin(pitch);cosHeel:=cos(heel);sinHeel:=sin(heel);
+    armAlong:=zeros(12);armAcross:=zeros(12);stripLength:=zeros(12);stripWidth:=zeros(12);
+    stripDraft:=zeros(12);sectionVolume:=zeros(12);
     cx:=zeros(12,n);sx:=zeros(12,n);cy:=zeros(12,n);sy:=zeros(12,n);
     if active and localHull then
       for hull in 1:2 loop
         for panel in 1:6 loop
-          strip:=(hull-1)*6+panel;
-          // Horizontal projection of the same body-fixed strip that samples the water.
-          along:=.5*(xs[panel]+xs[panel+1])*cos(pitch)+(3-2*hull)*sep*sin(heel)*sin(pitch);
-          across:=(3-2*hull)*sep*cos(heel);
-          armAlong[strip]:=along;armAcross[strip]:=across;
-          stripLength[strip]:=max(.001,xs[panel+1]-xs[panel]);
-          stripWidth[strip]:=max(.001,beams[panel]+beams[panel+1]);
-          stripDraft[strip]:=vol[hull,panel]/(stripLength[strip]*stripWidth[strip]);
-          ex:=x+along*cos(bearing)-across*sin(bearing);
-          ny:=y+along*sin(bearing)+across*cos(bearing);
-          for i in 1:n loop
-            k:=2*pi*(if i<=div(n,2) then i-1 else i-1-n)/L;
-            cx[strip,i]:=cos(k*ex);sx[strip,i]:=sin(k*ex);
-            cy[strip,i]:=cos(k*ny);sy[strip,i]:=sin(k*ny);
-          end for;
+          if vol[hull,panel]<>0 then
+            wetStrips:=wetStrips+1;
+            along:=.5*(xs[panel]+xs[panel+1])*cosPitch+(3-2*hull)*sep*sinHeel*sinPitch;
+            across:=(3-2*hull)*sep*cosHeel;
+            armAlong[wetStrips]:=along;armAcross[wetStrips]:=across;
+            stripLength[wetStrips]:=max(.001,xs[panel+1]-xs[panel]);
+            stripWidth[wetStrips]:=max(.001,beams[panel]+beams[panel+1]);
+            stripDraft[wetStrips]:=vol[hull,panel]/(stripLength[wetStrips]*stripWidth[wetStrips]);
+            sectionVolume[wetStrips]:=vol[hull,panel];
+            ex:=x+along*cosHeading-across*sinHeading;
+            ny:=y+along*sinHeading+across*cosHeading;
+            cx[wetStrips,:]:={cos(waveNumber[i]*ex) for i in 1:n};
+            sx[wetStrips,:]:={sin(waveNumber[i]*ex) for i in 1:n};
+            cy[wetStrips,:]:={cos(waveNumber[i]*ny) for i in 1:n};
+            sy[wetStrips,:]:={sin(waveNumber[i]*ny) for i in 1:n};
+          end if;
         end for;
       end for;
     end if;
@@ -268,25 +275,22 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
       for i in 1:n loop
         mx:=if i<=div(n,2) then i-1 else i-1-n;
         my:=if j<=div(n,2) then j-1 else j-1-n;
-        kx:=2*pi*mx/L;ky:=2*pi*my/L;k:=sqrt(kx^2+ky^2);
+        kx:=waveNumber[i];ky:=waveNumber[j];k:=sqrt(kx^2+ky^2);
         sr:=0;si:=0;mr:=0;mi:=0;
         omega:=sqrt(9.80665*k*tanh(k*h));
         if active then
           // A Nyquist component has no signed direction on this even grid.
           if localHull and abs(mx)<div(n,2) and abs(my)<div(n,2) then
-            ka:=kx*cos(bearing)+ky*sin(bearing);kb:=-kx*sin(bearing)+ky*cos(bearing);
-            for hull in 1:2 loop
-              for panel in 1:6 loop
-                strip:=(hull-1)*6+panel;
-                // Match each strip's volume and rectangular second moments.
-                // Submerged sources radiate less energy at short wavelengths.
-                weight:=vol[hull,panel]/dx^2*exp(-.5*k*stripDraft[strip]-((ka*stripLength[strip])^2+(kb*stripWidth[strip])^2)/24);
-                stripR:=weight*(cx[strip,i]*cy[strip,j]-sx[strip,i]*sy[strip,j]);
-                stripI:=-weight*(sx[strip,i]*cy[strip,j]+cx[strip,i]*sy[strip,j]);
-                sr:=sr+stripR;si:=si+stripI;
-                momentArm:=armAlong[strip]*kb-armAcross[strip]*ka;
-                mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
-              end for;
+            ka:=kx*cosHeading+ky*sinHeading;kb:=-kx*sinHeading+ky*cosHeading;
+            for strip in 1:wetStrips loop
+              // Match each strip's volume and rectangular second moments.
+              // Submerged sources radiate less energy at short wavelengths.
+              weight:=sectionVolume[strip]/dx^2*exp(-.5*k*stripDraft[strip]-((ka*stripLength[strip])^2+(kb*stripWidth[strip])^2)/24);
+              stripR:=weight*(cx[strip,i]*cy[strip,j]-sx[strip,i]*sy[strip,j]);
+              stripI:=-weight*(sx[strip,i]*cy[strip,j]+cx[strip,i]*sy[strip,j]);
+              sr:=sr+stripR;si:=si+stripI;
+              momentArm:=armAlong[strip]*kb-armAcross[strip]*ka;
+              mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
             end for;
           end if;
           sourceR[i]:=sr;sourceI[i]:=si;

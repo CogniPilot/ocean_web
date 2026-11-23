@@ -204,6 +204,10 @@ function bowNumbers(T,hulls){
  return bowNumberTemplate.clone();
 }
 const mainSheaveSpacing=.018,mainSheaveInset=.033,mainSheetTurn=.0255;
+const camEyeX=.026,camEyeZ=.05,camExitX=-.056,camExitZ=.042;
+const mainOutletY=.097,mainOutletDrop=.017;
+const deckCleatScale=.60;
+const defaultTravelerMounts=[-1.3546,0,.499,-1.378,0,.495,-1.427,0,.493,-1.469,0,.434];
 // Bake the small fixed fittings by material so each swivel moves as one unit.
 function deckHardware(T,traveler=false,blockFace=.1475,withCleat=false){
  const group=new T.Group(),batches=new Map();
@@ -244,7 +248,7 @@ function deckHardware(T,traveler=false,blockFace=.1475,withCleat=false){
      part(new T.CylinderGeometry(.009,.009,.003,10).rotateX(Math.PI/2),steel,.50,-.023,y,.035);
    }
    part(new T.CylinderGeometry(.027,.027,.025,16).rotateX(Math.PI/2),wheel,.15,.031,0,.026);
-   eye(.026,0,.05,.021,.004);
+   eye(camEyeX,0,camEyeZ,.021,.004);
  }else{
    const outline=new T.Shape();
    const neck=.037-axleHeight;
@@ -303,7 +307,7 @@ function deckHardware(T,traveler=false,blockFace=.1475,withCleat=false){
      part(bail.rotateX(Math.PI/2),steel,.65,0,.077,axleHeight-.022);
      eye(-mainSheaveSpacing,mainSheetTurn,axleHeight-.036,.005,.0018);
      const tail=[[mainSheaveSpacing,0,axleHeight-mainSheetTurn],[mainSheaveSpacing,.016,axleHeight-mainSheetTurn],
-       [0,.057,axleHeight-.017],[0,.097,axleHeight-.017]].map(point=>new T.Vector3(...point));
+       [0,.057,axleHeight-mainOutletDrop],[0,mainOutletY,axleHeight-mainOutletDrop]].map(point=>new T.Vector3(...point));
      const ropeAxis=new T.Vector3(),up=new T.Vector3(0,1,0),rotation=new T.Quaternion();
      for(let i=1;i<tail.length;i++){
        ropeAxis.subVectors(tail[i],tail[i-1]);
@@ -394,7 +398,7 @@ function mergeFittings(T,parent,parts,material){
  return merged;
 }
 
-export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
+export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,travelerMounts=defaultTravelerMounts){
  const group=new T.Group();
  let numberCanvas,numberMap,sailNumber;
  if(cat){
@@ -423,9 +427,12 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
  function rod(a,b,r,mat,parent=group){a=new T.Vector3(...a);b=new T.Vector3(...b);const d=b.clone().sub(a);const m=mesh(new T.CylinderGeometry(r,r,d.length(),10),mat,parent);m.position.copy(a).lerp(b,.5);m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return m;}
  let vane,drum,rudder,otherRudder,carriage,crossTiller,rightingLine;
  let jibHalyard,stayEyes,staySleeves,lowerBowAdjuster,upperBowAdjuster,forestayShockCord;
- const deckCars=[],sheets=[],sheetBlocks=[],jibBlocks=[],travelerRopes=[],podParts=[],streamers=[];
- const travelerCleat=new T.Vector3(-1.325,0,.499),travelerDeadeye=new T.Vector3(-1.465,0,.499);
- const travelerGuide=new T.Vector3();
+ const deckCars=[],sheets=[],sheetBlocks=[],jibBlocks=[],travelerRopes=[],jibTails=[],podParts=[],streamers=[];
+ const [travelerCleat,travelerForward,travelerAft,travelerDeadeye]=[0,3,6,9].map(i=>new T.Vector3().fromArray(travelerMounts,i));
+ const travelerExit=new T.Vector3(),mainOutlet=new T.Vector3();
+ const jibEyes=[new T.Vector3(),new T.Vector3()],jibExits=[new T.Vector3(),new T.Vector3()];
+ const jibBight=new T.Vector3(.15,0,.431);
+ let travelerCam,coilStart,coilEnd;
  const stayCables=[],chainplates=[];
  const jibTackZ=.87,jibTackX=2.26-(jibTackZ-.75)*1.82/5.1;
  const bridlePin=new T.Vector3(2.29,0,.65),jibTackPin=new T.Vector3(jibTackX,0,jibTackZ);
@@ -781,14 +788,19 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
      ear.position.set(x,0,.024);carriageParts.push(ear);
    }
    carriageParts.push(rod([-.016,0,.037],[.016,0,.037],.0038,stainless,traveler));
-   const guide=mesh(new T.TorusGeometry(.009,.0032,6,12),stainless,traveler);
-   guide.rotation.y=Math.PI/2;guide.position.z=.019;carriageParts.push(guide);
+   // The two small flared mouths mark one straight passage through the car.
+   for(const end of [travelerForward,travelerAft]){
+     const guide=mesh(new T.TorusGeometry(.007,.0025,6,12),stainless,traveler);
+     guide.rotation.y=Math.PI/2;
+     guide.position.copy(end).sub(traveler.position);
+     carriageParts.push(guide);
+   }
    mergeFittings(T,traveler,carriageParts,stainless).name='Traveler slide and clevis';
    for(let i=0;i<2;i++){
      const car=mesh(new T.BoxGeometry(.070,.055,.028),black);
      car.position.set(.44,0,.482);deckCars.push(car);
      const fairlead=deckHardware(T,true);
-     fairlead.name='Jib traveler fairlead and cam cleat';fairlead.scale.setScalar(.60);
+     fairlead.name='Jib traveler fairlead and cam cleat';fairlead.scale.setScalar(deckCleatScale);
      fairlead.position.z=.014;car.add(fairlead);
    }
    const trackPieces=[mesh(new T.BoxGeometry(.045,1.87,.012),black)];
@@ -803,15 +815,22 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
      const lip=mesh(new T.BoxGeometry(.004,1.83,.005),stainless);
      lip.position.set(x,0,.468);trackLips.push(lip);
    }
-   const tie=mesh(new T.TorusGeometry(.013,.0032,7,14),stainless);
-   tie.rotation.y=Math.PI/2;tie.position.copy(travelerDeadeye);trackLips.push(tie);
-   mergeFittings(T,group,trackLips,stainless).name='Traveler track lips and deadeye';
+   const deadeyePlate=mesh(new T.BoxGeometry(.010,.041,.016),stainless);
+   deadeyePlate.position.set(-1.451,0,travelerDeadeye.z);trackLips.push(deadeyePlate);
+   const tie=mesh(new T.TorusGeometry(.011,.0028,7,14),stainless);
+   tie.rotation.x=Math.PI/2;tie.position.copy(travelerDeadeye);trackLips.push(tie);
+   for(const y of [-.014,.014])
+     trackLips.push(rod([-1.461,y,travelerDeadeye.z],[-1.454,y,travelerDeadeye.z],.0034,stainless));
+   mergeFittings(T,group,trackLips,stainless).name='Traveler track lips and bolted deadeye';
+   const cleatBase=mesh(new T.BoxGeometry(.069,.056,.008),black);
+   cleatBase.position.set(travelerCleat.x-.005,0,travelerCleat.z-.034);
+   travelerCam=new T.Group();
+   travelerCam.name='Aft crossbar traveler cam cleat';
+   travelerCam.position.copy(travelerCleat);
    const cleat=deckHardware(T,true);
-   cleat.name='Aft crossbar traveler cam cleat';
-   cleat.scale.setScalar(.60);
-   cleat.rotation.z=Math.PI;
-   cleat.position.set(travelerCleat.x-.014,0,travelerCleat.z-.03);
-   group.add(cleat);
+   cleat.scale.setScalar(deckCleatScale);
+   cleat.position.set(-camEyeX*deckCleatScale,0,-camEyeZ*deckCleatScale);
+   travelerCam.add(cleat);group.add(travelerCam);
    for(let i=0;i<2;i++){
      const block=new T.Group();
      block.name=i===0?'Port jib clew block':'Starboard jib clew block';
@@ -827,10 +846,26 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
      eye.rotation.x=Math.PI/2;eye.position.z=.025;cheeks.push(eye);
      mergeFittings(T,block,cheeks,stainless);
    }
-   const mainRopes=ropeBatch(0xc65845,8),jibRopes=ropeBatch(0x24768c,4);
+   const mainRopes=ropeBatch(0xc65845,13),jibRopes=ropeBatch(0x24768c,10);
    mainRopes[0].batch.name='Mainsheet and traveler line';jibRopes[0].batch.name='Jib sheets';
-   sheets.push(...mainRopes.slice(0,6),...jibRopes);
-   travelerRopes.push(...mainRopes.slice(6));
+   sheets.push(...mainRopes.slice(0,6),...jibRopes.slice(0,4));
+   travelerRopes.push(...mainRopes.slice(6));jibTails.push(...jibRopes.slice(4));
+   // The cleats isolate the working reaches. Show the spare line as one
+   // laid coil on the deck, with both tails leading into the same rope.
+   const coil=Array.from({length:45},(_,i)=>{
+     const u=i/44,phase=1.15+u*5.2*Math.PI,radius=.148-.099*u+.006*Math.sin(2*phase);
+     return new T.Vector3(-1.13+radius*Math.cos(phase),.23+.77*radius*Math.sin(phase),
+       .421+.0017*Math.cos(phase));
+   });
+   coilStart=coil[0];coilEnd=coil.at(-1);
+   const coilGeometry=new T.TubeGeometry(new T.CatmullRomCurve3(coil),84,.004,6,false);
+   const knot=new T.SphereGeometry(.008,8,6).scale(1.15,1,.79);
+   knot.translate(travelerDeadeye.x-.010,0,travelerDeadeye.z-.003);
+   const ropeMaterial=mainRopes[0].batch.material;
+   const uv=coilGeometry.attributes.uv;
+   for(let i=0;i<uv.count;i++)uv.setXY(i,uv.getY(i),20*uv.getX(i));
+   mesh(coilGeometry,ropeMaterial).name='Mainsheet coil on trampoline';
+   mesh(knot,ropeMaterial).name='Traveler stopper knot';
  }else{
    sheets.push(sheetRope(0xad4045),sheetRope(0x2e7485));
  const hull=vehicleShell('sloop-hull');
@@ -1107,11 +1142,16 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
        const y=side*cars[1],beam=forwardBeam(y);
        deckCars[i].position.set(beam.x,y,beam.z+.067);
      }
-     travelerGuide.set(-1.40,cars[0],.499);
-     // The trampoline catches excess slack as the car crosses the beam.
-     const travelerSag=Math.min(.026,geometry?.travelerSag??0);
-     drawRope(travelerRopes[0],travelerCleat,travelerGuide,travelerSag);
-     drawRope(travelerRopes[1],travelerGuide,travelerDeadeye,travelerSag);
+     travelerForward.y=travelerAft.y=cars[0];
+     travelerCam.rotation.z=Math.atan2(travelerForward.y-travelerCleat.y,travelerForward.x-travelerCleat.x);
+     const travelerSag=Math.min(.012,geometry?.travelerSag??0);
+     drawRope(travelerRopes[0],travelerCleat,travelerForward,travelerSag);
+     drawRope(travelerRopes[1],travelerForward,travelerAft,0);
+     drawRope(travelerRopes[2],travelerAft,travelerDeadeye,travelerSag);
+     travelerExit.set(deckCleatScale*(camExitX-camEyeX),0,deckCleatScale*(camExitZ-camEyeZ))
+       .applyQuaternion(travelerCam.quaternion).add(travelerCleat);
+     drawRope(travelerRopes[3],travelerExit,travelerCleat,0);
+     drawRope(travelerRopes[4],coilEnd,travelerExit,.021);
      // Attachment positions in the hull frame. The front clew follows the actual cloth.
      const {boomHinge,pivot}=sails[0];
      const top=blockPins?new T.Vector3().fromArray(blockPins,3):
@@ -1127,6 +1167,11 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
        block.position.copy(i?top:lowerBlock);
        block.quaternion.setFromRotationMatrix(connectorPose);
      });
+     mainOutlet.set(0,mainOutletY,.50*blockStack-mainSheaveInset-mainOutletDrop)
+       .applyQuaternion(sheetBlocks[0].quaternion).add(lowerBlock);
+     drawRope(travelerRopes[5],mainOutlet,coilStart,Math.min(.075,Math.max(0,.45*(mainOutlet.z-.423))));
+     mainOutlet.copy(travelerDeadeye);mainOutlet.x-=.010;mainOutlet.z-=.003;
+     drawRope(travelerRopes[6],travelerDeadeye,mainOutlet,0);
      for(let i=0;i<6;i++){
        const x=(Math.floor(i/2)-1)*mainSheaveSpacing,y=(i%2?-1:1)*mainSheetTurn;
        // The fall crosses to the next upper groove after each return.
@@ -1153,7 +1198,14 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
        const sag=rope?.[i+1]??0;
        drawRope(sheets[6+2*i],aft,aftRim,sag);
        drawRope(sheets[7+2*i],forward,foreRim,sag);
+       const eye=jibEyes[i].set(car.x+camEyeX*deckCleatScale,car.y,car.z+.014+camEyeZ*deckCleatScale);
+       const exit=jibExits[i].set(car.x+camExitX*deckCleatScale,car.y,car.z+.014+camExitZ*deckCleatScale);
+       drawRope(jibTails[2*i],forward,eye,0);
+       drawRope(jibTails[2*i+1],eye,exit,0);
      }
+     // The two free ends meet on the deck, clear of the mast step.
+     drawRope(jibTails[4],jibExits[0],jibBight,.017);
+     drawRope(jibTails[5],jibBight,jibExits[1],.017);
    }else if(rope){
      for(let m=0;m<2;m++){
        const x=sails[m].pivot.position.x,z=sails[m].pivot.position.z;

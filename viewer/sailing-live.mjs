@@ -261,7 +261,9 @@ async function run(saved=readReset(),carried){
   const sailPanels=cat?readSailPanels(model):null;
   const hasClothPanels=Boolean(sailPanels);
   const verticesFields=sailPanelFields.map(fields=>fields[3]);
-  const boat=model?sailboatMesh(T,cat,model.get("foilX")[0],sailPanels,model.has("blockStack")?model.get("blockStack"):undefined):null;
+  const boat=model?sailboatMesh(T,cat,model.get('foilX')[0],sailPanels,
+    model.has('blockStack')?model.get('blockStack'):undefined,
+    model.has('travelerMounts')?model.get('travelerMounts'):undefined):null;
   if(boat)scene.add(boat.group);
   const compassWind=$('compassWind');
   compassWind.value=cat?'apparent':'true';

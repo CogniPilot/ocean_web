@@ -461,10 +461,14 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   final parameter Real launchSwellSlope=launchSwellA*launchSwellK*cos(launchSwellPhase);
   input Real swellAmplitude,reachTrial,deckManual,mainCarInput,jibCarInput,jibTrimInput;
   Real mainCar(start=0,fixed=true) "Position of the aft traveler car, positive to port [m]";
-  Real jibCar(start=0,fixed=true),jibSheet(start=.35,fixed=true);
+  Real jibCar(start=if catamaran then .53 else 0,fixed=true),jibSheet(start=.35,fixed=true);
   parameter Real travelerHalfTrack=.90,travelerCarMass=1.6,travelerLineStiffness=1800;
-  final parameter Real travelerCleatLead=.075,travelerDeadeyeLead=.065
-    "Fore and aft distances from the rail to the fixed line supports [m]";
+  final parameter Real travelerMounts[4,3]=[-1.3546,0,.499;-1.378,0,.495;-1.427,0,.493;-1.469,0,.434]
+    "Cam eye, forward and aft car guides at center, and aft crossbar deadeye [m]";
+  final parameter Real travelerCleatLead=sqrt((travelerMounts[2,:]-travelerMounts[1,:])*
+    (travelerMounts[2,:]-travelerMounts[1,:]));
+  final parameter Real travelerDeadeyeLead=sqrt((travelerMounts[4,:]-travelerMounts[3,:])*
+    (travelerMounts[4,:]-travelerMounts[3,:]));
   final parameter Real travelerMinLine=travelerCleatLead+travelerDeadeyeLead-.018;
   final parameter Real travelerMaxLine=sqrt(travelerHalfTrack^2+travelerCleatLead^2)
     +sqrt(travelerHalfTrack^2+travelerDeadeyeLead^2)+.06;
@@ -1022,7 +1026,7 @@ equation
     sin(Modelica.Constants.pi*min(1,max(0,(trueWindAngle-1.22)/1.48)))^2 else 0;
   mainCarTarget=(1-reachTrim)*.23*depower+(.9-.42*poweredReach)*reachTrim;
   jibCarTarget=if deckManual>.5 then jibCarInput else
-    (1-reachTrim)*(.18+.16*buildingWind+.19*depower)+.88*reachTrim;
+    (1-reachTrim)*(.50+.06*buildingWind+.11*depower)+.88*reachTrim;
   upwindGustEase=.095*min(1,max(0,(abs(sin(heel))-.31)/.42))^2;
   autoPayout=if tackRecovery==1 or tackRecovery==2 then .29 elseif catamaran and deckManual<=.5 then
     (1-reachTrim)*(.030+.047*(1-buildingWind)+upwindGustEase)
