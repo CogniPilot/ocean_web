@@ -368,6 +368,32 @@ function ballastMarker(T){
  return marker;
 }
 
+// Merge fixed opaque fittings that share one material and move with the same joint.
+function mergeFittings(T,parent,parts,material){
+ const positions=[],normals=[],triangles=[];
+ for(const part of parts){
+   part.updateMatrix();
+   const geometry=part.geometry.applyMatrix4(part.matrix);
+   const {position,normal}=geometry.attributes;
+   const offset=positions.length/3;
+   for(let i=0;i<position.count;i++){
+     positions.push(position.getX(i),position.getY(i),position.getZ(i));
+     normals.push(normal.getX(i),normal.getY(i),normal.getZ(i));
+   }
+   for(let i=0;i<(geometry.index?.count??position.count);i++)
+     triangles.push(offset+(geometry.index?geometry.index.getX(i):i));
+   part.removeFromParent();
+   geometry.dispose();
+ }
+ const geometry=new T.BufferGeometry();
+ geometry.setAttribute('position',new T.Float32BufferAttribute(positions,3));
+ geometry.setAttribute('normal',new T.Float32BufferAttribute(normals,3));
+ geometry.setIndex(triangles);
+ const merged=new T.Mesh(geometry,material);
+ parent.add(merged);
+ return merged;
+}
+
 export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
  const group=new T.Group();
  let numberCanvas,numberMap,sailNumber;
@@ -493,24 +519,28 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
      forestayShockCord.quaternion.setFromUnitVectors(stayUp,connectorAxis.normalize());
    }
  }
- function sheetRope(color){
+ function ropeBatch(color,count){
+   const span=ropeSides*ropeRings,vertices=count*span;
    const geometry=new T.BufferGeometry(),faces=[];
-   for(const name of ['position','normal']){
-     geometry.setAttribute(name,new T.BufferAttribute(new Float32Array(3*ropeRings*ropeSides),3).setUsage(T.DynamicDrawUsage));
-   }
-   for(let i=0;i<ropeRings-1;i++)for(let j=0;j<ropeSides;j++){
-     const a=i*ropeSides+j,b=i*ropeSides+(j+1)%ropeSides;
+   for(const attribute of ['position','normal'])
+     geometry.setAttribute(attribute,new T.BufferAttribute(new Float32Array(vertices*3),3).setUsage(T.DynamicDrawUsage));
+   if(cat)geometry.setAttribute('uv',new T.BufferAttribute(new Float32Array(vertices*2),2).setUsage(T.DynamicDrawUsage));
+   for(let rope=0;rope<count;rope++)for(let i=0;i<ropeRings-1;i++)for(let j=0;j<ropeSides;j++){
+     const a=rope*span+i*ropeSides+j,b=rope*span+i*ropeSides+(j+1)%ropeSides;
      faces.push(a,b,b+ropeSides,a,b+ropeSides,a+ropeSides);
    }
    geometry.setIndex(faces);
-   if(cat)geometry.setAttribute('uv',new T.BufferAttribute(new Float32Array(ropeSides*ropeRings*2),2));
-   const rope=mesh(geometry,new T.MeshStandardMaterial({color:cat?0xffffff:color,
+   const batch=mesh(geometry,new T.MeshStandardMaterial({color:cat?0xffffff:color,
      map:cat?braidedCover(color):null,roughness:.94}));
-   rope.frustumCulled=false;
-   return rope;
+   batch.frustumCulled=false;
+   return Array.from({length:count},(_,i)=>({batch,offset:i*span}));
+ }
+ function sheetRope(color){
+   return ropeBatch(color,1)[0].batch;
  }
  function drawRope(rope,from,to,sag){
-   const {position,normal}=rope.geometry.attributes;
+   const {position,normal,uv}=(rope.batch??rope).geometry.attributes;
+   const offset=rope.offset??0;
    const dx=to.x-from.x,dy=to.y-from.y,dz=to.z-from.z,radius=cat ? .004 : .002;
    const repeats=Math.hypot(dx,dy,dz)/.065;
    side.set(-dy,dx,0);
@@ -520,15 +550,15 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
      tangent.set(dx,dy,dz-4*(1-2*u)*sag).normalize();
      binormal.crossVectors(tangent,side);
      for(let j=0;j<ropeSides;j++){
-       const [c,s]=circle[j],k=i*ropeSides+j;
+       const [c,s]=circle[j],k=offset+i*ropeSides+j;
        const nx=c*side.x+s*binormal.x,ny=c*side.y+s*binormal.y,nz=s*binormal.z;
        normal.setXYZ(k,nx,ny,nz);
-       if(rope.geometry.attributes.uv)rope.geometry.attributes.uv.setXY(k,j/ropeSides,u*repeats);
+       if(uv)uv.setXY(k,j/ropeSides,u*repeats);
        position.setXYZ(k,x+radius*nx,y+radius*ny,z+radius*nz);
      }
    }
    position.needsUpdate=true;normal.needsUpdate=true;
-   if(rope.geometry.attributes.uv)rope.geometry.attributes.uv.needsUpdate=true;
+   if(uv)uv.needsUpdate=true;
  }
  if(cat){
    // Loft the white blades through progressively narrower foil sections.
@@ -635,15 +665,17 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    for(const side of [-1,1]){
      const blade=new T.Group();group.add(blade);blade.position.set(-2.545,side*1.02,.16);
      showInLowWaterCapture(mesh(foilShape,white,blade));
+     const casting=[];
      for(const y of [-.025,.025]){
-       rod([-.18,y,.08],[-.035,y,.13],.027,black,blade);
-       rod([-.035,y,.13],[-.018,y,-.045],.024,black,blade);
-       rod([-.018,y,-.045],[-.18,y,.08],.022,black,blade);
+       casting.push(rod([-.18,y,.08],[-.035,y,.13],.027,black,blade),
+         rod([-.035,y,.13],[-.018,y,-.045],.024,black,blade),
+         rod([-.018,y,-.045],[-.18,y,.08],.022,black,blade));
      }
-     rod([-.15,-.06,.072],[-.15,.06,.072],.017,pin,blade);
-     rod([0,0,-.05],[0,0,.145],.018,pin,blade);
-     rod([-.16,0,.09],[-.13,0,.24],.027,black,blade);
-     rod([-.13,0,.24],[.89,0,.31],.023,black,blade);
+     casting.push(rod([-.16,0,.09],[-.13,0,.24],.027,black,blade),
+       rod([-.13,0,.24],[.89,0,.31],.023,black,blade));
+     mergeFittings(T,blade,casting,black);
+     mergeFittings(T,blade,[rod([-.15,-.06,.072],[-.15,.06,.072],.017,pin,blade),
+       rod([0,0,-.05],[0,0,.145],.018,pin,blade)],pin);
      if(side===1)rudder=blade;else otherRudder=blade;
      // Terminal loft station of Shore.pontoon: 4 mm half-beam at the deck seam.
      const bowEye=[2.520,side*(1.02-.004),.2261];
@@ -734,49 +766,71 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295){
    jibHalyard=rod([0,0,0],[0,1,0],.004,paint(0xe7c85c));
    jibHalyard.name="Jib head halyard";
    crossTiller=rod([-1.655,-1.02,.47],[-1.655,1.02,.47],.021,black);
-   for(const x of [-1.4,.44,.44]){
-     const jibCar=x>0;
-     const car=mesh(jibCar?new T.BoxGeometry(.070,.055,.028):new T.BoxGeometry(.095,.085,.075),black);
-     car.position.set(x,0,jibCar?.482:.48);deckCars.push(car);
-     if(x<0)rod([-.028,0,.04],[.028,0,.04],.004,pin,car);
-     if(x>0){const fairlead=deckHardware(T,true);fairlead.name='Jib traveler fairlead and cam cleat';fairlead.scale.setScalar(.60);fairlead.position.z=.014;car.add(fairlead);}
+   const traveler=new T.Group();
+   traveler.name='Mainsheet traveler car';
+   traveler.position.set(-1.40,0,.48);
+   group.add(traveler);
+   deckCars.push(traveler);
+   const carriageParts=[mesh(new T.BoxGeometry(.035,.104,.009),stainless,traveler)];
+   for(const y of [-.039,.039]){
+     const end=mesh(new T.BoxGeometry(.042,.021,.012),stainless,traveler);
+     end.position.set(0,y,-.004);carriageParts.push(end);
    }
-   const rail=mesh(new T.BoxGeometry(.045,1.87,.012),black);
-   rail.name='Mainsheet traveler track';
-   rail.position.set(-1.40,0,.459);
-   rod([-1.40,-.92,.469],[-1.40,.92,.469],.0045,stainless);
+   for(const x of [-.010,.010]){
+     const ear=mesh(new T.BoxGeometry(.004,.018,.027),stainless,traveler);
+     ear.position.set(x,0,.024);carriageParts.push(ear);
+   }
+   carriageParts.push(rod([-.016,0,.037],[.016,0,.037],.0038,stainless,traveler));
+   const guide=mesh(new T.TorusGeometry(.009,.0032,6,12),stainless,traveler);
+   guide.rotation.y=Math.PI/2;guide.position.z=.019;carriageParts.push(guide);
+   mergeFittings(T,traveler,carriageParts,stainless).name='Traveler slide and clevis';
+   for(let i=0;i<2;i++){
+     const car=mesh(new T.BoxGeometry(.070,.055,.028),black);
+     car.position.set(.44,0,.482);deckCars.push(car);
+     const fairlead=deckHardware(T,true);
+     fairlead.name='Jib traveler fairlead and cam cleat';fairlead.scale.setScalar(.60);
+     fairlead.position.z=.014;car.add(fairlead);
+   }
+   const trackPieces=[mesh(new T.BoxGeometry(.045,1.87,.012),black)];
+   trackPieces[0].position.set(-1.40,0,.459);
    for(const y of [-.92,.92]){
-     const limit=mesh(new T.BoxGeometry(.049,.027,.032),black);
-     limit.position.set(-1.40,y,.476);
+     const stop=mesh(new T.BoxGeometry(.044,.024,.019),black);
+     stop.position.set(-1.40,y,.47);trackPieces.push(stop);
    }
+   mergeFittings(T,group,trackPieces,black).name='Mainsheet traveler track';
+   const trackLips=[];
+   for(const x of [-1.418,-1.382]){
+     const lip=mesh(new T.BoxGeometry(.004,1.83,.005),stainless);
+     lip.position.set(x,0,.468);trackLips.push(lip);
+   }
+   const tie=mesh(new T.TorusGeometry(.013,.0032,7,14),stainless);
+   tie.rotation.y=Math.PI/2;tie.position.copy(travelerDeadeye);trackLips.push(tie);
+   mergeFittings(T,group,trackLips,stainless).name='Traveler track lips and deadeye';
    const cleat=deckHardware(T,true);
    cleat.name='Aft crossbar traveler cam cleat';
    cleat.scale.setScalar(.60);
    cleat.rotation.z=Math.PI;
    cleat.position.set(travelerCleat.x-.014,0,travelerCleat.z-.03);
    group.add(cleat);
-   const tie=mesh(new T.TorusGeometry(.013,.0032,7,14),stainless);
-   tie.name='Traveler line deadeye';
-   tie.rotation.y=Math.PI/2;tie.position.copy(travelerDeadeye);
-   const guide=mesh(new T.TorusGeometry(.009,.0032,7,14),stainless,deckCars[0]);
-   guide.name='Moving traveler line guide';
-   guide.rotation.y=Math.PI/2;guide.position.z=.019;
-   travelerRopes.push(sheetRope(0xc65845),sheetRope(0xc65845));
-   travelerRopes.forEach(rope=>{rope.name='Mainsheet traveler tail';});
    for(let i=0;i<2;i++){
      const block=new T.Group();
      block.name=i===0?'Port jib clew block':'Starboard jib clew block';
      group.add(block);jibBlocks.push(block);
      mesh(new T.CylinderGeometry(.016,.016,.014,14),black,block);
      mesh(new T.CylinderGeometry(.0167,.0167,.004,14),paint(0x24768c),block);
+     const cheeks=[];
      for(const y of [-.009,.009]){
        const cheek=mesh(new T.BoxGeometry(.032,.003,.039),stainless,block);
-       cheek.position.set(0,y,.004);
+       cheek.position.set(0,y,.004);cheeks.push(cheek);
      }
      const eye=mesh(new T.TorusGeometry(.009,.002,6,12),stainless,block);
-     eye.rotation.x=Math.PI/2;eye.position.z=.025;
+     eye.rotation.x=Math.PI/2;eye.position.z=.025;cheeks.push(eye);
+     mergeFittings(T,block,cheeks,stainless);
    }
-   for(let i=0;i<10;i++)sheets.push(sheetRope(i<6?0xc65845:0x24768c));
+   const mainRopes=ropeBatch(0xc65845,8),jibRopes=ropeBatch(0x24768c,4);
+   mainRopes[0].batch.name='Mainsheet and traveler line';jibRopes[0].batch.name='Jib sheets';
+   sheets.push(...mainRopes.slice(0,6),...jibRopes);
+   travelerRopes.push(...mainRopes.slice(6));
  }else{
    sheets.push(sheetRope(0xad4045),sheetRope(0x2e7485));
  const hull=vehicleShell('sloop-hull');
