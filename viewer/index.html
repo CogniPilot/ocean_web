@@ -311,6 +311,8 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-slider"><div class="control-label"><label for="effectsVolume">Sound effects volume</label><output id="effectsVolumeText">15%</output></div>
 <input id="effectsVolume" type="range" min="0" max="100" value="15" aria-describedby="effectsVolumeScale"><div class="control-scale" id="effectsVolumeScale"><span>Muted</span><span>Full</span></div></div>
 </div>
+<label class="control-select"><span>Local whale recordings</span><input id="whaleRecordings" type="file" accept="audio/*,.mp3,.wav,.ogg" multiple></label>
+<output id="whaleRecordingsStatus" aria-live="polite">NOAA recordings</output>
 </div></details>
 <details class="control-pane"><summary>Multiplayer</summary>
 <div class="control-fields">
@@ -340,7 +342,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <p id="gullKeys" hidden>↑/↓ pitch · ←/→ bank · A/D turn · W flap · S glide · Space call</p>
 <p id="flightKeys" hidden>RDD2 · ↑/↓ pitch · ←/→ roll · W/S climb/descend · A/D yaw · Space arm/disarm · hold Shift for fast horizontal flight · release direction to hover</p>
 <p data-boat>A and D steer. Hold S to haul in both sheets or W to ease them. Hold Shift to make finer steering and sheet adjustments. Drag to orbit, right-drag to pan, and scroll or pinch to zoom.</p>
-<p>Press M for the map, R to restart the simulator, or Enter for room chat.</p>
+<p>Press C to cycle camera views, M for the map, R to restart the simulator, or Enter for room chat.</p>
 </div></details>
 </div>
 </div>

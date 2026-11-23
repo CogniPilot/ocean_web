@@ -81,7 +81,7 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
     output Real points[size(luff,1)*cols,3];
   protected
     Integer node;
-    Real t,f,leechWidth,camber,draft;
+    Real t,f,leechWidth;
   algorithm
     points:=zeros(size(luff,1)*cols,3);
     for row in 1:size(luff,1) loop
@@ -90,13 +90,10 @@ model SailMembrane "Three-dimensional tensioned sailcloth in a boom-fixed frame"
         node:=(row-1)*cols+col;
         t:=(col-1)/(cols-1);
         f:=(1-t)*luff[row]+t*leech[row];
-        // Broadseam the full mainsail around a forward draft. The chord
-        // length excess is concentrated forward of the stiff trailing batten.
-        draft:=.37;
-        camber:=if t<draft then (2*draft*t-t*t)/draft^2
-          else (1-2*draft+2*draft*t-t*t)/(1-draft)^2;
-        points[node,:]:={-rake*f-leechWidth*t,
-          if tracked then -.065*(1-.50*f)*leechWidth*camber else -.025*sin(3.14159*t)*(1-f),
+        // Keep the unloaded broadseam shallow so sheet load can transfer
+        // through the cloth to the luff. The loaded draft comes from the
+        // batten flex and the pressure on the panels.
+        points[node,:]:={-rake*f-leechWidth*t,-.025*sin(Modelica.Constants.pi*t)*(1-f),
           span*f+foot*sin(cutAngle)*(1-leech[row])*t};
       end for;
     end for;

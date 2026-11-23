@@ -36,10 +36,12 @@ try{
       if(tick%100===0)run.f.set_inputs(JSON.stringify([['rudder',.15*Math.sin(tick)],['trim',tick<100?-.1:0],['omitWake',tick<300?1:0]]));
       if(tick===350){
         const [east,north,yaw,z]=run.f.read_values(JSON.stringify(['boat.east','boat.north','boat.heading','boat.heave']));
-        const peer=[1,east+.4*Math.cos(yaw),north+.4*Math.sin(yaw),yaw,0,0,0,z,1];
+        // Give the two opposing bows time to overlap in the sampled mesh solver.
+        const peer=[1,east+4.55*Math.cos(yaw),north+4.55*Math.sin(yaw),yaw+Math.PI,
+          -1.5*Math.cos(yaw),-1.5*Math.sin(yaw),0,z,1];
         run.f.set_inputs(JSON.stringify(peer.map((v,i)=>['traffic[1,'+(i+1)+']',v])));
       }
-      if(tick===355)run.f.set_inputs(JSON.stringify([['traffic[1,1]',0]]));
+      if(tick===370)run.f.set_inputs(JSON.stringify([['traffic[1,1]',0]]));
       const begin=performance.now();run.f.step(.01);
       if(tick>=100)run.ms+=performance.now()-begin;
     }
@@ -53,6 +55,6 @@ try{
       worst=Math.max(worst,error);samples++;
     }
   }
-  assert(contactPeak>1 && wakePeak>0);
+  assert(contactPeak>1 && wakePeak>0,JSON.stringify({contactPeak,wakePeak}));
   console.log({samples,worst,contactPeak,wakePeak,fullMsPerStep:full.ms/500,sailingMsPerStep:boat.ms/500});
 }finally{boat.f.free();full.f.free();}

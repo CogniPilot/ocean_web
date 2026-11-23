@@ -51,3 +51,23 @@ https://opengameart.org/content/underwater-or-space-engine-rumble
 
 Calm surface ambience adapted from RandomMind's Vistula wave recording, CC0 1.0.
 https://opengameart.org/content/sea-and-river-wave-sounds
+
+Gull recordings from Solo Seagull Sound Effects, uploaded by Rango Mango, CC0 1.0.
+https://opengameart.org/content/solo-seagull-sound-effects
+
+Inboard loop adapted from Car Engine Loop 96kHz, 4s, by Iwan “qubodup” Gabovitch, CC BY 3.0.
+Converted to mono, filtered, level-adjusted and compressed for in-game playback.
+https://opengameart.org/content/car-engine-loop-96khz-4s
+https://creativecommons.org/licenses/by/3.0/
+
+Inboard starter adapted from Car engine Start Up 02 by looneybits, CC0 1.0.
+https://opengameart.org/content/car-engine-start-up-02
+
+Humpback recordings (../assets/audio/humpback-song-1.mp3 and humpback-song-2.mp3).
+Courtesy: National Oceanic and Atmospheric Administration. NOAA Fisheries,
+Northeast Fisheries Science Center, Passive Acoustics Branch. 2023. Humpback Whale.
+U.S. government recording, public domain in the United States. Excerpted, filtered,
+level-adjusted, faded and compressed for positional playback in the simulator.
+https://www.fisheries.noaa.gov/national/science-data/sounds-ocean-mammals#humpback-whale
+https://www.fisheries.noaa.gov/s3/2023-06/SoundsPageCitations-2023-0.pdf
+https://www.fisheries.noaa.gov/national/about-us/website-policies-and-disclaimers

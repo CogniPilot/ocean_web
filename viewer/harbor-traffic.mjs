@@ -364,7 +364,17 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     const animal=visuals.get(view)?.visual;
     return animal?.group.visible ? animal.group : null;
   }
-  return {update,advanceHost,wakes,fish(){return feeding.fish(current?.[0]??lastTime??0);},ping(a){return current?feeding.ping(a,a.frame??current,current[0]):null;},surfaceWakes,contacts,animalJoints,cameraSubject,watch(id){localActor=id;},frame(id){
+  function nearestHumpback(listener,range){
+    let nearest,best=range*range;
+    for(const [id,entry] of visuals){
+      const swimmer=entry.visual?.group;
+      if(!swimmer?.visible||room.animals.get(id)?.kind!=='whale')continue;
+      const p=swimmer.position,distance=p.distanceToSquared(listener);
+      if(distance<best&&p.z<sampleSurface(p.x,p.y)){nearest=p;best=distance;}
+    }
+    return nearest;
+  }
+  return {update,advanceHost,wakes,nearestHumpback,fish(){return feeding.fish(current?.[0]??lastTime??0);},ping(a){return current?feeding.ping(a,a.frame??current,current[0]):null;},surfaceWakes,contacts,animalJoints,cameraSubject,watch(id){localActor=id;},frame(id){
     const index=gullIndex(id);
     return index>=0?room.habitat.gulls[index]:room.animals.get(id)?.frame??current;
   }};

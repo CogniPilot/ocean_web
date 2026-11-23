@@ -105,6 +105,7 @@ function readReset(){
 }
 const viewerLayout=[...document.body.children].filter(node=>node.tagName!=='SCRIPT').map(node=>node.cloneNode(true));
 const initialBodyStyle=document.body.style.cssText;
+let localWhaleRecordings=[];
 async function run(saved=readReset(),carried){
   const lifetime=new AbortController(),{signal}=lifetime;
   const on=(target,type,listener,options)=>target.addEventListener(type,listener,{...options,signal});
@@ -451,6 +452,17 @@ async function run(saved=readReset(),carried){
   }
   volumeControl('effectsVolume',audio.setVolume);
   volumeControl('musicVolume',value=>musicGain?.gain.setTargetAtTime(value,musicContext.currentTime,.025));
+  const whaleRecordings=$('whaleRecordings'),whaleRecordingsStatus=$('whaleRecordingsStatus');
+  function applyWhaleRecordings(){
+    audio.replaceWhaleClips(localWhaleRecordings);
+    whaleRecordingsStatus.value=localWhaleRecordings.length?
+      localWhaleRecordings.map(file=>file.name).join(', ')+' · local playback':'NOAA recordings';
+  }
+  whaleRecordings.onchange=()=>{
+    localWhaleRecordings=[...whaleRecordings.files];
+    applyWhaleRecordings();
+  };
+  applyWhaleRecordings();
   function audioToggle(id,apply,describe){
     const button=$(id);
     let selected=saved?.audio[id]===true,revision=0;
@@ -531,6 +543,7 @@ async function run(saved=readReset(),carried){
       (ocean.sampleSurface(east,north+.18,true)-ocean.sampleSurface(east,north-.18,true))/.36];
     return {wind,gust:[gullWind.x-wind[0],gullWind.y-wind[1]],seaLevel,waterSlope};
   }
+  const whaleDirection=new T.Vector3(),listenerRight=new T.Vector3();
   const visitors=harborTraffic(T,scene,remote,(x,y)=>ocean.sampleSurface(x,y),(kind,position,strength)=>{
     const relative=position.clone().sub(camera.position),distance=relative.length();
     const pan=relative.normalize().dot(new T.Vector3(1,0,0).applyQuaternion(camera.quaternion));
@@ -1440,6 +1453,15 @@ async function run(saved=readReset(),carried){
       chatDialog.close();
     }
   });
+  function cycleCamera(){
+    const views=animalId?[]:sub?.active?['deck','onboard']:drone?.active?['deck','fpv']:
+      motor?['deck',...Object.keys(cruiserViews)]:['deck','ballast','line','keel'];
+    const candidates=views.filter(view=>[...cameraMenu.options].some(option=>option.value===view&&!option.hidden&&!option.disabled));
+    if(candidates.length<2)return false;
+    cameraMenu.value=candidates[(candidates.indexOf(cameraMenu.value)+1)%candidates.length];
+    cameraMenu.dispatchEvent(new Event('change'));
+    return true;
+  }
   const chatSend=$('chatSend');
   chatInput.onkeydown=e=>{
     if(e.key==='Enter'&&!e.isComposing){
@@ -1464,6 +1486,7 @@ async function run(saved=readReset(),carried){
     if(e.defaultPrevented||e.repeat||e.altKey||e.ctrlKey||e.metaKey||chatDialog.open||
       e.target.isContentEditable||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
     if(e.key==='Enter'&&chatScope&&e.target.tagName!=='BUTTON')openChat();
+    else if(e.code==='KeyC'){if(!cycleCamera())return;}
     else if(e.code==='KeyM')toggleMap();
     else if(e.code==='KeyR')resetSimulation();
     else if(e.key==='Escape'&&mapDialog.open)mapDialog.close();
@@ -2333,6 +2356,15 @@ async function run(saved=readReset(),carried){
       if(rain.visible)rain.material.uniforms.rainWind.value.set(...wind);
       audio.motorSound(motor,npcTraffic?.cruisers.length?[...remote.cruisers,...npcTraffic.cruisers]:remote.cruisers,camera,eyeHeight<0,running,shaftCommand,playbackRate);
       audio.droneSound(drone,remote.drones,camera,eyeHeight<0,running);
+      if(audio.enabled){
+        const singer=eyeHeight<0&&running&&audio.audible?visitors.nearestHumpback(camera.position,70):undefined;
+        if(singer){
+          whaleDirection.subVectors(singer,camera.position);
+          const range=whaleDirection.length();
+          const pan=range>0?Math.max(-1,Math.min(1,whaleDirection.dot(listenerRight.set(1,0,0).applyQuaternion(camera.quaternion))/range)):0;
+          audio.whaleSong(range,pan,-eyeHeight,running);
+        }else audio.whaleSong(Infinity,0,0,false);
+      }
       if(audio.audible){
         const sailLuff=running&&cat&&s&&targetSelect.value==='boat'?model.get('sailLuff'):null;
         audio.update(model?.get('cupSpeed')??Math.hypot(...wind),storm,camera.position.z-ocean.U.tide.value,

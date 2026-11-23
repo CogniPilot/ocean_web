@@ -675,6 +675,61 @@ export function raceAudio(){
     src.onended=()=>{for(const n of [src,band,gain,stereo])n.disconnect();};
     src.start(t);src.stop(t+length);
   }
+  const defaultWhaleClips=['humpback-song-1.mp3','humpback-song-2.mp3'];
+  let whaleClips=defaultWhaleClips;
+  const whaleBuffers=new Map();
+  let whaleVoice,loadingWhale,nextWhale=0,whaleClip=0,lastWhaleMix=-Infinity;
+  let whaleGain=0,whalePan=0,whaleCutoff=2000;
+  function replaceWhaleClips(files){
+    whaleClips=files.length?files:defaultWhaleClips;
+    whaleBuffers.clear();loadingWhale=undefined;whaleClip=0;nextWhale=0;
+    if(whaleVoice){whaleVoice.source.stop();whaleVoice=undefined;}
+  }
+  function mixWhale(voice){
+    const now=audio.currentTime;
+    voice.gain.gain.setTargetAtTime(whaleGain,now,.14);
+    voice.stereo.pan.setTargetAtTime(whalePan,now,.11);
+    voice.filter.frequency.setTargetAtTime(whaleCutoff,now,.15);
+    lastWhaleMix=now;
+  }
+  function whaleSong(distance,pan,depth,running){
+    if(!audio||!enabled||audio.state!=='running')return;
+    const now=audio.currentTime;
+    const wet=running&&depth>0&&distance<70;
+    const margin=Math.max(0,Math.min(1,(70-distance)/20));
+    whaleGain=wet?.80*Math.min(1,depth/.5)*margin/(1+(distance/20)**2):0;
+    whalePan=pan;
+    whaleCutoff=Math.max(800,4200-43*distance);
+    if(whaleVoice&&now-lastWhaleMix>=.06)mixWhale(whaleVoice);
+    if(!wet){if(!whaleVoice)nextWhale=now;return;}
+    if(!whaleGain||whaleVoice||loadingWhale||now<nextWhale)return;
+    const file=whaleClips[whaleClip%whaleClips.length];
+    if(!whaleBuffers.has(file)){
+      const buffer=typeof file==='string'?decodeRecording(file):file.arrayBuffer().then(bytes=>audio.decodeAudioData(bytes));
+      whaleBuffers.set(file,buffer);
+    }
+    const recording=whaleBuffers.get(file);loadingWhale=recording;
+    void recording.then(buffer=>{
+      if(loadingWhale!==recording||!enabled||audio.state!=='running'||!whaleGain)return;
+      const source=audio.createBufferSource(),gain=audio.createGain(),filter=audio.createBiquadFilter(),stereo=audio.createStereoPanner();
+      source.buffer=buffer;gain.gain.value=0;filter.type='lowpass';
+      stereo.pan.value=whalePan;filter.frequency.value=whaleCutoff;
+      source.connect(filter).connect(gain).connect(stereo).connect(effects);
+      const voice={source,gain,stereo,filter};
+      whaleVoice=voice;
+      mixWhale(voice);whaleClip++;
+      source.onended=()=>{
+        for(const node of [source,filter,gain,stereo])node.disconnect();
+        if(whaleVoice===voice){whaleVoice=undefined;nextWhale=audio.currentTime+3+2*Math.random();}
+      };
+      source.start();
+    }).catch(error=>{
+      if(loadingWhale!==recording)return;
+      whaleBuffers.delete(file);whaleClip++;
+      nextWhale=audio.currentTime+3;
+      console.warn('Humpback recording unavailable',error);
+    }).finally(()=>{if(loadingWhale===recording)loadingWhale=undefined;});
+  }
   let rotors;
   function droneSound(local,peers,camera,underwater,running){
     if(!enabled||(!rotors&&!local&&!peers.length))return;
@@ -687,6 +742,6 @@ export function raceAudio(){
     engines(local,peers,camera,underwater,running,throttle,simulationRate);
   }
   return {get enabled(){return enabled;},get audible(){return enabled&&level>0;},
-    setEnabled,update,water,signal,thunder,setVolume,wildlife,imagingHit,motorSound,droneSound,
+    setEnabled,update,water,signal,thunder,setVolume,wildlife,imagingHit,motorSound,droneSound,whaleSong,replaceWhaleClips,
     dispose(){if(audio&&audio.state!=='closed')void audio.close().catch(()=>{});}};
 }

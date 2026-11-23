@@ -74,3 +74,33 @@ for (const windNorth of [-8, 8]) {
   assert(maxShortening < .12, 'battened chord collapsed after sheet release');
   console.log({windNorth, maxShortening});
 }
+
+// An established reach under load used to drive a sustained 9 Hz leech motion.
+// Read the batten tips directly from the FMU, before camera interpolation.
+for(const [heading,side] of [[-.12,1],[-3.02,-1]]){
+  const boat=await loadInstance('Hobie16',{
+    launchEast:-1000,launchNorth:-1000,launchHeading:heading,launchSpeed:5.3,
+    windEast:0,windNorth:8.5,manualHelm:1,deckManual:1,mainCarInput:.9*side,
+    jibCarInput:.8,trimInput:-1,downhaulInput:.65,outhaulInput:.8,mass:255,ballastMass:110
+  },async url=>new Response(await readFile(url)));
+  let sumSquared=0,samples=0,upperHook=0;
+  for(let tick=0;tick<1100;tick++){
+    const error=heading-boat.get('heading');
+    boat.set('rudderInput',Math.max(-1,Math.min(1,2*Math.atan2(Math.sin(error),Math.cos(error))-.5*boat.get('yawRate'))));
+    boat.advance(.01);
+    if(tick<450||tick%5)continue;
+    const [points,velocity,wet]=boat.getMany(['cloth[1].vertex','cloth[1].velocity','wettedArea']);
+    assert(wet.every(area=>area<.01),'The loaded test rig must remain above water');
+    for(let row=3;row<=8;row++){
+      sumSquared+=velocity[12*row+10]**2;
+      samples++;
+    }
+    const tangent=(a,b)=>Math.atan2(points[b+1]-points[a+1],points[a]-points[b]);
+    const angle=tangent(102,105)-tangent(99,102);
+    upperHook=Math.max(upperHook,Math.abs(Math.atan2(Math.sin(angle),Math.cos(angle))));
+  }
+  const tipSpeed=Math.sqrt(sumSquared/samples);
+  assert(tipSpeed<.45,'A loaded leech should settle on either tack');
+  assert(upperHook<5*Math.PI/180,'The top batten should have a fair trailing curve');
+  console.log({heading,tipSpeed,upperHookDegrees:upperHook*180/Math.PI});
+}
