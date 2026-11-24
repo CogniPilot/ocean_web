@@ -21,7 +21,7 @@ async function loadComparison(){
 loadComparison().catch(error=>{el('loadComparison').querySelector('summary').textContent=error.message;});
 
 async function load(){
-  const requested=new URLSearchParams(location.search).get('solver');
+  const query=new URLSearchParams(location.search),requested=query.get('solver');
   const solver=requested==='openfoam'?'openfoam':'rumoca',lattice=solver==='rumoca';
   el('solver').value=solver;
   el('solver').onchange=e=>{const url=new URL(location.href);url.searchParams.set('solver',e.target.value);location.assign(url);};
@@ -98,6 +98,7 @@ async function load(){
   const quantities={velocity:['Speed','m/s'],fluidPressure:['Flow pressure','kPa'],
     vorticity:['Vorticity magnitude','s⁻¹'],turbulenceK:['Modeled turbulence energy','m²/s²']};
   for(const key of Object.keys(grid.fields))el('quantity').add(new Option(quantities[key][0],key));
+  if(Object.hasOwn(grid.fields,query.get('field')))el('quantity').value=query.get('field');
   const colorStops=[0x182952,0x289790,0xefc54a],pressureStops=[0x204477,0xe5ebd8,0xb33220];
   const iso=new T.Mesh(new T.BufferGeometry(),new T.MeshPhongMaterial({side:T.DoubleSide,transparent:true,opacity:.43,depthWrite:false}));
   const cloud=new T.Points(new T.BufferGeometry(),new T.PointsMaterial({size:.028,vertexColors:true,transparent:true,opacity:.70,depthWrite:false}));
@@ -169,12 +170,15 @@ async function load(){
     plane.setIndex(indices);plane.attributes.color.needsUpdate=true;
   }
   for(const id of ['station','paths','cut','tracers','bladePressure'])el(id).oninput=()=>{update();draw();};
-  el('quantity').oninput=()=>{selectField();update();draw();};
+  el('quantity').oninput=()=>{
+    const url=new URL(location.href);url.searchParams.set('field',el('quantity').value);
+    history.replaceState(null,'',url);selectField();update();draw();
+  };
   for(const id of ['threshold','volumeMode'])el(id).oninput=()=>{updateVolume();draw();};
   el('pressureLabel').textContent=lattice?'Grid pressure at blade surface':'Blade pressure relative to outlet';
   const method=lattice?'Rumoca · '+m.revolutions.toFixed(1)+' turns · '+m.cellsPerDiameter+' cells/D':'OpenFOAM · iteration '+m.iteration;
   el('metrics').innerText=method+' · '+m.cells.toLocaleString()+' cells'+'\n'+m.rpm+' rpm · J '+m.J.toFixed(2)+' · Kₜ '+m.kt.toFixed(3)+' · Kq '+m.kq.toFixed(3)+(m.J===.8?'\nIIHR port · Kₜ 0.351 · Kq 0.091':'')+(m.J===.8&&m.kt<0?'\nPredicted thrust reverses the measured direction':'');
-  function ticks(id,values){for(const value of values){const s=document.createElement('span');s.textContent=value.toFixed(2);el(id).append(s);}}
+  function ticks(id,values){for(const value of values){const s=document.createElement('span');s.textContent=value===0?'0':Number(value.toPrecision(3)).toString();el(id).append(s);}}
   ticks('pressureTicks',[-pressureScale,0,pressureScale]);ticks('speedTicks',[0,.5*speedScale,speedScale]);
   const pan=new T.Vector3();
   let theta=-1.98,phi=.34,radius=5.7;
