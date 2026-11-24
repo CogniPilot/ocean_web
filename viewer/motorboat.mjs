@@ -1,3 +1,4 @@
+import {showInLowWaterCapture} from './render-layers.mjs';
 import {sonarMount} from './cruiser-sonar-view.mjs';
 
 // Seven-and-a-half metre inboard sportfisher. Bow +X, port +Y, up +Z.
@@ -9,7 +10,7 @@ export const hullLamps=[-1,1].flatMap(side=>[
 // Lens centre and sight target in hull coordinates. The keel image is bow-up.
 export const cruiserUnderwaterViews={
   motorBow:[[2.77,-.38,-.77],[9,-.38,-3.22]],
-  motorStern:[[-3.83,.63,-.76],[-10,.63,-3.19]],
+  motorStern:[[-3.795,.88,-.16],[-10,.88,-2.60]],
   motorPort:[[-.38,1.20,-.45],[-.38,7.4,-3.20]],
   motorStarboard:[[-.38,-1.20,-.45],[-.38,-7.4,-3.20]],
   motorKeel:[[.45,0,-.88],[.45,0,-2],[1,0,0]]
@@ -132,7 +133,7 @@ function installSearchlightDepth(T){
       }else directLight.color*=spotColor.rgb;
     }`);
 }
-const defaultDriveGeometry=[.46,.95,-3.11,0,-.76,Math.atan(.36/1.8),-3.36,0,-.61,.34,.43];
+const defaultDriveGeometry=[.46,.95,-3.11,0,-.95,Math.atan(.36/1.8),-3.50,0,-.89,.34,.43];
 function foilLoft(T,sections,point){
   const samples=24,positions=[],indices=[];
   for(let section=0;section<sections;section++){
@@ -193,21 +194,32 @@ function cruiserDrive(T,group,geometry=defaultDriveGeometry){
   const propeller=new T.Group();
   propeller.name='Bronze propeller';
   mount.add(propeller);
-  const hub=mesh(propeller,new T.CylinderGeometry(.030,.036,.1,20),bronze);
-  hub.rotation.z=Math.PI/2;
   const radius=diameter/2;
-  const fractions=[.12,.33,.55,.76,.92,1],chords=[.24,.56,.76,.77,.54,.07],skew=[0,.02,.10,.22,.31,.36];
-  // Match the B3-50 expanded area ratio in the developed blade plane.
-  const chordIntegral=fractions.slice(1).reduce((sum,r,i)=>
-    sum+.5*(chords[i]+chords[i+1])*(r-fractions[i]),0);
+  // Turned hub and the exposed locking nut share the shaft axis.
+  const profile=[[-.30,.085],[-.27,.13],[-.19,.16],[.09,.18],[.20,.16],[.25,.115]];
+  const hub=mesh(propeller,new T.LatheGeometry(
+    profile.map(([x,r])=>new T.Vector2(radius*r,radius*x)),32),bronze);
+  hub.rotation.z=-Math.PI/2;
+  const nut=mesh(propeller,new T.CylinderGeometry(.024,.024,.024,6),bronze);
+  nut.position.x=-.30*radius;nut.rotation.z=-Math.PI/2;
+  const sections=29,root=.12;
+  const radii=[],chords=[];
+  // Rounded blade tip, a broad outer working section and a thick, narrow root.
+  for(let i=0;i<sections;i++){
+    const u=.5*(1-Math.cos(Math.PI*i/(sections-1)));
+    radii.push(root+(1-root)*u);
+    chords.push((.30+1.2*u)*Math.sqrt(1-u*u)+.012);
+  }
+  const chordIntegral=radii.slice(1).reduce((sum,r,i)=>
+    sum+.5*(chords[i]+chords[i+1])*(r-radii[i]),0);
   const chordScale=.50*Math.PI/(3*chordIntegral);
-  const blade=foilLoft(T,fractions.length,(row,u,t)=>{
-    const r=radius*fractions[row],width=radius*chords[row]*chordScale;
+  const blade=foilLoft(T,sections,(row,u,t)=>{
+    const fraction=radii[row],r=radius*fraction,width=radius*chords[row]*chordScale;
     const pitch=Math.atan(pitchRatio*diameter/(2*Math.PI*r));
     // With positive shaft rotation the rounded leading edge travels into +theta.
-    const chordwise=(.43-u)*width,normal=width*(.11*t+.06*u*(1-u));
-    const angle=skew[row]+(Math.cos(pitch)*chordwise-Math.sin(pitch)*normal)/r;
-    return [Math.sin(pitch)*chordwise+Math.cos(pitch)*normal-.042*fractions[row]**2,r*Math.cos(angle),r*Math.sin(angle)];
+    const chordwise=(.43-u)*width,normal=width*((.17-.105*fraction)*t+.075*u*(1-u));
+    const angle=-.56*fraction**2+(Math.cos(pitch)*chordwise-Math.sin(pitch)*normal)/r;
+    return [Math.sin(pitch)*chordwise+Math.cos(pitch)*normal-.13*radius*fraction**2,r*Math.cos(angle),r*Math.sin(angle)];
   });
   for(let i=0;i<3;i++)mesh(propeller,blade,bronze).rotation.x=2*Math.PI*i/3;
 
@@ -217,10 +229,15 @@ function cruiserDrive(T,group,geometry=defaultDriveGeometry){
   rudder.userData.physicsJoint={axis:[0,0,1],label:'Rudder hinge'};
   group.add(rudder);
   cylinder(rudder,new T.Vector3(0,0,.05),new T.Vector3(0,0,.39),.025,steel);
-  const levels=[-.5,-.455,.455,.5];
-  mesh(rudder,foilLoft(T,levels.length,(row,u,t)=>{
-    const width=chord*(row===0||row===3?.85:1);
-    return [chord*.25-width*u,.13*width*t,levels[row]*span];
+  // A spade rudder hangs clear of the hull on its stock. The toe is
+  // narrower and swept aft. The mean chord sets the Modelica planform area.
+  const stations=[[-.50,.54,.13],[-.493,.66,.10],[-.47,.77,.08],
+    [-.39,.86,.06],[0,1.04,0],[.40,1.12,-.025],[.48,1.10,-.025],[.50,1.02,-.025]];
+  const meanChord=stations.slice(1).reduce((sum,[z,w],i)=>
+    sum+(z-stations[i][0])*(w+stations[i][1])/2,0);
+  mesh(rudder,foilLoft(T,stations.length,(row,u,t)=>{
+    const [z,w,sweep]=stations[row],width=chord*w/meanChord;
+    return [(.25-u)*width-sweep*chord,.14*width*t,z*span];
   }),bronze);
   return {propeller,rudder};
 }
@@ -391,17 +408,39 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     }),0x22383f);
   }
   const stern=sections[0],stem=sections.at(-1);
-  for(const end of [stern,stem])surface([[-1,1].map(s=>end.point(s,1,1)),[-1,1].map(s=>end.point(s,.93,.43)),[-1,1].map(s=>end.point(s,.85,.23)),[-1,1].map(s=>end.point(s,0,0))],ivory);
+  for(const end of [stern,stem]){
+    surface(hullPlating.map(([beam,height])=>Array.from({length:17},(_,i)=>{
+      const across=(i-8)/8;
+      return end.point(Math.sign(across),Math.abs(across)*beam,height);
+    })),ivory);
+  }
   const [sonarX,sonarY,sonarZ]=sonarMount;
   pad(sonarX-.06,sonarY,sonarZ+.029,.17,.095,.047,trim);
   surface(sections.filter(k=>k.x>1.15).map(k=>[k.point(1,.86,1),[k.x,0,k.top+.035],k.point(-1,.86,1)]),white);
   // Recessed cockpit sole, coamings, varnished cap rail and engine box.
-  box(-1.28,0,.49,4.80,2.29,.09,plank);
-  for(let i=-8;i<=8;i++)box(-2.31,i*.126,.541,2.63,.009,.006,wood);
-  box(-3.59,0,.76,.15,2.14,.11,wood);
+  // Loft the sole to the inside of the cockpit. A rectangular slab protrudes
+  // through both topsides where the beam narrows at the transom.
+  const cockpit=sections.filter(k=>k.x>=-3.53&&k.x<=1.20);
+  surface(cockpit.map(k=>[-1,1].map(side=>[k.x,side*k.w*.84,.535])),plank);
+  for(let i=-8;i<=8;i++)box(-2.24,i*.12,.537,2.48,.009,.004,wood);
+  const aftCockpit=sections.filter(k=>k.x<-.8);
+  // Continue the teak cap around the curved transom with mitred corners.
+  const cap=[];
+  for(let i=-12;i<=12;i++){
+    const y=i/12;
+    cap.push([.97,.85].map((f,edge)=>{
+      const [x,beam,z]=stern.point(Math.sign(y),Math.abs(y)*f,1);
+      return [x+(edge?.12:0)*(1-y*y),beam,z+.009];
+    }));
+  }
+  surface(cap,wood);
   for(const s of [-1,1]){
-    surface(sections.filter(k=>k.x<-.8).map(k=>[k.point(s,.84,1),[k.x,s*k.w*.84,.50]]),ivory);
-    surface(sections.filter(k=>k.x<-.8).map(k=>[[k.x,s*k.w*.85,k.top+.006],[k.x,s*k.w*.97,k.top+.006]]),wood);
+    surface(aftCockpit.map(k=>[.85,.97].map(f=>{
+      const [x,y,z]=k.point(s,f,1);return [x,y,z+.009];
+    })),wood);
+    surface(aftCockpit.slice(1).map(k=>{
+      const [x,y,z]=k.point(s,.84,1);return [[x,y,z],[x,y,.535]];
+    }),ivory);
     for(const x of [-3.23,-2.94])rod([x,s*1.08,.78],[x+.04,s*1.05,.95],.022,steel);
     rod([-3.26,s*1.05,.96],[-2.87,s*1.05,.96],.025,steel);
   }
@@ -413,7 +452,8 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     for(const x of [-2.94,-2.11])cushion(x,side*.84,.80,.79,.43,.076,upholstery);
     cushion(-2.53,side*1.045,.87,1.64,.09,.16,upholstery);
   }
-  cushion(-3.35,0,.71,.38,1.52,.09,upholstery);
+  box(-3.38,0,.68,.36,1.17,.24,ivory);
+  cushion(-3.38,0,.80,.36,1.17,.076,upholstery);
   // Rounded swim platform, inset transom gate, folding boarding ladder.
   const platform=new T.Shape();platform.moveTo(-3.65,-1.06);platform.lineTo(-4.05,-1.04);
   platform.quadraticCurveTo(-4.18,-1.03,-4.18,-.85);platform.lineTo(-4.18,.85);
@@ -562,10 +602,14 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     const fluke=cabinPart(new T.BoxGeometry(.16,.12,.016),anchorMetal,[.045,sign*.102,-.24],anchorMesh);
     fluke.rotation.y=-.44;
   }
-  const rodeGeometry=new T.BufferGeometry(),rodePositions=new Float32Array(17*3);
-  rodeGeometry.setAttribute('position',new T.BufferAttribute(rodePositions,3).setUsage(T.DynamicDrawUsage));
-  const rode=new T.Line(rodeGeometry,new T.LineBasicMaterial({color:0x8e8d75}));
+  // Nominal 12 mm braid. A WebGL line occupies a full render pixel even
+  // when its projected diameter is much smaller than a pixel.
+  const rodeSegments=16,rodeRadius=.006;
+  const rode=new T.InstancedMesh(new T.CylinderGeometry(rodeRadius,rodeRadius,1,8,1,true),
+    new T.MeshStandardMaterial({color:0x928775,roughness:.94}),rodeSegments);
+  rode.name='Anchor rode';rode.instanceMatrix.setUsage(T.DynamicDrawUsage);
   rode.frustumCulled=false;rode.visible=false;group.add(rode);
+  const link=new T.Object3D(),from=v3(0,0,0),to=v3(0,0,0),along=v3(0,0,0),localY=v3(0,1,0);
   const anchorPoint=v3(0,0,0),rollerPoint=v3(0,0,0),anchorRotation=new T.Quaternion();
   function setAnchor(row){
     if(!row){anchorMesh.visible=false;rode.visible=false;return;}
@@ -579,13 +623,17 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     rode.visible=paid>.22;
     if(!rode.visible)return;
     const slack=Math.min(1.4,.22*Math.max(0,paid-anchorPoint.distanceTo(rollerPoint)));
-    for(let i=0;i<17;i++){
-      const u=i/16;
-      rodePositions[3*i]=T.MathUtils.lerp(rollerPoint.x,anchorPoint.x,u);
-      rodePositions[3*i+1]=T.MathUtils.lerp(rollerPoint.y,anchorPoint.y,u);
-      rodePositions[3*i+2]=T.MathUtils.lerp(rollerPoint.z,anchorPoint.z,u)-4*u*(1-u)*(1-u)*slack;
+    from.copy(rollerPoint);
+    for(let i=1;i<=rodeSegments;i++){
+      const u=i/rodeSegments;
+      to.lerpVectors(rollerPoint,anchorPoint,u);
+      to.z-=4*u*(1-u)*(1-u)*slack;
+      along.subVectors(to,from);link.scale.y=along.length();
+      link.quaternion.setFromUnitVectors(localY,along.normalize());
+      link.position.lerpVectors(from,to,.5);link.updateMatrix();
+      rode.setMatrixAt(i-1,link.matrix);from.copy(to);
     }
-    rodeGeometry.attributes.position.needsUpdate=true;
+    rode.instanceMatrix.needsUpdate=true;
   }
   // Intersect the rendered plating triangles so fittings and joinery follow
   // both the narrowing bow in plan and the V of the lower hull in section.
@@ -842,7 +890,8 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
   for(const [id,[position,target]] of Object.entries(cruiserUnderwaterViews)){
     const lensCentre=v3(...position),axis=v3(...target).sub(lensCentre).normalize();
     const behind=distance=>lensCentre.clone().addScaledVector(axis,-distance).toArray();
-    if(id!=='motorKeel'){
+    // The stern port seats directly in the outboard transom below the swim platform.
+    if(id!=='motorKeel' && id!=='motorStern'){
       const [x,y,z]=behind(.18);
       rod([x,y,-.16],[x,y,z],.041,steel);
     }
@@ -890,7 +939,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
      }`}));swivel.add(beam);
   beam.geometry.rotateZ(Math.PI/2);beam.scale.set(15,2.6,2.6);beam.position.x=7.61;
   for(const [material,batch] of batches){
-    const m=addBatch(group,material,batch);
+    const m=showInLowWaterCapture(addBatch(group,material,batch));
     const panel=panelMaterials.indexOf(material);if(panel>=0)panelMeshes[panel]=m;
   }
   // Fit the sonar view and chart to the local helm. The display faces aft and

@@ -229,8 +229,6 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button id="cutMotors" hidden aria-pressed="false">Cut motors</button>
 <button type="button" id="gullCall" hidden>Caw</button>
 <button type="button" id="goBelow" hidden>Go below</button>
-<button type="button" id="anchorSwitch" aria-pressed="false" hidden>Lower anchor</button>
-<output id="anchorReadout" hidden></output>
 </div><section class="control-row" id="animalPilot" hidden><button type="button" id="animalFeed">Feed (F)</button> <button id="animalBreach" type="button">Breach</button> <span id="swimKeys"></span></section></div>
 <div id="setup" class="control-settings" aria-label="Settings" hidden>
 <details class="control-pane" data-boat><summary>Sail trim</summary>
@@ -275,7 +273,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 </div>
 <output id="weightPos"></output>
 </div></details>
-<details class="control-pane" id="motorPanel" hidden open><summary>Engine &amp; lights</summary>
+<details class="control-pane" id="motorPanel" hidden open><summary>Accessories</summary>
 <div class="control-fields">
 <div class="control-grid">
 <div class="control-slider"><div class="control-label"><label for="shaftLever">Throttle</label><output id="shaftPercent" for="shaftLever">0%</output></div>
@@ -284,6 +282,8 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-row">
 <label class="control-check"><input id="searchLamp" type="checkbox" aria-keyshortcuts="Z"><span>Searchlight (Z)</span></label>
 <label class="control-check"><input id="keelLamp" type="checkbox" aria-keyshortcuts="X"><span>Underwater lights (X)</span></label>
+<button type="button" id="anchorSwitch" aria-keyshortcuts="C" aria-pressed="false" hidden>Lower anchor (C)</button>
+<output id="anchorReadout" hidden></output>
 <button id="lampCenter" type="button">Center searchlight</button>
 <label class="control-check" id="wiperControl" hidden><input id="wiperSwitch" type="checkbox"><span>Windshield wipers</span></label>
 </div>
@@ -293,7 +293,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-slider"><div class="control-label"><label for="lampTilt">Searchlight elevation</label><output id="tiltDegrees">−12°</output></div>
 <input id="lampTilt" type="range" min="-65" max="15" value="-12" aria-describedby="lampTiltScale"><div class="control-scale" id="lampTiltScale"><span>Down</span><span>Up</span></div></div>
 </div>
-<p id="motorKeys">W/S throttle · Q/E helm · Arrows aim searchlight · Z/X lights · C wipers</p>
+<p id="motorKeys">W/S throttle · A/D or Q/E helm · Arrows aim searchlight · Z/X lights · C anchor</p>
 </div></details>
 <details class="control-pane"><summary>Environment</summary>
 <div class="control-fields">
@@ -340,10 +340,6 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-grid">
 <label class="control-select"><span>Graphics quality</span><select id="quality"><option value="fast">Fast (simplified water)</option><option value="low">Low (wakes off)</option><option value="balanced">Medium</option><option value="high">High</option></select></label>
 <label class="control-select"><span>Offline simulation speed</span><select id="simulationSpeed"><option value="1">1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
-</div>
-<div class="control-row">
-<label class="control-check"><input type="checkbox" id="neuralUpscaling" aria-describedby="neuralUpscalingStatus"><span>AI upscaling</span></label>
-<output id="neuralUpscalingStatus" role="status"></output>
 </div>
 <div class="control-row">
 <button type="button" id="measureFrames" disabled>Test frame rate (15 s)</button>

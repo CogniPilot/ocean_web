@@ -133,12 +133,13 @@ public
 
   function potentialHead
     input Real x,y,velocity[2],sources[14,6];
+    input Real fieldLength=8;
     output Real elevation;
   protected
     Real dy,core2,taper;
   algorithm
     elevation:=0;
-    taper:=min(1,max(0,(sqrt(x*x+y*y)-2.9)/.9));
+    taper:=min(1,max(0,(sqrt(x*x+y*y)/fieldLength-.3625)/.1125));
     if taper>=1 then return; end if;
     for i in 1:14 loop
       if sources[i,3]<>0 then
@@ -211,7 +212,7 @@ public
     dx:=length/n;
     for j in 1:n loop
       side:=(if j<=n/2 then j-1 else j-1-n)*dx;
-      eta[j,:]:={potentialHead((if i<=n/2 then i-1 else i-1-n)*dx,side,velocity,sources)
+      eta[j,:]:={potentialHead((if i<=n/2 then i-1 else i-1-n)*dx,side,velocity,sources,length)
         +shoulderSheet((if i<=n/2 then i-1 else i-1-n)*dx,side,entry,leeway,singleBow) for i in 1:n};
     end for;
   end sampleGrid;

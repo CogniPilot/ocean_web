@@ -1,5 +1,6 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { loadInstance } from '../../viewer/fmi3/instance.mjs';
 
 const directory = process.argv[2];
@@ -13,7 +14,9 @@ const speed = 0.28 * Math.sqrt(9.80665 * length);
 const depth = 3;
 const runSeconds = 45;
 const averageSeconds = 10;
-const rows = ['period_m,dt_s,x_from_bow_over_length,y_m,measurement_m,prediction_m'];
+const nearDirectory = process.argv[3];
+const rows = ['period_m,dt_s,x_from_bow_over_length,y_m,measurement_m,prediction_m' +
+  (nearDirectory ? ',near_field_m,combined_m' : '')];
 const mean = values => values.reduce((sum, value) => sum + value, 0) / values.length;
 const rms = values => Math.sqrt(mean(values.map(value => value * value)));
 
@@ -33,6 +36,19 @@ function sample(tile, period, east, north) {
 
 const cases = [[64, 0.1], [20, 0.05], [12, 0.05], [8, 0.05], [12, 0.025]];
 const measured = gauges.map(gauge => gauge[2]);
+// The tow is steady and its measured running attitude is baked into the
+// displaced sections. The local field is stationary in the hull frame.
+let near;
+if (nearDirectory) {
+  const {loadInstance: loadSource} = await import(pathToFileURL(resolve(nearDirectory, 'instance.mjs')));
+  const source = await loadSource('Iihr5512Bow', {...geometry, towSpeed: speed}, read);
+  const bow = await loadInstance('BowWavePatch', {
+    breakingBows: 1, singleBow: 1, relativeSpeed: [speed, 0], sources: source.get('sources'),
+  }, read);
+  const tile = bow.get('height');
+  near = gauges.map(([x, y]) => sample(tile, bow.get('length'), x, y));
+  if (!near.every(Number.isFinite) || !near.some(z => z > 0)) throw Error('Invalid 5512 near field');
+}
 for (const [period, dt] of cases) {
   const wake = await loadInstance('WakeSpectrum', {
     ...geometry, separation: 0, heading: 0, depth, period, dt,
@@ -56,6 +72,7 @@ for (const [period, dt] of cases) {
   const samples = drags.length;
   const computed = sums.map(value => value / samples);
   const residuals = computed.map((value, index) => value - measured[index]);
+  const combined = near && computed.map((z, i) => z + near[i]);
   console.log(JSON.stringify({
     period_m: period,
     dt_s: dt,
@@ -65,10 +82,13 @@ for (const [period, dt] of cases) {
     bias_m: mean(residuals),
     measured_m: [Math.min(...measured), Math.max(...measured)],
     predicted_m: [Math.min(...computed), Math.max(...computed)],
+    ...(combined && {combined_peak_m: Math.max(...combined),
+      combined_rmse_m: rms(combined.map((z, i) => z - measured[i]))}),
     wave_resistance_N: mean(drags),
   }));
   gauges.forEach(([x, y, z], index) => {
-    rows.push([period, dt, 0.5 - x / length, y, z, computed[index]].join(','));
+    rows.push([period, dt, 0.5 - x / length, y, z, computed[index],
+      ...(near ? [near[index], combined[index]] : [])].join(','));
   });
 }
 await writeFile(join(directory, 'profile-comparison.csv'), rows.join('\n') + '\n');

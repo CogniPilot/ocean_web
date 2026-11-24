@@ -19,6 +19,16 @@ for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
     const offset=[start.launchEast-center[0],start.launchNorth-center[1]];
     const down=offset[0]*Math.cos(angle)+offset[1]*Math.sin(angle);
     near(down,14);
+    if(cat){
+      const along=offset[0]*Math.cos(start.launchHeading)+offset[1]*Math.sin(start.launchHeading);
+      near(along,-length/2);
+      near(Math.cos(start.launchHeading-angle),0);
+      const shifted=sailingStart(true,angle,angle+.7);
+      near(shifted.launchEast,start.launchEast);
+      near(shifted.launchNorth,start.launchNorth);
+      near(Math.cos(shifted.launchHeading-angle-.7),0);
+      continue;
+    }
     const distance=-down/Math.cos(start.launchHeading-angle);
     assert(distance>0);
     const crossing=Math.hypot(offset[0]+distance*Math.cos(start.launchHeading),offset[1]+distance*Math.sin(start.launchHeading));

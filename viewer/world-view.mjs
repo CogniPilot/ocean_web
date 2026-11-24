@@ -1,3 +1,4 @@
+import {cruiserBowLength} from './bow-grid.mjs';
 import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
 // Views share one committed worker snapshot, so every mesh uses the same clock.
 import {boatFields} from './board/boat.mjs';
@@ -71,7 +72,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  for(const [key,value] of Object.entries(startGate))parameters['race.'+key]=value;
  if(hasBoat){
    parameters['boat.launchSeaState']=seaState;
-   for(const [key,value] of Object.entries(options.start??sailingStart(mode!=='sloop')))parameters['boat.'+key]=value;
+   for(const [key,value] of Object.entries(options.start??sailingStart(mode!=='sloop',windBearing,initial.windBearing)))parameters['boat.'+key]=value;
  }
  if(mode==='motorboat'&&options.motorStart){
    parameters.initialEast=options.motorStart.launchEast;
@@ -84,7 +85,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    ...(mode==='motorboat'?cruiserInertiaFields:[])].filter(name=>!outputs.includes(name));
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
-   breakingBows:mode==='motorboat'||(hasBoat&&mode!=='sloop'),singleBow:mode==='motorboat',warmSolver:options.warmSolver,
+   breakingBows:mode==='motorboat'||(hasBoat&&mode!=='sloop'),singleBow:mode==='motorboat',bowLength:mode==='motorboat'?cruiserBowLength:8,warmSolver:options.warmSolver,
    reportProgress:Boolean(options.onProgress),
    optionalInputs:[...(hasBoat&&mode!=='sloop'?['jibHalyardInput']:[]),...(mode==='motorboat'?['startEncounter','encounterTargets','wiperSwitch','lowerAnchor','droneLandingLoad']:[]),...(hasFlight?['rotorWakeTraffic','droneTraffic','vesselDecks']:[]),'animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
    optionalOutputs:['swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame','sternFoamTrail',...inertiaOutputs,
@@ -95,7 +96,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.sailWind','boat.stationX','boat.beamHalf','boat.halfSpacing','boat.deckZ','boat.pontoonContactVertices','boat.pontoonContactFaces']:[]),
      ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes','sectionStamp',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
-     ...(mode==='motorboat'?[...cruiserInspectionFields,'driveGeometry','panelSea','cruiserContactVertices','cruiserContactFaces','cabinContactVertices','cabinContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','landingDeck','engineIdleTime','engineOffAfter']:[]),...(hasFlight?[...flightNavigationOutputs,...flightWakeOutputs,...droneContactOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount','drone.vesselDeckWrenches']:[])]});
+     ...(mode==='motorboat'?[...cruiserInspectionFields,'driveGeometry','panelSea','cruiserContactVertices','cruiserContactFaces','cabinContactVertices','cabinContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','anchorHolding','anchor.horizontalSpeed','landingDeck','engineIdleTime','engineOffAfter']:[]),...(hasFlight?[...flightNavigationOutputs,...flightWakeOutputs,...droneContactOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount','drone.vesselDeckWrenches']:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);

@@ -24,7 +24,7 @@ const oceanHeightGLSL=`
    return whale+mix(animalWave(p-a*shift,sharkPatchPrevious),animalWave(p+(1.-a)*shift,sharkPatch),a);
  }
  uniform vec2 spectrumDrift;
- uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable,hullSpectrumOnly,bowFoamSpacing,bowFoamAvailable;
+ uniform float spectrumPeriod,spectrumBlend,wakeAvailable,bowAvailable,bowLength,hullSpectrumOnly,bowFoamSpacing,bowFoamAvailable;
  uniform vec4 bowFoamBounds;
  const vec2 bowAtlasSize=vec2(${bowAtlasLayout.width}.,${bowAtlasLayout.height}.);
  vec2 spectralUV(vec2 p){return (p-spectrumDrift)/spectrumPeriod+vec2(.5/64.);}
@@ -57,8 +57,8 @@ const oceanHeightGLSL=`
    return vec2(dot(r,forward),dot(r,vec2(-forward.y,forward.x)));
  }
  float bowElevation(vec2 p){
-   if(!nearBowField(p,4.))return 0.;
-   return elevationSample(bowMap,(mod(bowLocal(p)*4.,32.)+vec2(${bowAtlasLayout.coarse+.5},1.5))/bowAtlasSize);
+   if(!nearBowField(p,.5*bowLength))return 0.;
+   return elevationSample(bowMap,(mod(bowLocal(p)*(32./bowLength),32.)+vec2(${bowAtlasLayout.coarse+.5},1.5))/bowAtlasSize);
  }
  float bowFoamCoverage(vec2 local){
    vec2 margin=min(local-bowFoamBounds.xy,bowFoamBounds.zw-local);
@@ -539,7 +539,7 @@ function whitecapField(T,U){
    quad.dispose();material.dispose();
  }};
 }
-function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobieSurface,bowFoamGrid,islandBed},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
+function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobieSurface,bowFoamGrid,bowLength=8,islandBed},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
  const U={cruiserTilt:{value:new Float32Array(10)},cruiserCount:{value:0},cruiserPose:{value:new Float32Array(20)},cruiserAim:{value:new Float32Array(20)},cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
  U.islandBedMap={value:islandBed.texture};U.islandBedBounds={value:islandBed.bounds};
  const swimmerWater=makeSwimmerWater(THREE,U);
@@ -625,7 +625,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  const {width:atlasWidth,height:atlasHeight,coarse:coarseColumn,foam:foamColumn}=bowAtlasLayout;
  const bowAtlas=new Uint8Array(atlasWidth*atlasHeight*4),bowTexture=new THREE.DataTexture(bowAtlas,atlasWidth,atlasHeight);
  bowTexture.minFilter=bowTexture.magFilter=THREE.LinearFilter;
- U.bowMap={value:bowTexture};U.bowAvailable={value:0};
+ U.bowLength={value:bowLength};U.bowMap={value:bowTexture};U.bowAvailable={value:0};
  U.bowFoamAvailable={value:0};
  U.bowFoamSpacing={value:fineStep};
  U.bowFoamBounds={value:new THREE.Vector4(fineX,fineY,fineX+(fineColumns-1)*fineStep,fineY+(fineRows-1)*fineStep)};
@@ -696,8 +696,8 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    // Factor the analytic swell's central difference into one cosine.
    vec2 swellSlope=swell.x*cos(swell.y+dot(p-swellCenter,swell.zw))*sin(.48*swell.zw)/.48;
    vec2 slope=vec2(dx,dy)+swellSlope;
-   if(nearBowField(p,4.25)){
-     float spacing=.25;
+   if(nearBowField(p,bowLength*(.5+1./32.))){
+     float spacing=bowLength/32.;
      slope+=vec2(bowElevation(p+vec2(spacing,0))-bowElevation(p-vec2(spacing,0)),
        bowElevation(p+vec2(0,spacing))-bowElevation(p-vec2(0,spacing)))/(2.*spacing);
    }
@@ -805,7 +805,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+foamPatchGLSL+`
  uniform sampler2D windMap,foamTexture,whitecapMap; uniform vec3 whitecapBounds; uniform float windFieldActive,windBlend,referenceWind,windPeriod,rippleScale;
- uniform highp sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
+ uniform highp sampler2D reflection,reflectionDepth,transmission; uniform mat4 mirrorMatrix,mirrorInverse;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
  #ifndef DISABLE_STERN_FOAM
  uniform sampler2D sternFoamMap;
  uniform vec4 sternFoamRegion;
@@ -852,7 +852,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    return lit*mix(.86,.23,daylight);
  }
  uniform highp sampler2D transmissionDepth;uniform mat4 throughMatrix;uniform vec3 throughEye;uniform vec2 cameraRange;
- uniform vec2 transmissionSize;
+ uniform vec2 transmissionSize;uniform float airCapture;
  uniform sampler2D islandBedMap;uniform vec4 islandBedBounds;
 
  const float waterIOR=1.333;
@@ -974,6 +974,28 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      float incidence=clamp(dot(ray,n),0.,1.);
      float transmissionGate=1.-dielectricFresnel(incidence,1./waterIOR);
      vec3 through=skyColor(normalize(skyRay+vec3(0.,0.,.0001)));
+     // Look up dry geometry through Snell's window. Probe the depth on the
+     // straight ray first, then reproject at that depth along the refracted ray.
+     if(airCapture>.5 && transmissionGate>.001){
+       vec4 surfaceClip=throughMatrix*vec4(wp,1.);
+       vec2 uv=surfaceClip.xy/surfaceClip.w*.5+.5;
+       float depth=texture2D(transmissionDepth,clamp(uv,0.,1.)).r;
+       vec4 refractedDir=throughMatrix*vec4(skyRay,0.);
+       if(refractedDir.w>.001){
+         float travel=depth<.999999?clamp((viewDepth(depth)-surfaceClip.w)/refractedDir.w,0.,12.):1.;
+         vec4 bent=surfaceClip+travel*refractedDir;
+         uv=bent.xy/bent.w*.5+.5;
+         if(all(greaterThan(uv,vec2(0.)))&&all(lessThan(uv,vec2(1.)))){
+           depth=texture2D(transmissionDepth,uv).r;
+           float hitDistance=(viewDepth(depth)-surfaceClip.w)/refractedDir.w;
+           if(depth<.999999 && hitDistance>=0.){
+             vec3 hit=wp+skyRay*hitDistance;
+             float dry=smoothstep(-.012,.012,hit.z-heightAt(hit.xy));
+             through=mix(through,texture2D(transmission,uv).rgb,dry);
+           }
+         }
+       }
+     }
      vec3 underside=mix(vec3(.006,.040,.061),vec3(.015,.14,.17),incidence)*(.24+.76*day);
      color=mix(underside,through,transmissionGate);
      color=mix(color,vec3(.48,.66,.67)*(.24+.76*day),.78*swimmer.y);
@@ -1036,7 +1058,16 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      vec2 mirrorMargin=min(uv,1.-uv);
      float mirrorVisible=step(.001,mirrorRay.w)*smoothstep(0.,.018,min(mirrorMargin.x,mirrorMargin.y));
      // Broaden reflected detail where the pixel spans several short ripples.
-     vec4 objects=texture2D(reflection,clamp(uv,.001,.999),.65+1.4*roughSea*subpixel)*mirrorVisible;
+     float mirrorBlur=smoothstep(6.,20.,eyeDistance)*(.65+1.4*roughSea*subpixel);
+     vec4 objects=texture2D(reflection,clamp(uv,.001,.999),mirrorBlur)*mirrorVisible;
+     if(objects.a>.001 && eyeDistance<80.){
+       float depth=texture2D(reflectionDepth,clamp(uv,.001,.999)).r;
+       vec4 hit=mirrorInverse*vec4(2.*uv-1.,2.*depth-1.,1.);
+       if(depth<1. && abs(hit.w)>.00001){
+         vec3 worldHit=hit.xyz/hit.w;
+         objects*=smoothstep(-.015,.015,worldHit.z-heightAt(worldHit.xy));
+       }
+     }
      vec3 reflected=reflectedSky*(1.-objects.a)+objects.rgb;
      // Compare both depths in the camera that captured the seabed.
      vec4 captureClip=throughMatrix*vec4(wp,1.);
@@ -1197,10 +1228,10 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
        const boat=U.boat.value,r=Math.hypot(east-boat.x,north-boat.y);
        const f=Math.max(0,Math.min(1,(r/period-.35)/.14));
        if(f<1){const w=f*f*(3-2*f);packed=w*packed+(1-w)*sample(spectrumBytes,64,x,y,blend);}
-       if(U.bowAvailable.value&&r<4){
+       if(U.bowAvailable.value&&r<bowLength/2){
          const c=Math.cos(boat.z),s=Math.sin(boat.z),dx=east-boat.x,dy=north-boat.y;
          const u=dx*c+dy*s,v=-dx*s+dy*c;
-         h+=(sample(bowBytes,32,4*u,4*v,blend)-32768)/8192;
+         h+=(sample(bowBytes,32,32*u/bowLength,32*v/bowLength,blend)-32768)/8192;
        }
      }
      h+=(packed-32768)/8192;
@@ -1210,6 +1241,8 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  }
  const mirrorCamera=new THREE.PerspectiveCamera(),reflectRT=new THREE.WebGLRenderTarget(512,320),throughRT=new THREE.WebGLRenderTarget(512,320);
  // Mip-filter thin silhouettes as ripple distortion minifies the reflected image.
+ reflectRT.depthTexture=new THREE.DepthTexture(512,320,THREE.UnsignedIntType);
+ U.reflectionDepth={value:reflectRT.depthTexture};U.mirrorInverse={value:new THREE.Matrix4()};
  reflectRT.texture.generateMipmaps=true;
  reflectRT.texture.minFilter=THREE.LinearMipmapLinearFilter;
  throughRT.depthTexture=new THREE.DepthTexture(512,320,THREE.UnsignedIntType);
@@ -1253,6 +1286,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      mirrorClip.constant=-U.tide.value;
      const obliqueClip=clipReflectionAtTide();
      U.mirrorMatrix.value.multiplyMatrices(mirrorCamera.projectionMatrix,mirrorCamera.matrixWorldInverse);
+     U.mirrorInverse.value.copy(U.mirrorMatrix.value).invert();
      scene.background=null;
      renderer.setClearColor(0x000000,0);renderer.setRenderTarget(reflectRT);
      if(!obliqueClip)renderer.clippingPlanes=[mirrorClip];
@@ -1275,6 +1309,44 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    scene.fog=oldFog;scene.background=oldBackground;water.visible=true;dome.visible=true;
    if(foamMesh)foamMesh.visible=foamVisible;
    if(spray)spray.points.visible=sprayVisible;
+ }
+ // Each submerged view has its own projection, including camera thumbnails.
+ // Reuse the transmission sampler slots so the water still fits mobile GPU limits.
+ const airTargets=Array.from({length:2},()=>{
+   const rt=new THREE.WebGLRenderTarget(1,1);
+   rt.depthTexture=new THREE.DepthTexture(1,1,THREE.UnsignedIntType);
+   return rt;
+ });
+ const airMatrix=new THREE.Matrix4(),airRange=new THREE.Vector2();
+ const airCamera=new THREE.PerspectiveCamera(),viewDir=new THREE.Vector3(),clearBefore=new THREE.Color();
+ U.airCapture={value:0};
+ function renderThroughAir(renderer,eye,thumbnail,draw){
+   eye.getWorldDirection(viewDir);
+   const halfAngle=Math.atan(Math.tan(THREE.MathUtils.degToRad(eye.fov/2))*Math.hypot(1,eye.aspect));
+   if(viewDir.z<=-Math.sin(halfAngle)||eye.position.z<U.tide.value-35){draw();return;}
+   const destination=renderer.getRenderTarget(),background=scene.background,fog=scene.fog;
+   const alpha=renderer.getClearAlpha();renderer.getClearColor(clearBefore);
+   const oldWater=water.visible,oldDome=dome.visible;
+   const airRT=airTargets[Number(thumbnail)];
+   const width=thumbnail?192:Math.min(768,Math.max(256,renderer.domElement.width));
+   airRT.setSize(width,Math.max(1,Math.round(width/eye.aspect)));
+   airCamera.copy(eye,false);airCamera.far=Math.min(eye.far,250);airCamera.updateProjectionMatrix();airCamera.updateMatrixWorld();
+   airMatrix.multiplyMatrices(airCamera.projectionMatrix,airCamera.matrixWorldInverse);
+   airRange.set(airCamera.near,airCamera.far);
+   try{
+     water.visible=false;dome.visible=false;scene.background=null;scene.fog=null;
+     renderer.setRenderTarget(airRT);renderer.setClearColor(0,0);renderer.render(scene,airCamera);
+   }finally{
+     renderer.setRenderTarget(destination);renderer.setClearColor(clearBefore,alpha);
+     scene.background=background;scene.fog=fog;water.visible=oldWater;dome.visible=oldDome;
+   }
+   const oldMatrix=U.throughMatrix.value,oldRange=U.cameraRange.value;
+   U.throughMatrix.value=airMatrix;U.cameraRange.value=airRange;
+   U.transmission.value=airRT.texture;U.transmissionDepth.value=airRT.depthTexture;U.airCapture.value=1;
+   try{draw();}finally{
+     U.airCapture.value=0;U.throughMatrix.value=oldMatrix;U.cameraRange.value=oldRange;
+     U.transmission.value=throughRT.texture;U.transmissionDepth.value=throughRT.depthTexture;
+   }
  }
  function setQuality(profile,vertexSlope,multisampling,mobileWater=false){
    const compactMobile=mobileWater&&profile.compactOnMobile;
@@ -1306,7 +1378,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    const throughWidth=Math.max(320,width),throughHeight=Math.max(200,height);
    throughRT.setSize(throughWidth,throughHeight);U.transmissionSize.value.set(throughWidth,throughHeight);
  }
- return {U,dome,water,updateWhitecaps:whitecaps.update,dispose(){whitecaps.dispose();U.foamTexture.value.dispose();cruiserFoam?.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
+ return {U,dome,water,renderThroughAir,updateWhitecaps:whitecaps.update,dispose(){airTargets.forEach(rt=>rt.dispose());whitecaps.dispose();U.foamTexture.value.dispose();cruiserFoam?.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
 }
 
 // Low maritime cloud banks in world coordinates. Soft particles scatter light

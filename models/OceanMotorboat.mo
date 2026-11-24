@@ -112,6 +112,7 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   output Real wiperAngle "Sweep angle from park [rad]";
   discrete Real wiperPhase(start=0,fixed=true);
   Real bowRollerArm[3],bowRoller[3],anchorMoment[3],anchorForce[3];
+  output Real anchorHolding[2] "Fluke embedment fraction and rode tension [N]";
   CruiserAnchor anchor(stowed={initialEast+3.25*cos(initialHeading),initialNorth+3.25*sin(initialHeading),1.12},
     lower=lowerAnchor,sea=boatWater.tide,mount=bowRoller,
     mountVelocity={der(east),der(north),vertical}+cross(yawRotation*spin,bowRollerArm),
@@ -150,8 +151,8 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   CruiserPropulsion propulsion(
     shaftRevolutions=if starterRemaining>1e-8 then 0 else shaftRPM/60,
     helm=helmLever,upInBody=rotation[3,:],
-    propellerInflow=waterRelativeBody+cross(spin,propulsion.propellerCenter),
-    rudderInflow=waterRelativeBody+cross(spin,propulsion.rudderCenter),
+    propellerInflow=waterRelativeBody+cross(transpose(rotation)*spin,propulsion.propellerCenter),
+    rudderInflow=waterRelativeBody+cross(transpose(rotation)*spin,propulsion.rudderCenter),
     propellerDepth=driveWaterline-z-rotation[3,:]*propulsion.propellerCenter,
     rudderDepth=driveWaterline-z-rotation[3,:]*propulsion.rudderCenter);
   output Real driveGeometry[11] "Wheel diameter [m], P/D, center [m], shaft slope [rad], rudder stock [m], chord and span [m]";
@@ -218,6 +219,7 @@ equation
   anchorMoment=transpose(yawRotation)*cross(bowRollerArm,anchorForce);
   landingMoment=transpose(yawRotation)*droneLandingLoad[4:6];
   landingDeck=cat(1,{east,north,z,yaw,roll,-pitch,der(east),der(north),vertical},yawRotation*spin);
+  anchorHolding={anchor.embedment,anchor.tension};
   anchorState=cat(1,anchor.position,anchor.orientation,bowRoller,{anchor.paid,anchor.grounded});
   when sample(0,.02) then
     wiperPhase=if wiperSwitch>.5 then mod(pre(wiperPhase)+.02,1.12)

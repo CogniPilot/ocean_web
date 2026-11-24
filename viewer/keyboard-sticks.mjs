@@ -14,6 +14,7 @@ const surfaceKeys={KeyW:'KeyW',KeyS:'KeyS',KeyQ:'KeyA',KeyE:'KeyD'};
 
 export function keyboardAxisKey(code,layout,kind){
   if(layout!=='wasd')return transmitterKeys.has(code)?code:undefined;
+  if(kind==='motorboat'&&(code==='KeyA'||code==='KeyD'))return code;
   if(kind==='boat'||kind==='motorboat')return surfaceKeys[code];
   if(kind==='whale'||kind==='shark'||kind==='gull'){
     if(code==='KeyW'||code==='KeyS')return code;

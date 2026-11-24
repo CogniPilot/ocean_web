@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {openFmuSession} from '../.deps/microduck_web/site/fmu-session.js';
 import {fileFetch} from '../.deps/microduck_web/scripts/fmu-test-support.mjs';
 import {scalarNames} from '../.deps/microduck_web/site/fmu-page-contract.js';
+import {cruiserBowLength} from '../viewer/bow-grid.mjs';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
 
 const base=pathToFileURL(resolve(process.argv[2]??'build/pages/motorboat')+'/');
@@ -67,7 +68,7 @@ async function wakeAtThrottle(throttle){
     };
     const engineSpeed=observe('engine[2]'),trail=observe('sternFoamTrail',[44,4]);
     const bowSources=observe('bowSources',[14,6]),bowSpeed=observe('bowSpeed',[2]);
-    const field=await loadInstance('BowWavePatch',{breakingBows:1,singleBow:1},async url=>new Response(await readFile(url)));
+    const field=await loadInstance('BowWavePatch',{breakingBows:1,singleBow:1,length:cruiserBowLength},async url=>new Response(await readFile(url)));
     for(let i=0;i<240;i++)fmu.step(.05);
     const [speed]=engineSpeed(),plume=trail();
     field.set('sources',bowSources());
@@ -75,7 +76,11 @@ async function wakeAtThrottle(throttle){
     field.advance(.01);
     const [height,foam,spray]=field.getMany(['height','foamCoverage','sprayRelease']);
     const coverage=plume[2],halfWidth=plume[3];
-    const forwardRise=Math.max(...height.filter((_,i)=>i%32>=7&&i%32<=15));
+    const forwardRise=Math.max(...height.filter((_,i)=>{
+      const x=(i%32)*cruiserBowLength/32;
+      return x>=1.75&&x<=3.75;
+    }));
+    assert(Math.abs(height[11])>1e-6,'The near field should extend past the cruiser stem');
     const sprayFlux=spray[5]+spray[11];
     assert(spray[17]===0&&spray[23]===0,'A single stem has two spray shoulders');
     assert(spray[1]>0&&spray[7]<0&&spray[3]>0&&spray[9]<0,'The shoulders must throw spray outward on both sides');

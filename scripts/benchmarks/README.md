@@ -65,6 +65,27 @@ periodic boundary. These runs show sensitivity to that choice. An independent
 grid and domain convergence study and a comparison against measured off-hull
 wave cuts are still required.
 
+The combined-field test adds the same local Modelica surface used for the
+cruiser. It uses the 5512 hull sections, the 8 m near-field tile and the same
+39 gauge positions. To run it, build the source adapter with the browser
+toolchain and pass its directory as the second benchmark argument.
+
+```sh
+"$RUMOCA" compile scripts/benchmarks/Iihr5512Bow.mo -m Iihr5512Bow --target fmi3 \
+  --source-root viewer/board/BowWavePatch.mo --source-root viewer/board/WakeSpectrum.mo \
+  --source-root .deps/msl -o build/iihr-bow-compile
+python3 scripts/browser-fmi3.py build/iihr-bow-compile/Iihr5512Bow build/iihr-bow
+cp viewer/fmi3/instance.mjs build/iihr-bow/
+node scripts/benchmarks/iihr-5512-wake.mjs build/validation/iihr build/iihr-bow
+```
+
+At the default 64 m spectral period, adding the local field brings the
+predicted peak to 17.9 mm and profile RMSE to 14.1 mm. The measured peak is
+53.0 mm. At an 8 m spectral period the combined peak reaches 53.7 mm while
+profile RMSE rises to 47.2 mm. Choosing the period by peak height alone would
+give a misleading impression of accuracy. The CSV includes each local
+contribution and the combined elevation in metres.
+
 ## ONR Tumblehome free-running tests
 
 IIHR's ONRT model was fitted with twin propellers, twin rudders, and bilge keels.

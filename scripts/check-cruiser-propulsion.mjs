@@ -11,9 +11,9 @@ const fileResponse=async url=>new Response(await readFile(url));
 const componentURL=pathToFileURL(resolve(component,'instance.mjs'));
 const {loadInstance}=await import(componentURL);
 
-async function flow({rpm=0,ahead=0,sway=0,helm=0,depth=.7}){
+async function flow({rpm=0,ahead=0,sway=0,helm=0,depth=.7,stock}){
   const field=await loadInstance('CruiserPropulsion',{
-    shaftRevolutions:rpm/60,helm,propellerInflow:[ahead,sway,0],
+    ...(stock && {rudderStock:stock}),shaftRevolutions:rpm/60,helm,propellerInflow:[ahead,sway,0],
     rudderInflow:[ahead,sway,0],upInBody:[0,0,1],propellerDepth:depth,rudderDepth:depth
   },fileResponse);
   for(let i=0;i<100;i++)field.advance(.02);
@@ -21,7 +21,7 @@ async function flow({rpm=0,ahead=0,sway=0,helm=0,depth=.7}){
     rpm,ahead,sway,helm,depth,advance:field.get('axialAdvance'),j:field.get('advanceCoefficient'),
     validJ:field.get('advanceCoefficientValid'),
     thrust:field.get('propellerThrust'),torque:field.get('shaftTorque'),power:field.get('shaftPower'),
-    wash:field.get('slipstreamAtRudder'),washFraction:field.get('rudderWashFraction'),
+    induction:field.get('diskInduction'),wash:field.get('slipstreamAtRudder'),washFraction:field.get('rudderWashFraction'),
     angle:field.get('rudderAngle'),propellerForce:field.get('propellerForce'),rudderForce:field.get('rudderForce'),
     propellerWetFraction:field.get('propellerWetFraction'),rudderWetFraction:field.get('rudderWetFraction')
   };
@@ -30,6 +30,12 @@ async function flow({rpm=0,ahead=0,sway=0,helm=0,depth=.7}){
   return output;
 }
 const bollard=await flow({rpm:1750,helm:1});
+const offAxis=await flow({rpm:1750,helm:1,stock:[-3.50,.40,-.89]});
+assert.equal(offAxis.washFraction,0,'A rudder outside the jet should feel no prop wash');
+assert.equal(Math.abs(offAxis.rudderForce[1]),0);
+const furtherAft=await flow({rpm:1750,helm:1,stock:[-3.80,0,-.89]});
+assert(furtherAft.wash>bollard.wash && furtherAft.wash<2*bollard.induction,
+  'Axial induction should grow toward the far-wake limit');
 const starboard=await flow({rpm:1750,helm:-1});
 const ahead=await flow({rpm:1750,ahead:6.8,helm:1});
 const astern=await flow({rpm:-1100,ahead:-2.5,helm:1});
@@ -40,6 +46,11 @@ const halfImmersed=await flow({rpm:1750,depth:0,helm:1});
 const crossFlow=await flow({ahead:5,sway:1});
 assert(bollard.j===0&&bollard.validJ===1&&bollard.thrust>14000&&bollard.thrust<16000&&bollard.torque>850);
 assert(bollard.wash>5&&bollard.washFraction>0&&bollard.washFraction<1&&bollard.rudderForce[1]<-1000);
+for(const run of [bollard,ahead,halfImmersed]){
+  const diskArea=Math.PI*.46**2/4*run.propellerWetFraction;
+  const momentumFlux=2*1025*diskArea*(run.advance+run.induction)*run.induction;
+  assert(Math.abs(momentumFlux-run.thrust)<1e-7,'Ahead disk momentum must reproduce the shaft thrust');
+}
 assert(starboard.rudderForce[1]>1000&&Math.abs(bollard.rudderForce[1]+starboard.rudderForce[1])<1e-8);
 assert(ahead.j>.4&&ahead.j<.5&&ahead.thrust>0&&ahead.thrust<bollard.thrust&&ahead.torque<bollard.torque);
 assert(astern.thrust<0&&astern.torque<0&&astern.power>0&&astern.wash===0&&astern.rudderForce[1]>0);
@@ -62,6 +73,9 @@ async function cruise(throttle){
     parameters:{initialEast:-120,initialNorth:-80,initialHeading:0}});
   try{
     const set=values=>fmu.set_inputs(JSON.stringify(Object.entries(values)));
+    const mounts=fmu.bind_outputs(JSON.stringify(['driveGeometry[3]','driveGeometry[5]',
+      'driveGeometry[7]','driveGeometry[9]']));
+    assert.deepEqual(Array.from(fmu.read_bound(mounts)),[-3.11,-.95,-3.50,-.89]);
     const get=fmu.bind_outputs(JSON.stringify(outputNames));
     const step=(count,dt)=>{for(let i=0;i<count;i++)fmu.step(dt);};
     const observe=()=>Array.from(fmu.read_bound(get));

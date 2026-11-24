@@ -2,13 +2,12 @@ model CruiserPropulsion "Open-water propeller and finite-aspect foil in the inbo
   parameter Real waterDensity(unit="kg/m3")=1025;
   parameter Real propellerDiameter(unit="m")=.46;
   final parameter Real referencePitchRatio=.95 "P/D of the reference series curve";
-  parameter Real propellerCenter[3](each unit="m")={-3.11,0,-.76};
+  parameter Real propellerCenter[3](each unit="m")={-3.11,0,-.95};
   parameter Real shaftInclination(unit="rad")=atan(.36/1.8);
   final parameter Real shaftAxis[3]={cos(shaftInclination),0,sin(shaftInclination)};
-  parameter Real rudderStock[3](each unit="m")={-3.36,0,-.61};
+  parameter Real rudderStock[3](each unit="m")={-3.50,0,-.89};
   parameter Real rudderChord(unit="m")=.34;
   parameter Real rudderSpan(unit="m")=.43;
-  final parameter Real rudderPressureOffset(unit="m")=-.25*rudderChord;
   parameter Real wakeFraction=.10 "Effective hull wake fraction ahead";
   parameter Real thrustDeduction=.06 "Reduction from open-water thrust to effective hull thrust";
   parameter Real reverseThrustFactor=.55,reverseTorqueFactor=.72 "Unmeasured astern corrections";
@@ -44,6 +43,7 @@ protected
   final parameter Real rudderAspect=rudderSpan/rudderChord;
   Real n(unit="1/s"),direction,j;
   Real diskHeight(unit="m"),diskIntersection,coastFraction,coastingDrag(unit="N");
+  Real washPoint[3](each unit="m"),axialDistance(unit="m"),jetIncrement(unit="m/s"),jetRadius(unit="m");
   Real incoming(unit="m/s"),jetHalfHeight(unit="m"),jetCenterZ(unit="m"),wetSpan(unit="m");
   Real wetBottom(unit="m"),wetTop(unit="m"),washedSpan(unit="m"),upVertical;
   Real ambientForce[2](each unit="N"),washForce[2](each unit="N");
@@ -88,7 +88,8 @@ equation
 
   der(rudderAngle)=noEvent(min(maximumRudderRate,max(-maximumRudderRate,
     (-maximumRudder*min(1,max(-1,helm))-rudderAngle)/.18)));
-  rudderCenter=rudderStock+rudderPressureOffset*{cos(rudderAngle),sin(rudderAngle),0};
+  // The stock is a quarter chord behind the leading edge of this foil.
+  rudderCenter=rudderStock;
   upVertical=max(.1,upInBody[3]);
   wetBottom=rudderCenter[3]-.5*rudderSpan;
   wetTop=noEvent(max(wetBottom,min(rudderCenter[3]+.5*rudderSpan,rudderCenter[3]+rudderDepth/upVertical)));
@@ -100,9 +101,16 @@ equation
   // is confined to a contracted streamtube and exists only under ahead thrust.
   diskInduction=sqrt(.25*incoming^2+noEvent(max(0,propellerThrust))
     /(2*waterDensity*diskArea*max(.01,propellerWetFraction)))-.5*incoming;
-  slipstreamAtRudder=1.65*diskInduction*shaftAxis[1];
-  jetHalfHeight=.5*propellerDiameter*sqrt((incoming+diskInduction+.01)/(incoming+2*diskInduction+.01));
-  jetCenterZ=propellerCenter[3]+(rudderCenter[1]-propellerCenter[1])*tan(shaftInclination);
+  // Sample the jet at mid-chord. Vortex-cylinder induction grows from vi at
+  // the disk to 2 vi downstream. Continuity sets the local streamtube radius.
+  washPoint=rudderStock-.25*rudderChord*{cos(rudderAngle),sin(rudderAngle),0};
+  axialDistance=(propellerCenter[1]-washPoint[1])/shaftAxis[1];
+  jetIncrement=diskInduction*(1+axialDistance/sqrt(axialDistance^2+(.5*propellerDiameter)^2));
+  slipstreamAtRudder=jetIncrement*shaftAxis[1];
+  jetRadius=.5*propellerDiameter*sqrt(if noEvent(incoming+jetIncrement>1e-8) then
+    (incoming+diskInduction)/(incoming+jetIncrement) else 1);
+  jetHalfHeight=sqrt(max(0,jetRadius^2-(washPoint[2]-propellerCenter[2])^2))/shaftAxis[1];
+  jetCenterZ=propellerCenter[3]-axialDistance*shaftAxis[3];
   washedSpan=noEvent(max(0,min(wetTop,jetCenterZ+jetHalfHeight)-max(wetBottom,jetCenterZ-jetHalfHeight)));
   rudderWashFraction=(washedSpan/rudderSpan)*diskInduction/(diskInduction+.01);
   ambientForce=foilForce(rudderInflow[1],rudderInflow[2],rudderAngle,

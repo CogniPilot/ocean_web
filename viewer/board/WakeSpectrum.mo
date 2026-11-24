@@ -104,6 +104,38 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
       re[:,column]:=lineR/normalization; im[:,column]:=lineI/normalization;
     end for;
   end transform;
+  function surfaceElevation "Real elevation from complex travelling-wave amplitudes"
+    input Real realPart[n,n],imagPart[n,n];
+    output Real z[n,n];
+  protected
+    constant Integer order[n]={reverseIndex(i,n) for i in 1:n};
+    constant Integer opposite[n]={1+mod(1-i,n) for i in 1:n};
+    constant Real cosine[n]={cos(2*pi*i/n) for i in 0:n-1};
+    constant Real sine[n]={sin(2*pi*i/n) for i in 0:n-1};
+    constant Integer folded[n]={min(i,opposite[i]) for i in 1:n};
+    constant Real signIm[n]={if i<=div(n,2)+1 then 1 else -1 for i in 1:n};
+    Real rowsR[div(n,2)+1,n],rowsI[div(n,2)+1,n],lineR[n],lineI[n];
+    Integer partner;
+  algorithm
+    // Project onto the Hermitian spectrum of the real elevation. After the
+    // east transform, conjugate north rows can be reconstructed exactly.
+    for row in 1:div(n,2)+1 loop
+      partner:=opposite[row];
+      (lineR,lineI):=transformLine(
+        {.5*(realPart[row,i]+realPart[partner,opposite[i]]) for i in 1:n},
+        {.5*(imagPart[row,i]-imagPart[partner,opposite[i]]) for i in 1:n},
+        cosine,sine,order);
+      rowsR[row,:]:=lineR;rowsI[row,:]:=lineI;
+    end for;
+    // The inverse transform of A+iB returns two real water columns together.
+    for col in 1:2:n loop
+      (lineR,lineI):=transformLine(
+        {rowsR[folded[i],col]-signIm[i]*rowsI[folded[i],col+1] for i in 1:n},
+        {signIm[i]*rowsI[folded[i],col]+rowsR[folded[i],col+1] for i in 1:n},cosine,sine,order);
+      z[:,col]:=lineR/(n*n);z[:,col+1]:=lineI/(n*n);
+    end for;
+  end surfaceElevation;
+
   function hullSource
     input Real x,y,bearing,heel,pitch,xs[7],sep,vol[2,6];
     output Real strips[12,3];
@@ -352,6 +384,13 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
         end for;
       end for;
       (wr,wi):=transform(tile,unused,false);
+      wake:=tile;
+      return;
+    end if;
+    if ue==0 and un==0 then
+      // The coupled boats receive wind waves from Wreck.Ocean. Here their
+      // total and hull-only elevations are the same real inverse transform.
+      tile:=surfaceElevation(wr,wi);
       wake:=tile;
       return;
     end if;

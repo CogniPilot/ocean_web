@@ -742,3 +742,30 @@ tested transitions the maximum wake-height error at the start of a new
 blend was 6.5 cm. All 34 candidate wake uploads started from the expected
 current height, to the texture's quantization precision. The shader also
 crossfades the crest foam coverage between the two height samples.
+
+## Hobie beam reach on High
+
+A 20.15 s Chromium run at 1920 × 1080 on the RTX 3090 advanced the
+previous Hobie by 12.50 s (0.62×) while drawing at 30 FPS. A user-timing
+marker in the sailing worker identified its Linux thread. The thread
+accumulated 19.51 s on CPU and 0.33 s runnable off CPU. Linux perf recorded
+9,247 browser-wide cycle samples. On the worker, perf stat counted 65.26
+billion cycles and 107.94 billion instructions. The simultaneous V8
+profile put 19.9% of samples in the wake-step function and its generated
+regions and 7.9% in the hull-hydrostatics function. A second live capture
+of the same release reached 0.89×. Browser throughput varies with host load.
+
+For a locally generated wake over an externally supplied wind sea, the
+real inverse FFT now transforms 33 rows and 32 pairs of columns on the
+64 × 64 grid. The calm-background standalone case took 1.64 s versus
+2.18 s over 68 timed updates. The largest difference among 656,560
+elevation and load comparisons was 4.34e-17. With independent wind
+or edge damping enabled, the comparisons were identical.
+
+On the full Hobie, three FMUs replayed the same reach in alternating blocks
+of ten 10 ms steps on one CPU. Across 840 timed steps, mean step plus pose
+read cost was 21.24 ms for the previous release, 20.85 ms on Rumoca 7107c18
+with the original FFT, and 20.31 ms with the real FFT. All nine observed
+channels matched exactly across 1,020 steps. Separate-process runs showed
+considerable timing variation. The live optimized build reached 0.63×
+at 30 FPS in a 20 s capture.

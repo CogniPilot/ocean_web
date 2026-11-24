@@ -56,3 +56,50 @@ for(const [name,[position,look]] of Object.entries(cruiserUnderwaterViews)){
   ray.set(lens,direction);
   assert.equal(ray.intersectObjects(fixedMeshes,false).length,0,name+' optical axis is obstructed');
 }
+
+// Check the swept wheel against the keel at its tightest point. For this
+// symmetric V hull each circular blade orbit is closest on the centreline.
+const propeller=group.getObjectByName('Bronze propeller');
+const blade=propeller.children.find(part=>part.geometry?.type==='BufferGeometry');
+const rudder=group.getObjectByName('Steering rudder');
+const foil=rudder.children.find(part=>part.geometry?.type==='BufferGeometry');
+const keelRay=new T.Raycaster(new T.Vector3(),new T.Vector3(0,0,1));
+function keelClearance(point){
+  keelRay.ray.origin.set(point.x,point.y,-3);
+  const hit=keelRay.intersectObjects(plating,false)[0];
+  // The rudder trailing edge can extend abaft the transom.
+  if(!hit && point.x < -3.70)return Infinity;
+  assert(hit,'Expected stern plating over running gear');
+  return hit.point.z-point.z;
+}
+const position=blade.geometry.attributes.position;
+let bladeGap=Infinity,rudderGap=Infinity;
+for(let i=0;i<position.count;i++){
+  const tip=new T.Vector3(position.getX(i),0,Math.hypot(position.getY(i),position.getZ(i)));
+  bladeGap=Math.min(bladeGap,keelClearance(propeller.localToWorld(tip)));
+}
+for(const angle of [-.52,0,.52]){
+  rudder.rotation.z=angle;rudder.updateMatrixWorld(true);
+  for(let i=0;i<foil.geometry.attributes.position.count;i++){
+    const point=new T.Vector3().fromBufferAttribute(foil.geometry.attributes.position,i);
+    rudderGap=Math.min(rudderGap,keelClearance(foil.localToWorld(point)));
+  }
+}
+console.log({bladeGap_m:bladeGap,rudderGap_m:rudderGap});
+assert(Number.isFinite(bladeGap) && Number.isFinite(rudderGap) && bladeGap>.025 && rudderGap>.015,'The running gear must clear the hull through its travel');
+
+// Sample the five feed frusta with the rudder at both stops. The bounding
+// sphere encloses the entire rotating wheel at every shaft angle.
+const wheel=new T.Sphere(propeller.getWorldPosition(new T.Vector3()),.24);
+const eye=new T.PerspectiveCamera(64,16/9,.045,20);
+for(const angle of [-.52,0,.52]){
+  rudder.rotation.z=angle;rudder.updateMatrixWorld(true);
+  for(const [name,[origin,target,up=[0,0,1]]] of Object.entries(cruiserUnderwaterViews)){
+    eye.position.set(...origin);eye.up.set(...up);eye.lookAt(...target);eye.updateMatrixWorld();
+    for(const u of [-1,-.5,0,.5,1])for(const v of [-1,-.5,0,.5,1]){
+      ray.setFromCamera({x:u,y:v},eye);
+      assert(!ray.ray.intersectsSphere(wheel),name+' looks into the swept wheel');
+      assert.equal(ray.intersectObject(rudder,true).length,0,name+' looks into the rudder');
+    }
+  }
+}

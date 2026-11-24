@@ -6,7 +6,7 @@ import {scalarNames} from './fmu-page-contract.js';
 import {loadInstance} from '../fmi3/instance.mjs';
 
 let session,observations,inputs,surveyMap;
-let bowField,bowFields,breakingBows=false,singleBow=false;
+let bowField,bowFields,breakingBows=false,singleBow=false,bowLength=8;
 let sampledGroups=[],stepCount=0,stepTicks=1;
 // These discrete outputs share sample events in OceanWorld. The initial
 // right limit can differ from the initialization snapshot on the first step.
@@ -38,6 +38,7 @@ async function handle(request){
     session=await openFmuSession({index,base,parameters,instanceName:'ocean_web',onProgress});
     const variables=new Map(index.variables.map(v=>[v.name,v]));
     singleBow=Boolean(request.singleBow&&variables.has('sternFoamTrail'));
+    bowLength=request.bowLength??8;
     breakingBows=Boolean(request.breakingBows&&(!request.singleBow||singleBow));
     const initial={};
     if(variables.has('sailingManual'))initial.sailingManual=1;
@@ -63,7 +64,11 @@ async function handle(request){
       const [waveDt,windDt]=session.read_values(JSON.stringify(['waves.dt','wind.dt']));
       const battenFields=[1,2].flatMap(sail=>
         ['battenCount','battenLuff','battenLeech','mesh'].map(name=>`boat.cloth[${sail}].${name}`));
+      // Fixed geometry and constants are valid after FMI initialization. Keep
+      // their first snapshot on the client for the lifetime of this session.
+      const fixed=names.filter(name=>['fixed','constant'].includes(variables.get(name)?.variability));
       const schedules=[
+        [Infinity,fixed],
         [Number.MAX_SAFE_INTEGER,['race.committeeContactVertices','race.committeeContactFaces','race.committeeFittingVertices',
           'race.fittingContactFaces','driveGeometry','drone.droneContactParts','drone.droneContactFaces']],
         [waveDt*100,['waves.height','waves.driftE','waves.driftN','bowSources','bowSpeed','bowFrame','sternFoamTrail'],'wakeSurface'],
@@ -74,7 +79,7 @@ async function handle(request){
         [20,['boatWater.tile']],[20,['sensor'],'dvl'],[20,['ping'],'camera'],[windDt*100,['wind.field']]
       ];
       for(const [interval,candidates,subscription] of schedules){
-        if(!Number.isSafeInteger(interval)||interval<1)continue;
+        if(interval!==Infinity&&(!Number.isSafeInteger(interval)||interval<1))continue;
         const selected=names.filter(name=>candidates.includes(name));
         if(!selected.length)continue;
         const cruiserStrips=selected.includes('stripEast')&&variables.has('boatPose');
@@ -115,7 +120,7 @@ async function handle(request){
       group.epoch=undefined;
       return null;
     }
-    const epoch=sampleEpoch(stepCount,group.interval);
+    const epoch=group.interval===Infinity?0:sampleEpoch(stepCount,group.interval);
     if(epoch===group.epoch)return null;
     group.epoch=epoch;
     const data=session.read_bound(group.binding);
@@ -129,7 +134,7 @@ async function handle(request){
     const values=bowSnapshot.subarray(sources.offset,sources.offset+sources.count);
     const velocity=bowSnapshot.subarray(speed.offset,speed.offset+speed.count);
     if(bowField||values.some(v=>v!==0)){
-      bowField??=await loadInstance('BowWavePatch',breakingBows?{breakingBows:1,...(singleBow?{singleBow:1}:{})}:{});
+      bowField??=await loadInstance('BowWavePatch',breakingBows?{breakingBows:1,length:bowLength,...(singleBow?{singleBow:1}:{})}:{});
       bowField.set('sources',values);bowField.set('relativeSpeed',velocity);
       bowField.advance(.01);
       const [coarse,foam,jets]=breakingBows?
