@@ -284,7 +284,9 @@ equation
     yawRate+sin(pitch)*rollRate};
   bowArm=transpose(hullAxes(yaw,roll,-pitch))*{bowLead,0,bowHeight};
   bowVelocity=cat(1,launchVelocity,{heaveRate})+cross(deckState[10:12],bowArm);
-  fairlead[4,:]={committeeEast,committeeNorth,heave}+bowArm;
+  // Secondary scorers may receive EN positions from another course. Keep the
+  // physical line attached to its own integrated body in either mode.
+  fairlead[4,:]={laidE[4]+launchOffset[1],laidN[4]+launchOffset[2],heave}+bowArm;
   launchWind=mooringWind-launchVelocity;
   launchFlow=mooringCurrent-launchVelocity;
   // Projected windage and underwater drag areas along and abeam. The bow
@@ -312,7 +314,7 @@ equation
       buoyEast,buoyNorth,buoyState,markVelocity,buoySpeed);
   end when;
   for b in 1:3 loop
-    fairlead[b,:]={buoyEast[b],buoyNorth[b],buoyState[b,1]-pyramidDraft};
+    fairlead[b,:]={laidE[b]+markOffset[b,1],laidN[b]+markOffset[b,2],buoyState[b,1]-pyramidDraft};
     markAir[b,:]=mooringWind-markVelocity[b,:];
     markFlow[b,:]=mooringCurrent-markVelocity[b,:];
     der(markOffset[b,:])=markVelocity[b,:];

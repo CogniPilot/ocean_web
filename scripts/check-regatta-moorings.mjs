@@ -42,5 +42,8 @@ function cross(x,y,utc){
 }
 cross(120,198,299);assert.equal(cross(120,199,300),1);
 assert.equal(cross(120,201,301),2,'The secondary racer must use the live gate orientation and position');
+for(let i=0;i<100;i++)scorer.advance(.05);
+assert.deepEqual(scorer.get('mooringTension'),[0,0,0,0],
+  'A scoring-only coordinate override must not stretch the physical lines');
 console.log('Four seabed anchors, slack and tension, contact and moving-line scoring passed.',
   {tensionN:tensions.map(Math.round),excursionM:Array.from({length:4},(_,i)=>+Math.hypot(moved[2*i],moved[2*i+1]).toFixed(2))});
