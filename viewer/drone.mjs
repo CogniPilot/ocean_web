@@ -46,6 +46,7 @@ export async function surveyDrone(T,scene,world){
   const hasNavigation=flight.has('estimatedPosition'),hasRotorSpeeds=flight.has('rotorSpeed');
   const hasRotorWake=world?.hasRotorWake??flight.has('rotorWakeTraffic');
   const hasDroneContact=world?.hasDroneContact??flight.has('droneTraffic');
+  const hasVesselDecks=world?.hasVesselDecks??flight.has('vesselDecks');
   const rotorFields=['aircraft.thrustCoefficient_N_s2','aircraft.hoverRotorSpeed_rad_s','aircraft.omegaMax','propellerRadius'];
   const wakeGeometry=rotorFields.every(name=>flight.has(name))?{hubs,parameters:flight.getMany(rotorFields)}:null;
   const bladeCount=flight.has('aircraft.bladeCount')?flight.get('aircraft.bladeCount'):2;
@@ -71,7 +72,7 @@ export async function surveyDrone(T,scene,world){
     const sigma=v=>Math.sqrt(Math.max(0,v));
     return {position:position.map(sigma),velocity:velocity.map(sigma),wind:sigma(wind)};
   }
-  return {group,instruments,hasNavigation,covariance,bladeCount,hasRotorWake,hasDroneContact,wakeGeometry,
+  return {group,instruments,hasNavigation,covariance,bladeCount,hasRotorWake,hasDroneContact,hasVesselDecks,wakeGeometry,
     contactGeometry(){
       const names=['droneContactParts','droneContactFaces'];
       return names.every(name=>flight.has(name))?flight.getMany(names):null;
@@ -95,6 +96,8 @@ export async function surveyDrone(T,scene,world){
     cut(value){flight.set('motorCut',Number(value));},
     station(east,north){flight.set('stationEast',east);flight.set('stationNorth',north);},
     sailDeck(state,cat){flight.set('sailDeckState',state);flight.set('sailDeckEnabled',1);flight.set('isCatamaran',Number(cat));},
+    surfaceDecks(rows){if(hasVesselDecks)flight.set('vesselDecks',rows);},
+    vesselLandingLoad(slot){return hasVesselDecks?flight.get('vesselDeckWrenches').slice(12*slot+6,12*slot+12):null;},
     get sailReaction(){return flight.get('sailWrench').slice(6);},
     deck(state){flight.set('deckState',state);flight.set('deckEnabled',1);},
     get deckReaction(){return flight.get('deckWrench').slice(6);},

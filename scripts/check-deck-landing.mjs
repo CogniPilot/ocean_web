@@ -45,3 +45,69 @@ for(const [catamaran,center,deckTop] of [[1,-.425,.414],[0,-.27,.1585]]){
   assert(flight.get('position')[2]>2 && flight.get('sailWrench')[2]===0);
   console.log({catamaran,height,support:wrench[2]});
 }
+
+function vesselRows(east,north,z=0,roll=0,ve=0,vu=0,rollRate=0){
+  // Slot one must remain inactive while slot two carries the cruiser.
+  return [0,0,...Array(12).fill(0),1,3,east,north,z,0,roll,0,ve,0,vu,rollRate,0,0,...Array(28).fill(0)];
+}
+
+const weight=2*9.80665;
+function steps(instance,seconds){
+  for(let i=0;i<Math.round(seconds/.005);i++)instance.advance(.005);
+}
+function settle(instance,force,limit=10){
+  for(let i=0;i<limit*200;i++){
+    instance.advance(.005);
+    if(force()>3){
+      instance.set('motorCut',1);instance.set('climb',0);
+      steps(instance,2);
+      return;
+    }
+  }
+  assert.fail('no touchdown load');
+}
+function takeoff(instance,force){
+  const height=instance.get('position')[2];
+  instance.set('motorCut',0);instance.set('climb',1);steps(instance,3);
+  assert(instance.get('position')[2]>height+1 && force()===0,'failed to take off');
+}
+for(const [location,east,deckHeight] of [['roof',-5,2.207],['engine hatch',-2.85,.571]]){
+  const flight=await loadInstance('Rdd2Survey',{pilot:1,climb:-.65,vesselDecks:vesselRows(east,0)},read);
+  const wrench=()=>flight.get('vesselDeckWrenches').slice(12,24);
+  const support=()=>wrench()[2];
+  settle(flight,support);
+  const [x,,height]=flight.get('position');
+  assert(Math.abs(height-deckHeight-.1)<.006 && Math.abs(support()-weight)<.12);
+  assert(wrench().slice(0,3).every((force,i)=>Math.abs(force+wrench()[i+6])<1e-8));
+  for(let i=0;i<600;i++){
+    const t=i*.005;
+    flight.set('vesselDecks',vesselRows(east+.19*(1-Math.cos(t)),0,.04*Math.sin(t),.025*Math.sin(t),
+      .19*Math.sin(t),.04*Math.cos(t),.025*Math.cos(t)));
+    flight.advance(.005);
+  }
+  const [rideEast,,rideHeight]=flight.get('position');
+  assert(Math.abs(rideEast-x-.19*(1-Math.cos(3)))<.07,'drone did not follow the moving deck');
+  assert(Math.abs(rideHeight-height-.04*Math.sin(3))<.015,'drone did not follow deck heave');
+  takeoff(flight,support);
+  console.log({cruiserSurface:location,height,rideEast,rideHeight});
+}
+
+const cruiserMiss=await loadInstance('Rdd2Survey',{motorCut:1,vesselDecks:vesselRows(-5,2)},read);
+for(let i=0;i<300;i++){
+  cruiserMiss.advance(.005);
+  assert(cruiserMiss.get('vesselDeckWrenches').every(force=>force===0));
+}
+
+for(const [ground,origin,minHeight,maxHeight] of [
+  ['sand',[36,40],3.9,4.3],
+  // Sand beneath this boulder is only ~0.5 m high.
+  ['boulder',[33.7702347,49.4990903],1.8,2.0]
+]){
+  const flight=await loadInstance('Rdd2Survey',{origin,pilot:1,climb:-.65},read);
+  const support=()=>flight.get('terrainWrench')[2];
+  settle(flight,support);
+  const height=flight.get('position')[2];
+  assert(height>minHeight&&height<maxHeight&&Math.abs(support()-weight)<.2,JSON.stringify({ground,height,support:support()}));
+  takeoff(flight,support);
+  console.log({ground,height,takeoffHeight:flight.get('position')[2]});
+}

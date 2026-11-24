@@ -1,3 +1,4 @@
+import {deckTwist,interpolateDeckPose} from './deck-traffic.mjs';
 import {cabinCruiser} from './motorboat.mjs';
 import {npcRoom} from './npc-room.mjs';
 import {joinFleetRoom} from './fleet-room.mjs';
@@ -348,7 +349,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       const sizes=[10,8,6,30,18,48,3,10];
       if(!Array.isArray(rows)||(rows.length!==7&&rows.length!==8)||!rows.every((row,i)=>
         Array.isArray(row)&&row.length===sizes[i]&&row.every(Number.isFinite)))return;
-      encounter={owner:peerId,at:performance.now(),rows};
+      const previous=encounter?.owner===peerId&&encounter.rows[7]?{at:encounter.at,rows:encounter.rows}:null;
+      encounter={owner:peerId,at:performance.now(),rows,previous};
     };
     engineChannel=room.makeAction('engine-run');
     engineChannel.onMessage=(running,{peerId})=>{
@@ -781,6 +783,51 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     }
     return deck;
   }
+  const vesselDecks=new Float64Array(4*14);
+  const deckRotation=new T.Quaternion(),deckEuler=new T.Euler(0,0,0,'ZYX');
+  function peerDeckPose(data,cruiser){
+    if(!cruiser)return [data[0],data[1],data[3],data[2],data[4],-data[5]];
+    deckEuler.setFromQuaternion(deckRotation.fromArray(data,220).normalize(),'ZYX');
+    return [data[217],data[218],data[219],deckEuler.z,deckEuler.x,-deckEuler.y];
+  }
+  function nearbyDecks(east,north,now,patrols,parked,local){
+    const nearby=[];
+    function add(row){
+      const distance2=(east-row[2])**2+(north-row[3])**2;
+      if(distance2<36)nearby.push({row,distance2});
+    }
+    if(parked&&encounter?.rows[7]&&encounter.owner===npc.owner&&now-encounter.at<650){
+      const {previous,at,rows}=encounter;
+      const pose=values=>[values[0],values[1],values[2],values[5],values[3],-values[4]];
+      const deck=pose(rows[7]);
+      add([1,3,...deck,...deckTwist(deck,previous&&pose(previous.rows[7]),deck,(at-(previous?.at??at))*.001)]);
+    }
+    for(const row of patrols??[])add(row);
+    for(const peer of peers.values()){
+      const cruiser=peer.kind==='motorboat';
+      if((!cruiser&&peer.kind!=='boat')||peer.leftAt!==undefined||peer.awaitingPose||!peer.timeline.latest||peer.timeline.age(now)>650)continue;
+      const {left,right,fraction}=peer.timeline.at(now);
+      const k=cruiser?217:0;
+      if((east-left[k])**2+(north-left[k+1])**2>=64)continue;
+      const leftPose=peerDeckPose(left,cruiser),rightPose=left===right?leftPose:peerDeckPose(right,cruiser);
+      const pose=interpolateDeckPose(leftPose,rightPose,fraction);
+      const latest=peer.timeline.latest,prior=peer.timeline.samples.at(-2);
+      const before=left===right?(left===latest.data&&prior?peerDeckPose(prior.data,cruiser):null):leftPose;
+      const after=left===right?leftPose:rightPose;
+      const dt=left===right?(latest.sent-(prior?.sent??latest.sent))*.001:
+        left[215]>0&&right[215]>0?right[215]-left[215]:(latest.sent-(prior?.sent??latest.sent))*.001;
+      const known=cruiser?undefined:[212,213,214].map(i=>left[i]+fraction*(right[i]-left[i]));
+      add([1,cruiser?3:peer.cat?1:2,...pose,...deckTwist(pose,before,after,dt,known)]);
+    }
+    vesselDecks.fill(0);
+    // Reserve slot zero while this client owns a cruiser simulation, so
+    // delayed FMU reactions can never be applied to the wrong vessel.
+    if(local)vesselDecks.set([1,3,...local]);
+    const reserved=local===null?0:1;
+    nearby.sort((a,b)=>a.distance2-b.distance2).slice(0,4-reserved)
+      .forEach(({row},i)=>vesselDecks.set(row,14*(i+reserved)));
+    return vesselDecks;
+  }
   function seaTime(local,now){
     if(!room)return local+retainedOffset;
     const phase=seaClock.sample(local,now,npc.owner);
@@ -858,5 +905,5 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   }
   return {join,leave,recover:()=>room?.recover(),setResetHandler,resetFleet,frame,sendChat,sendEncounter,receiveEncounter,recordFinish,fleetNumber,playerName,npcName,raceWinner:finishes.get,hostCruiser:()=>peers.get(npc.owner)?.cruiser,detachView,attachView,resumeClock,get connected(){return Boolean(room);},get peerCount(){return participants.size;},setPenalty(turns){
     if(ourPenalty!==turns){ourPenalty=turns;lastPenaltySend=-Infinity;}
-  },lamps,cruisers,drones,imagingHit,contacts,rotorWakes,droneContacts,nearbyDeck,npc,vessels,players,contactPeers,contactTilts,get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
+  },lamps,cruisers,drones,imagingHit,contacts,rotorWakes,droneContacts,nearbyDeck,nearbyDecks,npc,vessels,players,contactPeers,contactTilts,get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
 }

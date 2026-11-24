@@ -107,6 +107,9 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   input Real helmLever(start=0) "Positive port helm";
   input Real startEncounter(start=0);
   input Real lowerAnchor(start=0),wiperSwitch(start=0);
+  input Real droneLandingLoad[6]=zeros(6) "Force and moment on the cruiser from a landed drone in ENU";
+  output Real landingDeck[12] "Cruiser ENU deck pose and twist, with bow-up pitch";
+  Real landingMoment[3];
   output Real anchorState[12] "Anchor position, quaternion, bow roller position, line paid and grounded";
   output Real wiperAngle "Sweep angle from park [rad]";
   discrete Real wiperPhase(start=0,fixed=true);
@@ -193,6 +196,8 @@ equation
   bowRoller=focus+bowRollerArm;
   anchorForce=if noEvent(anchor.paid>.22 or lowerAnchor>.5) then anchor.reaction else zeros(3);
   anchorMoment=transpose(yawRotation)*cross(bowRollerArm,anchorForce);
+  landingMoment=transpose(yawRotation)*droneLandingLoad[4:6];
+  landingDeck=cat(1,{east,north,z,yaw,roll,-pitch,der(east),der(north),vertical},yawRotation*spin);
   anchorState=cat(1,anchor.position,anchor.orientation,bowRoller,{anchor.paid,anchor.grounded});
   when sample(0,.02) then
     wiperPhase=if wiperSwitch>.5 then mod(pre(wiperPhase)+.02,1.12)
@@ -233,21 +238,21 @@ equation
   effectiveThrottle=if starterRemaining>1e-8 or encounter.waterMass>1650 then 0 else throttleLever;
   der(shaftRPM)=(if effectiveThrottle>=0 then 1850*effectiveThrottle-shaftRPM else 1100*effectiveThrottle-shaftRPM)/.85;
   thrust=if starterRemaining>1e-8 then 0 else .0025*shaftRPM*abs(shaftRPM);
-  der(surge)=(thrust+(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1])*cos(yaw)+(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2])*sin(yaw)+shoreWrench[1]
+  der(surge)=(thrust+(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1]+droneLandingLoad[1])*cos(yaw)+(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2]+droneLandingLoad[2])*sin(yaw)+shoreWrench[1]
     -118*surge*abs(surge)-180*surge)/wetMass;
-  der(yawRate)=(.085*helmLever*surge+.025*helmLever*shaftRPM/1850-yawRate)/.9+(animalWrench[6]+shoreWrench[6]+peerForce[3]+sceneForce[3]+damageMoment[3]+anchorMoment[3])/(14000+3.6*encounter.waterMass);
+  der(yawRate)=(.085*helmLever*surge+.025*helmLever*shaftRPM/1850-yawRate)/.9+(animalWrench[6]+shoreWrench[6]+peerForce[3]+sceneForce[3]+damageMoment[3]+anchorMoment[3]+landingMoment[3])/(14000+3.6*encounter.waterMass);
   der(yaw)=yawRate;
-  der(sway)=(-sin(yaw)*(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1])+cos(yaw)*(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2])+shoreWrench[2])/wetMass-(1.5+.45*abs(sway))*sway;
+  der(sway)=(-sin(yaw)*(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1]+droneLandingLoad[1])+cos(yaw)*(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2]+droneLandingLoad[2])+shoreWrench[2])/wetMass-(1.5+.45*abs(sway))*sway;
   der(east)=surge*cos(yaw)-sway*sin(yaw)+boatWater.profile[1,2];
   der(north)=surge*sin(yaw)+sway*cos(yaw)+boatWater.profile[1,3];
-  der(vertical)=(sum(stripForce)+shoreWrench[3]+encounter.collisionForce[3]+anchorForce[3]-9.80665*encounter.waterMass
+  der(vertical)=(sum(stripForce)+shoreWrench[3]+encounter.collisionForce[3]+anchorForce[3]+droneLandingLoad[3]-9.80665*encounter.waterMass
     -16500*vertical)/(wetMass+addedHeaveMass);der(z)=vertical;
   // Restoring moments about the centre of flotation. Roll stiffness accounts
   // for the raised centre of gravity; turning and thrust also trim the hull.
   der(rollRate)=(.68*.55*sum(stripForce[1,j]-stripForce[2,j] for j in 1:6)
-    +shoreWrench[4]+damageMoment[1]+anchorMoment[1]+encounter.rollMoment-(7400+18000*submergedDrag)*rollRate-1950*surge*yawRate)/(rollInertia+.65*encounter.waterMass);der(roll)=rollRate;
+    +shoreWrench[4]+damageMoment[1]+anchorMoment[1]+landingMoment[1]+encounter.rollMoment-(7400+18000*submergedDrag)*rollRate-1950*surge*yawRate)/(rollInertia+.65*encounter.waterMass);der(roll)=rollRate;
   der(pitchRate)=(-sum((stripX[j]-floatX)*(stripForce[1,j]+stripForce[2,j]) for j in 1:6)
-    +shoreWrench[5]+damageMoment[2]+anchorMoment[2]+encounter.pitchMoment-(47000+52000*submergedDrag)*pitchRate-.65*thrust)/(pitchInertia+3.5*encounter.waterMass);der(pitch)=pitchRate;
+    +shoreWrench[5]+damageMoment[2]+anchorMoment[2]+landingMoment[2]+encounter.pitchMoment-(47000+52000*submergedDrag)*pitchRate-.65*thrust)/(pitchInertia+3.5*encounter.waterMass);der(pitch)=pitchRate;
   boatPose={east,north,z,roll,pitch,yaw};
   engine={shaftRPM,surge,thrust,.52*helmLever};
 end OceanMotorboat;

@@ -702,7 +702,16 @@ async function run(saved=readReset(),carried){
     simulation.set('encounterTargets',targetData);
   }
   const damagePoint=new T.Vector3();
-  const backgroundCruiserPose=new Float64Array(10);
+  const backgroundCruiserPose=new Float64Array(10),noLandingLoad=new Float64Array(6);
+  function supplyDroneDecks(now){
+    if(!drone)return;
+    const [east,north]=drone.position;
+    if(drone.hasVesselDecks){
+      const local=backgroundCruiserWorld?
+        (backgroundCruiser.group.visible?backgroundCruiserWorld.get('landingDeck'):undefined):null;
+      drone.surfaceDecks(remote.nearbyDecks(east,north,now,npcTraffic?.deckRows,remoteEncounterCruiser?.group.visible,local));
+    }else if(mode==='flight')world.set('peerDeck',remote.nearbyDeck(east,north,now));
+  }
   let lastCruiserTick=performance.now(),cruiserStepDebt=0;
   function updateEncounter(now,t,roomTime,running){
     const simulation=motor?world:backgroundCruiserWorld,localCruiser=motor??backgroundCruiser;
@@ -730,6 +739,7 @@ async function run(saved=readReset(),carried){
           backgroundCruiserPose.set(lamps,6);
           rows.push(backgroundCruiserPose);
           if(running){
+            if(simulation.hasLandingLoad)simulation.set('droneLandingLoad',drone?.vesselLandingLoad(0)??noLandingLoad);
             simulation.set('windSpeed',ocean.U.wind.value);
             simulation.set('windBearing',ocean.U.bearing.value);
             simulation.set('seaState',Number($('seaState').value));
@@ -2609,10 +2619,7 @@ async function run(saved=readReset(),carried){
         }
         if(drone?.hasRotorWake)drone.wakeSources(remote.rotorWakes(drone.position,now,npcTraffic?.droneWakes));
         if(drone?.hasDroneContact)drone.contactTraffic(remote.droneContacts(drone.position,now,npcTraffic?.droneContactRows));
-        if(mode==='flight'&&drone){
-          const [east,north]=drone.position;
-          world.set('peerDeck',remote.nearbyDeck(east,north,now));
-        }
+        supplyDroneDecks(now);
         if(mode==='habitat'&&animalId){
           const frame=visitors.frame(animalId);
           if(frame){
@@ -2668,6 +2675,7 @@ async function run(saved=readReset(),carried){
       if(!world)acc=Math.min(acc,.1);
       if(!world&&drone?.hasRotorWake)drone.wakeSources(remote.rotorWakes(drone.position,now,npcTraffic?.droneWakes));
       if(!world&&drone?.hasDroneContact)drone.contactTraffic(remote.droneContacts(drone.position,now,npcTraffic?.droneContactRows));
+      if(!starting&&!world&&running&&drone)supplyDroneDecks(now);
       while(!starting&&running&&!world&&acc>=.01&&performance.now()<deadline){
         // One in-flight step. A slower device can display and accept controls
         // while the worker finishes, without dropping or reordering hull samples.
@@ -2841,7 +2849,7 @@ async function run(saved=readReset(),carried){
           const [x,y,z,heel,pitch,yaw]=world.get('boatPose'),speed=world.get('engine')[1];
           nearby.push({id:'local',x,y,z,yaw,heel,pitch,ve:speed*Math.cos(yaw),vn:speed*Math.sin(yaw),hull:3});
         }
-        npcTraffic.draw(vessels,roomTime,npcRaceUtc,npcDisplayUtc,nearby);
+        npcTraffic.draw(vessels,roomTime,npcRaceUtc,npcDisplayUtc,nearby,drone?.hasVesselDecks);
         if(world&&(model||motor)){
           world.set('npcVessels',npcTraffic.contacts);
           world.set('npcTilt',npcTraffic.tilts);

@@ -1,3 +1,4 @@
+import {deckTwist} from './deck-traffic.mjs';
 import {sailboatMesh,observeBoat,sailingRigFields} from './board/boat.mjs';
 import {readSailPanels,sailPanelFields} from './board/sail-battens.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
@@ -193,9 +194,9 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
     ({scene,surface,windAt,race,incidentSea,onError,onFinish}=bindings);
     for(const entry of craft.values())if(entry.visual)scene.add(entry.visual.group);
   }
-  const droneWakes=[],droneContactRows=[];
-  return {contacts,tilts,cruisers,droneWakes,droneContactRows,attachView,draw(rows,time,utc,displayUtc,nearby){
-    contacts.fill(0);tilts.fill(0);cruisers.length=0;droneWakes.length=0;droneContactRows.length=0;
+  const droneWakes=[],droneContactRows=[],deckRows=[];
+  return {contacts,tilts,cruisers,droneWakes,droneContactRows,deckRows,attachView,draw(rows,time,utc,displayUtc,nearby,trackDecks=false){
+    contacts.fill(0);tilts.fill(0);cruisers.length=0;droneWakes.length=0;droneContactRows.length=0;deckRows.length=0;
     for(const [id,entry] of craft){
       const row=rows[Number(id.slice(4))-1];
       if(!row||row.started!==entry.started||row.kind!==entry.kind||row.raceId!==entry.raceId)remove(id,entry);
@@ -249,7 +250,13 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
           }
           if(entry.nextMastRotation!==undefined)
             entry.mastRotation=entry.previousMastRotation+blend*(entry.nextMastRotation-entry.previousMastRotation);
-          drawRacerFrame(visual.boat,entry.prior,snapshot,blend,time,entry.shown,entry.forestay,lead,entry.mastRotation);
+          const state=drawRacerFrame(visual.boat,entry.prior,snapshot,blend,time,entry.shown,entry.forestay,lead,entry.mastRotation);
+          if(trackDecks&&age<.65){
+            const pose=[state[0],state[1],state[3],state[2],state[4],-state[5]];
+            const frame=values=>[values[0],values[1],values[2],values[3],values[18],-values[19]];
+            const twist=deckTwist(pose,frame(entry.prior),frame(snapshot),entry.interval,[snapshot[5],snapshot[6],snapshot[7]]);
+            deckRows.push([1,1,...pose,...twist]);
+          }
           visual.group.userData.orbitDistance=12;
         }
         contacts.set([1,snapshot[0],snapshot[1],snapshot[3],snapshot[5],snapshot[6],snapshot[7],snapshot[2],1],i*9);
@@ -279,6 +286,12 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       const kind=contactClass[row.kind];
       if(kind!==undefined)contacts.set([1,east,north,heading,speed*Math.cos(heading),speed*Math.sin(heading),0,z,kind],i*9);
       tilts.set([roll,pitch],2*i);
+      if(trackDecks&&kind!==undefined){
+        const pose=[east,north,z,heading,roll,-pitch];
+        const twist=deckTwist(pose,entry.deck,pose,time-(entry.deckTime??time));
+        deckRows.push([1,row.kind==='sloop'?2:3,...pose,...twist]);
+        entry.deck=pose;entry.deckTime=time;
+      }
       if(visual.cruiser)cruisers.push(visual.cruiser);
       visual.group.position.set(east,north,z);
       visual.group.rotation.set(roll,pitch,heading,'ZYX');

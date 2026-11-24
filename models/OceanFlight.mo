@@ -5,7 +5,8 @@ model OceanFlight "RDD2 with marine weather, immersion and landing contact"
   input Real station[2](start={-5,0});
   input Real peerDeck[14] "Active, catamaran flag, then ENU deck state";
   input Real rotorWakeTraffic[4,12]=zeros(4,12),droneTraffic[4,14]=zeros(4,14);
-  Rdd2Survey drone(rotorWakeTraffic=rotorWakeTraffic,droneTraffic=droneTraffic,flightMode=flightMode,gpsDropout=0,sailDeckEnabled=peerDeck[1],isCatamaran=peerDeck[2],sailDeckState=peerDeck[3:14],
+  input Real vesselDecks[4,14]=zeros(4,14) "Nearby surface vessel deck pose and twist";
+  Rdd2Survey drone(vesselDecks=vesselDecks,rotorWakeTraffic=rotorWakeTraffic,droneTraffic=droneTraffic,flightMode=flightMode,gpsDropout=0,sailDeckEnabled=peerDeck[1],isCatamaran=peerDeck[2],sailDeckState=peerDeck[3:14],
     deckEnabled=1,deckState=race.deckState,windENU=wind.droneWind,currentENU=boatWater.velocity,
     waterLevel=boatWater.surface+waterOffset,pilot=flightManual,forward=flightPilot[1],
     left=flightPilot[2],climb=flightPilot[3],turn=flightPilot[4],

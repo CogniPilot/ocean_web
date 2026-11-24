@@ -93,11 +93,15 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
   discrete output Real droneContactWrench[6](each start=0,each fixed=true) "Drone contact force and moment in ENU";
   Vehicles.Rdd2.Plant aircraft(initialGroundClearance_m=4.9-bedHeight,groundAltitude=bedHeight,
     windWorld=windENU+rotorWakeWind,exposedFraction=1-immersed,
-    fluidForceWorld=waterLoad+deckWrench[1:3]+sailWrench[1:3]+droneContactWrench[1:3]+(1-immersed)*rotorWakeWrench[1:3],
-    contactMomentWorld=deckWrench[4:6]+sailWrench[4:6]+droneContactWrench[4:6]+(1-immersed)*rotorWakeWrench[4:6]);
+    fluidForceWorld=waterLoad+landingWrench[1:3]+droneContactWrench[1:3]+(1-immersed)*rotorWakeWrench[1:3],
+    contactMomentWorld=landingWrench[4:6]+droneContactWrench[4:6]+(1-immersed)*rotorWakeWrench[4:6]);
 
   input Real deckEnabled,deckState[12];
   input Real sailDeckEnabled,sailDeckState[12],isCatamaran;
+  input Real vesselDecks[4,14]=zeros(4,14) "Active, surface kind, ENU deck pose and twist";
+  output Real vesselDeckWrenches[4,12] "Contact on aircraft then each vessel, in ENU";
+  output Real terrainWrench[6] "Contact on aircraft from island sand and boulders, in ENU";
+  Real landingWrench[6],minimumVesselHeight[4],nearbySand;
   output Real sailWrench[12] "Contact on aircraft then sailboat in ENU";
   output Real deckWrench[12] "World force and torque on drone then launch";
   final parameter Real droneContactParts[9,8,3]=Shore.droneParts();
@@ -285,33 +289,82 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
     end if;
   end pointBoxGap;
 
+  function islandContact "Aircraft vertex contacts against the island's sand and boulder mesh"
+    input Real p[3],quat[4],v[3],bodyRate[3],parts[9,8,3],sandHeight;
+    output Real wrench[6];
+  protected
+    Real A[3,3],w[3],r[3],site[3],contact[5];
+  algorithm
+    wrench:=zeros(6);
+    if abs(p[1]-36)<29.35 and abs(p[2]-40)<23.35 and p[3]<sandHeight+2.5 then
+      A:=transpose(MultiBodyLie.Math.quaternionToT(quat));
+      w:=A*bodyRate;
+      for part in 1:9 loop
+        for i in 1:8 loop
+          r:=A*parts[part,i,:];
+          site:=p+r;
+          contact:=Shore.skinContact(site,1,0,v+cross(w,r),23);
+          wrench:=wrench+cat(1,contact[1:3],cross(r,contact[1:3]));
+        end for;
+      end for;
+    end if;
+  end islandContact;
+
+  function cruiserDeckGap "Contact with walkable surfaces of the modeled cabin cruiser"
+    input Real site[3],center[3];
+    output Real gap[4];
+  protected
+    // Roof, windshield, foredeck, cockpit sole, engine hatch and swim platform.
+    // Each panel gives z at x=0, dz/dx, its x limits and half-beam at each end.
+    constant Real panels[7,6]=[2.207,0,-1.24,.82,.98,.93;2.51,-.728,1.19,1.83,.85,.65;
+      .902,.117,1.18,2.93,1.02,.58;.824,.137,2.93,3.80,.58,.012;
+      .535,0,-3.68,1.12,1.045,1.14;.571,0,-2.645,-1.615,.375,.375;
+      .185,0,-4.16,-3.65,.93,1.05];
+    Real x,w,h,d,slope;
+  algorithm
+    x:=site[1];gap:={1,0,0,1};
+    for panel in 1:7 loop
+      if x>=panels[panel,3] and x<=panels[panel,4] then
+        w:=panels[panel,5]+(panels[panel,6]-panels[panel,5])*(x-panels[panel,3])/(panels[panel,4]-panels[panel,3]);
+        slope:=panels[panel,2];h:=panels[panel,1]+slope*x;
+        if abs(site[2])<=w and center[3]>h and site[3]>h-.34 then
+          d:=sqrt(1+slope^2);
+          if (site[3]-h)/d<gap[1] then
+            gap:={(site[3]-h)/d,-slope/d,0,1/d};
+          end if;
+        end if;
+      end if;
+    end for;
+  end cruiserDeckGap;
+
   function landingContact "Vertex-to-face contact from the drone's convex mesh components"
     input Real enabled,deck[12],p[3],quat[4],v[3],bodyRate[3],parts[9,8,3];
-    input Real surfaceKind "0 committee launch, 1 trampoline, 2 sloop hatch";
+    input Real surfaceKind "0 committee launch, 1 trampoline, 2 sloop hatch, 3 cabin cruiser";
     output Real result[12];
   protected
     final parameter Real launch[42,3]=Shore.committeeVertices(),fittings[3,8,3]=Shore.committeeFittings();
     final parameter Integer launchFaces[80,3]=Shore.committeeFaces();
     Real A[3,3],B[3,3],r[3],delta[3],w[3],f[3],m[3],fb[3],mb[3],y,a,b;
-    Real local[3],gap[4],other[4],deckBox[8,3];
+    Real local[3],center[3],gap[4],other[4],deckBox[8,3];
     Boolean aboveDeck;
     MultiBodyLie.Collision.Material rubber(k=650,d=5,mu=.9,eps=.0003,v_eps=.08);
     MultiBodyLie.Collision.ContactPoint pt;
   algorithm
     result:=zeros(12);delta:=p-deck[1:3];
-    if enabled>.5 and delta*delta<17 then
+    if enabled>.5 and delta*delta<(if surfaceKind>2.5 then 24 else 17) then
       y:=deck[4];a:=deck[5];b:=-deck[6];
       B[1,:]:={cos(y)*cos(b),sin(y)*cos(b),-sin(b)};
       B[2,:]:={cos(y)*sin(b)*sin(a)-sin(y)*cos(a),sin(y)*sin(b)*sin(a)+cos(y)*cos(a),cos(b)*sin(a)};
       B[3,:]:=cross(B[1,:],B[2,:]);
-      local:=B*delta;
-      if (surfaceKind<.5 and local[3]<2.68 and local[3]>-.6 and abs(local[2])<1.45) or
-         (surfaceKind>=.5 and abs(local[3]-(if surfaceKind<1.5 then .40 else .154))<.39) then
+      center:=B*delta;
+      if (surfaceKind<.5 and center[3]<2.68 and center[3]>-.6 and abs(center[2])<1.45) or
+         (surfaceKind>=.5 and surfaceKind<2.5 and abs(center[3]-(if surfaceKind<1.5 then .40 else .154))<.39) or
+         (surfaceKind>=2.5 and center[3]>.15 and center[3]<2.58 and abs(center[2])<1.45) then
         A:=transpose(MultiBodyLie.Math.quaternionToT(quat));
         w:=A*bodyRate;
         deckBox:=if surfaceKind<1.5 then Shore.boxVertices({-.425,0,.40},{.975,.97,.014})
           else Shore.boxVertices({-.27,0,.154},{.37,.20,.0045});
-        aboveDeck:=local[3]>deckBox[8,3];
+        aboveDeck:=center[3]>deckBox[8,3];
         for part in 1:9 loop
           for i in 1:8 loop
             r:=A*parts[part,i,:];
@@ -335,6 +388,8 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
                   end if;
                 end for;
               end if;
+            elseif surfaceKind>2.5 then
+              gap:=cruiserDeckGap(local,center);
             else
               // Use the upper triangle while descending onto a thin deck.
               // Its underside must not reverse the landing force after overlap.
@@ -356,6 +411,18 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
       end if;
     end if;
   end landingContact;
+
+  function vesselContacts "Evaluate contact only for the active nearby vessel decks"
+    input Real decks[4,14],p[3],quat[4],v[3],bodyRate[3],parts[9,8,3];
+    output Real wrenches[4,12];
+  algorithm
+    wrenches:=zeros(4,12);
+    for i in 1:4 loop
+      if decks[i,1]>.5 then
+        wrenches[i,:]:=landingContact(decks[i,1],decks[i,3:14],p,quat,v,bodyRate,parts,decks[i,2]);
+      end if;
+    end for;
+  end vesselContacts;
 
   function predictNavigation
     input Real state[9] "Position, velocity, accelerometer bias, and six covariance terms";
@@ -514,6 +581,18 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
   Real desired[3],acceleration[3],rollTarget,pitchTarget,collective,torque[3],motorThrust[4];
 
 equation
+  nearbySand=Shore.seabed(position[1],position[2]);
+  terrainWrench=if noEvent(abs(position[1]-36)<29.35 and abs(position[2]-40)<23.35 and position[3]<nearbySand+2.5)
+    then islandContact(position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts,nearbySand)
+    else zeros(6);
+  vesselDeckWrenches=vesselContacts(vesselDecks,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts);
+  for i in 1:4 loop
+    minimumVesselHeight[i]=if vesselDecks[i,1]>.5 and (position[1]-vesselDecks[i,3])^2+(position[2]-vesselDecks[i,4])^2<
+      (if vesselDecks[i,2]>2.5 then 21 else 9) then vesselDecks[i,5]-.15 else -20;
+  end for;
+  for axis in 1:6 loop
+    landingWrench[axis]=deckWrench[axis]+sailWrench[axis]+terrainWrench[axis]+sum(vesselDeckWrenches[:,axis]);
+  end for;
   deckWrench=landingContact(deckEnabled,deckState,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts,0);
   sailWrench=landingContact(sailDeckEnabled,sailDeckState,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts,if isCatamaran>.5 then 1 else 2);
   when sample(0,.01) then
@@ -535,7 +614,7 @@ equation
       position,aircraft.truth.velocityWorldEnu_m_s,aircraft.imu.specificForceBodyFlu_m_s2,rotation,rotorForce,
       aircraft.vehicleMass_kg,navigationLinearDrag,navigationQuadraticDrag,gpsDropout<=.5,
       motorCut<=.5 and immersed<.01 and position[3]>bedHeight+.25 and bodyRate*bodyRate<4
-      and deckWrench*deckWrench+sailWrench*sailWrench<.01 and rotorForce>.25*aircraft.vehicleMass_kg*9.80665);
+      and landingWrench*landingWrench<.01 and rotorForce>.25*aircraft.vehicleMass_kg*9.80665);
   end when;
   gps=estimator[28:30];
   gpsVelocity=estimator[31:33];
@@ -560,7 +639,7 @@ equation
   desired=if pilot>.5 then {2*(forward*cos(yawTarget)-left*sin(yawTarget)),2*(forward*sin(yawTarget)+left*cos(yawTarget)),climb}
     else {max(-2,min(2,stationEast-target[1])),max(-2,min(2,stationNorth-target[2])),max(-1,min(1,5-target[3]))};
   der(target[1:2])=if positionHold then desired[1:2] else estimatedVelocity[1:2]+10*(estimatedPosition[1:2]-target[1:2]);
-  minimumTargetHeight=if deckEnabled>.5 and (position[1]-deckState[1])^2+(position[2]-deckState[2])^2<16 then deckState[3]+.35 elseif sailDeckEnabled>.5 and (position[1]-sailDeckState[1])^2+(position[2]-sailDeckState[2])^2<9 then sailDeckState[3]-.15 else 1;
+  minimumTargetHeight=max(max(minimumVesselHeight),if deckEnabled>.5 and (position[1]-deckState[1])^2+(position[2]-deckState[2])^2<16 then deckState[3]+.35 elseif sailDeckEnabled>.5 and (position[1]-sailDeckState[1])^2+(position[2]-sailDeckState[2])^2<9 then sailDeckState[3]-.15 elseif nearbySand>-.3 then nearbySand-.12 elseif max(minimumVesselHeight)>-20 then -20 else 1);
   der(target[3])=if not positionHold then estimatedVelocity[3]+10*(estimatedPosition[3]-target[3]) else max(desired[3],-4*max(0,target[3]-minimumTargetHeight));
   for i in 1:3 loop
     der(integralAcceleration[i])=if not positionHold or motorCut>.5 or immersed>.5 then -integralAcceleration[i]
