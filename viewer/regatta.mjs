@@ -43,24 +43,28 @@ function inflatableMark(T){
     for(let j=0;j<6;j++){
       const t=j/6,v=1-t;
       rim.push({point:start.clone().multiplyScalar(v*v).addScaledVector(corner,2*v*t).addScaledVector(end,t*t),
-        bulge:0,seam:1-Math.min(1,Math.abs(t-.5)*2)});
+        bulge:0,seam:1-Math.min(1,Math.abs(t-.5)*2),phase:side*2*Math.PI/3});
     }
     const edgeEnd=next.clone().lerp(corner,.065);
     for(let j=0;j<14;j++){
       const t=j/14;
-      rim.push({point:end.clone().lerp(edgeEnd,t),bulge:Math.sin(Math.PI*t)**2,seam:0});
+      rim.push({point:end.clone().lerp(edgeEnd,t),bulge:Math.sin(Math.PI*t)**2,seam:0,phase:(side+t)*2*Math.PI/3});
     }
   }
   const positions=[],colors=[],faces=[];
   const steps=[0,.012,.032,.06,.095,.15,.22,.3,.38,.46,.54,.62,.7,.78,.85,.91,.96,.986,.996,1];
-  const belly=u=>.065*Math.sin(Math.PI*u);
+  const belly=u=>.080*Math.sin(Math.PI*u);
   const ringScale=u=>Math.max(.011,1-u)*(1-.12*Math.exp(-u/.025));
   for(const u of steps){
-    for(const {point,bulge,seam} of rim){
-      const bulged=point.clone().multiplyScalar(ringScale(u)).addScaledVector(point,belly(u)*bulge/point.length());
-      positions.push(bulged.x,bulged.y,bottom+u*height);
+    for(const {point,bulge,seam,phase} of rim){
+      // The vinyl puckers at its lower welds. Keep the top panels under tension.
+      const crease=(.010*Math.sin(23*phase+12*u)+.006*Math.sin(35*phase-17*u))
+        *Math.exp(-((u-.12)**2)/.018)*bulge;
+      const bulged=point.clone().multiplyScalar(ringScale(u)).addScaledVector(point,(belly(u)*bulge+crease)/point.length());
+      const tuck=.082*bulge*Math.exp(-u/.056);
+      positions.push(bulged.x,bulged.y,bottom+u*height+tuck);
       const weld=.09*seam+.085*Math.exp(-(((u-.06)/.014)**2));
-      const shade=1-weld;
+      const shade=(1-weld)*(.77+.23*Math.min(1,u/.14));
       colors.push(shade,shade*(1-.025*seam),shade*(1-.055*seam));
     }
   }
@@ -77,7 +81,7 @@ function inflatableMark(T){
   shell.setAttribute('position',new T.Float32BufferAttribute(positions,3));
   shell.setAttribute('color',new T.Float32BufferAttribute(colors,3));
   shell.setIndex(faces);shell.computeVertexNormals();
-  const vinyl=new T.MeshPhysicalMaterial({color:0xff601d,vertexColors:true,roughness:.38,clearcoat:.33,clearcoatRoughness:.38});
+  const vinyl=new T.MeshPhysicalMaterial({color:0xff601d,vertexColors:true,roughness:.29,clearcoat:.52,clearcoatRoughness:.25});
   const plainVinyl=new T.MeshPhysicalMaterial({color:0xff641b,roughness:.47,clearcoat:.2});
   const rubber=new T.MeshStandardMaterial({color:0x292825,roughness:.72});
   const fittings=new T.MeshStandardMaterial({color:0x666764,roughness:.35,metalness:.58});
@@ -105,8 +109,8 @@ function inflatableMark(T){
     body.add(panel);return panel;
   }
   // A dark circular reinforced valve patch follows the inclined vinyl panel.
-  const socket=onPanel(0,.52);
-  const patch=add(new T.CircleGeometry(.106,32),rubber,socket);
+  const socket=onPanel(0,1.19);
+  const patch=add(new T.CircleGeometry(.100,32),rubber,socket);
   patch.position.z=.003;
   const flange=add(new T.TorusGeometry(.044,.005,6,24),fittings,socket);
   flange.position.z=.009;
