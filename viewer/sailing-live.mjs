@@ -1860,6 +1860,7 @@ async function run(saved=readReset(),carried){
       const simulation=cruiserRuntime.world;
       simulation.setAfterAdvance(null);simulation.clearQueued();
       simulation.set('throttleLever',0);simulation.set('helmLever',0);
+      if(simulation.hasLandingLoad)simulation.set('droneLandingLoad',noLandingLoad);
       Object.assign(cruiserRuntime,{started:encounterStarted,session:encounterSession,cabinLit,anchorLowered,
         radio,placeRadio,radioRequested,audio,lastImpact});
       if(motor){
