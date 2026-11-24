@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ONRT propeller · Flow analysis</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#e3eceb;color:#183135;font:15px/1.45 system-ui,sans-serif}canvas{display:block;width:100vw;height:100dvh;touch-action:none}header,aside{position:absolute;left:24px;background:#f7fbf9f5;box-shadow:0 2px 14px #223b3e1f;border:1px solid #afc2bf;border-radius:5px;padding:14px 18px;max-width:calc(100vw - 40px)}header{top:22px}a{font-size:13px;color:#246257}h1{font:normal 28px/1.2 Georgia,serif;margin:5px 0}#metrics{font:12px/1.6 monospace}aside{bottom:20px;width:290px}label{display:flow-root;margin:4px 0}input{accent-color:#277364}input[type=range]{width:100%}output{float:right;font-family:monospace}.scale{height:8px;border-radius:2px;margin:4px 0}.ticks{display:flex;justify-content:space-between;font:11px monospace}.hint{color:#45605c;font-size:12px;margin-top:6px}@media(max-width:600px){header,aside{left:10px;padding:9px 12px}header{top:10px}aside{bottom:10px;width:250px}h1{font-size:22px}}
+</style></head><body><canvas aria-label="Orbit the computed port propeller flow"></canvas>
+<header><a href="./onrt.html">← Iowa basin</a><h1>Port propeller in open water</h1>
+<label for="solver">Solver <select id="solver"><option value="rumoca">Rumoca · Modelica lattice</option><option value="openfoam">OpenFOAM · steady RANS</option></select></label>
+<div id="metrics" role="status">Loading flow solution…</div></header>
+<aside><label><span id="pressureLabel">Blade pressure relative to outlet</span> <output>kPa</output></label><div class="scale" style="background:linear-gradient(90deg,#204477,#e5ebd8,#b33220)"></div><div class="ticks" id="pressureTicks"></div>
+<label><input type="checkbox" id="paths" checked> Velocity streamlines</label>
+<label><input type="checkbox" id="cut"> Wake velocity section <output>m/s</output></label>
+<div id="section" hidden><label for="station">Shaft position <output id="x"></output></label><input type="range" id="station" min="0" max="8" value="4">
+<div class="scale" style="background:linear-gradient(90deg,#182952,#289790,#efc54a)"></div><div class="ticks" id="speedTicks"></div></div>
+<div class="hint">Drag to orbit · scroll to zoom</div></aside>
+<script src="vendor/three.min.js"></script><script type="module" src="onrt-propeller.mjs"></script></body></html>

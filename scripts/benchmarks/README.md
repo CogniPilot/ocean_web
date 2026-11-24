@@ -74,8 +74,7 @@ The tests use a 3.147 m waterline, 1.11 m/s approach speed, 538 rpm, and regular
 waves with wavelength equal to the waterline length and height 2% of wavelength.
 The workshop's `*_EFD.dat` files are measurements labelled `EFD(IIHR)`. Each has
 15 columns and contains nondimensional time and track, six-axis motions and
-velocities, rudder angle in degrees and measured wave elevation. The matching
-`*_CFD.dat` files contain workshop example predictions.
+velocities, rudder angle in degrees and measured wave elevation. The companion `Case3.12-000_CFD.dat` header reads `CFD(Dummy)`. It is a submission template and is excluded from validation.
 
 - [Model particulars and hull, rudder and propeller CAD](https://t2015.nmri.go.jp/onrt_gc.html)
 - [IIHR experimental procedure and release conditions](https://t2015.nmri.go.jp/Instructions_ONRT/IIHR_ONRT_DATA_06-12-2015.pdf)
@@ -85,13 +84,50 @@ velocities, rudder angle in degrees and measured wave elevation. The matching
 - [Iowa turning-circle and zigzag results from SIMMAN Case 5.2](https://simman2020.kr/contents/test_case_5.2.php)
 - [SIMMAN data request for the full maneuver time histories](https://simman2020.kr/contents/FTP.php)
 
-Replay of these runs requires a model-scale ONRT plant with its mass and
-inertia, twin shaft and rudder geometry, propeller curves, and the documented
-rudder controller. The current inboard cruiser has a single shaft and different
-mass, buoyancy, and planing behavior. When the ONRT plant is available, compare
-trajectory and rudder histories, and report heave, roll, pitch and yaw error by
-wave heading. Reserve separate wave headings and maneuver runs for validation
-after any coefficient fitting.
+### Reproduce the comparison
+
+Select **ONR Tumblehome** in the model picker or open `onrt.html`. The same
+vessel and wave FMUs run headlessly:
+
+```sh
+node scripts/benchmarks/onrt-basin.mjs build/validation/onrt path/to/Case3.12-000_EFD.dat
+```
+
+IIHR's procedure, tables 2 and 3, identifies the head-sea condition as three
+physical runs (HWT469 on July 8, HWT524 and HWT525 on July 15, 2013).
+The public Tecplot zone is labelled EFD(IIHR) without a serial number. Treat
+the distributed time history as one reference, without assuming it is three
+independent samples or their mean. At 18 °C, the carriage towed the model
+at 1.11 m/s and released it at 37.5 s with a crest at the bow gauge,
+approximately 0.10 m to starboard of the forward perpendicular. The reference
+includes the approach and release in IIHR's 40 × 20 × 3 m wave basin. The
+single gauge gives a time series at one location. It cannot establish a
+spatial map of the ship-generated wake. [Facility](https://iihr.uiowa.edu/facilities-and-resources/wave-basin-and-towing-tank)
+
+The head-sea replay initializes from the release row and applies the measured
+rudder history. On 572 post-release samples over 28.55 s, track RMS error was
+0.827 m, surge RMS error 0.083 m/s and heave RMS error 0.024 m. The model
+uses lumped added mass and damping, six hydrostatic sections and regular-wave
+forcing. Free-surface radiation is one-way coupled. Input file SHA-256:
+`5366e01617f829c28958041d6c9ceeb29d5270d5008b7336a2f8ed54d4d9392b`.
+
+The calm-water speed at 538 rpm and the steady 35° port turning diameter
+were calibration targets. Other SIMMAN FRMT measurements remained outside
+the fit:
+
+| Quantity | Model | Experiment |
+| --- | ---: | ---: |
+| Advance at 90° (ship lengths) | 2.71 | 2.35 |
+| Transfer at 90° (ship lengths) | 1.35 | 1.32 |
+| Tactical diameter (ship lengths) | 3.30 | 3.19 |
+| Steady speed / approach speed | 0.623 | 0.63 |
+| First / second 20° zigzag overshoot (degrees) | 4.04 / 4.02 | 5.9 / 5.4 |
+
+For spatial wake validation, the Istanbul Technical University experiment
+reports off-hull cuts at 0.49 and 1.14 m. The basin can export predicted
+cuts at those offsets. A matched comparison requires the published elevations,
+test speed, hull configuration, coordinate origin and an assessment of grid
+and domain errors. [ITU wave cuts and resistance experiment](https://research.itu.edu.tr/en/publications/a-comprehensive-experimental-investigation-of-total-drag-and-wave/)
 
 ## Measurements for additional comparisons
 

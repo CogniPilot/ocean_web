@@ -158,9 +158,12 @@ async function run(saved=readReset(),carried){
   if(!saved?.fields.keyLayout){try{if(localStorage.getItem('ocean-key-layout')==='wasd')keyLayout.value='wasd';}catch{}}
   const wasd=()=>keyLayout.value==='wasd';
   let url=new URL(location.href);
+  if(url.searchParams.get('control')==='onrt'){location.replace('./onrt.html');return;}
   const packaged=document.body.dataset.defaultRuntime==='world';
   if(packaged&&!['runtime','boat','control','demo'].some(name=>url.searchParams.has(name))){
-    url=vehicleLink(url,await chooseVehicle());
+    const choice=await chooseVehicle();
+    if(choice==='onrt'){location.assign('./onrt.html');return;}
+    url=vehicleLink(url,choice);
     history.replaceState(history.state,'',url);
   }
   const startupScreen=$('startupScreen'),startupStatus=$('startupStatus'),startupProgress=$('startupProgress');
@@ -1800,6 +1803,7 @@ async function run(saved=readReset(),carried){
     $('otherSailboat').value='hobie';$('otherSailboat').textContent='Hobie 16';
   }
   function changeVehicle(choice){
+    if(choice==='onrt'){location.assign('./onrt.html');return;}
     if(signal.aborted)return;
     const link=vehicleLink(url,choice),online=$('multiplayer').getAttribute('aria-pressed')==='true';
     if(online)joinRoomLink(link,roomName);
@@ -1920,7 +1924,7 @@ async function run(saved=readReset(),carried){
   };
   let enteredSub=false,viewBeforeAnimal;
   async function selectTarget(){
-    if(['hobie','sloop'].includes(targetSelect.value)){changeVehicle(targetSelect.value);return;}
+    if(['hobie','sloop','onrt'].includes(targetSelect.value)){changeVehicle(targetSelect.value);return;}
     if(animalId&&animalId!==targetSelect.value){
       remote.npc.release(animalId);animalId=undefined;visitors.watch(null);
       $('cameraDepth').value=viewBeforeAnimal??'deck';

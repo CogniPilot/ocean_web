@@ -85,3 +85,14 @@ Converted to WebP and resampled for real-time rendering.
 https://polyhaven.com/license
 Coast Sand 01 by Rob Tuytel, https://polyhaven.com/a/coast_sand_01
 Palm Tree Bark by Dimitrios Savva and Rico Cilliers, https://polyhaven.com/a/palm_tree_bark
+
+ONR Tumblehome model 5613. Browser meshes are tessellations of model-scale
+workshop IGES geometry. Propeller characteristic curves and model particulars
+are from the University of Iowa IIHR and the Tokyo 2015 and SIMMAN workshops.
+https://t2015.nmri.go.jp/onrt_gc.html
+https://simman2020.kr/contents/ONRT.php
+
+The isolated propeller flow comparison uses the corrected dimensional port
+propeller IGES supplied by the 2025 Workshop on CFD in Ship Hydrodynamics.
+The flow fields and streamlines are simulator calculations.
+https://w2025.nl/news/update-of-onrt-shaft-geometry/

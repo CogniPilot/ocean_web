@@ -1,0 +1,37 @@
+{
+  "bottom": {
+    "offset": 0,
+    "vertices": 4210,
+    "indices": 18201
+  },
+  "topsides": {
+    "offset": 61662,
+    "vertices": 1804,
+    "indices": 7614
+  },
+  "house": {
+    "offset": 87714,
+    "vertices": 666,
+    "indices": 3045
+  },
+  "appendages": {
+    "offset": 97800,
+    "vertices": 8427,
+    "indices": 37560
+  },
+  "starboardRudder": {
+    "offset": 223482,
+    "vertices": 229,
+    "indices": 981
+  },
+  "portRudder": {
+    "offset": 226818,
+    "vertices": 229,
+    "indices": 981
+  },
+  "propeller": {
+    "offset": 230154,
+    "vertices": 11662,
+    "indices": 57258
+  }
+}

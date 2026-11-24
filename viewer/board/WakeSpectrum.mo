@@ -6,6 +6,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
   input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
   parameter Real period=64,dt=.1,depth=14,decay=.04;
   parameter Boolean sharedDrift=false "Use a common clock and constant surface current for the spectral frame";
+  parameter Real edgeDamping=0 "Peak damping rate [1/s] for outgoing waves at the edge of a hull-following, calm-background calculation window";
   parameter Boolean localHull=true "Compute radiation and reaction for an immersed local hull";
   parameter Boolean separatePeerSurface=false "Recover the incoming peer wake separately when the wind sea is supplied externally";
   input Real east,north,heading,heel,pitch,stations[7],separation,volume[2,6],beamHalf[7];
@@ -217,6 +218,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     input Boolean first;
     input Real peerR[n,n],peerI[n,n];
     input Boolean active=true,localHull=true;
+    input Real edgeDamping=0;
     output Real wr[n,n],wi[n,n],displacedR[n,n],displacedI[n,n],tile[n,n],probe[3],load[3],wake[n,n];
   protected
     Real rowR[n],rowI[n],windR[n],windI[n],sourceR[n],sourceI[n],dx,kx,ky,k,omega,c,s,atten,along,across,ex,ny,a,b,amplitude,phase,slope;
@@ -334,6 +336,25 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
       wr[j,:]:=rowR;wi[j,:]:=rowI;re[j,:]:=rowR+windR;im[j,:]:=rowI+windI;
     end for;
     probe[2]:=atan(probe[2]);probe[3]:=atan(probe[3]);
+    if edgeDamping>0 and active then
+      // Split-step absorbing layer on both quadratures of the travelling field.
+      // Distance is wrapped relative to the hull so the layer also works as
+      // the hull crosses the FFT origin. Preserve the hull forcing history.
+      (tile,unused):=transform(wr,wi,true);
+      for j in 1:n loop
+        for i in 1:n loop
+          ex:=abs(mod((i-1)*dx-x+.5*L,L)-.5*L);
+          ny:=abs(mod((j-1)*dx-y+.5*L,L)-.5*L);
+          a:=max(0,min(1,(max(ex,ny)/L-.30)/.20));
+          atten:=exp(-dt*edgeDamping*a*a*(3-2*a));
+          tile[j,i]:=atten*tile[j,i];
+          unused[j,i]:=atten*unused[j,i];
+        end for;
+      end for;
+      (wr,wi):=transform(tile,unused,false);
+      wake:=tile;
+      return;
+    end if;
     packedR:=re;
     packedI:=im;
     if active then
@@ -351,6 +372,8 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     wake:=if active then unused else zeros(n,n);
   end step;
 equation
+  assert(edgeDamping<=0 or (windEast==0 and windNorth==0),
+    "A local wake window requires separately supplied incident waves");
   assert(not separatePeerSurface or (windEast==0 and windNorth==0),
     "Separate peer wake requires the incident sea to be supplied by a separate model");
   if sharedDrift then
@@ -380,7 +403,7 @@ equation
       pre(modesR),pre(modesI),pre(displacementR),pre(displacementI),volume,stations,beamHalf,separation,
       east-driftE,north-driftN,heading,heel,pitch,windEast,windNorth,seaAmplitude,
       period,depth,dt,decay,time+seaClockOffset,time<dt/2 or not pre(wakeActive),
-      peerForcingR,peerForcingI,radiationActive,localHull);
+      peerForcingR,peerForcingI,radiationActive,localHull,edgeDamping);
     // Retain the total radiation for rendering and wave pressure. Only the
     // independently incident peer response is fed back into local buoyancy.
     (peerModesR,peerModesI,peerHeight,peerWakeActive)=peerResponse(pre(peerModesR),pre(peerModesI),

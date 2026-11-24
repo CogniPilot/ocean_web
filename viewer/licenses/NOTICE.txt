@@ -73,3 +73,14 @@ Cabin radio music: "Spanish Ladies", a traditional song. The original
 simulator piano performance is distributed under Apache-2.0. The melody
 follows the setting sung by Mr. Leatherday and collected by Ralph Vaughan
 Williams, Journal of the Folk-Song Society, vol. 2, no. 8 (1905), p. 179.
+
+ONR Tumblehome model 5613. Browser meshes are tessellations of model-scale
+workshop IGES geometry. Propeller characteristic curves and model particulars
+are from the University of Iowa IIHR and the Tokyo 2015 and SIMMAN workshops.
+https://t2015.nmri.go.jp/onrt_gc.html
+https://simman2020.kr/contents/ONRT.php
+
+The isolated propeller flow comparison uses the corrected dimensional port
+propeller IGES supplied by the 2025 Workshop on CFD in Ship Hydrodynamics.
+The flow fields and streamlines are simulator calculations.
+https://w2025.nl/news/update-of-onrt-shaft-geometry/

@@ -5,7 +5,7 @@ import {join} from 'node:path';
 
 const root=process.argv[2];
 const scripts=(await readdir(root)).filter(name=>/\.m?js$/.test(name)).sort();
-const files=['index.html',...scripts,'board/boat.mjs','board/sail-battens.mjs','board/sail-telltale.mjs','fmi3/instance.mjs'];
+const files=['index.html','onrt.html','onrt-propeller.html',...scripts,'board/boat.mjs','board/sail-battens.mjs','board/sail-telltale.mjs','fmi3/instance.mjs'];
 const sources=await Promise.all(files.map(name=>readFile(join(root,name),'utf8')));
 if(process.env.OCEAN_TURN_ENDPOINT){
   const endpoint=new URL(process.env.OCEAN_TURN_ENDPOINT);
@@ -24,7 +24,7 @@ for(const asset of (await readdir(join(root,'assets','island'))).sort())
 const version=hash.digest('hex').slice(0,16);
 for(const [index,name] of files.entries()){
   const source=sources[index];
-  const updated=name==='index.html'
+  const updated=name.endsWith('.html')
     ? source.replace(/(<script\b[^>]*\bsrc=")([^"?]+\.m?js)(?:\?[^"]*)?"/g,'$1$2?v='+version+'"')
     : source.replace(/(['"])(\.{1,2}\/[^'"\s?]+\.m?js)(?:\?[^'"\s]*)?\1/g,'$1$2?v='+version+'$1');
   if(updated!==source)await writeFile(join(root,name),updated);

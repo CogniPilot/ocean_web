@@ -225,6 +225,14 @@ The source build uses the pinned Rumoca compiler, Modelica Standard Library and 
 
 Original code, shaders and original assets are released under the [Apache License 2.0](LICENSE). Third-party code, models, and audio retain their individual terms. The [distribution notices](viewer/licenses/NOTICE.txt) identify the shipped materials and their licenses. The optional music is by Olivier Bérubé.
 
+### Drive the Iowa ONR Tumblehome
+
+Select **ONR Tumblehome** in the model picker to enter the dedicated basin.
+Choose **Free running**, press **538 rpm**, and steer with **A/D** or the helm
+slider. **Straight tow** prescribes forward speed. **Wake contours** shows
+hull-induced surface elevation in 5 mm intervals. The headless benchmark uses
+the same ship model. [Experimental comparisons](scripts/benchmarks/README.md)
+
 ### Calm-water tow study
 
 From the repository root, run `node scripts/tow-study.mjs 2 1.02 0 > tow.csv` for a 2 m/s tow with 1.02 m half-spacing and zero heading in radians. The test uses the loaded Hobie model’s section volumes, a fixed draft and trim, a two-second acceleration ramp, and zero wind and current. CSV output includes the signed wave resistance, side force, yaw moment, and wave-height extremes. Use short runs to limit contamination from the periodic boundary. Total resistance also includes viscous loads. Hull dimensions, wetted shape, speed, attitude and the measurement uncertainty must match the tow experiment before interpreting a design ranking. [Catamaran towing tests and interference measurements](https://eprints.soton.ac.uk/462776/) · [ITTC resistance-test uncertainty](https://www.ittc.info/media/8007/75-02-02-02.pdf)
