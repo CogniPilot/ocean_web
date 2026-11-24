@@ -1,0 +1,10 @@
+The surface photographs and PBR maps are CC0 assets from Poly Haven.
+Diffuse maps for the coated finishes retain luminance variation and are tinted in the renderer.
+Normal maps use the OpenGL convention. Roughness and normal maps are sampled as linear data.
+
+concrete   https://polyhaven.com/a/concrete_floor_02
+enamel     https://polyhaven.com/a/blue_metal_plate
+metal      https://polyhaven.com/a/metal_plate
+cladding   https://polyhaven.com/a/box_profile_metal_sheet
+rubber     https://polyhaven.com/a/rubber_tiles
+License    https://polyhaven.com/license

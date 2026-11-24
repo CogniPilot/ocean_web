@@ -14,18 +14,25 @@ export async function loadBasin(inputs={}, read=fetch) {
       bareVolume:geometry.volume.slice(0,6)},read),
     loadInstance('OnrtWake',{...geometry,period,edgeDamping:9,depth:inputs.depth??3,separation:0},read)
   ]);
-  function advance() {
-    for(let i=0;i<4;i++) vessel.advance(vesselStep);
+  function snapshot() {
     const values=vessel.getMany(stateNames);
     const s=Object.fromEntries(stateNames.map((name,i)=>[name,values[i]]));
+    s.time=vessel.time;
+    return s;
+  }
+  function advance(helmAt) {
+    for(let i=0;i<4;i++){
+      if(helmAt)vessel.set('helm',helmAt(vessel.time+.5*vesselStep));
+      vessel.advance(vesselStep);
+    }
+    const s=snapshot();
     for(const name of ['east','north','heading','pitch']) wake.set(name,s[name]);
     wake.set('heel',s.roll);
     wake.set('volume',[...s.immersedVolume,0,0,0,0,0,0]);
     wake.advance(wakeStep);
-    s.time=vessel.time;
     return s;
   }
-  return {vessel,wake,geometry,advance};
+  return {vessel,wake,geometry,advance,snapshot};
 }
 
 // Sample the periodic native field at a physical probe with bilinear interpolation.

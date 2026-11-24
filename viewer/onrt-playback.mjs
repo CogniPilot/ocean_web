@@ -5,9 +5,9 @@ export function createWakePlayback(delay) {
   let time,playing=false;
   return {
     append(batch){frames.push(...batch);},
-    sample(dt){
+    sample(dt,end=Infinity){
       if(!frames.length)return;
-      const latest=frames.at(-1).state.time;
+      const latest=Math.min(end,frames.at(-1).state.time);
       time??=frames[0].state.time;
       if(!playing)playing=latest-time>=delay-1e-8;
       if(playing){

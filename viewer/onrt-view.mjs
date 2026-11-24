@@ -1,7 +1,9 @@
+import {sampleTrial} from './onrt-trial.mjs';
 import {installOrbit} from './onrt-orbit.mjs';
 import {keyboardAxisKey,preferredKeyboardLayout,saveKeyboardLayout} from './keyboard-sticks.mjs';
 import {period,wakeStep,waveCutCsv} from './onrt-basin.mjs';
 
+import {loadBasinMaterials,metricSurface} from './onrt-materials.mjs';
 import {createFacility} from './onrt-facility.mjs';
 import {wakeSamplingGLSL} from './onrt-wake-display.mjs';
 import {createWakePlayback} from './onrt-playback.mjs';
@@ -14,10 +16,19 @@ async function start() {
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(44,1,.025,220);
   scene.background=new T.Color(0xb8d4dd);
   scene.fog=new T.FogExp2(0xc5cecd,.009);
-  scene.add(new T.HemisphereLight(0xf4fbff,0x678786,1.35));
-  const sun=new T.DirectionalLight(0xffefd3,1.3);
-  sun.position.set(-4,8,4);scene.add(sun);
-  const facility=await createFacility(T,scene);
+  scene.add(new T.HemisphereLight(0xfffcf4,0xa1b9bd,2.15));
+  const sun=new T.DirectionalLight(0xfff6e9,1.8);
+  sun.position.set(5,13,6);sun.target.position.set(12,0,0);scene.add(sun,sun.target);
+  const finishes=await loadBasinMaterials(T,renderer);
+  const facility=await createFacility(T,scene,finishes);
+  // Bake the hall and its bright fixtures once for roughness-filtered specular lighting.
+  const reflectionType=renderer.extensions.has('EXT_color_buffer_float')?T.HalfFloatType:T.UnsignedByteType;
+  const capture=new T.WebGLCubeRenderTarget(128,{type:reflectionType});
+  const probe=new T.CubeCamera(.1,90,capture);probe.position.set(14.5,1.1,0);
+  probe.update(renderer,scene);
+  const pmrem=new T.PMREMGenerator(renderer);
+  scene.environment=pmrem.fromCubemap(capture.texture).texture;
+  capture.dispose();pmrem.dispose();
   const ship=new T.Group();scene.add(ship);
   const base='./assets/onrt/';
   const [parts,buffer]=await Promise.all([
@@ -31,8 +42,9 @@ async function start() {
     geometry.setAttribute('position',new T.BufferAttribute(Float32Array.from(encoded,v=>v*.0001),3));
     geometry.setIndex(new T.BufferAttribute(new Uint16Array(buffer,offset+6*vertices,indices),1));
     geometry.computeVertexNormals();
-    const material=new T.MeshStandardMaterial({color:colors[name],roughness:.68,metalness:.12,side:T.DoubleSide});
-    meshes[name]=new T.Mesh(geometry,material);
+    const material=finishes.material(name==='propeller'?'bronze':'hull',colors[name]);
+    material.side=T.DoubleSide;
+    meshes[name]=new T.Mesh(metricSurface(T,geometry),material);
     if(name!=='propeller') ship.add(meshes[name]);
   }
   const rudders=[],props=[];
@@ -49,6 +61,17 @@ async function start() {
     prop.scale.z=side;mount.add(prop);ship.add(mount);props.push(prop);
   }
 
+  const ghost=new T.Group();
+  const ghostSkin=new T.MeshBasicMaterial({color:0x44e8fc,transparent:true,opacity:.48,depthWrite:false});
+  const ghostEdge=new T.LineBasicMaterial({color:0x8df7ff});
+  for(const part of ['topsides','house','bottom']){
+    const geometry=meshes[part].geometry;
+    const skin=new T.Mesh(geometry,ghostSkin);
+    skin.add(new T.LineSegments(new T.EdgesGeometry(geometry,28),ghostEdge));
+    ghost.add(skin);
+  }
+  ghost.visible=false;scene.add(ghost);
+
   // Rendering interpolates the Modelica elevation samples in world coordinates.
   // The IIHR basin spans 40 x 20 m, with its wavemaker 34.5 m ahead of
   // the carriage origin. The static lattice never snaps beneath a moving camera.
@@ -60,7 +83,7 @@ async function start() {
   map.wrapS=map.wrapT=T.RepeatWrapping;map.magFilter=map.minFilter=T.LinearFilter;map.needsUpdate=true;
   const trainData=new Uint8Array(161*4),trainMap=new T.DataTexture(trainData,161,1);
   trainMap.minFilter=trainMap.magFilter=T.LinearFilter;
-  const mirror=new T.PerspectiveCamera(),reflection=new T.WebGLRenderTarget(640,360);
+  const mirror=new T.PerspectiveCamera(),reflection=new T.WebGLRenderTarget(640,360,{type:reflectionType});
   const mirrorMatrix=new T.Matrix4(),sight=new T.Vector3(),target=new T.Vector3();
   const targetMin=new T.Vector3(-5.2,.07,-9.75),targetMax=new T.Vector3(34.2,7.4,9.75);
   const cameraMin=new T.Vector3(-9.15,.28,-12.65),cameraMax=new T.Vector3(38.25,8.68,12.8);
@@ -79,7 +102,7 @@ async function start() {
       vec2 en=vec2(p.x,-p.z);
       vec4 h=texture2D(train,vec2(((p.x+5.5)*4.+.5)/161.,.5));
       vec2 packet=(h.xz*65280.+h.yw*255.-32767.)/327670.;
-      p.y=mix(packet.x,packet.y,frameMix)+sampleWake(en)+amp*cos(dot(wave.xy,en)-wave.z*time);
+      p.y=mix(packet.x,packet.y,frameMix)+sampleWake(en)+amp*cos(dot(wave.xy,en)-wave.z*time+wave.w);
       surfacePoint=p;gl_Position=projectionMatrix*viewMatrix*vec4(p,1.);
     }`,
     fragmentShader:`
@@ -91,13 +114,12 @@ async function start() {
       vec3 n=normalize(cross(dFdx(surfacePoint),dFdy(surfacePoint)));
       if(n.y<0.)n=-n;
       vec3 v=normalize(eye-surfacePoint);
-      float f=pow(1.-abs(dot(n,v)),4.);
+      float f=.0204+.9796*pow(1.-clamp(abs(dot(n,v)),0.,1.),5.);
       vec4 reflected=mirrorMatrix*vec4(surfacePoint.x,0.,surfacePoint.z,1.);
       vec2 uv=reflected.xy/reflected.w*.5+.5+n.xz*.055;
-      vec3 hallColor=sqrt(max(vec3(0.),texture2D(mirrored,clamp(uv,.001,.999)).rgb));
-      float reflectance=.075+.84*f;
-      float alpha=.56+.44*reflectance;
-      vec3 c=mix(vec3(.04,.46,.50),hallColor,reflectance/alpha);
+      vec3 hallColor=texture2D(mirrored,clamp(uv,.001,.999)).rgb;
+      float alpha=f+(1.-f)*.48;
+      vec3 c=mix(vec3(.014,.29,.27),hallColor,f/alpha);
       if(contours>.5){
         float mm=sampleWake(vec2(surfacePoint.x,-surfacePoint.z))*1000.;
         c=mix(vec3(.55,.65,.67),mm>=0.?vec3(.9,.36,.15):vec3(.05,.32,.55),clamp(abs(mm)/20.,0.,1.));
@@ -107,6 +129,9 @@ async function start() {
         c=mix(c,vec3(.94),line*smoothstep(.5,2.,abs(mm)));
       }
       gl_FragColor=vec4(c,contours>.5?.94:(gl_FrontFacing?alpha:.36));
+      if(contours<.5){
+        #include <colorspace_fragment>
+      }
     }`});
   const water=new T.Mesh(surface,material);scene.add(water);
   const pan=new T.Vector3();
@@ -124,7 +149,9 @@ async function start() {
     azimuth-=dx*.007;elevation=Math.max(.03,Math.min(1.48,elevation+dy*.006));
   },factor=>{radius=Math.max(.45,Math.min(45,radius*factor));},()=>{});
   let worker,ready=false,busy=false,state,tile,playback,uploadedLeft,uploadedRight,accum=0,last=performance.now(),failed=false;
-  let generatorStart=-100000;
+  let generatorStart=-100000,trial,readoutTick=-1;
+  const replayMode=()=>$('mode').value==='iihr';
+  if(new URLSearchParams(location.search).get('run')==='iihr')$('mode').value='iihr';
   const keys=new Set();
   $('generate').onclick=()=>{
     if(!ready||!state)return;
@@ -144,6 +171,11 @@ async function start() {
   document.addEventListener('visibilitychange',()=>{rateStart=undefined;rateText='';});
   function fail(message){failed=true;ready=false;$('readout').textContent='Basin stopped · '+message;worker?.terminate();}
   function reset(){
+    const replay=replayMode();
+    trial=undefined;readoutTick=-1;ghost.visible=false;
+    $('comparison').hidden=!replay;$('manual').hidden=replay;$('generatorControl').hidden=replay;
+    $('difference').textContent='';
+    if(replay){$('cameraView').value='ship';recenter();}
     worker?.terminate();ready=busy=failed=false;state=tile=uploadedLeft=uploadedRight=null;accum=0;playback=createWakePlayback(3*wakeStep);
     rateStart=undefined;rateText='';
     generatorStart=-100000;
@@ -157,7 +189,9 @@ async function start() {
     worker.onerror=e=>fail(e.message);
     worker.onmessage=({data})=>{
       if(data.error){fail(data.error);return;}
-      if(data.ready){ready=true;last=performance.now();return;}
+      if(data.ready){
+        trial=data.trial;playback.append([data.first]);ready=true;last=performance.now();return;
+      }
       busy=false;
       if(!data.frames.every(frame=>Number.isFinite(frame.state.surge))){fail('Non-finite state');return;}
       playback.append(data.frames);
@@ -173,13 +207,19 @@ async function start() {
         rateText='  ·  '+((state.time-rateTime)*1000/(now-rateStart)).toFixed(2)+'× realtime';
         rateStart=now;rateTime=state.time;
       }
+      if(trial)return;
       const bearing=(Math.round(90-state.heading*180/Math.PI)%360+360)%360;
       $('readout').textContent=state.surge.toFixed(2)+' m/s  ·  '+state.rpm.toFixed(0)+' rpm  ·  '+state.time.toFixed(1)+' s'+rateText+'\n'+
         'E '+state.east.toFixed(2)+' m  ·  N '+state.north.toFixed(2)+' m  ·  '+bearing+'°T';
     };
-    worker.postMessage({type:'init',inputs:inputs()});
+    worker.postMessage({type:'init',trial:replay,inputs:inputs()});
   }
-  $('mode').onchange=reset;$('waves').onchange=reset;$('reset').onclick=reset;
+  $('replay').onclick=reset;
+  $('mode').onchange=()=>{
+    const url=new URL(location.href);
+    if(replayMode())url.searchParams.set('run','iihr');else url.searchParams.delete('run');
+    history.replaceState(null,'',url);reset();
+  };$('waves').onchange=reset;$('reset').onclick=reset;
   $('towSpeed').oninput=$('shaft').oninput=$('helm').oninput=labels;
   $('design').onclick=()=>{$('shaft').value=538;labels();};
   $('center').onclick=()=>{$('helm').value=0;labels();};
@@ -206,7 +246,7 @@ async function start() {
         innerWidth<580?innerHeight*.17:0,innerWidth,innerHeight);
       camera.updateProjectionMatrix();
     }
-    if(ready&&!failed){
+    if(ready&&!failed&&(!trial||!state||state.time<trial.end)){
       accum=Math.min(.16,accum+dt);
       if(!busy && accum>=wakeStep){
         const steps=Math.min(4,Math.floor(accum/wakeStep));accum-=steps*wakeStep;
@@ -218,7 +258,7 @@ async function start() {
         busy=true;worker.postMessage({type:'step',steps,inputs:inputs()});
       }
     }
-    const sample=playback.sample(dt);
+    const sample=playback.sample(dt,trial?.end);
     if(sample){
       const {left,right,mix}=sample;
       if(left!==uploadedLeft||right!==uploadedRight){
@@ -244,8 +284,23 @@ async function start() {
       ship.rotation.set(at('roll'),at('heading'),at('pitch'),'YZX');
       rudders.forEach(r=>r.rotation.y=-at('rudder')*Math.PI/180);
       props.forEach((p,i)=>p.rotation.x=(i===0?1:-1)*at('propAngle'));
-      const wave=inputs();uniforms.time.value=at('time');uniforms.amp.value=wave.waveAmplitude;
-      uniforms.wave.value.set(s.waveNumber*Math.cos(wave.waveDirection),s.waveNumber*Math.sin(wave.waveDirection),s.waveOmega,0);
+      const time=at('time');
+      if(trial){
+        const measured=sampleTrial(trial.rows,time);
+        ghost.visible=true;
+        ghost.position.set(measured('east'),measured('heave'),-measured('north')-Number($('ghostOffset').value));
+        ghost.rotation.set(measured('roll'),measured('heading'),measured('pitch'),'YZX');
+        const finished=time>=trial.end-1e-7,tick=finished?Infinity:Math.floor(time*10);
+        if(tick!==readoutTick){
+          readoutTick=tick;
+          $('readout').textContent=(finished?'Replay complete · ':'')+time.toFixed(2)+' / '+trial.end.toFixed(2)+' s · 538 rpm · head seas';
+          const gap=Math.hypot(at('east')-measured('east'),at('north')-measured('north'));
+          const dz=1000*(at('heave')-measured('heave'));
+          $('difference').textContent='Track separation '+gap.toFixed(2)+' m · Heave Δ '+(dz>=0?'+':'')+dz.toFixed(0)+' mm';
+        }
+      }
+      const wave=trial?.initial??inputs();uniforms.time.value=time;uniforms.amp.value=wave.waveAmplitude;
+      uniforms.wave.value.set(s.waveNumber*Math.cos(wave.waveDirection),s.waveNumber*Math.sin(wave.waveDirection),s.waveOmega,wave.initialPhase??0);
     }
     uniforms.origin.value.set(ship.position.x,-ship.position.z);
     uniforms.contours.value=Number($('contours').checked);
@@ -253,6 +308,7 @@ async function start() {
     if(view==='ship')target.set(ship.position.x,.07,ship.position.z);
     else if(view==='generator')target.set(32,.25,0);
     else target.set(12,.3,0);
+    if(view==='ship'&&ghost.visible)target.lerp(ghost.position,.5);
     target.add(pan);
     target.clamp(targetMin,targetMax);
     camera.position.set(target.x+radius*Math.cos(azimuth)*Math.cos(elevation),target.y+radius*Math.sin(elevation),

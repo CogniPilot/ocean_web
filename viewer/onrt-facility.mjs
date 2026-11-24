@@ -1,11 +1,13 @@
 // The IIHR basin is 40 × 20 × 3 m. The bridge and hall details are reconstructed
 // from facility photographs. East is +X, north is -Z and the water surface is Y=0.
-export async function createFacility(T,scene){
+import {metricSurface} from './onrt-materials.mjs';
+
+export async function createFacility(T,scene,finishes){
   const hall=new T.Group(),bridge=new T.Group(),trolley=new T.Group();
   scene.add(hall,bridge);bridge.add(trolley);
-  const shapes={box:new T.BoxGeometry(1,1,1),tube:new T.CylinderGeometry(.5,.5,1,10)};
+  const shapes={box:new T.BoxGeometry(1,1,1),tube:new T.CylinderGeometry(.5,.5,1,16)};
   const batches=new Map(),up=new T.Vector3(0,1,0);
-  const white=0xd4d8d7,steel=0x798589,iron=0x344347,gold=0xf9ae16,concrete=0xa9ada7;
+  const white=0xf0f1ea,steel=0x798589,iron=0x344347,gold=0xffb724,concrete=0xd7d4c8;
   function part(parent,shape,color,position,scale,rotation=new T.Quaternion()){
     if(!batches.has(parent))batches.set(parent,new Map());
     const group=batches.get(parent),key=shape+color;
@@ -21,14 +23,16 @@ export async function createFacility(T,scene){
   // Ribbed steel hall, roof frames and pendant luminaires.
   for(const side of [-1,1]){
     box(14.5,4.05,side*13.15,49,11,.18,white);
-    box(14.5,.37,side*11.55,45,.30,3.1,concrete);
+    // The coping ends at |z|=10.20. Begin the deck there so its top
+    // and inner face cannot coincide with the basin wall at grazing angles.
+    box(14.5,.37,side*11.65,48.2,.30,2.90,concrete);
     box(14.5,-1.24,side*10.10,40,3.52,.20,0xb6d9cc);
     box(14.5,.59,side*10.82,44,.12,.16,steel);
     box(14.5,.72,side*10.82,44,.13,.07,iron);
     for(let x=-9;x<=38;x+=1.1)box(x,5.0,side*13.02,.036,8.2,.06,0xaab1b2);
     for(let x=-5;x<35;x+=1.15){
-      box(x,.37,side*9.96,.4,.28,.23,iron);
-      box(x,-.08,side*9.88,1.10,.12,.14,Math.round((x+5)/1.15)%2?0x2a3839:gold);
+      bar([x,.38,side*9.99],[x,.24,side*9.87],.065,steel);
+      bar([x-.55,.012,side*9.88],[x+.55,.012,side*9.88],.10,Math.round((x+5)/1.15)%2?0x2a3839:gold);
     }
     for(let x=-9;x<=38;x+=4.7){
       box(x,4.8,side*12.88,.22,8.65,.28,steel);
@@ -43,7 +47,7 @@ export async function createFacility(T,scene){
       box(x,8.52,side*5.6,.85,.14,.52,steel);
       box(x,8.42,side*5.6,.81,.06,.48,0xfffae7);
     }
-    const roof=new T.Mesh(new T.BoxGeometry(49,.14,13.3),new T.MeshStandardMaterial({color:0xcad1d3}));
+    const roof=new T.Mesh(metricSurface(T,new T.BoxGeometry(49,.14,13.3)),finishes.material('panel',0xe3e7e4));
     roof.position.set(14.5,9.73,side*6.53);roof.rotation.x=side*.116;hall.add(roof);
   }
   for(const x of [-9.6,38.6]){
@@ -51,9 +55,9 @@ export async function createFacility(T,scene){
     box(x,2.3,0,.24,3.5,3.1,0x75868a);
     for(let z=-12;z<=12;z+=1.1)box(x+(x<0?.11:-.11),6,z,.05,6.4,.04,0xb0bab9);
   }
-  for(const x of [-7.55,36.55])box(x,.37,0,4.1,.30,20,concrete);
+  for(const x of [-7.65,36.65])box(x,.37,0,3.9,.30,20.4,concrete);
   for(const x of [-5.6,34.6])box(x,-1.24,0,.2,3.52,20,0xaacac0);
-  const beach=new T.Mesh(new T.BoxGeometry(3.45,.15,19.65),new T.MeshStandardMaterial({color:0x5c6653}));
+  const beach=new T.Mesh(metricSurface(T,new T.BoxGeometry(3.45,.15,19.65)),finishes.material('rubber',0x596052));
   beach.rotation.z=-.28;beach.position.set(-3.92,-.40,0);hall.add(beach);
   for(let z=-9.7;z<10;z+=.30)bar([-5.48,.10,z],[-2.32,-.80,z],.045,0x858f74);
 
@@ -77,7 +81,7 @@ export async function createFacility(T,scene){
       const z=-10.8+1.2*i;
       bar([offset,2.30,z],[offset,3.48,z+.60],.087,gold,bridge);
       bar([offset,3.48,z+.60],[offset,2.30,z+1.2],.087,gold,bridge);
-      bar([-.76,3.48,z],[.76,3.48,z+1.2],.075,gold,bridge);
+      if(offset<0)bar([-.76,3.48,z],[.76,3.48,z+1.2],.075,gold,bridge);
     }
   }
   for(const side of [-1,1]){
@@ -86,8 +90,8 @@ export async function createFacility(T,scene){
     for(const x of [-1.4,1.4]){
       box(x,.81,z,.4,.19,.39,iron,bridge);
       bar([x,1.08,z],[0,4.75,z],.15,gold,bridge);
-      bar([0,4.75,z],[0,3.48,z-side*2.6],.14,gold,bridge);
     }
+    bar([0,4.75,z],[0,3.48,z-side*2.6],.14,gold,bridge);
     box(0,1.31,z,.73,.52,.53,0x53656a,bridge);
     box(0,2.22,z,.64,1.24,.47,0x296477,bridge);
     box(0,2.89,z,.13,.11,.13,0xa4ce7a,bridge);
@@ -108,9 +112,9 @@ export async function createFacility(T,scene){
   // Six independent wedge bodies at 3.3 m pitch share a synchronous command for head seas.
   const wedge=new T.Shape();wedge.moveTo(0,-.54);wedge.lineTo(0,.32);
   wedge.lineTo(-.60,.32);wedge.closePath();
-  const wedgeGeometry=new T.ExtrudeGeometry(wedge,{depth:3.27,bevelEnabled:false});
+  const wedgeGeometry=metricSurface(T,new T.ExtrudeGeometry(wedge,{depth:3.27,bevelEnabled:false}));
   wedgeGeometry.translate(0,0,-1.635);
-  const wedges=[],wedgeMaterial=new T.MeshStandardMaterial({color:0x748683,metalness:.36,roughness:.42});
+  const wedges=[],wedgeMaterial=finishes.material('steel',0xa9bbb7);
   for(let j=0;j<6;j++){
     const z=(j-2.5)*3.3,actuator=new T.Group();actuator.position.set(34.48,0,z);hall.add(actuator);
     actuator.add(new T.Mesh(wedgeGeometry,wedgeMaterial));wedges.push(actuator);
@@ -120,24 +124,29 @@ export async function createFacility(T,scene){
     }
     box(34.56,1.71,z,.81,.14,3.23,steel);
   }
+  const finishByColor=new Map([
+    [white,'panel'],[concrete,'concrete'],[steel,'steel'],[iron,'steel'],[0xc6c4b7,'steel'],
+    [0xb6d9cc,'liner'],[0xaacac0,'liner'],[0x2a3839,'rubber'],[0xfffae7,'lamp'],[0xfaf3d9,'lamp']
+  ]);
   for(const [parent,batch] of batches)for(const {shape,color,matrices} of batch.values()){
-    const m=new T.MeshStandardMaterial({color,roughness:.70,metalness:color===steel?.35:.08,
-      emissive:color===0xfffae7||color===0xfaf3d9?0xc8c4ac:0});
+    const m=finishes.material(finishByColor.get(color)??'paint',color,shape);
     const mesh=new T.InstancedMesh(shapes[shape],m,matrices.length);
     matrices.forEach((matrix,i)=>mesh.setMatrixAt(i,matrix));parent.add(mesh);
   }
 
-  // Paint the supplied Tigerhawk directly on the pool bottom so its size and parallax survive orbiting.
-  const image=await new T.ImageLoader().loadAsync('./assets/onrt/iowa-floor-mark.png');
-  const floor=document.createElement('canvas');floor.width=2048;floor.height=1024;
-  const ctx=floor.getContext('2d');ctx.fillStyle='#afdbd3';ctx.fillRect(0,0,2048,1024);
-  ctx.strokeStyle='#a3cfc9';ctx.lineWidth=1;
-  for(let x=0;x<40;x++){ctx.beginPath();ctx.moveTo(x*51.2,0);ctx.lineTo(x*51.2,1024);ctx.stroke();}
-  for(let z=0;z<20;z++){ctx.beginPath();ctx.moveTo(0,z*51.2);ctx.lineTo(2048,z*51.2);ctx.stroke();}
-  ctx.globalCompositeOperation='multiply';ctx.drawImage(image,627,223,794,794*image.height/image.width);
+  // Paint the light-background Rumoca emblem into the floor albedo at its original aspect.
+  const image=await new T.ImageLoader().loadAsync('./assets/onrt/rumoca-logo-color.svg');
+  const floor=document.createElement('canvas');floor.width=1024;floor.height=2048;
+  const ctx=floor.getContext('2d');ctx.fillStyle='#c7e3df';ctx.fillRect(0,0,floor.width,floor.height);
+  const logoWidth=590,logoHeight=logoWidth*image.height/image.width;
+  ctx.drawImage(image,(floor.width-logoWidth)/2,(floor.height-logoHeight)/2,logoWidth,logoHeight);
   const texture=new T.CanvasTexture(floor);texture.colorSpace=T.SRGBColorSpace;
-  const bottom=new T.Mesh(new T.PlaneGeometry(40,20),new T.MeshStandardMaterial({map:texture,roughness:.94}));
-  bottom.rotation.x=-Math.PI/2;bottom.position.set(14.5,-3,0);hall.add(bottom);
+  const [,floorNormal,floorRough]=finishes.maps.get('concrete');
+  const detail=map=>{const t=map.clone();t.repeat.set(20/2.4,40/2.4);return t;};
+  const bottom=new T.Mesh(new T.PlaneGeometry(20,40),new T.MeshStandardMaterial({
+    map:texture,normalMap:detail(floorNormal),normalScale:new T.Vector2(.2,.2),roughnessMap:detail(floorRough),roughness:.63
+  }));
+  bottom.rotation.set(-Math.PI/2,Math.PI/2,0,'YXZ');bottom.position.set(14.5,-3,0);hall.add(bottom);
   return {update(x,z,stroke){
     bridge.position.x=Math.max(-4.1,Math.min(33.1,x));
     trolley.position.z=Math.max(-9.8,Math.min(9.8,z));
