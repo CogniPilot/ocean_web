@@ -12,7 +12,7 @@ self.onmessage=async({data})=>{
     for(const racer of racers){
       let model=models.get(racer.id);
       if(!model){
-        model=await loadInstance('HobieFleetPilot',{...racer.initial,...incident,seaHeight:racer.water});
+        model=await loadInstance('HobieFleetPilot',{...racer.initial,...incident,...(coursePoints?{externalCourse:1,coursePoints}:{}),seaHeight:racer.water});
         models.set(racer.id,model);
       }
       const nearby=new Float64Array(90),attitude=new Float64Array(20);

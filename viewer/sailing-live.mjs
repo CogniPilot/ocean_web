@@ -1936,7 +1936,7 @@ async function run(saved=readReset(),carried){
         // Coupled development scenes keep scoring the sailboat independently.
         const [east,north]=vehicle.position;
         scoredTime=world?.time??model.time;
-        droneScorer=await loadInstance('Regatta',{...startGate,externalCourse:1,windBearing,east,north,utc:race.get('utc'),raceStart:remote.npc.habitat.raceStart??0});
+        droneScorer=await loadInstance('Regatta',{...startGate,externalCourse:1,coursePoints:raceCoursePoints(race),windBearing,east,north,utc:race.get('utc'),raceStart:remote.npc.habitat.raceStart??0});
       }
       drone=vehicle;
       if(wreckSurvey&&(fullWorld||!packaged))drone.manual=false;
