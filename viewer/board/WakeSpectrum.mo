@@ -245,6 +245,20 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
     end if;
   end peerResponse;
 
+  function edgeGain "One-dimensional periodic absorbing layer centered on the hull"
+    input Real center,L,dt,loss;
+    output Real gain[n];
+  protected
+    Real dx=L/n;
+    Real distance,blend;
+  algorithm
+    for i in 1:n loop
+      distance:=abs(mod((i-1)*dx-center+.5*L,L)-.5*L);
+      blend:=max(0,min(1,(distance/L-.30)/.20));
+      gain[i]:=exp(-dt*loss*blend^2*(3-2*blend));
+    end for;
+  end edgeGain;
+
   function step
     input Real prevR[n,n],prevI[n,n],oldR[n,n],oldI[n,n],vol[2,6],xs[7],beams[7],sep,x,y,bearing,heel,pitch,ue,un,sea,L,h,dt,loss,t;
     input Boolean first;
@@ -255,7 +269,7 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
   protected
     Real rowR[n],rowI[n],windR[n],windI[n],sourceR[n],sourceI[n],dx,kx,ky,k,omega,c,s,atten,along,across,ex,ny,a,b,amplitude,phase,slope;
     Integer mx,my,wetStrips,oppositeRow,opposite[n];
-    Real km,peak,windSpeed,directional,seed,trial;
+    Real km,peak,windSpeed,directional,seed,trial,gainX[n],gainY[n],rowGain[n];
     Real sr,si,mr,mi,stripR,stripI,momentArm,crossTerm,forceScale;
     Real cx[12,n],sx[12,n],cy[12,n],sy[12,n],ka,kb,weight;
     Real armAlong[12],armAcross[12],stripLength[12],stripWidth[12],stripDraft[12],sectionVolume[12];
@@ -373,15 +387,14 @@ model WakeSpectrum "World-referenced periodic gravity-wave field with a moving d
       // Distance is wrapped relative to the hull so the layer also works as
       // the hull crosses the FFT origin. Preserve the hull forcing history.
       (tile,unused):=transform(wr,wi,true);
+      // Damping decreases monotonically with distance. The more distant
+      // coordinate supplies the smaller gain for this square window.
+      gainX:=edgeGain(x,L,dt,edgeDamping);
+      gainY:=edgeGain(y,L,dt,edgeDamping);
       for j in 1:n loop
-        for i in 1:n loop
-          ex:=abs(mod((i-1)*dx-x+.5*L,L)-.5*L);
-          ny:=abs(mod((j-1)*dx-y+.5*L,L)-.5*L);
-          a:=max(0,min(1,(max(ex,ny)/L-.30)/.20));
-          atten:=exp(-dt*edgeDamping*a*a*(3-2*a));
-          tile[j,i]:=atten*tile[j,i];
-          unused[j,i]:=atten*unused[j,i];
-        end for;
+        rowGain:={min(gainX[i],gainY[j]) for i in 1:n};
+        tile[j,:]:=rowGain .* tile[j,:];
+        unused[j,:]:=rowGain .* unused[j,:];
       end for;
       (wr,wi):=transform(tile,unused,false);
       wake:=tile;
