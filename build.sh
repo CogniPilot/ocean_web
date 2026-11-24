@@ -54,7 +54,7 @@ for model in OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot 
   if [[ $model == Hobie16 ]]; then source=viewer/board/Hobie16.mo; extra=(--source-root "$root/viewer/board/Shore.mo" --source-root "$root/viewer/board/Sailboat.mo" --source-root "$root/viewer/board/SailMembrane.mo" --source-root "$root/viewer/board/SailingTactics.mo"); fi
   if [[ $model == HobieFleetPilot ]]; then
     source=viewer/board/HobieFleetPilot.mo
-    for dep in Shore Sailboat SailMembrane Hobie16 Regatta SailingTactics; do extra+=(--source-root "$root/viewer/board/$dep.mo"); done
+    for dep in Shore Sailboat SailMembrane Hobie16 Regatta SailingTactics BowWavePatch; do extra+=(--source-root "$root/viewer/board/$dep.mo"); done
   fi
   if [[ $model == HullWildlife ]]; then extra=(--source-root "$root/viewer/board/SwimmerCollision.mo" --source-root "$root/viewer/board/WildlifeContact.mo"); fi
   if [[ $model == HarborTraffic ]]; then extra=(--source-root "$root/viewer/board/SwimmerCollision.mo" --source-root "$root/viewer/board/WildlifeContact.mo" --source-root "$root/viewer/board/WildlifeGuidance.mo" --source-root "$root/viewer/board/SwimmerSections.mo" --source-root "$root/viewer/board/GreatWhite.mo" --source-root "$root/viewer/board/Humpback.mo" --source-root "$root/viewer/board/Shore.mo"); fi
