@@ -25,6 +25,14 @@
     "lines": [
       144028,
       44256
+    ],
+    "travelSeconds": [
+      321052,
+      7376
+    ],
+    "pathEnds": [
+      350556,
+      48
     ]
   },
   "iteration": 300,
@@ -46,5 +54,6 @@
   "kq": 0.10811645974342829,
   "pressureLimit": 1.8899084329605103,
   "speedLimit": 1.3409951531887052,
-  "streamlines": 48
+  "streamlines": 48,
+  "solver": "OpenFOAM"
 }

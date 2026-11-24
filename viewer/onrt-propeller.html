@@ -14,6 +14,9 @@
 <a href="https://simman2020.kr/download/propeller_IIHR2%28ONRT%29.zip">IIHR open-water data</a>
 </details></header>
 <aside><label><span id="pressureLabel">Blade pressure relative to outlet</span> <output>kPa</output></label><div class="scale" style="background:linear-gradient(90deg,#204477,#e5ebd8,#b33220)"></div><div class="ticks" id="pressureTicks"></div>
+<label><input type="checkbox" id="animate" checked> Animate flow tracers</label>
+<label>Playback speed <select id="rate"><option value=".1">0.1×</option><option value=".25" selected>0.25×</option><option value="1">1×</option></select></label>
+<div class="hint">Tracers follow the velocity in this solver snapshot.</div>
 <label><input type="checkbox" id="paths" checked> Velocity streamlines</label>
 <label><input type="checkbox" id="cut"> Wake velocity section <output>m/s</output></label>
 <div id="section" hidden><label for="station">Shaft position <output id="x"></output></label><input type="range" id="station" min="0" max="8" value="4">

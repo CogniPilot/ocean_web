@@ -94,30 +94,36 @@ speeds = np.array(speeds)
 # Midpoint integration through the native cell velocity, with a step shorter
 # than the finest cell. Stop when a trajectory reaches solid or the boundary.
 segments = []
-num_paths = 0
+travel_times = []
+path_ends = []
 ds = .008*D
 for radius in (.16,.32,.47,.59):
     for azimuth in np.arange(12)*np.pi/6:
         point = D*np.array([-1.25, radius*np.cos(azimuth), radius*np.sin(azimuth)])
         path = [point]
+        elapsed = 0.0
         for step in range(600):
             u = at(point)
             if u is None or np.linalg.norm(u)<1e-5:
                 break
             mid = at(point+.5*ds*u/np.linalg.norm(u))
-            if mid is None or np.linalg.norm(mid)<1e-5:
+            speed = np.linalg.norm(mid) if mid is not None else 0.0
+            if speed < 1e-5:
                 break
-            point = point+ds*mid/np.linalg.norm(mid)
+            point = point+ds*mid/speed
+            elapsed += ds/speed
             if step%3==2:
                 path.append(point)
+                travel_times.append(elapsed)
         if len(path)>1:
-            num_paths += 1
+            path_ends.append(len(travel_times))
             segments.extend(np.stack((path[:-1],path[1:]),axis=1).reshape(-1,3))
 arrays = {}
 with (args.output / "flow.bin").open("wb") as binary:
     for key, a, dtype in [
         ("blade",points/D,"<f4"),("pressure",pressure,"<f4"),("indices",indices,"<u4"),
-        ("speed",speeds,"<f4"),("lines",np.asarray(segments)/D,"<f4")
+        ("speed",speeds,"<f4"),("lines",np.asarray(segments)/D,"<f4"),
+        ("travelSeconds",travel_times,"<f4"),("pathEnds",path_ends,"<u4")
     ]:
         a = np.asarray(a, dtype=dtype).ravel()
         if not np.all(np.isfinite(a)):
@@ -134,7 +140,7 @@ meta.update(arrays=arrays,iteration=iteration,cells=volume.GetNumberOfCells(),sl
             samples=n,sliceHalfWidth=.8,kt=kt,kq=kq,
             pressureLimit=float(np.quantile(np.abs(pressure),.99)),
             speedLimit=float(np.quantile(speeds[speeds>=0],.99)),
-            streamlines=num_paths)
+            streamlines=len(path_ends))
 if args.lattice:
     last=loads[-lattice["stepsPerRev"]:]
     meta.update(solver="Rumoca",wallTreatment=lattice.get("wallTreatment","volume-no-slip"),cells=int(np.prod(dims)),kt=float(last["KT"].mean()),

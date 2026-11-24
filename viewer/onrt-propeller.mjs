@@ -43,9 +43,40 @@ async function load(){
   pressure.forEach((p,i)=>ramp(.5+.5*p/pressureScale,[0x204477,0xe5ebd8,0xb33220]).toArray(colors,3*i));
   blade.setAttribute('color',new T.BufferAttribute(colors,3));
   scene.add(new T.Mesh(blade,new T.MeshBasicMaterial({vertexColors:true,side:T.DoubleSide})));
-  const traces=new T.BufferGeometry();traces.setAttribute('position',new T.BufferAttribute(field('lines'),3));
+  const segments=field('lines');
+  const traces=new T.BufferGeometry();traces.setAttribute('position',new T.BufferAttribute(segments,3));
   const paths=new T.LineSegments(traces,new T.LineBasicMaterial({color:0x157a75,transparent:true,opacity:.45}));
   scene.add(paths);
+  // Each segment end has its own travel time from the integration of ds / |U|.
+  // Keep tracers inside their own streamline when they return to the inlet.
+  const times=field('travelSeconds'),ends=field('pathEnds',Uint32Array);
+  const dotsPerPath=4,positions=new Float32Array(ends.length*dotsPerPath*3);
+  const particleGeometry=new T.BufferGeometry(),particlePositions=new T.BufferAttribute(positions,3);
+  particlePositions.setUsage(T.DynamicDrawUsage);
+  particleGeometry.setAttribute('position',particlePositions);
+  const particles=new T.Points(particleGeometry,new T.PointsMaterial({color:0x163d50,size:.019}));
+  particles.frustumCulled=false;scene.add(particles);
+  function placeTracers(seconds){
+    let first=0,offset=0;
+    for(let path=0;path<ends.length;path++){
+      const end=ends[path],duration=times[end-1];
+      for(let dot=0;dot<dotsPerPath;dot++){
+        const t=(seconds+duration*(dot/dotsPerPath+(path*.618)%1))%duration;
+        let lo=first,hi=end-1;
+        while(lo<hi){
+          const mid=(lo+hi)>>>1;
+          if(times[mid]<t)lo=mid+1;else hi=mid;
+        }
+        const startTime=lo===first?0:times[lo-1],mix=(t-startTime)/(times[lo]-startTime);
+        for(let axis=0;axis<3;axis++){
+          const i=lo*6+axis;
+          positions[offset++]=segments[i]+mix*(segments[i+3]-segments[i]);
+        }
+      }
+      first=end;
+    }
+    particlePositions.needsUpdate=true;
+  }
   const plane=new T.BufferGeometry(),n=m.samples,N=n*n;
   const vertices=new Float32Array(3*N),tints=new Float32Array(3*N),indices=[];
   for(let j=0;j<n;j++)for(let i=0;i<n;i++){
@@ -73,8 +104,7 @@ async function load(){
   ticks('pressureTicks',[-pressureScale,0,pressureScale]);ticks('speedTicks',[0,.5*speedScale,speedScale]);
   let theta=-.72,phi=.29,radius=3.5;
   function draw(){
-    renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;
-    camera.updateProjectionMatrix();
+
     camera.position.set(.25+radius*Math.cos(phi)*Math.cos(theta),radius*Math.cos(phi)*Math.sin(theta),radius*Math.sin(phi));
     camera.lookAt(.25,0,0);renderer.render(scene,camera);
   }
@@ -83,6 +113,24 @@ async function load(){
   canvas.onlostpointercapture=()=>{last=null;};
   canvas.onpointermove=e=>{if(last){theta-=(e.clientX-last[0])*.008;phi=Math.max(-1.52,Math.min(1.52,phi+(e.clientY-last[1])*.008));last=[e.clientX,e.clientY];draw();}};
   canvas.onwheel=e=>{e.preventDefault();radius=Math.min(10,Math.max(.65,radius*Math.exp(.001*e.deltaY)));draw();};
-  update();window.addEventListener('resize',draw);draw();
+  const animate=el('animate'),rate=el('rate');
+  animate.checked=!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let elapsed=0,lastFrame,scheduled;
+  function tick(now){
+    scheduled=undefined;
+    if(lastFrame!==undefined)elapsed+=(now-lastFrame)*.001*Number(rate.value);
+    lastFrame=now;placeTracers(elapsed);draw();
+    scheduled=requestAnimationFrame(tick);
+  }
+  function playback(){
+    cancelAnimationFrame(scheduled);lastFrame=undefined;
+    if(animate.checked&&!document.hidden)scheduled=requestAnimationFrame(tick);
+  }
+  animate.onchange=playback;document.addEventListener('visibilitychange',playback);
+  function resize(){
+    renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;
+    camera.updateProjectionMatrix();draw();
+  }
+  update();placeTracers(0);window.addEventListener('resize',resize);resize();playback();
 }
 load().catch(e=>{el('metrics').textContent='Could not load the flow field · '+e.message;});
