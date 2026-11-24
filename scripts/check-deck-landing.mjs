@@ -111,3 +111,14 @@ for(const [ground,origin,minHeight,maxHeight] of [
   takeoff(flight,support);
   console.log({ground,height,takeoffHeight:flight.get('position')[2]});
 }
+
+// This exposed lip is more than 2.8 m above the sloping sand below it.
+// Contact must start near the rock's top even though the sand is underwater.
+const lip=await loadInstance('Rdd2Survey',{origin:[33.43083,51.62744],pilot:1,climb:-.4},read);
+let lipTouchdown;
+for(let i=0;i<2000;i++){
+  lip.advance(.005);
+  if(lip.get('terrainWrench')[2]>3){lipTouchdown=lip.get('position')[2];break;}
+}
+assert(lipTouchdown>1.7 && lipTouchdown<2,'the exposed boulder lip must catch the descending drone');
+console.log({lipTouchdown});

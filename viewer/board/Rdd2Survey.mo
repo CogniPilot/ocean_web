@@ -296,7 +296,7 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
     Real A[3,3],w[3],r[3],site[3],contact[5];
   algorithm
     wrench:=zeros(6);
-    if abs(p[1]-36)<29.35 and abs(p[2]-40)<23.35 and p[3]<sandHeight+2.5 then
+    if abs(p[1]-36)<29.35 and abs(p[2]-40)<23.35 and p[3]<sandHeight+3.8 then
       A:=transpose(MultiBodyLie.Math.quaternionToT(quat));
       w:=A*bodyRate;
       for part in 1:9 loop
@@ -582,7 +582,7 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
 
 equation
   nearbySand=Shore.seabed(position[1],position[2]);
-  terrainWrench=if noEvent(abs(position[1]-36)<29.35 and abs(position[2]-40)<23.35 and position[3]<nearbySand+2.5)
+  terrainWrench=if noEvent(abs(position[1]-36)<29.35 and abs(position[2]-40)<23.35 and position[3]<nearbySand+3.8)
     then islandContact(position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts,nearbySand)
     else zeros(6);
   vesselDeckWrenches=vesselContacts(vesselDecks,position,quaternion,aircraft.truth.velocityWorldEnu_m_s,aircraft.truth.angularVelocityBodyFlu_rad_s,droneContactParts);
