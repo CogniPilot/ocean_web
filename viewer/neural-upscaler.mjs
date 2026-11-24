@@ -2,186 +2,208 @@
 const maximumPixels=1920*1080;
 const preference='ocean-neural-upscaling';
 
+const fullscreenVertex='void main(){gl_Position=vec4(position.xy,0.,1.);}';
+const pixelFunctions=`
+  uniform highp sampler2D image;
+  vec3 pixel(ivec2 p,ivec2 edge){return texelFetch(image,clamp(p,ivec2(0),edge),0).rgb;}
+`;
 function inferenceShader({kernel,offset,residual}){
   const literal=value=>value.toFixed(7);
-  const vector=values=>'vec4f('+values.map(literal).join(',')+')';
+  const vector=values=>'vec4('+values.map(literal).join(',')+')';
   const layer=kernel.map((row,index)=>
     'correction+=(max(0.,dot(left,'+vector(row.slice(0,4))+')+dot(right,'+
     vector(row.slice(5))+')+('+literal(offset[index])+'))-'+literal(Math.max(0,offset[index]))+
     ')*'+vector(residual[index])+';').join('\n');
-  return `
-    @group(0) @binding(0) var source:texture_2d<f32>;
-    @group(0) @binding(1) var image:texture_storage_2d<rgba8unorm,write>;
-    fn loadRGB(p:vec2i,edge:vec2i)->vec3f{
-      return textureLoad(source,clamp(p,vec2i(0),edge),0).rgb;
-    }
-    fn luma(c:vec3f)->f32{return dot(c,vec3f(.2126,.7152,.0722));}
-    fn reconstruct(center:vec3f,row:vec3f,column:vec3f,corner:vec3f,
-                   residual:f32,lo:vec3f,hi:vec3f)->vec4f{
-      let base=(9.*center+3.*(row+column)+corner)/16.;
-      return vec4f(clamp(base+residual,lo,hi),1.);
-    }
-    @compute @workgroup_size(8,8) fn infer(@builtin(global_invocation_id) id:vec3u){
-      let size=textureDimensions(source);
-      if(any(id.xy>=size)){return;}
-      let p=vec2i(id.xy);
-      let edge=vec2i(size)-1;
-      let a=loadRGB(p+vec2i(-1,-1),edge);
-      let b=loadRGB(p+vec2i(0,-1),edge);
-      let c=loadRGB(p+vec2i(1,-1),edge);
-      let d=loadRGB(p+vec2i(-1,0),edge);
-      let center=loadRGB(p,edge);
-      let f=loadRGB(p+vec2i(1,0),edge);
-      let g=loadRGB(p+vec2i(-1,1),edge);
-      let h=loadRGB(p+vec2i(0,1),edge);
-      let i=loadRGB(p+vec2i(1,1),edge);
-      let base=luma(center);
-      let left=vec4f(luma(a),luma(b),luma(c),luma(d))-base;
-      let right=vec4f(luma(f),luma(g),luma(h),luma(i))-base;
-      var correction=vec4f(0.);
+  return pixelFunctions+`
+    out vec4 color;
+    float luma(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}
+    void main(){
+      ivec2 p=ivec2(gl_FragCoord.xy);
+      ivec2 edge=textureSize(image,0)-1;
+      // Training rows run from top to bottom, opposite WebGL's framebuffer.
+      float a=luma(pixel(p+ivec2(-1,1),edge));
+      float b=luma(pixel(p+ivec2(0,1),edge));
+      float c=luma(pixel(p+ivec2(1,1),edge));
+      float d=luma(pixel(p+ivec2(-1,0),edge));
+      float center=luma(pixel(p,edge));
+      float f=luma(pixel(p+ivec2(1,0),edge));
+      float g=luma(pixel(p+ivec2(-1,-1),edge));
+      float h=luma(pixel(p+ivec2(0,-1),edge));
+      float i=luma(pixel(p+ivec2(1,-1),edge));
+      vec4 left=vec4(a,b,c,d)-center;
+      vec4 right=vec4(f,g,h,i)-center;
+      vec4 correction=vec4(0.);
       ${layer}
-      let lo=min(center,min(min(min(a,b),min(c,d)),min(min(f,g),min(h,i))));
-      let hi=max(center,max(max(max(a,b),max(c,d)),max(max(f,g),max(h,i))));
-      let destination=2*p;
-      textureStore(image,destination,reconstruct(center,b,d,a,correction.x,lo,hi));
-      textureStore(image,destination+vec2i(1,0),reconstruct(center,b,f,c,correction.y,lo,hi));
-      textureStore(image,destination+vec2i(0,1),reconstruct(center,h,d,g,correction.z,lo,hi));
-      textureStore(image,destination+vec2i(1,1),reconstruct(center,h,f,i,correction.w,lo,hi));
+      // RGBA8 stores the four subpixel corrections without a float-target extension.
+      color=(128.+512.*correction)/255.;
     }`;
 }
-
-const displayShader=`
-  @group(0) @binding(0) var image:texture_2d<f32>;
-  @vertex fn vertex(@builtin(vertex_index) i:u32)->@builtin(position) vec4f{
-    let vertices=array<vec2f,3>(vec2f(-1.,-1.),vec2f(3.,-1.),vec2f(-1.,3.));
-    return vec4f(vertices[i],0.,1.);
-  }
-  @fragment fn display(@builtin(position) p:vec4f)->@location(0) vec4f{
-    return textureLoad(image,vec2i(p.xy),0);
+const displayShader=pixelFunctions+`
+  uniform highp sampler2D detail;
+  out vec4 color;
+  void main(){
+    ivec2 screen=ivec2(gl_FragCoord.xy);
+    ivec2 p=screen/2;
+    ivec2 phase=screen%2;
+    ivec2 edge=textureSize(image,0)-1;
+    ivec2 direction=2*phase-1;
+    vec3 center=pixel(p,edge);
+    vec3 row=pixel(p+ivec2(0,direction.y),edge);
+    vec3 column=pixel(p+ivec2(direction.x,0),edge);
+    vec3 corner=pixel(p+direction,edge);
+    vec4 residual=(255.*texelFetch(detail,p,0)-128.)/512.;
+    vec3 base=(9.*center+3.*(row+column)+corner)/16.;
+    vec3 low=min(min(center,row),min(column,corner));
+    vec3 high=max(max(center,row),max(column,corner));
+    int subpixel=phase.x+2*(1-phase.y);
+    color=vec4(clamp(base+residual[subpixel],low,high),1.);
   }`;
 
-async function prepare(source,output,signal,onFailure){
-  const staging=new OffscreenCanvas(1,1);
-  const context=staging.getContext('webgpu'),bitmapContext=output.getContext('bitmaprenderer');
-  if(!context||!bitmapContext)throw Error('No WebGPU presentation context');
-  const adapter=await navigator.gpu.requestAdapter();
-  if(!adapter||(adapter.info?.isFallbackAdapter??adapter.isFallbackAdapter))
-    throw Error('No hardware WebGPU adapter');
-  const device=await adapter.requestDevice();
-  let input,image,computeGroup,displayGroup,width,height;
-  function release(){
-    input?.destroy();image?.destroy();
+function prepare(T,renderer,model){
+  const screen=renderer.domElement;
+  const camera=new T.OrthographicCamera(-1,1,1,-1,0,1);
+  const geometry=new T.PlaneGeometry(2,2);
+  const image={value:null};
+  const start=new T.Vector2();
+  const viewport=new T.Vector4();
+  const detail=new T.WebGLRenderTarget(1,1,{
+    depthBuffer:false,stencilBuffer:false,minFilter:T.NearestFilter,magFilter:T.NearestFilter
+  });
+  detail.texture.name='Neural upscaling residual';
+  let frame,source,linked=false;
+  function pass(fragmentShader,uniforms){
+    const material=new T.ShaderMaterial({
+      glslVersion:T.GLSL3,vertexShader:fullscreenVertex,fragmentShader,uniforms,
+      depthTest:false,depthWrite:false,toneMapped:false,blending:T.NoBlending
+    });
+    const scene=new T.Scene();
+    const screenQuad=new T.Mesh(geometry,material);
+    screenQuad.frustumCulled=false;
+    scene.add(screenQuad);
+    return {scene,material};
   }
-  function dispose(){
-    release();context?.unconfigure();device.destroy();
+  const inference=pass(inferenceShader(model),{image});
+  const display=pass(displayShader,{image,detail:{value:detail.texture}});
+  function restore(){
+    renderer.setRenderTarget(null);
+    renderer.setViewport(viewport);
+    frame=false;
   }
-  try{
-    if(signal.aborted)throw signal.reason;
-    const model=await import('./neural-upscaler-model.mjs');
-    if(signal.aborted)throw signal.reason;
-    const computeModule=device.createShaderModule({code:inferenceShader(model)});
-    const displayModule=device.createShaderModule({code:displayShader});
-    const format=navigator.gpu.getPreferredCanvasFormat();
-    const [compute,display]=await Promise.all([
-      device.createComputePipelineAsync({layout:'auto',compute:{module:computeModule,entryPoint:'infer'}}),
-      device.createRenderPipelineAsync({layout:'auto',
-        vertex:{module:displayModule,entryPoint:'vertex'},
-        fragment:{module:displayModule,entryPoint:'display',targets:[{format}]}})
-    ]);
-    if(signal.aborted)throw signal.reason;
-    context.configure({device,format,alphaMode:'opaque'});
-    device.addEventListener('uncapturederror',event=>{event.preventDefault();onFailure(event.error);});
-    device.lost.then(info=>{if(info.reason!=='destroyed')onFailure(Error(info.message||'WebGPU device lost'));});
-    return {dispose,present(){
-      const w=source.width,h=source.height;
-      if(!w||!h)return false;
-      if(width!==w||height!==h){
-        release();
-        width=w;height=h;
-        output.width=staging.width=2*width;
-        output.height=staging.height=2*height;
-        input=device.createTexture({size:[width,height],format:'rgba8unorm',
-          usage:GPUTextureUsage.COPY_DST|GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.RENDER_ATTACHMENT});
-        image=device.createTexture({size:[2*width,2*height],format:'rgba8unorm',
-          usage:GPUTextureUsage.STORAGE_BINDING|GPUTextureUsage.TEXTURE_BINDING});
-        const imageView=image.createView();
-        computeGroup=device.createBindGroup({layout:compute.getBindGroupLayout(0),entries:[
-          {binding:0,resource:input.createView()},{binding:1,resource:imageView}]});
-        displayGroup=device.createBindGroup({layout:display.getBindGroupLayout(0),entries:[
-          {binding:0,resource:imageView}]});
+  return {
+    get size(){return source?.image;},
+    begin(){
+      const width=Math.ceil(screen.width/2),height=Math.ceil(screen.height/2);
+      if(!width||!height)return;
+      if(source?.image.width!==width||source?.image.height!==height){
+        source?.dispose();
+        source=new T.FramebufferTexture(width,height);
+        source.name='Low-resolution scene for neural upscaling';
+        image.value=source;
+        detail.setSize(width,height);
       }
-      device.queue.copyExternalImageToTexture({source},{texture:input},[width,height]);
-      const encoder=device.createCommandEncoder();
-      const inference=encoder.beginComputePass();
-      inference.setPipeline(compute);inference.setBindGroup(0,computeGroup);
-      inference.dispatchWorkgroups(Math.ceil(width/8),Math.ceil(height/8));
-      inference.end();
-      const presentation=encoder.beginRenderPass({colorAttachments:[
-        {view:context.getCurrentTexture().createView(),loadOp:'clear',storeOp:'store',clearValue:[0,0,0,1]}
-      ]});
-      presentation.setPipeline(display);presentation.setBindGroup(0,displayGroup);
-      presentation.draw(3);
-      presentation.end();
-      device.queue.submit([encoder.finish()]);
-      // Present the completed GPU frame on the overlay without changing the
-      // WebGL canvas that owns rendering and pointer input.
-      bitmapContext.transferFromImageBitmap(staging.transferToImageBitmap());
-      return true;
-    }};
-  }catch(error){dispose();throw error;}
+      const scale=renderer.getPixelRatio();
+      renderer.getViewport(viewport);
+      // Three converts logical viewport coordinates back to integer pixels.
+      frame=true;
+      renderer.setViewport(0,0,(width+.001)/scale,(height+.001)/scale);
+    },
+    present(){
+      if(!frame)return;
+      const debug=renderer.debug,reportShaderError=debug.onShaderError;
+      let shaderError;
+      if(!linked)debug.onShaderError=(gl,program)=>{
+        shaderError=gl.getProgramInfoLog(program)||'Neural shader failed to link';
+      };
+      try{
+        // Render the scene into this rectangle of the regular drawing buffer
+        // so it uses the same exposure, color space and edge antialiasing.
+        renderer.copyFramebufferToTexture(start,source);
+        renderer.setRenderTarget(detail);
+        renderer.render(inference.scene,camera);
+        restore();
+        if(!shaderError)renderer.render(display.scene,camera);
+        if(shaderError)throw Error(shaderError);
+        linked=true;
+      }finally{
+        if(frame)restore();
+        debug.onShaderError=reportShaderError;
+      }
+    },
+    dispose(){
+      if(frame)restore();
+      source?.dispose();
+      detail.dispose();
+      geometry.dispose();
+      inference.material.dispose();
+      display.material.dispose();
+    }
+  };
 }
 
-export function neuralUpscaling(source,output,toggle,status,{signal,resize}){
-  let pipeline,pending,enabled=false,failed=false;
+export function neuralUpscaling(T,renderer,toggle,status,{signal,resize}){
+  let pipeline,pending,enabled=false;
   function remember(){
     try{localStorage.setItem(preference,toggle.checked?'on':'off');}catch{}
   }
-  function unavailable(error){
-    if(signal.aborted||failed)return;
-    failed=true;
-    toggle.checked=false;toggle.disabled=true;remember();
-    status.textContent='AI upscaling unavailable on this device';
-    output.hidden=true;
-    pipeline?.dispose();pipeline=undefined;
-    if(enabled){enabled=false;resize();}
-    if(error)console.warn('AI upscaling unavailable',error);
+  function stop(){
+    if(enabled){
+      enabled=false;
+      pipeline?.dispose();
+      pipeline=undefined;
+      resize();
+    }
+  }
+  function failed(error){
+    if(signal.aborted)return;
+    toggle.checked=false;
+    remember();
+    stop();
+    status.textContent='AI upscaling failed. Using standard rendering.';
+    console.warn('AI upscaling could not start',error);
   }
   async function select(){
     remember();
     if(!toggle.checked){
-      output.hidden=true;status.textContent='';
-      if(enabled){enabled=false;resize();}
+      stop();
+      status.textContent='';
       return;
     }
-    if(!pipeline){
-      status.textContent='Preparing AI upscaling…';
-      pending??=prepare(source,output,signal,unavailable);
-      try{pipeline=await pending;}catch(error){unavailable(error);return;}
-      if(signal.aborted||failed){pipeline.dispose();return;}
-      if(!toggle.checked)return;
-    }
-    if(!enabled){
+    if(enabled)return;
+    status.textContent='Preparing AI upscaling…';
+    pending??=import('./neural-upscaler-model.mjs');
+    let model;
+    try{model=await pending;}catch(error){pending=undefined;failed(error);return;}
+    if(signal.aborted||!toggle.checked||enabled)return;
+    try{
+      pipeline=prepare(T,renderer,model);
       enabled=true;
-      status.textContent='';
+      status.textContent='Active on the WebGL 2 renderer';
       resize();
-    }
+    }catch(error){failed(error);}
   }
   signal.addEventListener('abort',()=>pipeline?.dispose(),{once:true});
-  if(!navigator.gpu||typeof OffscreenCanvas!=='function')unavailable();
-  else{
+  if(!renderer.capabilities.isWebGL2){
+    toggle.disabled=true;
+    status.textContent='AI upscaling requires WebGL 2.';
+  }else{
     try{toggle.checked=localStorage.getItem(preference)==='on';}catch{}
     toggle.addEventListener('change',select,{signal});
     void select();
   }
   return {
-    get canvas(){return output.hidden?source:output;},
+    get size(){return enabled?pipeline.size:undefined;},
     ratio(nativeRatio){
-      // Keep both the source and the inferred image cheap on large or HiDPI displays.
-      return enabled?Math.min(nativeRatio,.5,.5*Math.sqrt(maximumPixels/(innerWidth*innerHeight))):nativeRatio;
+      return enabled?Math.min(2*nativeRatio,1,Math.sqrt(maximumPixels/(innerWidth*innerHeight))):nativeRatio;
+    },
+    begin(){
+      if(enabled){
+        try{pipeline.begin();}catch(error){failed(error);}
+      }
     },
     present(){
-      if(!enabled)return;
-      try{if(pipeline.present())output.hidden=false;}catch(error){unavailable(error);}
+      if(enabled){
+        try{pipeline.present();}catch(error){failed(error);}
+      }
     }
   };
 }

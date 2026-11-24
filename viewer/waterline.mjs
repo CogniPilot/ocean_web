@@ -19,8 +19,10 @@ export function splitCamera(T){
  }`});
  scene.add(new T.Mesh(new T.PlaneGeometry(2,2),m));
  const size=new T.Vector2();
- return (renderer,world,eye,water,fog,renderBelow)=>{
-   renderer.getDrawingBufferSize(size);above.setSize(size.x,size.y);below.setSize(size.x,size.y);
+ return (renderer,world,eye,water,fog,renderBelow,pictureSize)=>{
+   if(pictureSize)size.set(pictureSize.width,pictureSize.height);
+   else renderer.getDrawingBufferSize(size);
+   above.setSize(size.x,size.y);below.setSize(size.x,size.y);
    eye.updateMatrixWorld();eye.getWorldDirection(u.forward.value);u.right.value.setFromMatrixColumn(eye.matrixWorld,0);u.up.value.setFromMatrixColumn(eye.matrixWorld,1);
    u.positionEye.value.copy(eye.position);u.slope.value=Math.tan(T.MathUtils.degToRad(eye.fov/2));u.aspect.value=eye.aspect;
    for(const key of ['tile','tide','blend','swell','swellCenter','boat','spectrumMap','incidentMap','spectrumDrift','spectrumPeriod','spectrumBlend','wakeAvailable','bowMap','bowAvailable','bowFineAvailable','bowFineSpacing','bowFineBounds','swimmerWater','whalePatch','sharkPatch','whalePatchPrevious','sharkPatchPrevious','swimmerBlend','swimmerFin','swimmerHalfFloat'])u[key]=water.U[key];

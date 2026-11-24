@@ -1338,7 +1338,7 @@ async function run(saved=readReset(),carried){
     if(glowingHulls.length<5&&cruiser.group.position.distanceToSquared(eye.position)<42*42)glowingHulls.push(cruiser.group);
     for(const light of cruiser.underwaterLamps)collectLight(light,eye);
   }
-  function renderBelow(world,eye,thumbnail=false){
+  function renderBelow(world,eye,thumbnail=false,pictureSize){
     submergedLights.length=0;glowingHulls.length=0;
     eye.getWorldDirection(viewDirection);
     if(sub?.mesh.visible&&lamp)collectLight(lamp,eye);
@@ -1351,7 +1351,7 @@ async function run(saved=readReset(),carried){
     const view=$('cameraDepth').value;
     const onboard=thumbnail||view==='onboard'||Boolean(motor&&Object.hasOwn(cruiserUnderwaterViews,view));
     const exposure=onboard?Math.floor(ocean.U.tm.value*24)%1024:-1;
-    lampPass(world,eye,selector.value,submergedLights,exposure,thumbnail,glowingHulls);
+    lampPass(world,eye,selector.value,submergedLights,exposure,thumbnail,glowingHulls,pictureSize);
   }
   const drawForces=forceDisplay(T,scene,sub?.mesh,boat?.group,cat,model);
   $('showCompass').setAttribute('aria-pressed',String(selectedRole==='boat'||selectedRole==='drone'));
@@ -2217,7 +2217,7 @@ async function run(saved=readReset(),carried){
     camera.aspect=innerWidth/innerHeight;
     camera.updateProjectionMatrix();
   }
-  upscaling=neuralUpscaling($('view'),$('neuralUpscaledView'),$('neuralUpscaling'),$('neuralUpscalingStatus'),{
+  upscaling=neuralUpscaling(T,renderer,$('neuralUpscaling'),$('neuralUpscalingStatus'),{
     signal,resize:()=>{
       resize();
       if(frameTest)finishTest('Test interrupted by an upscaling change.');
@@ -2361,8 +2361,8 @@ async function run(saved=readReset(),carried){
       finishTest(`${rate.toFixed(2)}× simulation headroom · ${mobile?2:profile.target}× target${rates} · ${(gaps.length/elapsed).toFixed(1)} FPS · p95 ${p95.toFixed(1)} ms`);
       return;
     }
-    const final=upscaling.canvas;
-    const upscale=final!==renderer.domElement?` · AI from ${renderer.domElement.width}×${renderer.domElement.height}`:'';
+    const final=renderer.domElement,source=upscaling.size;
+    const upscale=source?` · AI from ${source.width}×${source.height}`:'';
     finishTest(`${(gaps.length/elapsed).toFixed(1)} FPS · 95th percentile ${p95.toFixed(1)} ms · ${((t-test.simStart)/elapsed).toFixed(2)}× real time · ${test.quality} · ${final.width}×${final.height} final pixels${upscale}`);
   }
   speedSelect.onchange=()=>{
@@ -3197,12 +3197,14 @@ async function run(saved=readReset(),carried){
       const floodedCabin=motor&&view==='motorCabin'&&!animalId&&
         motor.group.worldToLocal(cabinEye.copy(camera.position)).z<motor.cabinWaterLevel;
       const waterFog=floodedCabin?cabinWaterFog:underwaterFog;
-      if(Math.abs(eyeHeight)<=surfaceBand){split(renderer,scene,camera,ocean,waterFog,renderBelow);}
+      upscaling.begin();
+      const pictureSize=upscaling.size;
+      if(Math.abs(eyeHeight)<=surfaceBand){split(renderer,scene,camera,ocean,waterFog,renderBelow,pictureSize);}
       else{
         const submerged=eyeHeight<0;
         scene.fog=submerged?waterFog:cloudFog;scene.background=submerged?waterFog.color:null;
         ocean.U.under.value=Number(submerged);ocean.dome.visible=!submerged;
-        if(submerged)renderBelow(scene,camera);else renderer.render(scene,camera);
+        if(submerged)renderBelow(scene,camera,false,pictureSize);else renderer.render(scene,camera);
       }
       if(coneToggle.checked)drawCameraCones(view);
       if(collisionToggle.checked)drawCollisions();
