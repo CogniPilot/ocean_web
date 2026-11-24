@@ -2,14 +2,21 @@
 export async function loadRecording(meta,read){
   const seq=meta.sequence;
   if(!seq)return;
-  const keys=Object.keys(seq.fields);
-  const [geometry,...fields]=await Promise.all(['turn-geometry.bin',...keys.map(k=>'turn-'+k+'.bin')].map(read));
-  const volumes=new Map(keys.map((key,i)=>[key,new Uint16Array(fields[i])]));
+  const geometry=await read('turn-geometry.bin');
   const count=meta.volumeGrid.dims.reduce((a,b)=>a*b);
-  for(const volume of volumes.values())if(volume.length!==count*seq.frames.length)throw Error('Incomplete CFD volume recording');
+  const volumes=new Map(),pending=new Map();
+  async function ensureField(key){
+    if(volumes.has(key))return;
+    if(!pending.has(key))pending.set(key,read('turn-'+key+'.bin').then(buffer=>{
+      const volume=new Uint16Array(buffer);
+      if(volume.length!==count*seq.frames.length)throw Error('Incomplete CFD volume recording');
+      volumes.set(key,volume);
+    }).finally(()=>pending.delete(key)));
+    await pending.get(key);
+  }
   const start=seq.frames[0].time,duration=seq.frames.at(-1).time-start;
-  function frameAt(elapsed){
-    const time=start+elapsed%duration;
+  function frameAt(elapsed,loop=true){
+    const time=start+(loop?elapsed%duration:Math.min(duration,Math.max(0,elapsed)));
     let index=0;
     while(index+1<seq.frames.length && time>=(seq.frames[index].time+seq.frames[index+1].time)/2)index++;
     return index;
@@ -27,5 +34,5 @@ export async function loadRecording(meta,read){
     const lines=new Int16Array(geometry,offset,4*seq.paths*seq.verticesPerPath);
     return {pressure,tracer,lines};
   }
-  return {start,duration,frameAt,decode,geometryAt};
+  return {start,duration,frameAt,decode,geometryAt,ensureField};
 }

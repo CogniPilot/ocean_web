@@ -297,7 +297,6 @@ async function start() {
     ship.visible=false;ghost.visible=false;uniforms.amp.value=0;
     $('comparison').hidden=!replay;$('manual').hidden=replay||turn;$('generatorControl').hidden=replay||turn;
     $('trackGap').textContent=$('heaveGap').textContent=$('rpmHistory').textContent='';
-    if(replay&&activeView==='hall'){activeView=$('cameraView').value='ship';recenter();}
     worker?.terminate();ready=busy=failed=false;state=tile=uploadedLeft=uploadedRight=null;accum=0;playback=createWakePlayback(3*wakeStep);
     rateStart=undefined;rateText='';
     generatorStart=-100000;program={};$('stopTrain').disabled=true;
