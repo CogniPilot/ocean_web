@@ -257,6 +257,8 @@ maximum amplitude is printed separately because it can lie inside the Kelvin
 envelope. The check exercises the 64×64 Modelica wave solver. Comparing actual
 hull drag, trim and loads with tow-tank data requires a separate validation.
 [Kelvin wake angles and finite disturbance size](https://arxiv.org/abs/1304.2653)
+[University of Iowa tow and maneuver benchmarks](scripts/benchmarks/README.md)
+include a reproducible spectral wake comparison against the 5512 tank profile.
 
 In the viewer, select **Physics view → Wave grids → Wake elevation contours**
 under **Settings → View & diagnostics** to inspect the radiated wake in
