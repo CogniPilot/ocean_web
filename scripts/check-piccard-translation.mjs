@@ -41,7 +41,7 @@ function drive(key,seconds){
 }
 
 drive('',18); // Allow the pistons to settle at the assisted translation trim.
-for(const [key,sign] of [['A',1],['D',-1]]){
+for(const [key,sign] of [['Q',1],['E',-1]]){
   const motion=drive(key,10);
   console.log(key,motion);
   assert(sign*motion.port>1,key+' must travel sideways');
@@ -52,7 +52,7 @@ for(const [key,sign] of [['A',1],['D',-1]]){
 }
 assert(drive('W',4).ahead>1,'W forward');
 assert(drive('S',6).ahead<-1,'S backward');
-assert(drive('Q',4).turn>1,'Q port yaw');
-assert(drive('E',6).turn<-1,'E starboard yaw');
+assert(drive('A',4).turn>1,'A port yaw');
+assert(drive('D',6).turn<-1,'D starboard yaw');
 assert(drive('R',3).up>.5,'R up');
 assert(drive('F',5).up<-.5,'F down');

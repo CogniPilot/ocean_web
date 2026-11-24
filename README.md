@@ -6,7 +6,7 @@ Medium and High keep waves, wakes, reflection and refraction. On touch devices t
 
 New sessions start with the selected vehicle or animal. Open **Settings → Spawn NPC** to add wildlife or a Hobie, sloop, cruiser, RDD2 or Piccard. The Hobie NPC times its approach to the fleet start, rounds the course marks and crosses the finish. Its completed laps appear in **Best laps** alongside player laps. In multiplayer, the host spawns the NPCs for the room. The other vessels follow automatic patrol routes. Each vessel has an orbit camera under **Camera**. The **Players & NPCs** panel shows names, models and racing NPCs’ progress. [Launch the cruiser](https://cognipilot.github.io/ocean_web/?control=motorboat&quality=fast) · [Fly the herring gull](https://cognipilot.github.io/ocean_web/?control=gull&quality=high)
 
-To land the gull, push the right stick forward and glide into the water. It automatically switches to swimming. W paddles, Q/E turns, and holding W and R together runs into takeoff. On touch screens, push the left stick forward to paddle and pull the right stick back to take off. The gull floats on the local wave surface and responds to local gusts in flight.
+To land the gull, push the right stick forward and glide into the water. It automatically switches to swimming. W paddles, A/D turns, and holding W and R together runs into takeoff. On touch screens, push the left stick forward to paddle and pull the right stick back to take off. The gull floats on the local wave surface and responds to local gusts in flight.
 
 Choose **Piccard Sub** to explore the shipwreck. You start in the cockpit with the sonar map visible and autopilot surveying the wreck interior and upper hull. **Take control** lets you pilot the same dive, and **Resume survey** hands it back to autopilot. Enable **Multiplayer** and share **Copy room link** to explore together, each in your own sub. [Launch the sub](https://cognipilot.github.io/ocean_web/?control=sub)
 
@@ -30,7 +30,7 @@ With sound enabled, simulated water motion near the listener drives the surface 
 
 ## Combined simulation component
 
-The startup picker loads one Rumoca component for the selected vehicle. Each component includes the shared sea, wind and race infrastructure. The default keyboard layout is **WASD + Q/E + R/F** across the model picker and the ONR basin. Select **WASD + arrows (Mode 2)** to use transmitter controls. The browser remembers the choice. Tap **Reset** to restart the local simulation from the current vehicle’s starting conditions. Vehicle changes through **Vehicle** start a fresh session and retain the room when multiplayer is active. The boats and drone start in Manual. The sub starts on its wreck survey. [Launch the Hobie](https://cognipilot.github.io/ocean_web/?boat=Hobie16)
+The startup picker loads one Rumoca component for the selected vehicle. Each component includes the shared sea, wind and race infrastructure. The default keyboard layout is **WASD + Q/E + R/F** across the model picker and the ONR basin. A/D turns left/right on every vehicle. W/S controls its primary drive or sail trim. Select **WASD + arrows (Mode 2)** to use transmitter controls. The browser remembers the choice. Tap **Reset** to restart the local simulation from the current vehicle’s starting conditions. Vehicle changes through **Vehicle** start a fresh session and retain the room when multiplayer is active. The boats and drone start in Manual. The sub starts on its wreck survey. [Launch the Hobie](https://cognipilot.github.io/ocean_web/?boat=Hobie16)
 
 The coupled development scene uses one FMI 3 LS-WASM component for the Hobie, RDD2, submarine, wave field and onboard perception. Use it to switch between vehicles with their local states preserved or to try the wreck survey with the drone following overhead. In an FMI host, set `sailingManual`, `subManual` and `flightManual` to 1 for manual control or 0 for automatic control. [Open the coupled scene](https://cognipilot.github.io/ocean_web/?runtime=world) · [Open the coupled wreck survey](https://cognipilot.github.io/ocean_web/?runtime=world&demo=wreck&view=fpv) · [Download OceanWorld.fmu](https://cognipilot.github.io/ocean_web/fmi3/OceanWorld.fmu)
 
@@ -54,7 +54,7 @@ The **Room name** field defaults to `regatta`. Open **Settings → Multiplayer**
 
 For networks that block direct WebRTC connections, set the GitHub Actions variable `OCEAN_TURN_ENDPOINT` to an HTTPS endpoint that issues short-lived TURN credentials and rerun the Pages workflow. It should return a JSON object with an `iceServers` array of `urls`, `username`, and `credential` entries. The endpoint must allow GET requests from the viewer's origin. Keep the provider's API key on the credential server. When a peer is discovered but the WebRTC connection fails, the Multiplayer pane reports the connection failure.
 
-Select **Vehicle → RDD2 drone** to fly, or open `?control=drone`. Manual flight starts in **Position hold**. R/F controls throttle or climb and descent in position hold. Q/E controls yaw, W/S controls pitch or forward/back, and A/D controls roll or strafe. With sound enabled, each propeller has a blade-pass tone driven by its simulated rotor speed. The right touch stick follows the same axes. Space controls the motor switch. On touchscreens W/A/S/D correspond to the left stick and the arrows correspond to the right stick. Sailboats combine helm and sheet on the left stick. The cruiser combines helm and throttle there and retains its separate searchlight controls. Holding a direction progressively increases the stick command. Select **Engage race autopilot** in the Hobie or RDD2 to sail or fly the scored regatta. **Take the helm** returns control to the player.
+Select **Vehicle → RDD2 drone** to fly, or open `?control=drone`. Manual flight starts in **Position hold**. R/F controls throttle or climb and descent in position hold. A/D controls yaw, W/S controls pitch or forward/back, and Q/E controls roll or strafe. With sound enabled, each propeller has a blade-pass tone driven by its simulated rotor speed. The right touch stick follows the same axes. Space controls the motor switch. On touchscreens W/A/S/D correspond to the left stick and the arrows correspond to the right stick. Sailboats combine helm and sheet on the left stick. The cruiser combines helm and throttle there and retains its separate searchlight controls. Holding a direction progressively increases the stick command. Select **Engage race autopilot** in the Hobie or RDD2 to sail or fly the scored regatta. **Take the helm** returns control to the player.
 
 The drone compass shows heading, the next course target and estimated true wind speed and direction. The controller predicts position, velocity and accelerometer bias at 50 Hz from simulated inertial measurements, then corrects them with 10 Hz simulated GNSS fixes. Attitude propagates from the launch pose using the gyroscope. A separate filter estimates horizontal wind from drag inferred by the accelerometer and rotor speeds. Enable **Settings → Drone covariance** to see the one-standard-deviation uncertainty for position, velocity and horizontal wind.
 
@@ -87,7 +87,7 @@ On an existing checkout, reuse the pinned microduck_web dependency. Open `http:/
 
 Open **http://127.0.0.1:8074**. The launcher uses Python 3, with a Nix fallback, and serves the packaged viewer when available. The prebuilt simulator requires a WebGL2 browser with WebAssembly. Set `SERVE_DIR=viewer` to serve the legacy split-runtime development viewer.
 
-Select **Sub** for the underwater survey. For assisted translation, choose **Settings → Keyboard layout → WASD + Q/E + R/F**, then click **Take control**. W/S drive forward or backward, A/D bank to move to port or starboard, Q/E yaw left or right, and R/F ascend or descend. V switches between orbit and the forward camera. Z toggles the lamp, X the sonar map, and C the DVL beams. The controller floods the trim tanks equally to give the vertical motors a sustained lifting load. Banking vectors part of that thrust sideways, so lateral authority builds as the tanks fill. Releasing A/D levels the sub. The standard transmitter layout retains its selectable position, auto-level and acro modes.
+Select **Sub** for the underwater survey. For assisted translation, choose **Settings → Keyboard layout → WASD + Q/E + R/F**, then click **Take control**. W/S drive forward or backward, A/D yaw left or right, Q/E bank to move to port or starboard, and R/F ascend or descend. V switches between orbit and the forward camera. Z toggles the lamp, X the sonar map, and C the DVL beams. The controller floods the trim tanks equally to give the vertical motors a sustained lifting load. Banking vectors part of that thrust sideways, so lateral authority builds as the tanks fill. Releasing Q/E levels the sub. The standard transmitter layout retains its selectable position, auto-level and acro modes.
 
 In transmitter **Position** mode, ↑/↓ move forward and back, W/S rise and dive, and A/D yaw. Center the motion sticks to hold the along-heading position and pressure depth. Cross-currents can carry the sub sideways. In **Settings → Physics view**, enable **Submarine water current** to inspect the depth profile, tidal flow, wind drift and wreck shelter. The arrows show ambient mean current in m/s. Wave orbital velocities contribute separately to vehicle drag. **Auto-level** uses the arrows for pitch and roll angle. **Acro** uses the same arrows to command body rates and retains tilt on release. In both attitude modes W/S command heave thrust and A/D yaw. On touchscreens, the left stick controls yaw and heave, and the right stick controls translation or attitude. **Resume survey** returns to the waypoint autopilot.
 
@@ -186,8 +186,8 @@ The keel and rudder use local water-relative flow, yaw-induced velocity, effecti
 ## Herring gull flight
 
 Choose **Herring gull** at launch or under **Control**. On the right stick,
-push up or down to pitch and left or right to bank. On the default keyboard, R/F controls pitch and A/D banks.
-Q/E turns, W flaps, S glides, and Space calls. Release the flap or glide
+push up or down to pitch and left or right to bank. On the default keyboard, R/F controls pitch and Q/E banks.
+A/D turns, W flaps, S glides, and Space calls. Release the flap or glide
 control to let the bird choose its stroke.
 
 The harbour host advances each gull at 100 Hz. An inner and outer strip on each wing resolve airspeed, stroke velocity, roll rate, incidence and drag. Differential incidence produces a roll moment. Wing loading and the aft tail produce pitch moments. A bounded actuator trims each surface, and the accumulated lift banks the flight path. Guests receive the integrated attitude, wing pose and state needed to take over the flight.
@@ -234,7 +234,7 @@ Original code, shaders and original assets are released under the [Apache Licens
 ### Drive the Iowa ONR Tumblehome
 
 Select **ONR Tumblehome** in the model picker to enter the dedicated basin.
-Choose **Free running**, press **538 rpm**, and steer with **Q/E** or the helm
+Choose **Free running**, press **538 rpm**, and steer with **A/D** or the helm
 slider. **Straight tow** prescribes forward speed. **Wake contours** shows
 hull-induced surface elevation in 5 mm intervals. The headless benchmark uses
 the same ship model. [Experimental comparisons](scripts/benchmarks/README.md)
@@ -291,7 +291,7 @@ Spawn a whale or shark from **Settings → Spawn NPC** to enable its camera in *
 
 ### Piloting and stepping the humpback
 
-Choose **Humpback whale** or **Great white shark** under **Control**. W/S adjusts swim effort, Q/E turns, R/F commands rise/dive, and A/D banks port/starboard. The right touch stick uses the same directions. Release the roll input to command level bank. Space triggers the breach cycle.
+Choose **Humpback whale** or **Great white shark** under **Control**. W/S adjusts swim effort, A/D turns, R/F commands rise/dive, and Q/E banks port/starboard. The right touch stick uses the same directions. Release the roll input to command level bank. Space triggers the breach cycle.
 
 Node can step the same `HarborTraffic` Wasm plant without a renderer or room. Each action spans 0.01 s of simulated time. The five inputs range from −1 to +1. In order, they command port and starboard fin incidence (±1.20 rad each), peduncle angle relative to the body (±0.85 rad), fluke feather (±1.15 rad) and lateral sculling effort. The joint servo retains its torque and power limits. The ordinary depth, roll, course and speed pilots relinquish those actuators in direct mode.
 

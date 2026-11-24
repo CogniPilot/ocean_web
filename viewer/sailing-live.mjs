@@ -1750,14 +1750,14 @@ async function run(saved=readReset(),carried){
     if(sub)sub.mode=wasd()&&sub.active?3:Number(subMode.value);
     $('subModeLabel').hidden=$('subPanel').hidden||wasd()||Boolean(world&&!world.hasSubMode);
     subMode.disabled=!sub?.manual;
-    const steerKeys=wasd()?'Q/E':'A/D',verticalKeys=wasd()?'R/F':'W/S';
-    const foreAftKeys=wasd()?'W/S':'↑/↓',sideKeys=wasd()?'A/D':'←/→';
-    $('sailKeys').textContent=steerKeys+' steer · W eases the sheets · S hauls them in'+(cat?' · Arrows adjust travelers · C releases the main traveler.':'.');
-    $('motorKeys').textContent='W/S throttle · '+(wasd()?'A/D or Q/E':steerKeys)+' helm · Arrows aim searchlight · Z/X lights · C anchor';
-    if(sub?.active)$('subKeys').textContent=verticalKeys+' rise/dive · '+steerKeys+' yaw · '+foreAftKeys+
-      (sub.mode===3?' forward/back · A/D bank to strafe':sub.mode===0?' forward/back':' pitch · '+sideKeys+' roll')+' · V view · Z lamp · X sonar map · C DVL rays';
+    const verticalKeys=wasd()?'R/F':'W/S';
+    const foreAftKeys=wasd()?'W/S':'↑/↓',sideKeys=wasd()?'Q/E':'←/→';
+    $('sailKeys').textContent='A/D steer · W eases the sheets · S hauls them in'+(cat?' · Arrows adjust travelers · C releases the main traveler.':'.');
+    $('motorKeys').textContent='W/S throttle · A/D helm · Arrows aim searchlight · Z/X lights · C anchor';
+    if(sub?.active)$('subKeys').textContent=verticalKeys+' rise/dive · A/D yaw · '+foreAftKeys+
+      (sub.mode===3?' forward/back · '+sideKeys+' bank to strafe':sub.mode===0?' forward/back':' pitch · '+sideKeys+' roll')+' · V view · Z lamp · X sonar map · C DVL rays';
     $('animalPilot').hidden=!swimming;$('gullKeys').hidden=!gull;
-    if(swimming)$('swimKeys').textContent='W/S swim effort · '+steerKeys+' turn · '+
+    if(swimming)$('swimKeys').textContent='W/S swim effort · A/D turn · '+
       (wasd()?'R rise · F dive':animalKind()==='shark'?'↓ rise · ↑ dive':'↑ rise · ↓ dive')+
       ' · '+sideKeys+' roll · '+(wasd()?'X':'F or X')+' feed · C breach';
     $('helm').hidden=Boolean(animalId||motor);$('motorPanel').hidden=!motor||!!animalId;
@@ -1780,7 +1780,7 @@ async function run(saved=readReset(),carried){
     $('flightMode').disabled=!drone?.manual;
     if(drone?.active){
       $('flightKeys').textContent=foreAftKeys+(flightControl.value==='0'?' forward/back · '+sideKeys+' strafe':' pitch · '+sideKeys+' roll')+
-        ' · '+steerKeys+' yaw · '+verticalKeys+(flightControl.value==='0'?' climb/descend':' throttle')+
+        ' · A/D yaw · '+verticalKeys+(flightControl.value==='0'?' climb/descend':' throttle')+
         ' · C or Space arm/disarm'+(flightControl.value==='2'?' · Release roll/pitch to stop rotating':'');
     }
 
@@ -2967,8 +2967,8 @@ async function run(saved=readReset(),carried){
           $('readout').textContent=motion?status+' · '+motion:status;
           const gullKeys=$('gullKeys');
           const hint=afloat?(mobile?'Left stick forward to paddle · Left forward + right back to take off':wasd()?
-            'W paddle · Q/E turn · Hold W + R to take off · C call':'W paddle · A/D turn · Hold W + ↓ to take off · C call'):
-            wasd()?'R pull up · F push down · A/D bank · Q/E turn · W flap · S glide · C call':
+            'W paddle · A/D turn · Hold W + R to take off · C call':'W paddle · A/D turn · Hold W + ↓ to take off · C call'):
+            wasd()?'R pull up · F push down · Q/E bank · A/D turn · W flap · S glide · C call':
               '↓ pull up · ↑ push down · ←/→ bank · A/D turn · W flap · S glide · C call';
           if(gullKeys.textContent!==hint)gullKeys.textContent=hint;
           const left=$('sticks').firstElementChild;

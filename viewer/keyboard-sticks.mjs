@@ -8,13 +8,12 @@ export function saveKeyboardLayout(layout){
 }
 
 const transmitterKeys=new Set(['KeyW','KeyS','KeyA','KeyD','ArrowLeft','ArrowRight','ArrowUp','ArrowDown']);
-const movementKeys={KeyW:'ArrowUp',KeyS:'ArrowDown',KeyA:'ArrowLeft',KeyD:'ArrowRight',
-  KeyQ:'KeyA',KeyE:'KeyD',KeyR:'KeyW',KeyF:'KeyS'};
-const surfaceKeys={KeyW:'KeyW',KeyS:'KeyS',KeyQ:'KeyA',KeyE:'KeyD'};
+const movementKeys={KeyW:'ArrowUp',KeyS:'ArrowDown',KeyA:'KeyA',KeyD:'KeyD',
+  KeyQ:'ArrowLeft',KeyE:'ArrowRight',KeyR:'KeyW',KeyF:'KeyS'};
+const surfaceKeys={KeyW:'KeyW',KeyS:'KeyS',KeyA:'KeyA',KeyD:'KeyD'};
 
 export function keyboardAxisKey(code,layout,kind){
   if(layout!=='wasd')return transmitterKeys.has(code)?code:undefined;
-  if(kind==='motorboat'&&(code==='KeyA'||code==='KeyD'))return code;
   if(kind==='boat'||kind==='motorboat')return surfaceKeys[code];
   if(kind==='whale'||kind==='shark'||kind==='gull'){
     if(code==='KeyW'||code==='KeyS')return code;
