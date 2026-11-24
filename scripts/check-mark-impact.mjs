@@ -9,11 +9,14 @@ import {fileFetch} from '../.deps/microduck_web/scripts/fmu-test-support.mjs';
 const base=pathToFileURL(resolve(process.argv[2]??'build/sailing-runtime')+'/');
 const manifest=JSON.parse(await readFile(new URL('manifest.json',base)));
 const index=JSON.parse(await readFile(new URL(manifest.index,base)));
+function openRace(east,north,speed){
+  return openFmuSession({index,base,fetch:fileFetch,parameters:{prevailingBearing:0,
+    'boat.launchEast':east,'boat.launchNorth':north,'boat.launchSpeed':speed,'boat.launchHeading':0}});
+}
 async function run(offset,mark=1,launchSpeed=3.62,extraRunUp=0){
   const locations=[[-10,-26.5],[-210,-6.5],[-110,-6.5-100*Math.sqrt(3)]];
   const [east,north]=locations[mark-1];
-  const session=await openFmuSession({index,base,fetch:fileFetch,parameters:{prevailingBearing:0,
-    'boat.launchEast':east-4-extraRunUp,'boat.launchNorth':north+offset,'boat.launchSpeed':launchSpeed,'boat.launchHeading':0}});
+  const session=await openRace(east-4-extraRunUp,north+offset,launchSpeed);
   try{
     session.set_inputs(JSON.stringify([['sailingManual',1],['windSpeed',0],['omitWake',1]]));
     const probe=session.bind_outputs(JSON.stringify(['boat.east','boat.ve',
@@ -44,6 +47,28 @@ for(const hit of [center,port,starboard]){
   assert(hit.speed<clear.speed-.1);
 }
 assert(center.firstContact < -2, "Centerline mark must catch the bow bridle before it reaches the trampoline");
+
+// Approach the committee launch from the same position with and without lateral clearance.
+async function launchImpact(offset){
+  const session=await openRace(-17,13.5+offset,4);
+  try{
+    session.set_inputs(JSON.stringify([['sailingManual',1],['windSpeed',0],['seaState',0],['omitWake',1]]));
+    const probe=session.bind_outputs(JSON.stringify(['race.committeeEast','race.deckState[7]',
+      'boat.sceneForce[1]','boat.committeeReaction[1]','boat.sceneContact[6]']));
+    let peak=0,impulse=0,east,velocity;
+    for(let i=0;i<300;i++){
+      const [x,ve,force,reaction,normalForce]=session.read_bound(probe);
+      assert(Math.abs(force+reaction)<1e-7);
+      east=x;velocity=ve;peak=Math.max(peak,normalForce);impulse+=.01*reaction;
+      session.step(.01);
+    }
+    return {peak,impulse,east,velocity};
+  }finally{session.free();}
+}
+const launchClear=await launchImpact(7),launchHit=await launchImpact(0);
+assert.equal(launchClear.peak,0);assert(launchHit.peak>50&&launchHit.impulse>0);
+assert(launchHit.east>launchClear.east+.015&&launchHit.velocity>launchClear.velocity);
+console.log({launchClear,launchHit});
 
 if(process.argv.includes('--speed-sweep')){
   // Vary the arrival phase within one 50 ms contact period. These are
