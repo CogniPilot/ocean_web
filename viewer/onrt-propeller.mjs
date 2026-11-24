@@ -1,10 +1,13 @@
 const T=window.THREE, el=id=>document.getElementById(id);
 async function load(){
-  const query=new URLSearchParams(location.search),lattice=query.get('solver')!=='openfoam';
-  el('solver').value=lattice?'rumoca':'openfoam';
+  const requested=new URLSearchParams(location.search).get('solver');
+  const solver=['volume','openfoam'].includes(requested)?requested:'rumoca',lattice=solver!=='openfoam';
+  el('solver').value=solver;
   el('solver').onchange=e=>{const url=new URL(location.href);url.searchParams.set('solver',e.target.value);location.assign(url);};
-  const base='./assets/onrt/'+(lattice?'lattice/':'propeller/');
+  const base='./assets/onrt/'+({rumoca:'blade-normal/',volume:'lattice/',openfoam:'propeller/'}[solver]);
   const [m,buf]=await Promise.all([fetch(base+'flow.json').then(r=>r.json()),fetch(base+'flow.bin').then(r=>r.arrayBuffer())]);
+  // One physical scale for all three fields at this operating point.
+  const speedScale=Math.PI*m.diameter_m*m.rpm/60,pressureScale=.5*m.rho_kg_m3*speedScale**2/1000;
   const field=(name,type=Float32Array)=>new type(buf,...m.arrays[name]);
   const canvas=document.querySelector('canvas'),renderer=new T.WebGLRenderer({canvas,antialias:true});
   renderer.setPixelRatio(Math.min(2,devicePixelRatio));
@@ -18,7 +21,7 @@ async function load(){
   blade.setAttribute('position',new T.BufferAttribute(field('blade'),3));
   blade.setIndex(new T.BufferAttribute(field('indices',Uint32Array),1));
   const colors=new Float32Array(pressure.length*3);
-  pressure.forEach((p,i)=>ramp(.5+.5*p/m.pressureLimit,[0x204477,0xe5ebd8,0xb33220]).toArray(colors,3*i));
+  pressure.forEach((p,i)=>ramp(.5+.5*p/pressureScale,[0x204477,0xe5ebd8,0xb33220]).toArray(colors,3*i));
   blade.setAttribute('color',new T.BufferAttribute(colors,3));
   scene.add(new T.Mesh(blade,new T.MeshBasicMaterial({vertexColors:true,side:T.DoubleSide})));
   const traces=new T.BufferGeometry();traces.setAttribute('position',new T.BufferAttribute(field('lines'),3));
@@ -38,7 +41,7 @@ async function load(){
     indices.length=0;
     for(let k=0;k<N;k++){
       const idx=frame*N+k;
-      ramp(speeds[idx]/m.speedLimit,[0x182952,0x289790,0xefc54a]).toArray(tints,k*3);
+      ramp(speeds[idx]/speedScale,[0x182952,0x289790,0xefc54a]).toArray(tints,k*3);
       if(k%n<n-1 && k<N-n && [idx,idx+1,idx+n,idx+n+1].every(i=>speeds[i]>=0))indices.push(k,k+1,k+n,k+1,k+n+1,k+n);
     }
     plane.setIndex(indices);plane.attributes.color.needsUpdate=true;
@@ -48,7 +51,7 @@ async function load(){
   const method=lattice?'Rumoca · '+m.revolutions.toFixed(1)+' turns · '+m.cellsPerDiameter+' cells/D':'OpenFOAM · iteration '+m.iteration;
   el('metrics').innerText=method+' · '+m.cells.toLocaleString()+' cells'+'\n'+m.rpm+' rpm · J '+m.J.toFixed(2)+' · Kₜ '+m.kt.toFixed(3)+' · Kq '+m.kq.toFixed(3)+(m.J===.8?'\nIIHR port · Kₜ 0.351 · Kq 0.091':'')+(m.J===.8&&m.kt<0?'\nPredicted thrust reverses the measured direction':'');
   function ticks(id,values){for(const value of values){const s=document.createElement('span');s.textContent=value.toFixed(2);el(id).append(s);}}
-  ticks('pressureTicks',[-m.pressureLimit,0,m.pressureLimit]);ticks('speedTicks',[0,.5*m.speedLimit,m.speedLimit]);
+  ticks('pressureTicks',[-pressureScale,0,pressureScale]);ticks('speedTicks',[0,.5*speedScale,speedScale]);
   let theta=-.72,phi=.29,radius=3.5;
   function draw(){
     renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;

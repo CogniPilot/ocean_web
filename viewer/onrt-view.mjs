@@ -1,5 +1,6 @@
 import {period,wakeStep,waveCutCsv} from './onrt-basin.mjs';
 
+import {wakeSamplingGLSL} from './onrt-wake-display.mjs';
 import {createWakePlayback} from './onrt-playback.mjs';
 
 const $=id=>document.getElementById(id);
@@ -52,34 +53,24 @@ async function start() {
   surface.translate(14.5,0,0);
   const data=new Uint8Array(64*64*4);
   const map=new T.DataTexture(data,64,64,T.RGBAFormat);
-  map.wrapS=map.wrapT=T.RepeatWrapping;map.magFilter=map.minFilter=T.NearestFilter;map.needsUpdate=true;
+  map.wrapS=map.wrapT=T.RepeatWrapping;map.magFilter=map.minFilter=T.LinearFilter;map.needsUpdate=true;
   const uniforms={field:{value:map},origin:{value:new T.Vector2()},eye:{value:camera.position},
     wave:{value:new T.Vector4()},time:{value:0},amp:{value:0},contours:{value:0},basin:{value:period},heightScale:{value:new T.Vector2(1,1)},frameMix:{value:1}};
   const material=new T.ShaderMaterial({uniforms,side:T.DoubleSide,transparent:true,
     vertexShader:`
-    uniform sampler2D field;
-    uniform vec2 origin;
+    ${wakeSamplingGLSL}
     uniform vec4 wave;
-    uniform float basin,time,amp,frameMix; uniform vec2 heightScale;
+    uniform float time,amp;
     varying vec3 surfacePoint;
-    varying float wakeHeight;
-    float sampleCell(vec2 cell){
-      vec4 packedHeight=texture2D(field,(cell+0.5)/64.0);
-      vec2 heights=heightScale*((packedHeight.xz*65280.+packedHeight.yw*255.)/32767.-1.);
-      return mix(heights.x,heights.y,frameMix);
-    }
     void main(){
       vec3 p=(modelMatrix*vec4(position,1.)).xyz;
-      vec2 en=vec2(p.x,-p.z),uv=en*(64.0/basin),i=floor(uv),f=fract(uv);
-      float h=mix(mix(sampleCell(i),sampleCell(i+vec2(1,0)),f.x),
-                  mix(sampleCell(i+vec2(0,1)),sampleCell(i+1.),f.x),f.y);
-      vec2 d=abs(en-origin);
-      wakeHeight=h*(1.-smoothstep(.46*basin,.5*basin,max(d.x,d.y)));
-      p.y=wakeHeight+amp*cos(dot(wave.xy,en)-wave.z*time);
+      vec2 en=vec2(p.x,-p.z);
+      p.y=sampleWake(en)+amp*cos(dot(wave.xy,en)-wave.z*time);
       surfacePoint=p;gl_Position=projectionMatrix*viewMatrix*vec4(p,1.);
     }`,
     fragmentShader:`
-    varying vec3 surfacePoint;varying float wakeHeight;uniform vec3 eye;uniform float contours;
+    ${wakeSamplingGLSL}
+    varying vec3 surfacePoint;uniform vec3 eye;uniform float contours;
     void main(){
       vec3 n=normalize(cross(dFdx(surfacePoint),dFdy(surfacePoint)));
       if(n.y<0.)n=-n;
@@ -88,7 +79,7 @@ async function start() {
       vec3 c=mix(vec3(.09,.29,.34),vec3(.70,.83,.86),clamp(.15+.8*f+.65*(1.-n.y),0.,1.));
       c+=vec3(.9,.85,.7)*pow(max(0.,dot(reflect(-normalize(vec3(-.5,1.,.5)),n),v)),100.);
       if(contours>.5){
-        float mm=wakeHeight*1000.;
+        float mm=sampleWake(vec2(surfacePoint.x,-surfacePoint.z))*1000.;
         c=mix(vec3(.55,.65,.67),mm>=0.?vec3(.9,.36,.15):vec3(.05,.32,.55),clamp(abs(mm)/20.,0.,1.));
         float level=abs(fract(mm/5.+.5)-.5);
         float width=max(.0001,fwidth(mm/5.));
@@ -200,10 +191,10 @@ async function start() {
       const {left,right,mix}=sample;
       if(left!==uploadedLeft||right!==uploadedRight){
         for(const [index,frame] of [left,right].entries()){
-          const limit=frame.limit??=frame.tile.reduce((peak,h)=>Math.max(peak,Math.abs(h)),.001);
+          const limit=frame.limit??=frame.display.reduce((peak,h)=>Math.max(peak,Math.abs(h)),.001);
           uniforms.heightScale.value.setComponent(index,limit);
-          for(let i=0;i<frame.tile.length;i++){
-            const q=Math.round((1+frame.tile[i]/limit)*32767);
+          for(let i=0;i<frame.display.length;i++){
+            const q=Math.round((1+frame.display[i]/limit)*32767);
             data[4*i+2*index]=q>>8;data[4*i+2*index+1]=q&255;
           }
         }

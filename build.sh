@@ -48,7 +48,7 @@ mkdir -p "$library_root"
 ln -sfn "$root/Wreck" "$library_root/Wreck"
 roots=(--source-root "$root/.deps/msl" --source-root "$root/.deps/modelica_models" --source-root "$library_root")
 status=0
-for model in OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot Rdd2Survey AirflowProbe HerringGull FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray HarborTraffic HullWake WakeSpectrum BowWavePatch MarineWind Regatta Wreck.Plant Wreck.Navigation Wreck.SurveySLAM; do
+for model in OnrtWake OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot Rdd2Survey AirflowProbe HerringGull FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray HarborTraffic HullWake WakeSpectrum BowWavePatch MarineWind Regatta Wreck.Plant Wreck.Navigation Wreck.SurveySLAM; do
   extra=()
   source=Wreck/package.mo
   if [[ $model == Hobie16 ]]; then source=viewer/board/Hobie16.mo; extra=(--source-root "$root/viewer/board/Shore.mo" --source-root "$root/viewer/board/Sailboat.mo" --source-root "$root/viewer/board/SailMembrane.mo" --source-root "$root/viewer/board/SailingTactics.mo"); fi
@@ -59,6 +59,7 @@ for model in OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot 
   if [[ $model == HullWildlife ]]; then extra=(--source-root "$root/viewer/board/SwimmerCollision.mo" --source-root "$root/viewer/board/WildlifeContact.mo"); fi
   if [[ $model == HarborTraffic ]]; then extra=(--source-root "$root/viewer/board/SwimmerCollision.mo" --source-root "$root/viewer/board/WildlifeContact.mo" --source-root "$root/viewer/board/WildlifeGuidance.mo" --source-root "$root/viewer/board/SwimmerSections.mo" --source-root "$root/viewer/board/GreatWhite.mo" --source-root "$root/viewer/board/Humpback.mo" --source-root "$root/viewer/board/Shore.mo"); fi
   if [[ $model == Regatta ]]; then extra=(--source-root "$root/viewer/board/BowWavePatch.mo" --source-root "$root/viewer/board/Shore.mo"); fi
+  if [[ $model == OnrtWake ]]; then source=viewer/board/OnrtWake.mo; extra=(--source-root "$root/viewer/board/WakeSpectrum.mo"); fi
   if [[ $model == OnrTumblehome || $model == HullWildlife || $model == HerringGull || $model == FeedingGround || $model == SwimmerWake || $model == SurfaceSpray || $model == WhaleSpray || $model == BowWavePatch || $model == WakeSpectrum || $model == HullWake || $model == MarineWind || $model == Regatta || $model == HarborTraffic || $model == Rdd2Survey ]]; then source="viewer/board/$model.mo"; fi
   if [[ $model == CruiserImagingSonar ]]; then source=viewer/board/CruiserImagingSonar.mo; extra=(--source-root "$root/viewer/board/Shore.mo"); fi
   if [[ $model == Sailboat ]]; then source=viewer/board/Sailboat.mo; extra=(--source-root "$root/viewer/board/Shore.mo" --source-root "$root/viewer/board/SailMembrane.mo" --source-root "$root/viewer/board/SailingTactics.mo"); fi

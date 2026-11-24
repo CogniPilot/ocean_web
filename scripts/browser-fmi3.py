@@ -15,7 +15,7 @@ name = xml.attrib['modelName']
 headers = Path('.deps/rumoca-src/crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers')
 c = source / 'sources'
 # Binaryen's -O2 pass expands the spectral FMU's large array initialization.
-if name in ('WakeSpectrum', 'SwimmerWake', 'Wreck_SurveySLAM'):
+if name in ('OnrtWake', 'WakeSpectrum', 'SwimmerWake', 'Wreck_SurveySLAM'):
     optimization = '-O1'
 elif name in ('HarborTraffic', 'HerringGull'):
     optimization = '-O3'
@@ -23,7 +23,7 @@ else:
     optimization = '-O2'
 # The spectral event solves several 64×64 tensors in nested C calls.
 # Use the same stack budget as the integrated World for this model.
-stack_size = 8388608 if name == 'WakeSpectrum' else 4194304
+stack_size = 8388608 if name in ('WakeSpectrum','OnrtWake') else 4194304
 subprocess.run(['emcc',optimization, '-I'+str(headers), '-I'+str(c),
                 *map(str, sorted(c.glob('*.c'))), 'scripts/browser-fmi3.c',
                 f'-sSTACK_SIZE={stack_size}','-sMODULARIZE=1','-sEXPORT_ES6=1','-sENVIRONMENT=web,worker,node',

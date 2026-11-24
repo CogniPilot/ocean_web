@@ -1,6 +1,8 @@
-import {loadBasin} from './onrt-basin.mjs';
+import {createWakeDisplayGrid} from './onrt-wake-display.mjs';
+import {loadBasin,period} from './onrt-basin.mjs';
 
 let basin;
+const displayGrid=createWakeDisplayGrid(64,period);
 self.onmessage=async ({data})=>{
   try {
     if(data.type==='init') {
@@ -12,9 +14,9 @@ self.onmessage=async ({data})=>{
       for(let i=0;i<data.steps;i++){
         const state=basin.advance();
         const tile=basin.wake.get('wakeHeight',new Float32Array(64*64));
-        frames.push({state,tile});
+        frames.push({state,tile,display:displayGrid(tile,state.east,state.north)});
       }
-      postMessage({frames},frames.map(frame=>frame.tile.buffer));
+      postMessage({frames},frames.flatMap(frame=>[frame.tile.buffer,frame.display.buffer]));
     }
   } catch(error) { postMessage({error:String(error)}); }
 };

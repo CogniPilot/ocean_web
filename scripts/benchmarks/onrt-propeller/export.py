@@ -137,7 +137,7 @@ meta.update(arrays=arrays,iteration=iteration,cells=volume.GetNumberOfCells(),sl
             streamlines=num_paths)
 if args.lattice:
     last=loads[-lattice["stepsPerRev"]:]
-    meta.update(solver="Rumoca",cells=int(np.prod(dims)),kt=float(last["KT"].mean()),
+    meta.update(solver="Rumoca",wallTreatment=lattice.get("wallTreatment","volume-no-slip"),cells=int(np.prod(dims)),kt=float(last["KT"].mean()),
         kq=float(last["KQ"].mean()),steps=lattice["steps"],revolutions=float(loads[-1]["revolutions"]),
         cellsPerDiameter=round(D/dx))
 else:

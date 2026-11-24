@@ -48,6 +48,7 @@
   "speedLimit": 1.709492270149215,
   "streamlines": 48,
   "solver": "Rumoca",
+  "wallTreatment": "volume-no-slip",
   "steps": 2684,
   "revolutions": 3.5,
   "cellsPerDiameter": 16

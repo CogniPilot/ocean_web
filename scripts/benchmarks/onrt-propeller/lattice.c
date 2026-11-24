@@ -130,7 +130,7 @@ int main(int argc,char **argv){
     if(fwrite(field,4,4*cells,f)!=4*cells)return 1;
     fclose(f);
     f=open_file("rumoca-volume.json","w");
-    fprintf(f,"{\"dims\":[%d,%d,%d],\"spacing_m\":%.12g,\"firstCenter_m\":[%.12g,%.12g,%.12g],\"dt_s\":%.12g,\"steps\":%d,\"stepsPerRev\":%d,\"J\":%.8g,\"rpm\":%.8g}\n",
-        nx,ny,nz,dx,(.5-cx0)*dx,(.5-cy0)*dx,(.5-cz0)*dx,dt,end,stepsPerRev,J,rpm);
+    fprintf(f,"{\"dims\":[%d,%d,%d],\"wallTreatment\":\"%s\",\"spacing_m\":%.12g,\"firstCenter_m\":[%.12g,%.12g,%.12g],\"dt_s\":%.12g,\"steps\":%d,\"stepsPerRev\":%d,\"J\":%.8g,\"rpm\":%.8g}\n",
+        nx,ny,nz,tensors?"normal-slip":"volume-no-slip",dx,(.5-cx0)*dx,(.5-cy0)*dx,(.5-cz0)*dx,dt,end,stepsPerRev,J,rpm);
     fclose(f);return 0;
 }

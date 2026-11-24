@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 out=${1:-build/pages}
 mkdir -p "$out"/{board,fmi3,vendor}
 cp viewer/{index.html,world-view.mjs,sailing-start.mjs,instrumentation.mjs,compass.mjs,sonar-map.mjs,imaging-sonar.mjs,vehicle.js,vehicle-assets.mjs,propulsion.js,sub-worker.mjs,sub-lamp.mjs,submarine.mjs,sailing-live.mjs,wave-worker.mjs,captains.mjs,fleet-numbers.mjs,fleet.mjs,fleet-room.mjs,npc-room.mjs,npc-vessels.mjs,npc-sailing-worker.mjs,npc-sailing-frame.mjs,npc-hobie-race.mjs,race-rules.mjs,wildlife-wake.mjs,water-spray.mjs,whale-effects.mjs,harbor-map.mjs,harbor-traffic.mjs,harbor-worker.mjs,feeding-harbor.mjs,gull.mjs,fish-finder.mjs,cruiser-sonar.mjs,cruiser-sonar-view.mjs,cruiser-sonar-worker.mjs,cruiser-chart.mjs,motorboat.mjs,keyboard-sticks.mjs,fleet-timeline.mjs,fleet-sea-clock.mjs,drone.mjs,lap-board.mjs,regatta.mjs,inboard-audio.mjs,drone-audio.mjs,render-layers.mjs,physics-view.mjs,collision-view.mjs,inertia-view.mjs,surface-collision-view.mjs,sub-collision-view.mjs,waterline.mjs,caustics.mjs,mast-camera.mjs,camera-cones.mjs,atmosphere.js,bow-grid.mjs,wreck.js,fauna.js,island-landscape.js,visuals.js} "$out/"
-cp viewer/onrt{,-propeller}.html viewer/onrt-{view,worker,basin,playback,propeller}.mjs "$out/"
+cp viewer/onrt{,-propeller}.html viewer/onrt-{view,worker,basin,playback,wake-display,propeller}.mjs "$out/"
 cp viewer/board/{boat,trampoline,sail-battens,sail-telltale}.mjs "$out/board/"
 cp viewer/{neural-upscaler,neural-upscaler-model}.mjs "$out/"
 cp viewer/vendor/{three.min.js,gltf-loader.mjs,THREE-LICENSE,trystero.mjs} "$out/vendor/"
@@ -15,7 +15,7 @@ cp LICENSE "$out/"
 sed 's|viewer/||g' NOTICE > "$out/NOTICE"
 cp viewer/fmi3/{instance.mjs,OceanWorld.fmu,OceanSailing.fmu,Wreck_SurveySLAM.fmu} "$out/fmi3/"
 cp viewer/fmi3/BowWavePatch.{json,mjs,wasm} "$out/fmi3/"
-for model in OnrTumblehome CruiserImagingSonar Wreck_Plant Wreck_Navigation Rdd2Survey AirflowProbe HerringGull FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray HarborTraffic Sailboat Hobie16 HobieFleetPilot Regatta MarineWind HullWake WakeSpectrum; do
+for model in OnrtWake OnrTumblehome CruiserImagingSonar Wreck_Plant Wreck_Navigation Rdd2Survey AirflowProbe HerringGull FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray HarborTraffic Sailboat Hobie16 HobieFleetPilot Regatta MarineWind HullWake WakeSpectrum; do
   cp viewer/fmi3/"$model".{fmu,json,mjs,wasm} "$out/fmi3/"
 done
 touch "$out/.nojekyll"

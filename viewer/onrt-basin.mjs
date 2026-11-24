@@ -12,7 +12,7 @@ export async function loadBasin(inputs={}, read=fetch) {
   const [vessel,wake] = await Promise.all([
     loadInstance('OnrTumblehome',{...inputs,stations:geometry.stations,beamHalf:geometry.beamHalf,
       bareVolume:geometry.volume.slice(0,6)},read),
-    loadInstance('WakeSpectrum',{...geometry,period,dt:wakeStep,edgeDamping:9,depth:inputs.depth??3,separation:0},read)
+    loadInstance('OnrtWake',{...geometry,period,edgeDamping:9,depth:inputs.depth??3,separation:0},read)
   ]);
   function advance() {
     for(let i=0;i<4;i++) vessel.advance(vesselStep);

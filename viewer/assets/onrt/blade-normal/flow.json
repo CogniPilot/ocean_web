@@ -1,0 +1,55 @@
+{
+  "J": 0.8,
+  "rpm": 538,
+  "diameter_m": 0.1066,
+  "measured_mesh_diameter_m": 0.10702599260584145,
+  "rho_kg_m3": 998.6,
+  "refinement": 2,
+  "arrays": {
+    "blade": [
+      0,
+      4323
+    ],
+    "pressure": [
+      17292,
+      1441
+    ],
+    "indices": [
+      23056,
+      8634
+    ],
+    "speed": [
+      57592,
+      21609
+    ],
+    "lines": [
+      144028,
+      57600
+    ]
+  },
+  "iteration": 300,
+  "cells": 589824,
+  "sliceOffsets": [
+    -0.75,
+    -0.25,
+    0,
+    0.25,
+    0.5,
+    1,
+    1.5,
+    2,
+    3
+  ],
+  "samples": 49,
+  "sliceHalfWidth": 0.8,
+  "kt": 0.32628712709388974,
+  "kq": 0.12263042652011923,
+  "pressureLimit": 0.6230050673982126,
+  "speedLimit": 1.4001131451789803,
+  "streamlines": 48,
+  "solver": "Rumoca",
+  "wallTreatment": "normal-slip",
+  "steps": 2684,
+  "revolutions": 3.5,
+  "cellsPerDiameter": 16
+}

@@ -138,3 +138,54 @@ and domain errors. [ITU wave cuts and resistance experiment](https://research.it
 | Heave and pitch response and phase | [5512 regular head waves](https://stern.lab.uiowa.edu/efd-data/efd-data-towing-tank/5512-pitch-and-heave) | Matched hull mass properties and incident wave conditions |
 | Propeller thrust and torque | [ONRT open water](https://simman2020.kr/download/propeller_IIHR2%28ONRT%29.zip) | An independent prediction using ONRT propeller geometry and measured advance ratios |
 | Rudder response and free-running tracks | [ONRT course keeping case setup](https://t2015.nmri.go.jp/Instructions_ONRT/instruction_ONRT.html) | Full ONRT configuration, actuator rate limits, release condition, and matched wave phase |
+
+### Isolated port propeller
+
+The propeller viewer compares a steady rotating-frame OpenFOAM v2412 calculation with two transient Rumoca calculations. Both use the dimensional port propeller from the corrected Wageningen 2025 archive, aligned to the shaft through the two hub-end centres. The shaft coordinate points downstream. Inflow is +0.76468 m/s along that axis and the angular velocity is −56.33923 rad/s. A point at the top of the port blade moves inboard. Both runs use the blade and its integral hub. The separate hub cap, shaft, hull and rudder are excluded. The nominal diameter for nondimensionalization is 0.1066 m and the tessellated tip diameter is 0.1070 m. The IIHR port comparison below matches advance ratio; 538 rpm is the imposed *simulation* speed. [Corrected workshop geometry](https://w2025.nl/news/update-of-onrt-shaft-geometry/) · [IIHR port open-water measurements](https://simman2020.kr/download/propeller_IIHR2%28ONRT%29.zip)
+
+| Case at J = 0.8 | Cells per diameter for uniform lattices | Thrust coefficient Kₜ | Torque coefficient Kq |
+|---|---:|---:|---:|
+| IIHR open water | | 0.35075 | 0.09091 |
+| OpenFOAM, 84,266 cells | | 0.41585 | 0.10812 |
+| Rumoca, volume no-slip, independently voxelized CAD | 12 | −0.54905 | 0.40526 |
+| Same model | 16 | −0.36656 | 0.34457 |
+| Rumoca, volume no-slip, voxelized OpenFOAM wall | 12 | −0.48171 | 0.40508 |
+| Same model | 16 | −0.26263 | 0.33471 |
+| Rumoca, blade-normal constraint, voxelized OpenFOAM wall | 12 | 0.29284 | 0.12703 |
+| Same model | 16 | 0.32629 | 0.12263 |
+| Same model | 20 | 0.31115 | 0.13012 |
+| OpenFOAM, increased surface refinement, 128,048 cells | | 0.40705 | 0.10567 |
+
+At zero phase the two 16-cell masks contain 27.36 and 22.74 cm³ of solid. Their fractional intersection divided by union across phases is 0.612. Reusing the OpenFOAM wall isolates this effect. The original Modelica force drives all three velocity components of a partially occupied cell toward the moving wall velocity. Its axial wall target is zero, so it brakes axial inflow in mixed cells. A sensitivity run projects the velocity difference onto the local CAD wall normal in those cells and retains the full constraint in filled cells. This single change reverses the erroneous thrust sign at both resolutions. At 16 cells per diameter the resulting torque exceeds IIHR by 35%. At 20 cells per diameter it exceeds IIHR by 43%. The three-grid series is nonmonotonic in thrust and torque. These lattices do not resolve the viscous boundary layer.
+
+At a second advance ratio, J = 1.0, the 16-cell blade-normal model with the same wall and settings gave Kₜ = 0.22584 and Kq = 0.10363. The corresponding IIHR values were 0.26381 and 0.07336. OpenFOAM on the 84,266-cell mesh gave 0.32995 and 0.08963. The lattice was closer for thrust at both operating points. OpenFOAM was closer for torque at both. The IIHR file supplies no uncertainty column for these coefficients. To establish parity, specify acceptable differences in errors for each quantity before examining the remaining advance ratios, quantify discretization and averaging uncertainty for each solver, and obtain uncertainty for the experimental loads. ITTC describes the open-water and self-propulsion procedures. An interpolated moving-wall boundary offers a published treatment of curved surfaces for a further lattice test. SVA's independent VP1304 benchmark supplies measured downstream velocities as well as open-water loads. [ITTC self-propulsion CFD](https://ittc.info/media/11964/75-03-03-01.pdf) · [ITTC open-water uncertainty example](https://ittc.info/media/1840/75-02-03-022.pdf) · [Bouzidi, Firdaouss & Lallemand (2001)](https://doi.org/10.1063/1.1399290) · [Potsdam Propeller Test Case](https://www.sva-potsdam.de/pptc-smp11-workshop/)
+
+A signed face-velocity audit of the baseline OpenFOAM run recovered −56.33923 rad/s on 1,233 wall faces. Integrating the original pressure field over the patch reproduced the axial pressure force (−4.32444 N) and moment (+0.118796 N·m) in a continuation at iteration 352. The Rumoca audit measures the physical orientation of the rotating mask from its fourth angular harmonic. The collision-kernel test independently computes the stress tensor and momentum exchange in NumPy and compares each output with the compiled FMI function. These checks cover the local operator and shaft conventions.
+
+The lattice loads are averaged over the last complete revolution of 3.5 actual turns including startup. OpenFOAM uses the last 20 iterations of 300 steady SIMPLE iterations with k–ω SST, local mesh refinement and no prism layers. One diameter behind the rotor, disk-mean axial velocity is 1.114 m/s for OpenFOAM and 1.074 m/s for the finer blade-normal run. Pointwise axial RMS difference is 0.234 m/s and mean swirl is −0.254 and −0.387 m/s respectively. Those probes compare one transient field to a steady rotating-frame result at aligned blade phase. The disk average can conceal substantial local errors.
+
+Run the benchmark from the repository root with Python, NumPy, Gmsh, VTK, Docker, an OpenMP C compiler and the Rumoca build toolchain. Set `RUMOCA` to the compiler executable if using a separate checkout. The generated Modelica kernel computes the fluid collision and blade forces. The native driver streams populations between cells and exports the volume. The browser displays the resulting fields.
+
+```sh
+tools=scripts/benchmarks/onrt-propeller
+case_dir=$(realpath -m build/onrt-open-water)
+lattice_dir=$(realpath -m build/onrt-lattice)
+python3 "$tools/prepare.py" /path/to/w2025-geometry.zip "$case_dir"
+bash "$tools/run.sh" "$case_dir"
+touch "$case_dir/run.foam"
+bash "$tools/build-lattice.sh" "$lattice_dir"
+python3 "$tools/check-kernel.py" "$lattice_dir"
+mkdir -p "$case_dir"/{cad,volume,normal}
+python3 "$tools/rotor-mask.py" "$case_dir/constant/triSurface/propeller.stl" "$case_dir/cad/rotor.mask" --resolution 16
+python3 "$tools/rotor-mask.py" "$case_dir/run.foam" "$case_dir/normal/rotor.mask" --normal-tensors "$case_dir/normal/tensors.bin" --resolution 16
+cp "$case_dir/normal/rotor.mask" "$case_dir/volume/rotor.mask"
+(cd "$case_dir/volume" && OMP_NUM_THREADS=8 "$lattice_dir/lattice" rotor.mask .8 538 4)
+(cd "$case_dir/normal" && OMP_NUM_THREADS=8 "$lattice_dir/lattice" rotor.mask .8 538 4 tensors.bin)
+python3 "$tools/audit-setup.py" "$case_dir" "$case_dir/cad/rotor.mask" "$case_dir/volume/rotor.mask" --rotation-run "$case_dir/normal"
+python3 "$tools/check-wake.py" "$case_dir" "$case_dir/normal"
+python3 "$tools/compare-loads.py" /path/to/Open_Water_EFD.dat "$case_dir" "$case_dir/normal"
+python3 "$tools/export.py" "$case_dir" build/propeller-view
+python3 "$tools/export.py" "$case_dir" build/rumoca-view --lattice "$case_dir/normal"
+```
+
+For the drivable vessel, the independent ITU-AN free-running comparison in `onrt-basin.mjs` prescribes each measured shaft speed. At Froude numbers 0.20 and 0.30, the resulting speed errors were +0.36% and +4.73%. Mean thrust coefficient errors were −5.14% and −1.37%; torque coefficient errors were −3.21% and −4.51%. Both torque errors exceeded the corresponding experimental uncertainty reported in Table 6. The lumped vessel predicts nearly constant advance ratio at both operating points. It uses an open-water curve, fixed wake fraction and predominantly quadratic drag. These integrated vessel results are a separate experiment from the isolated rotor calculation. [Delen and Bal, Ocean Engineering (2024)](https://doi.org/10.1016/j.oceaneng.2024.118230)
