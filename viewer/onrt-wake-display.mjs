@@ -57,3 +57,32 @@ export const wakeSamplingGLSL=`
       vec2 heights=heightScale*((packedHeight.xz*65280.+packedHeight.yw*255.)/32767.-1.);
       return mix(heights.x,heights.y,frameMix)*(1.-smoothstep(.46,.5,edge));
     }`;
+
+// The spectral field extends through the forcing hull. Record the physical
+// weather deck in body coordinates so the viewer can omit water over its interior.
+export function createDeckHeightMap(T,geometry){
+  geometry.computeBoundingBox();
+  const {min,max}=geometry.boundingBox,width=1024,height=128;
+  const sx=width/(max.x-min.x),sz=height/(max.z-min.z);
+  const data=new Uint8Array(width*height),p=geometry.getAttribute('position');
+  const a=new T.Vector3(),b=new T.Vector3(),c=new T.Vector3(),ab=new T.Vector3(),ac=new T.Vector3(),n=new T.Vector3();
+  for(let i=0;i<p.count;i+=3){
+    a.fromBufferAttribute(p,i);b.fromBufferAttribute(p,i+1);c.fromBufferAttribute(p,i+2);
+    ab.subVectors(b,a);ac.subVectors(c,a);n.crossVectors(ab,ac);
+    if(!n.y || Math.abs(n.y)<.9*n.length())continue;
+    const x0=Math.max(0,Math.ceil((Math.min(a.x,b.x,c.x)-min.x)*sx-.5));
+    const x1=Math.min(width-1,Math.floor((Math.max(a.x,b.x,c.x)-min.x)*sx-.5));
+    const z0=Math.max(0,Math.ceil((Math.min(a.z,b.z,c.z)-min.z)*sz-.5));
+    const z1=Math.min(height-1,Math.floor((Math.max(a.z,b.z,c.z)-min.z)*sz-.5));
+    for(let j=z0;j<=z1;j++)for(let k=x0;k<=x1;k++){
+      const x=min.x+(k+.5)/sx-a.x,z=min.z+(j+.5)/sz-a.z;
+      const u=(ac.x*z-ac.z*x)/n.y,v=(ab.z*x-ab.x*z)/n.y;
+      if(u<0||v<0||u+v>1)continue;
+      const y=a.y+u*ab.y+v*ac.y,idx=j*width+k;
+      data[idx]=Math.max(data[idx],Math.round(255*y/max.y));
+    }
+  }
+  const texture=new T.DataTexture(data,width,height,T.RedFormat);
+  texture.needsUpdate=true;
+  return {texture,scale:max.y,uv:new T.Vector4(min.x,min.z,sx/width,sz/height)};
+}

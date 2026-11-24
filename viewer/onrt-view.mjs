@@ -6,7 +6,7 @@ import {period,wakeStep,waveCutCsv} from './onrt-basin.mjs';
 
 import {loadBasinMaterials,metricSurface} from './onrt-materials.mjs';
 import {createFacility} from './onrt-facility.mjs';
-import {wakeSamplingGLSL} from './onrt-wake-display.mjs';
+import {wakeSamplingGLSL,createDeckHeightMap} from './onrt-wake-display.mjs';
 import {createWakePlayback} from './onrt-playback.mjs';
 
 const $=id=>document.getElementById(id);
@@ -94,6 +94,7 @@ async function start() {
     prop.scale.z=side;mount.add(prop);ship.add(mount);props.push(prop);
   }
 
+  const propellerMidpoint=props[0].parent.position.clone().lerp(props[1].parent.position,.5);
   const ghost=new T.Group();
   // A depth prepass keeps the technical overlay at one opacity through overlapping
   // hull sections. Exclude the overlay from the physical water reflection.
@@ -129,12 +130,17 @@ async function start() {
   const targetMin=new T.Vector3(-5.2,.07,-9.75),targetMax=new T.Vector3(34.2,7.4,9.75);
   const cameraMin=new T.Vector3(-9.15,.28,-12.65),cameraMax=new T.Vector3(38.25,8.68,12.8);
   const clipWater=[new T.Plane(new T.Vector3(0,1,0),.001)];
-  const uniforms={train:{value:trainMap},mirrored:{value:reflection.texture},mirrorMatrix:{value:mirrorMatrix},field:{value:map},origin:{value:new T.Vector2()},eye:{value:camera.position},
+  const deck=createDeckHeightMap(T,meshes.topsides.geometry);
+  const uniforms={
+    deckMap:{value:deck.texture},deckUv:{value:deck.uv},deckHeight:{value:deck.scale},worldToHull:{value:new T.Matrix4()},
+    train:{value:trainMap},mirrored:{value:reflection.texture},mirrorMatrix:{value:mirrorMatrix},field:{value:map},origin:{value:new T.Vector2()},eye:{value:camera.position},
     wave:{value:new T.Vector4()},time:{value:0},amp:{value:0},contours:{value:0},basin:{value:period},heightScale:{value:new T.Vector2(1,1)},frameMix:{value:1}};
   const material=new T.ShaderMaterial({uniforms,side:T.DoubleSide,transparent:true,depthWrite:false,
     vertexShader:`
     ${wakeSamplingGLSL}
     uniform sampler2D train;
+    uniform mat4 worldToHull;
+    varying vec3 hullPoint;
     uniform vec4 wave;
     uniform float time,amp;
     varying vec3 surfacePoint;
@@ -144,15 +150,24 @@ async function start() {
       vec4 h=texture2D(train,vec2(((p.x+5.5)*16.+.5)/641.,.5));
       vec2 packet=(h.xz*65280.+h.yw*255.-32767.)/65534.;
       p.y=mix(packet.x,packet.y,frameMix)+sampleWake(en)+amp*cos(dot(wave.xy,en)-wave.z*time+wave.w);
+      hullPoint=(worldToHull*vec4(p,1.)).xyz;
       surfacePoint=p;gl_Position=projectionMatrix*viewMatrix*vec4(p,1.);
     }`,
     fragmentShader:`
     ${wakeSamplingGLSL}
-    uniform sampler2D mirrored;
+    uniform sampler2D mirrored,deckMap;
+    varying vec3 hullPoint;
+    uniform vec4 deckUv;
+    uniform float deckHeight;
     uniform mat4 mirrorMatrix;
     varying vec3 surfacePoint;uniform vec3 eye;uniform float contours;
     void main(){
       vec3 n=normalize(cross(dFdx(surfacePoint),dFdy(surfacePoint)));
+      vec2 deckCoord=(hullPoint.xz-deckUv.xy)*deckUv.zw;
+      if(all(greaterThanEqual(deckCoord,vec2(0.)))&&all(lessThan(deckCoord,vec2(1.)))){
+        float height=texture2D(deckMap,deckCoord).r;
+        if(height>0.&&hullPoint.y>=height*deckHeight-.001)discard;
+      }
       if(n.y<0.)n=-n;
       vec3 v=normalize(eye-surfacePoint);
       float f=.0204+.9796*pow(1.-clamp(abs(dot(n,v)),0.,1.),5.);
@@ -214,13 +229,13 @@ async function start() {
   }
   const pan=new T.Vector3();
   const flyEye=new T.Vector3(),forward=new T.Vector3(),rightward=new T.Vector3(),goal=new T.Vector3(),move=new T.Vector3();
-  const keys=new Set(),savedViews=new Map();
+  const keys=new Set();
   let azimuth,elevation,radius,activeView;
 
   function recenter(){
     pan.set(0,0,0);keys.clear();
     const view=$('cameraView').value;
-    $('cameraHelp').textContent=view==='hall'?'WASD or arrows to fly · R/F up/down · left-drag to look · right-drag to pan · V changes view':'Left-drag to orbit · right-drag to pan · scroll to zoom · V changes view';
+    $('cameraHelp').textContent=view==='hall'?'Arrows to fly · R/F up/down · left-drag to look · right-drag to pan · V changes view':'Left-drag to orbit · right-drag to pan · scroll to zoom · V changes view';
     if(view==='ship'){azimuth=1.13;elevation=.37;radius=innerWidth<580?5.9:4.7;}
     else if(view==='props'){azimuth=2.83;elevation=-.24;radius=.62;}
     else if(view==='generator'){azimuth=2.56;elevation=.36;radius=10;}
@@ -229,10 +244,7 @@ async function start() {
   }
   activeView=$('cameraView').value;
   $('cameraView').onchange=()=>{
-    savedViews.set(activeView,{azimuth,elevation,radius,pan:pan.clone(),eye:flyEye.clone()});
     activeView=$('cameraView').value;recenter();
-    const saved=savedViews.get(activeView);
-    if(saved){({azimuth,elevation,radius}=saved);pan.copy(saved.pan);flyEye.copy(saved.eye);}
     $('cameraView').blur();
   };
   $('recenter').onclick=recenter;recenter();
@@ -246,7 +258,7 @@ async function start() {
   let generatorStart=-100000,program={},trial,gauge,readoutTick=-1;
   const replayMode=()=>$('mode').value==='iihr';
   const requestedRun=new URLSearchParams(location.search).get('run');
-  if(['iihr','turn'].includes(requestedRun))$('mode').value=requestedRun;
+  $('mode').value=Array.from($('mode').options).some(o=>o.value===requestedRun)?requestedRun:'iihr';
   $('generate').onclick=()=>{
     if(!ready||!state)return;
     for(const id of ['frequency','stroke','cycles','ramp'])if(!$(id).reportValidity())return;
@@ -336,8 +348,8 @@ async function start() {
 
   $('mode').onchange=()=>{
     const url=new URL(location.href);
-    if(['iihr','turn'].includes($('mode').value))url.searchParams.set('run',$('mode').value);else url.searchParams.delete('run');
-    history.replaceState(null,'',url);reset();
+    url.searchParams.set('run',$('mode').value);
+    history.replaceState(null,'',url);$('mode').blur();reset();
   };$('waves').onchange=reset;$('reset').onclick=reset;
   $('towSpeed').oninput=$('shaft').oninput=$('helm').oninput=labels;
   $('design').onclick=()=>{$('shaft').value=538;labels();};
@@ -358,7 +370,7 @@ async function start() {
     }
     if(e.code==='Home'){e.preventDefault();recenter();return;}
     if(e.target.tagName==='SELECT')return;
-    if(activeView==='hall'&&['KeyW','KeyA','KeyS','KeyD','KeyR','KeyF','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)){
+    if(activeView==='hall'&&['KeyR','KeyF','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)){
       e.preventDefault();keys.add(e.code);return;
     }
     if(!keyboardAxisKey(e.code,layout.value,'motorboat')||e.target.tagName==='SELECT'||e.ctrlKey||e.metaKey||e.altKey)return;
@@ -395,8 +407,8 @@ async function start() {
       accum=Math.min(.16,accum+dt);
       if(!busy && accum>=wakeStep){
         const steps=Math.min(4,Math.floor(accum/wakeStep));accum-=steps*wakeStep;
-        if(keys.size&&activeView!=='hall'&&$('mode').value==='drive'){
-          const held=(a,b)=>Number(keys.has(a)||keys.has(b));
+        if(keys.size&&$('mode').value==='drive'){
+          const held=(key,arrow)=>Number(keys.has(key)||(activeView!=='hall'&&keys.has(arrow)));
           $('shaft').value=+$('shaft').value+Math.round(steps*wakeStep*140)*(held('KeyW','ArrowUp')-held('KeyS','ArrowDown'));
           $('helm').value=+$('helm').value+Math.round(steps*wakeStep*35)*(held('KeyA','ArrowLeft')-held('KeyD','ArrowRight'));labels();
         }
@@ -440,6 +452,8 @@ async function start() {
         ghost.visible=true;
         ghostProps[0].rotation.x=measured('portAngle');ghostProps[1].rotation.x=-measured('starboardAngle');
         ghost.position.set(measured('east'),measured('heave'),-measured('north')-Number($('ghostOffset').value));
+      ship.updateWorldMatrix(true,false);
+      uniforms.worldToHull.value.copy(ship.matrixWorld).invert();
         ghost.rotation.set(measured('roll'),measured('heading'),measured('pitch'),'YZX');
         const finished=time>=trial.end-1e-7,tick=finished?Infinity:Math.floor(time*10);
         if(tick!==readoutTick){
@@ -462,9 +476,8 @@ async function start() {
     if(view==='hall'){
       forward.set(-Math.cos(azimuth)*Math.cos(elevation),-Math.sin(elevation),-Math.sin(azimuth)*Math.cos(elevation));
       rightward.set(Math.sin(azimuth),0,-Math.cos(azimuth));
-      const held=(a,b)=>Number(keys.has(a)||keys.has(b));
-      move.copy(forward).multiplyScalar(held('KeyW','ArrowUp')-held('KeyS','ArrowDown'));
-      move.addScaledVector(rightward,held('KeyD','ArrowRight')-held('KeyA','ArrowLeft'));
+      move.copy(forward).multiplyScalar(Number(keys.has('ArrowUp'))-Number(keys.has('ArrowDown')));
+      move.addScaledVector(rightward,Number(keys.has('ArrowRight'))-Number(keys.has('ArrowLeft')));
       move.y+=Number(keys.has('KeyR'))-Number(keys.has('KeyF'));
       goal.copy(flyEye).addScaledVector(move.clampLength(0,1),4*dt).add(pan);pan.set(0,0,0);
       cameraModel.set('previous',flyEye.toArray());cameraModel.set('desired',goal.toArray());
@@ -473,7 +486,7 @@ async function start() {
       flyEye.fromArray(cameraModel.get('position'));camera.position.copy(flyEye);
       target.copy(flyEye).addScaledVector(forward,radius);
     }else{
-      if(view==='props'){const hull=ghost.visible?ghost:ship;hull.updateMatrixWorld();hull.localToWorld(target.set(-1.30,-.11,0));}
+      if(view==='props')ship.localToWorld(target.copy(propellerMidpoint));
       else if(view==='ship')target.set(ship.position.x,.07,ship.position.z);
       else if(view==='generator')target.set(32,.25,0);
       else target.set(12,.3,0);

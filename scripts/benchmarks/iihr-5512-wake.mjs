@@ -34,7 +34,7 @@ function sample(tile, period, east, north) {
     + b * ((1 - a) * at(col, row + 1) + a * at(col + 1, row + 1));
 }
 
-const cases = [[64, 0.1], [20, 0.05], [12, 0.05], [8, 0.05], [12, 0.025]];
+const periods = [64, 20, 12, 8];
 const measured = gauges.map(gauge => gauge[2]);
 // The tow is steady and its measured running attitude is baked into the
 // displaced sections. The local field is stationary in the hull frame.
@@ -49,10 +49,14 @@ if (nearDirectory) {
   near = gauges.map(([x, y]) => sample(tile, bow.get('length'), x, y));
   if (!near.every(Number.isFinite) || !near.some(z => z > 0)) throw Error('Invalid 5512 near field');
 }
-for (const [period, dt] of cases) {
+for (const period of periods) {
   const wake = await loadInstance('WakeSpectrum', {
-    ...geometry, separation: 0, heading: 0, depth, period, dt,
+    ...geometry, separation: 0, heading: 0, depth, period,
   }, read);
+  // Use the FMU’s own clock. A dt override can change the equations while
+  // the compiled sample schedule continues ticking at the original interval.
+  const dt = wake.get('dt');
+  const stripOrigin = (geometry.stations[0] + geometry.stations[1]) / 2;
   let distance = 0;
   const sums = gauges.map(() => 0);
   const drags = [];
@@ -61,6 +65,8 @@ for (const [period, dt] of cases) {
     distance += speed * Math.min(1, time / 2) * dt;
     wake.set('east', distance);
     wake.advance(dt);
+    if (Math.abs(wake.get('sourceStrips')[0] - stripOrigin - distance) > 1e-8)
+      throw Error('Wake field missed a tow step at ' + time + ' s');
     if (time > runSeconds - averageSeconds) {
       const field = wake.get('wakeHeight');
       gauges.forEach(([x, y], index) => {
@@ -82,7 +88,9 @@ for (const [period, dt] of cases) {
     bias_m: mean(residuals),
     measured_m: [Math.min(...measured), Math.max(...measured)],
     predicted_m: [Math.min(...computed), Math.max(...computed)],
-    ...(combined && {combined_peak_m: Math.max(...combined),
+    ...(combined && {combined_at_measured_crest_m: combined[measured.indexOf(Math.max(...measured))],
+      combined_peak_x_over_L: 0.5 - gauges[combined.indexOf(Math.max(...combined))][0] / length,
+      combined_peak_m: Math.max(...combined),
       combined_rmse_m: rms(combined.map((z, i) => z - measured[i]))}),
     wave_resistance_N: mean(drags),
   }));

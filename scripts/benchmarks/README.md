@@ -51,10 +51,14 @@ reported as diagnostics.
 | Period | Time step | Profile RMSE | Predicted peak | Predicted wave resistance |
 | ---: | ---: | ---: | ---: | ---: |
 | 64 m | 0.100 s | 17.3 mm | 4.4 mm | 2.28 N |
-| 20 m | 0.050 s | 39.8 mm | 23.4 mm | 30.44 N |
-| 12 m | 0.050 s | 43.8 mm | 32.2 mm | 31.86 N |
-| 8 m | 0.050 s | 50.4 mm | 56.5 mm | 23.70 N |
-| 12 m | 0.025 s | 42.0 mm | 42.5 mm | 30.17 N |
+| 20 m | 0.100 s | 12.7 mm | 18.9 mm | 4.71 N |
+| 12 m | 0.100 s | 11.0 mm | 31.6 mm | −1.42 N |
+| 8 m | 0.100 s | 10.6 mm | 35.1 mm | −1.04 N |
+
+Earlier runs requested a shorter time step while the compiled FMU continued
+sampling the hull at 0.100 s. The benchmark now uses the native clock and
+checks the sampled hull position after every tick. The two smallest domains
+predict a mean forward force in steady tow, which is unphysical.
 
 The measured peak is 53.0 mm. The current spectral solver resolves only a small fraction of
 the bow crest at the default 64 m period. The 1 m grid cells cannot resolve
@@ -79,12 +83,32 @@ cp viewer/fmi3/instance.mjs build/iihr-bow/
 node scripts/benchmarks/iihr-5512-wake.mjs build/validation/iihr build/iihr-bow
 ```
 
-At the default 64 m spectral period, adding the local field brings the
-predicted peak to 17.9 mm and profile RMSE to 14.1 mm. The measured peak is
-53.0 mm. At an 8 m spectral period the combined peak reaches 53.7 mm while
-profile RMSE rises to 47.2 mm. Choosing the period by peak height alone would
-give a misleading impression of accuracy. The CSV includes each local
-contribution and the combined elevation in metres.
+At the measured crest 94 mm aft of the forward perpendicular, the default
+model gives 4.3 mm from the spectral field and 8.2 mm from the local patch.
+Their sum is 12.6 mm against the measured 53.0 mm. The maximum anywhere in
+the predicted profile is 17.9 mm, closer to the bow than the measured peak.
+With an 8 m periodic domain, the corrected combined peak is 41.5 mm and
+profile RMSE is 10.7 mm.
+
+The independent NumPy straight-tow calculation below holds the domain at
+64 m, keeps the same 0.100 s time step, and changes only the number of
+spectral cells. It checks the baseline against all 39 native FMU predictions
+before adding the same local patch to each refinement.
+
+```sh
+python3 scripts/benchmarks/iihr-5512-resolution.py build/validation/iihr
+```
+
+| Cell width | Combined elevation at Iowa crest | Combined profile RMSE |
+| ---: | ---: | ---: |
+| 1.000 m | 12.6 mm | 14.1 mm |
+| 0.500 m | 20.3 mm | 12.3 mm |
+| 0.250 m | 35.5 mm | 9.7 mm |
+| 0.125 m | 41.2 mm | 11.1 mm |
+
+Spatial resolution accounts for much of the missing crest. Even on the finest
+grid the crest remains low, and the full-profile error begins rising again.
+This comparison covers one steady, bare-hull tow.
 
 ## ONR Tumblehome free-running tests
 

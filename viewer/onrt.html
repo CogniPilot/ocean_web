@@ -13,13 +13,16 @@ aside>details[open]>summary{border-bottom:1px solid #9ad7d530}
 .run-bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:.65rem 0}.run-bar label{margin:0}
 #readout{font-variant-numeric:tabular-nums}#gauge svg{display:block;width:100%;background:#0b222b}
 #measuredValue{color:#66deea}#computedValue{color:#ffbd77}.wave-values{display:flex;flex-wrap:wrap;gap:0 12px}
-summary:focus-visible,button:focus-visible,select:focus-visible{outline:2px solid #ffca7f;outline-offset:2px}
+.flow-link{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:.5rem .75rem;margin:.4rem 0 .6rem;border-radius:5px;background:#a4e4d7;color:#102e36;font-weight:650;text-decoration:none}
+.flow-link:hover{background:#c4f2e9}.flow-link:active{background:#84d1c2}
+.flow-link:focus-visible,summary:focus-visible,button:focus-visible,select:focus-visible{outline:2px solid #ffca7f;outline-offset:2px}
 @media(max-width:580px){aside>details>summary{min-height:42px}}
 </style></head><body><canvas tabindex="-1" id="view" aria-label="ONR Tumblehome in the model basin"></canvas>
 <div id="crtOverlay" aria-hidden="true" hidden></div>
 <aside aria-label="Basin controls"><h1>ONR Tumblehome</h1>
 <div id="readout" aria-live="off">Loading vessel and wave solver…</div>
-<div class="run-bar"><label>Run <select id="mode"><option value="drive">Free running</option><option value="tow">Straight tow</option><option value="turn">IIHR 35° port turn</option><option value="iihr">IIHR head-seas replay</option></select></label> <button id="reset">Reset run</button></div>
+<div class="run-bar"><label>Run <select id="mode"><option value="drive">Free running</option><option value="tow">Straight tow</option><option value="turn">IIHR 35° port turn</option><option value="iihr" selected>IIHR head-seas replay</option></select></label> <button id="reset">Reset run</button></div>
+<a class="flow-link" href="./onrt-propeller.html">Explore 3D propeller flow <span aria-hidden="true">→</span></a>
 <details id="manual"><summary>Helm and experiment</summary>
 <div class="pane-body">
 <label hidden id="towControl">Tow speed <output id="towLabel">1.11 m/s</output><input id="towSpeed" type="range" min=".25" max="2.25" value="1.11" step=".01"></label>
@@ -28,7 +31,7 @@ summary:focus-visible,button:focus-visible,select:focus-visible{outline:2px soli
 <label>Incident waves <select id="waves"><option value="calm">Calm water</option><option value="180">Head seas</option><option value="135">Bow quarter</option><option value="90">Beam seas</option><option value="45">Stern quarter</option><option value="0">Following seas</option></select></label>
 <div class="row"><button id="design">538 rpm</button><button id="center">Center helm</button></div>
 <label>Keyboard layout <select id="keyLayout"><option value="wasd">WASD + Q/E + R/F</option><option value="mode2">WASD + arrows (Mode 2)</option></select></label>
-<small>W/S adjust shaft speed. A/D steer.</small>
+<small>Free running · W/S adjust shaft speed and A/D steer in every view.</small>
 </div></details>
 <details id="generatorControl"><summary>Wavemaker</summary>
 <div class="pane-body">
@@ -64,14 +67,14 @@ summary:focus-visible,button:focus-visible,select:focus-visible{outline:2px soli
 <div class="pane-body">
 <label>View <select id="cameraView" title="Press V to cycle views"><option value="hall">Basin overview</option><option value="ship">Follow model</option><option value="generator">Wavemakers</option><option value="props">Stern propellers</option></select></label>
 <label><input type="checkbox" id="trackingRig" checked> Tracking carriage and rails</label>
-<small id="cameraHelp">Overview · WASD or arrows to fly, R/F up/down, left-drag to look, right-drag to pan, V to switch.</small>
+<small id="cameraHelp">Overview · Arrows to fly, R/F up/down, left-drag to look, right-drag to pan, V to switch.</small>
 <div class="row"><button id="recenter">Re-center view</button></div><label><input type="checkbox" id="contours"> Wake contours</label><label><input type="checkbox" id="crtFilter"> CRT filter</label>
 </div></details>
 <details id="dataPanel"><summary>Data and links</summary>
 <div class="pane-body">
 <small>University of Iowa · IIHR model 5613 · 3.147 m LWL · 72.6 kg · Rumoca simulation</small>
 <div class="row"><button id="save" disabled>Export wave cuts</button></div>
-<footer><a href="./onrt-propeller.html">3D propeller flow</a> · <a href="./">Ocean Web models</a> · <a href="https://t2015.nmri.go.jp/onrt_gc.html">Experiment particulars</a></footer>
+<footer><a href="./">Ocean Web models</a> · <a href="https://t2015.nmri.go.jp/onrt_gc.html">Experiment particulars</a></footer>
 </div></details>
 </aside>
 <span id="distance">IIHR wave basin · 40 × 20 × 3 m</span>
