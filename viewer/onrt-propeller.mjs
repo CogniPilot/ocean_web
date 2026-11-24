@@ -21,10 +21,10 @@ loadComparison().catch(error=>{el('loadComparison').querySelector('summary').tex
 
 async function load(){
   const requested=new URLSearchParams(location.search).get('solver');
-  const solver=['volume','openfoam'].includes(requested)?requested:'rumoca',lattice=solver!=='openfoam';
+  const solver=requested==='openfoam'?'openfoam':'rumoca',lattice=solver==='rumoca';
   el('solver').value=solver;
   el('solver').onchange=e=>{const url=new URL(location.href);url.searchParams.set('solver',e.target.value);location.assign(url);};
-  const base='./assets/onrt/'+({rumoca:'blade-normal/',volume:'lattice/',openfoam:'propeller/'}[solver]);
+  const base='./assets/onrt/'+(lattice?'blade-normal/':'propeller/');
   const version=new URL(import.meta.url).search;
   const [m,buf]=await Promise.all([fetch(base+'flow.json'+version).then(r=>r.json()),fetch(base+'flow.bin'+version).then(r=>r.arrayBuffer())]);
   // One physical scale for all three fields at this operating point.
