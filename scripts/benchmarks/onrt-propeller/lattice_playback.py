@@ -56,7 +56,10 @@ def streamlines(grid, origin, dx, diameter, fluid, seeds):
 def write_sequence(directory, output, lattice, query, blade, locator, diameter):
     with (directory/'rumoca-frames.csv').open() as manifest:
         rows = list(csv.DictReader(manifest))
-    if len(rows)!=lattice['framesPerTurn']+1 or int(rows[-1]['step'])!=lattice['steps']:
+    intervals = lattice['framesPerTurn']
+    if lattice.get('startsFromRest'):
+        intervals = round(intervals*lattice['steps']/lattice['stepsPerRev'])
+    if len(rows)!=intervals+1 or int(rows[-1]['step'])!=lattice['steps']:
         raise ValueError('incomplete transient recording')
     origin = np.array(lattice['firstCenter_m'])
     dx = lattice['spacing_m']
@@ -107,7 +110,7 @@ def write_sequence(directory, output, lattice, query, blade, locator, diameter):
             a = sample(previous,mid,origin,dx)[:,:3]
             b = sample(grid,mid,origin,dx)[:,:3]
             tracer += dt*.5*(a+b)
-        invalid = ~fluid(tracer)
+        invalid = ~fluid(tracer) | (tracer[:,0]>2.95*diameter)
         tracer[invalid] = seeds[take[invalid]%len(seeds)]
         frames.append(dict(time=t,turns=turns,offset=len(geometry)))
         geometry.extend(blade_pressure.astype('<f4').tobytes())

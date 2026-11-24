@@ -27,8 +27,7 @@ iteration = int(reader.GetTimeValues().GetRange()[1])
 if not iteration:
     raise ValueError("no solved OpenFOAM field is available")
 reader.EnableAllPatchArrays()
-reader.SetTimeValue(iteration)
-reader.Update()
+reader.UpdateTimeStep(iteration)
 out = reader.GetOutput()
 it = out.NewIterator()
 it.InitTraversal()
@@ -212,8 +211,9 @@ meta.update(arrays=arrays,iteration=iteration,cells=volume.GetNumberOfCells(),sl
             speedLimit=float(np.quantile(speeds[speeds>=0],.99)),
             streamlines=len(path_ends))
 if args.lattice:
+    meta.update({key: lattice[key] for key in ("computeDevice", "solveWallSeconds", "kernelSeconds", "settled") if key in lattice})
     last=loads[-lattice["stepsPerRev"]:]
-    meta.update(solver="Rumoca",wallTreatment=lattice.get("wallTreatment","volume-no-slip"),cells=int(np.prod(dims)),kt=float(last["KT"].mean()),
+    meta.update(solver="Rumoca",startsFromRest=lattice.get("startsFromRest", False),wallTreatment=lattice.get("wallTreatment","volume-no-slip"),cells=int(np.prod(dims)),kt=float(last["KT"].mean()),
         kq=float(last["KQ"].mean()),steps=lattice["steps"],revolutions=float(loads[-1]["revolutions"]),
         cellsPerDiameter=round(D/dx))
 else:

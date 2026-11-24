@@ -1,20 +1,36 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ONRT propeller · Flow analysis</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#071d27;color:#ecf6f5;font:15px/1.45 system-ui,sans-serif}canvas{display:block;width:100vw;height:100dvh;touch-action:none}header,aside{position:absolute;left:24px;background:#0b2938;box-shadow:0 2px 14px #223b3e1f;border:1px solid #5c868b;border-radius:5px;padding:14px 18px;max-width:calc(100vw - 40px)}header{top:22px}a{font-size:13px;color:#a8e4da}h1{font:normal 28px/1.2 Georgia,serif;margin:5px 0}#metrics{font:12px/1.6 monospace}aside{bottom:20px;width:290px}label{display:flow-root;margin:4px 0}input{accent-color:#7cd9c5}input[type=range]{width:100%}output{float:right;font-family:monospace}.scale{height:8px;border-radius:2px;margin:4px 0}.ticks{display:flex;justify-content:space-between;font:11px monospace}.hint{color:#b5cfce;font-size:12px;margin-top:6px}@media(max-width:600px){header,aside{left:10px;padding:9px 12px}header{top:10px}aside{bottom:10px;width:250px}h1{font-size:22px}}
-#loadComparison{margin-top:7px}#loadComparison summary{cursor:pointer}#loadComparison table{border-collapse:collapse;font:12px/1.6 monospace;width:100%;margin:4px 0}#loadComparison th,#loadComparison td{text-align:right;padding:1px 4px}#loadComparison th:first-child{text-align:left}#loadComparison thead{border-bottom:1px solid #52757e}
-aside{top:22px;right:24px;left:auto;bottom:auto;max-height:calc(100dvh - 44px);overflow:auto}aside details{margin-top:10px}aside summary{cursor:pointer}aside select{max-width:100%}#thresholdPanel{margin:6px 0}#fieldUnit{float:right}fieldset{margin:0 0 10px;padding:0 0 8px;border:0;border-bottom:1px solid #355661}legend{font-weight:600;margin-bottom:4px}@media(max-width:760px){header{top:8px;left:8px;max-height:31dvh;overflow:auto}aside{top:auto;bottom:8px;right:8px;max-height:45dvh;width:min(290px,calc(100vw - 32px))}}
-
+*{box-sizing:border-box}
+:root{color-scheme:dark}
+body{margin:0;height:100dvh;display:grid;grid-template-columns:min(23rem,36vw) minmax(0,1fr);color:#e8f3f4;background:#071d27;font:15px system-ui,sans-serif}
 [hidden]{display:none!important}
-body{display:grid;grid-template-columns:minmax(0,1fr) min(285px,28vw);grid-template-rows:auto minmax(0,1fr);height:100dvh}
-header,aside{position:static;max-width:none;border-radius:0;box-shadow:none}
-header{grid-area:1/1/2/2;max-height:32dvh;overflow:auto;padding:8px 16px}
-aside{grid-area:1/2/3/3;width:auto;max-height:100dvh}
-#flowViews{grid-area:2/1/3/2;display:grid;grid-auto-columns:minmax(0,1fr);grid-auto-flow:column;min-height:0}
-.flow-pane{position:relative;min-width:0;min-height:0}.flow-pane+.flow-pane{border-left:1px solid #5c868b}
-.flow-pane canvas{width:100%;height:100%}.pane-caption{position:absolute;left:.6rem;right:.6rem;top:.5rem;font:600 12px/1.4 system-ui;pointer-events:none}
-.pane-caption strong{display:block;font:600 18px/1.4 system-ui;color:#daf7f4}.pane-clock{display:block;font-variant-numeric:tabular-nums;font-weight:400;color:#a9cecc}.flow-pane.empty:after{content:'No region at this threshold';position:absolute;bottom:8px;left:8px;font-size:12px}
-@media(max-width:760px){body{grid-template-columns:1fr;grid-template-rows:auto minmax(0,1fr) auto}header{grid-area:1/1}#flowViews{grid-area:2/1}aside{grid-area:3/1;max-height:24dvh;width:auto}.pane-caption{font-size:11px}}
+#flowViews{grid-column:2;grid-row:1;display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);min-height:0}
+.flow-pane{position:relative;min-width:0;min-height:0}
+.flow-pane+.flow-pane{border-left:1px solid #9ad7d530}
+.flow-pane canvas{display:block;width:100%;height:100%;touch-action:none}
+.pane-caption{position:absolute;inset:.85rem .85rem auto;pointer-events:none;color:#b1e5dc;font:12px/1.5 ui-monospace,monospace}
+.pane-caption strong{display:block;color:#e8f3f4;font:1.2rem Georgia,serif;margin-bottom:.15rem}
+.pane-clock{display:block;font-variant-numeric:tabular-nums}
+.flow-pane.empty:after{content:'No region at this threshold';position:absolute;bottom:.6rem;left:.75rem;font-size:.78rem;color:#b1e5dc}
+aside{grid-column:1;grid-row:1;align-self:start;margin:1rem;padding:1rem;max-height:calc(100dvh - 2rem);overflow:auto;background:#102933f2;border-radius:.5rem;box-shadow:0 2px 16px #112f3840}
+h1{font:1.7rem Georgia,serif;margin:0 0 .2rem}
+#metrics{font:.8rem/1.55 ui-monospace,monospace;margin:.4rem 0;font-variant-numeric:tabular-nums}
+a,summary,.hint{color:#b1e5dc}
+summary,button{cursor:pointer}
+aside>details{margin-top:5px;border:1px solid #9ad7d530;border-radius:6px;background:#0c2b36}
+aside>details>summary{padding:8px 10px;min-height:36px;font-size:14px;font-weight:600}
+aside>details[open]>summary{border-bottom:1px solid #9ad7d530}
+.pane-body{padding:8px 10px}.pane-body>:first-child{margin-top:0}.pane-body>:last-child{margin-bottom:0}
+label{display:block;margin:.5rem 0}select,button{font:inherit}button,select{background:#20414b;color:white;border:1px solid #648f94;border-radius:.25rem;padding:.35rem;max-width:100%}
+input{accent-color:#7ad7c0}input[type=range]{width:100%;margin-inline:0}output,#fieldUnit{float:right;font-variant-numeric:tabular-nums}
+.flow-link{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:.5rem .75rem;margin:.5rem 0 .65rem;border-radius:5px;background:#a4e4d7;color:#102e36;font-weight:650;text-decoration:none}
+.flow-link:hover{background:#c4f2e9}.flow-link:active{background:#84d1c2}
+:focus-visible{outline:2px solid #ffca7f;outline-offset:2px}
+.hint{font-size:.8rem;line-height:1.45;margin:.45rem 0}.scale{height:8px;border-radius:2px;margin:4px 0}.ticks{display:flex;justify-content:space-between;font:11px ui-monospace,monospace}
+#loadComparison table{width:100%;border-collapse:collapse}
+#loadComparison th,#loadComparison td{text-align:right}#loadComparison th:first-child{text-align:left}
+@media(max-width:760px){body{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}#flowViews{grid-column:1;grid-row:1}aside{grid-column:1;grid-row:2;margin:.5rem;padding:.65rem;max-height:46dvh}aside>details>summary{min-height:42px}.pane-caption{inset:.5rem .45rem auto;font-size:11px}}
 #errorPlot{max-width:38rem;font-size:.83rem}
 .error-axis,.error-series{display:grid;grid-template-columns:6rem minmax(0,1fr);column-gap:.45rem;align-items:center}
 .error-axis>div{display:flex;justify-content:space-between;font-variant-numeric:tabular-nums}
@@ -23,40 +39,41 @@ aside{grid-area:1/2/3/3;width:auto;max-height:100dvh}
 .bar-track i{position:absolute;top:3px;bottom:3px;border-radius:2px;background:#72d3c3}.error-series.foam i{background:#efac6f}
 #errorPlot h4{margin:.4rem 0 .05rem}#errorValue{display:block;float:none;min-height:2.6em;font:12px/1.3 system-ui;color:#d3e3e5;margin:.35rem 0}
 #loadComparison table{font:13px/1.5 system-ui;font-variant-numeric:tabular-nums}#loadComparison td,#loadComparison th{padding:4px 8px;border-bottom:1px solid #355661}
-select,button:not(.error-series){color:#ecf6f5;background:#11333e;border:1px solid #649197;border-radius:4px;padding:.24em .45em}
-:root{color-scheme:dark}a:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid #9be6d4;outline-offset:2px}
 </style></head><body><main id="flowViews" aria-label="Propeller flow comparison"></main>
-<header><a href="./onrt.html">← Iowa basin</a><h1>Port propeller in open water</h1>
-<label for="solver">Solver <select id="solver"><option value="compare">Side by side</option><option value="rumoca">Rumoca · blade-normal slip test</option><option value="openfoam">OpenFOAM</option></select></label>
-<label hidden>Recording <select id="recording"><option value="startup">From rest</option><option value="reference">Reference runs</option></select></label>
+<aside aria-label="Propeller flow controls"><h1>Port propeller in open water</h1>
 <div id="metrics" role="status">Loading flow solution…</div>
-<details id="loadComparison"><summary>Compare open-water measurements</summary>
-<label for="loadCase">Advance ratio <select id="loadCase"></select></label>
-<b>Error relative to IIHR</b>
-<div id="errorPlot"></div><output id="errorValue" aria-live="polite">Hover, tap or focus a bar for the values.</output>
-<details><summary>Measured and computed coefficients</summary><table aria-label="Isolated port propeller coefficients"><thead><tr><th scope="col">Quantity</th><th scope="col">IIHR</th><th scope="col">OpenFOAM</th><th scope="col">Rumoca</th></tr></thead><tbody id="loads"></tbody></table></details>
-<div class="hint" id="loadBasis"></div>
-<a href="https://simman2020.kr/download/propeller_IIHR2%28ONRT%29.zip">IIHR open-water data</a>
-</details></header>
-<aside aria-label="Flow display controls"><fieldset><legend>Flow field</legend>
+<label for="solver">Solver <select id="solver"><option value="compare">Side by side</option><option value="rumoca">Rumoca</option><option value="openfoam">OpenFOAM</option></select></label>
+<label>Recording <select id="recording"><option value="startup">From rest</option><option value="reference">Steady OpenFOAM reference</option></select></label>
+<label><input type="checkbox" id="animate" checked> Play animation</label>
+<a class="flow-link" href="./onrt.html">Return to Iowa basin <span aria-hidden="true">→</span></a>
+<details><summary>Flow field</summary><div class="pane-body">
 <label>Quantity <select id="quantity"></select></label>
 <label>3D display <select id="volumeMode"><option value="surface">Threshold surface</option><option value="samples">Colored samples ≥ threshold</option><option value="off">Off</option></select></label>
 <div id="thresholdPanel"><label for="threshold">Threshold <output id="level"></output></label><input type="range" id="threshold"></div>
 <span id="fieldUnit"></span><small>Color scale</small><div class="scale" id="fieldScale"></div><div class="ticks" id="fieldTicks"></div>
 <p class="hint" id="fieldNote"></p>
 <label><input type="checkbox" id="cut"> Cross-section</label>
-<div id="section" hidden><label for="station">Shaft position <output id="x"></output></label><input type="range" id="station" min="0"></div></fieldset>
-<fieldset><legend>Propeller</legend><label><input type="checkbox" checked id="bladePressure"> <span id="pressureLabel">Blade pressure</span> <output>kPa</output></label>
+<div id="section" hidden><label for="station">Shaft position <output id="x"></output></label><input type="range" id="station" min="0"></div></div></details>
+<details><summary>Propeller pressure</summary><div class="pane-body"><label><input type="checkbox" checked id="bladePressure"> <span id="pressureLabel">Blade pressure</span> <output>kPa</output></label>
 <div class="scale" style="background:linear-gradient(90deg,#204477,#e5ebd8,#b33220)"></div><div class="ticks" id="pressureTicks"></div>
 <div class="hint">Rumoca samples the nearby lattice pressure. OpenFOAM samples its blade wall. Both use the same ±2 kPa scale.</div>
-<label id="spinControl"><input type="checkbox" id="spin" checked> Spin propeller</label></fieldset>
-<details><summary>Streamlines and tracers</summary>
+<label id="spinControl"><input type="checkbox" id="spin" checked> Spin propeller</label></div></details>
+<details><summary>Streamlines and tracers</summary><div class="pane-body">
 <label><input type="checkbox" id="paths" checked> Streamlines by speed (m/s)</label>
 <div class="scale" style="background:linear-gradient(90deg,#4485ad,#289790,#efc54a)"></div><div class="ticks" id="speedTicks"></div>
 <label><input type="checkbox" id="tracers" checked> Flow tracers</label>
-</details><fieldset><legend>Playback</legend><div id="phaseControl" hidden><label for="phase">Solver time <output id="phaseLabel"></output></label><input id="phase" type="range" min="0" value="0" step="1"></div>
-<label><input type="checkbox" id="animate" checked> Play animation</label>
-<label>Playback speed <select id="rate"><option value=".025">0.025×</option><option value=".1" selected>0.1×</option><option value=".25">0.25×</option><option value="1">1×</option></select></label></fieldset>
-<p id="fieldClock" class="hint"></p>
-<div class="hint">Drag to orbit · right-drag to pan · scroll to zoom<br><button id="recenter">Re-center view</button></div></aside>
+</div></details><details><summary>Playback</summary><div class="pane-body"><div id="phaseControl" hidden><label for="phase">Solver time <output id="phaseLabel"></output></label><input id="phase" type="range" min="0" value="0" step="1"></div>
+
+<label>Playback speed <select id="rate"><option value=".025">0.025×</option><option value=".1" selected>0.1×</option><option value=".25">0.25×</option><option value="1">1×</option></select></label>
+<p id="fieldClock" class="hint"></p></div></details>
+<details id="loadComparison"><summary>Open-water comparison</summary>
+<div class="pane-body">
+<label for="loadCase">Advance ratio <select id="loadCase"></select></label>
+<b>Error relative to IIHR</b>
+<div id="errorPlot"></div><output id="errorValue" aria-live="polite">Hover, tap or focus a bar for the values.</output>
+<details><summary>Measured and computed coefficients</summary><table aria-label="Isolated port propeller coefficients"><thead><tr><th scope="col">Quantity</th><th scope="col">IIHR</th><th scope="col">OpenFOAM</th><th scope="col">Rumoca</th></tr></thead><tbody id="loads"></tbody></table></details>
+<div class="hint" id="loadBasis"></div>
+<a href="https://simman2020.kr/download/propeller_IIHR2%28ONRT%29.zip">IIHR open-water data</a>
+</div></details>
+<details><summary>Camera controls</summary><div class="pane-body"><p class="hint">Drag to orbit · right-drag to pan · scroll to zoom</p><button id="recenter">Re-center view</button></div></details></aside>
 <script src="vendor/three.min.js"></script><script type="module" src="onrt-propeller.mjs"></script></body></html>

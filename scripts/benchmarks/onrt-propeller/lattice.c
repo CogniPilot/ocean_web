@@ -18,7 +18,8 @@ static FILE *open_file(const char *name,const char *mode){FILE *f=fopen(name,mod
 static void *allocate(size_t n,size_t bytes){void *p=calloc(n,bytes);if(!p){perror("allocation");exit(1);}return p;}
 
 int main(int argc,char **argv){
-    if(argc<5||argc>7){fprintf(stderr,"Usage: lattice MASK J RPM REVOLUTIONS [NORMAL_TENSORS [FRAMES_PER_TURN]]\n");return 2;}
+    const int startup=argc==8 && strcmp(argv[7],"--startup")==0;
+    if(argc<5||(argc>7&&!startup)){fprintf(stderr,"Usage: lattice MASK J RPM REVOLUTIONS [NORMAL_TENSORS [FRAMES_PER_TURN [--startup]]]\n");return 2;}
     FILE *maskfile=open_file(argv[1],"rb");
     int info[3]; if(fread(info,sizeof(int),3,maskfile)!=3)return 1;
     const int res=info[0],width=info[1],phases=info[2];
@@ -48,27 +49,39 @@ int main(int argc,char **argv){
     const size_t cells=(size_t)nx*ny*nz;
     double *current=allocate(cells*19,sizeof(double)),*next=allocate(cells*19,sizeof(double));
     float *field=allocate(cells*4,sizeof(float));
-    int reflect[4][19];
+    int reflect[4][19],opposite[19];
     double inlet[19];
     for(int q=0;q<19;q++){
-        double eu=cx[q]*ua;
-        inlet[q]=(q==0?1./3:q<=6?1./18:1./36)*(1+3*eu+4.5*eu*eu-1.5*ua*ua);
+        double initial= startup ? 0 : ua;
+        double eu=cx[q]*initial;
+        inlet[q]=(q==0?1./3:q<=6?1./18:1./36)*(1+3*eu+4.5*eu*eu-1.5*initial*initial);
+        for(int k=0;k<19;k++)if(cx[k]==-cx[q]&&cy[k]==-cy[q]&&cz[k]==-cz[q])opposite[q]=k;
         for(int m=0;m<4;m++)for(int k=0;k<19;k++)
             if(cx[k]==cx[q]&&cy[k]==((m&1)?-cy[q]:cy[q])&&cz[k]==((m&2)?-cz[q]:cz[q]))reflect[m][q]=k;
     }
     for(size_t k=0;k<cells;k++)memcpy(current+19*k,inlet,sizeof(inlet));
     FILE *history=open_file("rumoca-loads.csv","w");
     fprintf(history,"step,time_s,revolutions,thrust_N,torque_Nm,KT,KQ,max_mach,mask_phase,omega_rad_s\n");
-    const int end=(int)ceil(revs*stepsPerRev);
-    const int frames=argc==7?atoi(argv[6]):0;
-    if(argc==7&&(frames<2||frames>stepsPerRev||end<2*stepsPerRev))return 2;
+    int end=(int)ceil(revs*stepsPerRev);
+    const int frames=argc>=7?atoi(argv[6]):0;
+    if(argc>=7&&(frames<2||frames>stepsPerRev||end<2*stepsPerRev))return 2;
     FILE *sequence=NULL;
     if(frames){
         sequence=open_file("rumoca-frames.csv","w");
         fprintf(sequence,"step,time_s,revolutions,file\n");
+        if(startup){
+            FILE *initial=open_file("rumoca-frame-0000.bin","wb");
+            if(fwrite(field,sizeof(float),4*cells,initial)!=4*cells||fclose(initial))return 1;
+            fprintf(sequence,"0,0,0,rumoca-frame-0000.bin\n");
+        }
     }
     // Integrate annular loads over the final full-speed revolution. The last
     // bin also includes mixed cells whose centres sit outside the nominal tip.
+    FILE *cycles=startup?open_file("rumoca-periods.csv","w"):NULL;
+    if(cycles)fprintf(cycles,"period,time_s,mean_thrust_N,mean_torque_Nm,relative_velocity_change,stable_periods\n");
+    float *previousField=startup?allocate(cells*4,sizeof(float)):NULL;
+    double turnThrust=0,turnTorque=0,previousThrust=0,previousTorque=0;
+    int stablePeriods=0;
     enum {rings=5};
     double ringAxial[rings]={0},ringMoment[rings]={0};
     double axial=0,moment=0,maxMach=0;
@@ -85,7 +98,7 @@ int main(int argc,char **argv){
             double s=fmin(1.,step/(double)stepsPerRev),ramp=s*s*(3-2*s);
             double turns=(step<=stepsPerRev?s*s*s-.5*s*s*s*s:step/(double)stepsPerRev-.5);
             // Save physical timesteps across the final revolution, including both endpoints.
-            const int localStep=step-(end-stepsPerRev);
+            const int localStep=startup?step:step-(end-stepsPerRev);
             const int frame=(int)lround(localStep*(double)frames/stepsPerRev);
             const int capture=frames&&localStep>=0&&localStep==(int)lround(frame*(double)stepsPerRev/frames);
             double angle=fmod(-4*turns,1.);if(angle<0)angle++;
@@ -95,13 +108,37 @@ int main(int argc,char **argv){
             for(int z=0;z<nz;z++)for(int y=0;y<ny;y++){
                 for(int x=0;x<nx;x++){
                     size_t k=where(x,y,z,nx,ny);
-                    if(x==0)memcpy(input,inlet,sizeof(inlet));
+                    if(x==0&&!startup)memcpy(input,inlet,sizeof(inlet));
                     else for(int q=0;q<19;q++){
                         int i=x-cx[q],j=y-cy[q],l=z-cz[q],flip=0;
+                        if(i<0)i=0;
                         if(i>=nx)i=nx-1;
                         if(j<0||j>=ny){j=y;flip|=1;}
                         if(l<0||l>=nz){l=z;flip|=2;}
                         input[q]=current[19*where(i,j,l,nx,ny)+reflect[flip][q]];
+                    }
+                    if(startup && (x==0 || x==nx-1)){
+                        // Zou-He velocity inlet and characteristic open outlet. Preserve the
+                        // known populations arriving at the boundary from the interior.
+                        const int sign=x==0?1:-1;
+                        double rest=0,outgoing=0,transverseY=0,transverseZ=0;
+                        for(int q=0;q<19;q++){
+                            if(cx[q]==0){
+                                rest+=input[q];transverseY+=cy[q]*input[q];transverseZ+=cz[q]*input[q];
+                            }else if(cx[q]==-sign)outgoing+=input[q];
+                        }
+                        // At the outlet the incoming acoustic characteristic is held at
+                        // the far-field condition: ux - u_inf = cs*(density-1).
+                        // Combine it with the known outgoing population sum.
+                        const double sum=rest+2*outgoing,cs=1./sqrt(3.);
+                        const double b=1+ramp*ua-cs;
+                        const double density=x==0?sum/(1-ramp*ua):2*sum/(b+sqrt(b*b+4*cs*sum));
+                        const double ux=x==0?ramp*ua:sum/density-1.;
+                        for(int q=1;q<19;q++)if(cx[q]==sign){
+                            const double weight=q<=6?1./18:1./36;
+                            input[q]=input[opposite[q]]+6*weight*density*sign*ux
+                                -.5*(cy[q]*transverseY+cz[q]*transverseZ);
+                        }
                     }
                     int i=x-cx0+width/2,j=y-cy0+width/2,l=z-cz0+width/2;
                     input[19]=0;
@@ -118,15 +155,23 @@ int main(int argc,char **argv){
                     input[20]=y+.5-cy0;input[21]=z+.5-cz0;input[22]=ramp*omega;
                     check(fmi3SetFloat64(model,input_refs,8,input,31));
                     check(fmi3GetFloat64(model,output_refs,4,out,26));
+                    // Absorb outgoing lattice waves beyond the sampled wake (x > 4D).
+                    if(startup && x>7*res){
+                        const double r=(x-7.*res)/(2*res-1),sigma=.12*r*r,freestream=ramp*ua;
+                        for(int q=0;q<19;q++){
+                            const double w=q==0?1./3:q<=6?1./18:1./36,eu=cx[q]*freestream;
+                            out[q]+=sigma*(w*(1+3*eu+4.5*eu*eu-1.5*freestream*freestream)-out[q]);
+                        }
+                    }
                     memcpy(next+19*k,out,sizeof(inlet));
                     const double shaftMoment=input[20]*out[21]-input[21]*out[20];
                     axial+=out[19];moment+=shaftMoment;
-                    if(step>end-stepsPerRev && input[19]>0){
+                    if((startup||step>end-stepsPerRev) && input[19]>0){
                         const int ring=(int)fmin(rings-1,2*rings*hypot(input[20],input[21])/res);
                         ringAxial[ring]+=out[19];ringMoment[ring]+=shaftMoment;
                     }
                     double v2=out[22]*out[22]+out[23]*out[23]+out[24]*out[24];maxMach=fmax(maxMach,sqrt(3*v2));
-                    if(step==end || capture){
+                    if(step==end || capture || (startup&&step%stepsPerRev==0)){
                         for(int v=0;v<3;v++)field[4*k+v]=(float)(out[22+v]*dx/dt);
                         field[4*k+3]=(float)(out[25]*rho*(dx/dt)*(dx/dt));
                     }
@@ -138,6 +183,33 @@ int main(int argc,char **argv){
                 double thrust=-axial*scale,torque=moment*scale*dx;
                 fprintf(history,"%d,%.9g,%.8g,%.9g,%.9g,%.8g,%.8g,%.5g,%.12g,%.12g\n",step,step*dt,turns,thrust,torque,
                     thrust/(rho*n*n*pow(D,4)),torque/(rho*n*n*pow(D,5)),maxMach,phase,ramp*omega/dt);
+                if(startup){
+                    turnThrust+=thrust/stepsPerRev;turnTorque+=torque/stepsPerRev;
+                    if(step%stepsPerRev==0){
+                        // Compare the same blade phase one period apart throughout the
+                        // displayed near wake. Period-mean shaft loads must settle too.
+                        double change=0,magnitude=0;
+                        for(int z=cz0-.8*res;z<=cz0+.8*res;z++)
+                            for(int y=cy0-.8*res;y<=cy0+.8*res;y++)
+                                for(int x=cx0-res;x<=cx0+3*res;x++){
+                                    size_t base=4*where(x,y,z,nx,ny);
+                                    for(int axis=0;axis<3;axis++){
+                                        double u=field[base+axis],delta=u-previousField[base+axis];
+                                        change+=delta*delta;magnitude+=u*u;
+                                    }
+                                }
+                        double relative=sqrt(change/fmax(magnitude,1e-20));
+                        int stable=relative<.02 && fabs(turnThrust-previousThrust)<.02*fabs(turnThrust)
+                            && fabs(turnTorque-previousTorque)<.02*fabs(turnTorque);
+                        stablePeriods=stable?stablePeriods+1:0;
+                        fprintf(cycles,"%d,%.12g,%.9g,%.9g,%.8g,%d\n",step/stepsPerRev,
+                            step*dt,turnThrust,turnTorque,relative,stablePeriods);fflush(cycles);
+                        if(stablePeriods>=3)end=step;
+                        if(step<end){memset(ringAxial,0,sizeof ringAxial);memset(ringMoment,0,sizeof ringMoment);}
+                        previousThrust=turnThrust;previousTorque=turnTorque;turnThrust=turnTorque=0;
+                        memcpy(previousField,field,4*cells*sizeof(float));
+                    }
+                }
                 if(capture){
                     char filename[64];
                     snprintf(filename,sizeof(filename),"rumoca-frame-%04d.bin",frame);
@@ -154,6 +226,7 @@ int main(int argc,char **argv){
     }
     fclose(history);
     if(sequence)fclose(sequence);
+    if(cycles)fclose(cycles);
     if(end>=2*stepsPerRev){
         FILE *annuli=open_file("rumoca-annuli.csv","w");
         fprintf(annuli,"inner_r_over_R,KT,KQ\n");
@@ -167,7 +240,7 @@ int main(int argc,char **argv){
     if(fwrite(field,4,4*cells,f)!=4*cells)return 1;
     fclose(f);
     f=open_file("rumoca-volume.json","w");
-    fprintf(f,"{\"dims\":[%d,%d,%d],\"wallTreatment\":\"%s\",\"spacing_m\":%.12g,\"firstCenter_m\":[%.12g,%.12g,%.12g],\"dt_s\":%.12g,\"steps\":%d,\"stepsPerRev\":%d,\"framesPerTurn\":%d,\"J\":%.8g,\"rpm\":%.8g}\n",
-        nx,ny,nz,tensors?"normal-slip":"volume-no-slip",dx,(.5-cx0)*dx,(.5-cy0)*dx,(.5-cz0)*dx,dt,end,stepsPerRev,frames,J,rpm);
+    fprintf(f,"{\"dims\":[%d,%d,%d],\"wallTreatment\":\"%s\",\"spacing_m\":%.12g,\"firstCenter_m\":[%.12g,%.12g,%.12g],\"dt_s\":%.12g,\"steps\":%d,\"stepsPerRev\":%d,\"framesPerTurn\":%d,\"startsFromRest\":%s,\"J\":%.8g,\"rpm\":%.8g}\n",
+        nx,ny,nz,tensors?"normal-slip":"volume-no-slip",dx,(.5-cx0)*dx,(.5-cy0)*dx,(.5-cz0)*dx,dt,end,stepsPerRev,frames,startup?"true":"false",J,rpm);
     fclose(f);return 0;
 }
