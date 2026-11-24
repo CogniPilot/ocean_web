@@ -769,3 +769,77 @@ with the original FFT, and 20.31 ms with the real FFT. All nine observed
 channels matched exactly across 1,020 steps. Separate-process runs showed
 considerable timing variation. The live optimized build reached 0.63×
 at 30 FPS in a 20 s capture.
+
+## Where the Hobie spends a 10 ms step
+
+On the Ryzen 5950X and RTX 3090, Chromium drew the local Hobie at 30 FPS on
+both presets at 1920 × 1080. In separate 20.04 s captures with 2× playback
+requested, the sailing worker spent 19.88 s on CPU on High and 19.85 s on
+Low. The committed simulation clock advanced at 1.18× and 1.64× respectively.
+
+The following measurements isolate the released OceanSailing component
+from rendering. The Linux perf runs used 200 warm-up steps, 850 measured
+10 ms steps and nine bound output channels. Low used the same controls
+with `--no-wakes`. The replay leaves wind, swell and sail dynamics active.
+
+| Per 10 ms of simulated time | High | Low |
+| --- | ---: | ---: |
+| Mean step plus output read | 9.86 ms | 7.07 ms |
+| Median step, excluding read | 5.78 ms | 5.74 ms |
+| 95th-percentile step, excluding read | 39.41 ms | 13.11 ms |
+| User-space cycle samples in libc memmove | 24.72% | 21.76% |
+| Bytes copied by Wasm memory.copy per step, decimal MB | 136.22 | 88.84 |
+| Of which sail-cloth routine and its nested regions, MB | 38.18 | 38.14 |
+| Of which spectral wake step and its nested regions, MB | 43.69 | 0.87 |
+
+The byte counts come from a separate 300-step replay. Counters recorded the
+length of each executed Wasm bulk copy by enclosing function in a diagnostic
+build. All 2,700 sampled output values for each preset matched the original
+module exactly. Repeated copies count each time. These numbers describe
+instructions executed inside the worker, including transfers served by cache.
+The perf timings above used the uninstrumented module.
+
+In an alternating replay of the same beam reach, the tenth step in each
+100 ms interval cost 36.23 ms on High and 11.60 ms on Low, including the
+output read. Each of the other nine phases averaged 5.55–7.57 ms across
+the two presets. The large periodic difference coincides with the 10 Hz
+wake update. A separate cost persists throughout the interval. For example,
+one generated branch in the cloth routine forwarded a 960-byte input
+unchanged to an output about 5,200 times per step. Other cloth regions
+also copied intermediate arrays. A compiler optimization can reuse storage
+when ownership and alias analysis establish that a value can safely pass
+through a branch or a loop iteration.
+
+A candidate that cached sail/shroud intersections across the three contact
+sweeps increased mean step plus read from 9.47 to 15.96 ms on High and from
+6.97 to 13.39 ms on Low in the alternating replay. Nine output channels
+matched at all 800 steps on both presets. The release keeps the original
+contact calculation.
+
+To reproduce the uninstrumented profiles from a packaged site, run
+`bash scripts/profile-physics-perf.sh build/onrt-preview sailing build/hobie-high 850`
+and `bash scripts/profile-physics-perf.sh build/onrt-preview sailing build/hobie-low 850 --no-wakes`.
+
+### After removing repeated compiler-generated copies
+
+The following paired replay compares the released Hobie at `e48cd5d` with
+the same Modelica sources rebuilt using the Rumoca changes in
+`compiler/rumoca-array-storage.patch`. Both ran in the same Node process
+on the 5950X. Runs alternated in ten-step batches, with 200 warm-up steps
+and 600 timed steps per build and preset. Timing includes the output read.
+Wasm bulk-copy counts come from a separate 300-step instrumented replay.
+
+| Per 10 ms of simulated time | High before | High after | Low before | Low after |
+| --- | ---: | ---: | ---: | ---: |
+| Mean step and output read | 10.09 ms | 7.73 ms | 7.38 ms | 6.04 ms |
+| Mean tenth step in each 100 ms interval | 38.83 ms | 27.26 ms | 11.92 ms | 10.45 ms |
+| Bytes copied by Wasm bulk copies, decimal MB | 136.22 | 114.75 | 88.84 | 72.14 |
+
+Rumoca reuses array storage after its last read, emits direct conditional
+calls, and lets pure calls borrow contiguous parameter inputs when Solve IR
+proves the snapshot can be skipped. A single 6,912-element input accounted
+for 7.12 MB of copying per High step. Its copy count fell to zero.
+The paired replay applied helm reversals and changed downhaul. All 29
+sampled channels matched exactly at 800 steps on both presets. All 4,096
+wake heights and all coordinates of the 64 sail vertices also matched at
+each of 16 snapshots per preset.

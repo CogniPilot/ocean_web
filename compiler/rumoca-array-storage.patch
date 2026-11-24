@@ -1,0 +1,518 @@
+diff --git a/crates/rumoca-ir-solve/src/lib.rs b/crates/rumoca-ir-solve/src/lib.rs
+index c53788c..11ca97e 100644
+--- a/crates/rumoca-ir-solve/src/lib.rs
++++ b/crates/rumoca-ir-solve/src/lib.rs
+@@ -50,6 +50,7 @@ mod quotient_memory;
+ mod refresh;
+ mod root_search;
+ mod runtime_flags;
++mod scalar_call_inputs;
+ mod scalar_names;
+ mod scalar_output_placements;
+ mod scalar_program_output_spans;
+diff --git a/crates/rumoca-ir-solve/src/scalar_call_inputs.rs b/crates/rumoca-ir-solve/src/scalar_call_inputs.rs
+new file mode 100644
+index 0000000..063a891
+--- /dev/null
++++ b/crates/rumoca-ir-solve/src/scalar_call_inputs.rs
+@@ -0,0 +1,189 @@
++//! Borrow contiguous parameter inputs to a pure call across a run of loads.
++//! Other operations keep their original register and snapshot semantics.
++
++use crate::linear_op::op_read_register_ranges;
++use crate::{LinearOp, Reg, ScalarProgramBlock, TensorInputKind};
++
++impl ScalarProgramBlock {
++    /// Entries are parameter-buffer offsets for arguments whose entire register
++    /// span still contains the corresponding contiguous parameter snapshot.
++    #[must_use]
++    pub fn pure_call_parameter_inputs(
++        &self,
++        program: usize,
++        operation: usize,
++    ) -> Option<Vec<Option<usize>>> {
++        let row = self.programs().get(program)?;
++        let LinearOp::PureCall {
++            input_starts, site, ..
++        } = row.get(operation)?
++        else {
++            return None;
++        };
++        Some(
++            input_starts
++                .iter()
++                .zip(site.inputs())
++                .map(|(&start, ty)| parameter_source(&row[..operation], start, ty.scalar_count()))
++                .collect(),
++        )
++    }
++    /// A parameter snapshot can be omitted when its first consumer borrows all
++    /// overlapping inputs and the rest of the row never reads the snapshot.
++    #[must_use]
++    pub fn is_borrowed_parameter_load(&self, program: usize, operation: usize) -> bool {
++        let Some(row) = self.programs().get(program) else {
++            return false;
++        };
++        let Some(LinearOp::TensorLoad {
++            dst_start,
++            count,
++            input: TensorInputKind::P,
++            lanes: 1,
++            seed_start: None,
++            ..
++        }) = row.get(operation)
++        else {
++            return false;
++        };
++        if *count <= 1 {
++            return false;
++        }
++        let start = *dst_start as usize;
++        let Some(end) = start.checked_add(*count) else {
++            return false;
++        };
++        for (index, op) in row.iter().enumerate().skip(operation + 1) {
++            match op {
++                LinearOp::LoadY { .. }
++                | LinearOp::LoadP { .. }
++                | LinearOp::LoadTime { .. }
++                | LinearOp::Const { .. }
++                | LinearOp::TensorLoad { .. } => continue,
++                LinearOp::PureCall {
++                    site, input_starts, ..
++                } => {
++                    let mut borrowed = false;
++                    for (&reg, ty) in input_starts.iter().zip(site.inputs()) {
++                        let width = ty.scalar_count();
++                        let first = reg as usize;
++                        if first < end && first.saturating_add(width as usize) > start {
++                            if parameter_source(&row[..index], reg, width).is_none() {
++                                return false;
++                            }
++                            borrowed = true;
++                        }
++                    }
++                    return borrowed
++                        && row[index + 1..]
++                            .iter()
++                            .all(|op| avoids_span(op, start, end));
++                }
++                _ => return false,
++            }
++        }
++        false
++    }
++}
++
++// A strided read is conservatively bounded by its first and last register.
++fn avoids_span(op: &LinearOp, start: usize, end: usize) -> bool {
++    op_read_register_ranges(op).is_some_and(|reads| {
++        reads.iter().all(|read| {
++            let first = read.start as usize;
++            let last =
++                first.saturating_add(read.count.saturating_sub(1).saturating_mul(read.stride));
++            read.count == 0 || first >= end || last < start
++        })
++    })
++}
++
++fn parameter_source(prior: &[LinearOp], start: Reg, width: u32) -> Option<usize> {
++    if width <= 1 {
++        return None;
++    }
++    let end = start.checked_add(width)?;
++    for op in prior.iter().rev() {
++        match op {
++            LinearOp::LoadP { dst, .. }
++            | LinearOp::LoadY { dst, .. }
++            | LinearOp::Const { dst, .. }
++            | LinearOp::LoadTime { dst }
++                if !(start..end).contains(dst) => {}
++            LinearOp::TensorLoad {
++                dst_start,
++                input,
++                input_start,
++                count,
++                lanes: 1,
++                seed_start: None,
++            } => {
++                let limit = dst_start.checked_add(u32::try_from(*count).ok()?)?;
++                if *dst_start >= end || limit <= start {
++                    continue;
++                }
++                if *input == TensorInputKind::P && *dst_start <= start && end <= limit {
++                    return input_start.checked_add((start - dst_start) as usize);
++                }
++                return None;
++            }
++            _ => return None,
++        }
++    }
++    None
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn load() -> LinearOp {
++        LinearOp::TensorLoad {
++            dst_start: 3,
++            input: TensorInputKind::P,
++            input_start: 42,
++            count: 12,
++            lanes: 1,
++            seed_start: None,
++        }
++    }
++
++    #[test]
++    fn later_scalar_and_strided_reads_preserve_the_snapshot() {
++        assert!(!avoids_span(&LinearOp::StoreOutput { src: 4 }, 3, 15));
++        assert!(!avoids_span(
++            &LinearOp::StoreOutputRange {
++                start: 0,
++                count: 3,
++                stride: 6
++            },
++            3,
++            15
++        ));
++        assert!(avoids_span(
++            &LinearOp::StoreOutputRange {
++                start: 15,
++                count: 3,
++                stride: 1
++            },
++            3,
++            15
++        ));
++    }
++
++    #[test]
++    fn intact_subranges_can_borrow_the_parameter_storage() {
++        let ops = [load(), LinearOp::LoadY { dst: 20, index: 0 }];
++        assert_eq!(parameter_source(&ops, 4, 9), Some(43));
++        assert_eq!(parameter_source(&ops, 4, 12), None);
++    }
++
++    #[test]
++    fn overwritten_lanes_and_possible_effects_keep_the_snapshot() {
++        let overwritten = [load(), LinearOp::LoadY { dst: 9, index: 2 }];
++        assert_eq!(parameter_source(&overwritten, 4, 9), None);
++        assert_eq!(parameter_source(&overwritten, 10, 3), Some(49));
++        let boundary = [load(), LinearOp::StoreOutput { src: 4 }];
++        assert_eq!(parameter_source(&boundary, 3, 12), None);
++    }
++}
+diff --git a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/output_storage.rs b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/output_storage.rs
+index c340c37..93b3b99 100644
+--- a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/output_storage.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/output_storage.rs
+@@ -18,7 +18,10 @@ fn slice_table() -> solve::SolvePureCallTable {
+             |builder, inputs, outputs| {
+                 let base = builder.load(inputs[0], span(1201))?;
+                 let replacement = builder.load(inputs[1], span(1202))?;
+-                let updated = builder.update_slice(base, replacement, vec![1, 1], span(1203))?;
++                // Base remains live; the following intermediates are consumed.
++                let first = builder.update_slice(base, replacement, vec![0, 0], span(1203))?;
++                let second = builder.update_slice(first, replacement, vec![0, 1], span(1203))?;
++                let updated = builder.update_slice(second, replacement, vec![1, 1], span(1203))?;
+                 builder.store(outputs[0], base, span(1204))?;
+                 builder.store(outputs[1], updated, span(1205))
+             },
+@@ -54,9 +57,11 @@ int main(void) {
+     assert(primal[0]==12345 && primal[25]==12345 && result[0]==54321 && result[49]==54321);
+     for (size_t k=0; k<12; ++k) {
+         double value=base[k], seed=tangent[k];
+-        for (size_t row=0; row<2; ++row) for (size_t col=0; col<2; ++col) {
+-            if (k==(row+1)*4+col+1) { value=replacement[row*2+col]; seed=direction[row*2+col]; }
+-        }
++        const size_t offsets[]={0, 1, 5};
++        for (size_t n=0; n<3; ++n)
++            for (size_t row=0; row<2; ++row) for (size_t col=0; col<2; ++col) {
++                if (k==offsets[n]+row*4+col) { value=replacement[row*2+col]; seed=direction[row*2+col]; }
++            }
+         assert(primal[1+k]==base[k] && primal[13+k]==value);
+         assert(result[1+k]==base[k] && result[13+k]==tangent[k]);
+         assert(result[25+k]==value && result[37+k]==seed);
+@@ -71,7 +76,8 @@ int main(void) {
+ 
+ #[test]
+ fn scalar_output_storage_survives_fortify_and_wrapping_pointer_arithmetic() {
+-    let families = PureCallFamilies::new(&slice_table()).unwrap();
++    let table = slice_table();
++    let families = PureCallFamilies::new(&table).unwrap();
+     let mut environment = super::super::super::create_environment();
+     environment
+         .add_template("scalar_output_storage", CONTROL)
+@@ -83,6 +89,20 @@ fn scalar_output_storage_survives_fortify_and_wrapping_pointer_arithmetic() {
+             table => families.owners_value(), directional => families.directional_value(),
+         })
+         .unwrap();
++    let homes = table.owners()[0]
++        .body()
++        .storage_plan()
++        .aliases()
++        .registers();
++    let (destination, root) = homes
++        .iter()
++        .enumerate()
++        .find_map(|(id, home)| match home {
++            solve::SolveRegisterHome::Register { register } => Some((id, register)),
++            _ => None,
++        })
++        .expect("the middle update consumes an owned matrix");
++    assert!(source.contains(&format!("r{destination}=r{root};")));
+     super::assertion_carrier::compile_and_execute_with_flags(
+         &source,
+         &[
+diff --git a/crates/rumoca-phase-codegen/src/codegen/scalar_program_plan.rs b/crates/rumoca-phase-codegen/src/codegen/scalar_program_plan.rs
+index f645a37..e82a2b3 100644
+--- a/crates/rumoca-phase-codegen/src/codegen/scalar_program_plan.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/scalar_program_plan.rs
+@@ -188,6 +188,18 @@ impl Object for PlanOpValue {
+     }
+ 
+     fn get_value(self: &Arc<Self>, key: &Value) -> Option<Value> {
++        if key.as_str()? == "borrowed_parameter_load" {
++            return Some(Value::from(
++                self.block
++                    .is_borrowed_parameter_load(self.program_index, self.op_index),
++            ));
++        }
++        if key.as_str()? == "parameter_inputs" {
++            return self
++                .block
++                .pure_call_parameter_inputs(self.program_index, self.op_index)
++                .map(|inputs| Value::from_serialize(&inputs));
++        }
+         if key.as_str()? == "output_span" {
+             let span = self
+                 .block
+@@ -999,6 +1011,7 @@ pub(super) fn op_keys(op: &solve::LinearOp) -> &'static [&'static str] {
+         LinearOp::TensorFill { .. } => &["kind", "dst", "value_start", "count", "lanes"],
+         LinearOp::TensorIdentity { .. } => &["kind", "dst", "size", "lanes"],
+         LinearOp::TensorLoad { .. } => &[
++            "borrowed_parameter_load",
+             "kind",
+             "dst",
+             "input",
+@@ -1086,9 +1099,8 @@ pub(super) fn op_keys(op: &solve::LinearOp) -> &'static [&'static str] {
+         LinearOp::PureCallObservation { .. } => {
+             &["kind", "dst", "input_starts", "owner", "predicate_outputs"]
+         }
+-        LinearOp::PureCall { .. } | LinearOp::PureCallDirectional { .. } => {
+-            &["kind", "dst", "input_starts", "owner"]
+-        }
++        LinearOp::PureCall { .. } => &["kind", "dst", "input_starts", "owner", "parameter_inputs"],
++        LinearOp::PureCallDirectional { .. } => &["kind", "dst", "input_starts", "owner"],
+         LinearOp::StoreOutputFoldTensorUpdate { .. } => &[
+             "kind",
+             "output_start",
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
+index 1506de1..f43a6a1 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
+@@ -95,7 +95,8 @@
+     {
+     RmcModelAssertionContext context={m, {{ op.owner }}, {{ observation_mode }}, {% if op.kind == "PureCallObservation" %}&r[{{ op.dst }}]{% else %}NULL{% endif %}, {% if observation_mode == 2 %}warnings.notices{% else %}NULL{% endif %}};
+     const RmcAssertionObserver observer={&context, rmc_model_assertion};
+-    int status={{ "rumoca_scalar_observe_" if op.kind == "PureCallObservation" else ("rumoca_scalar_pure_directional_" if op.kind == "PureCallDirectional" else "rumoca_scalar_pure_") }}{{ pure_symbol(op.owner) }}((const double*[]){ {% for start in op.input_starts %}&r[{{ start }}],{% else %}NULL{% endfor %} }, &r[{{ op.dst }}], &observer);
++{% set parameters = op.parameter_inputs|default([]) -%}
++    int status={{ "rumoca_scalar_observe_" if op.kind == "PureCallObservation" else ("rumoca_scalar_pure_directional_" if op.kind == "PureCallDirectional" else "rumoca_scalar_pure_") }}{{ pure_symbol(op.owner) }}((const double*[]){ {% for start in op.input_starts %}{% if parameters and parameters[loop.index0] is not none %}&m->p[{{ parameters[loop.index0] }}],{% else %}&r[{{ start }}],{% endif %}{% else %}NULL{% endfor %} }, &r[{{ op.dst }}], &observer);
+ {% if observation_mode == 2 %}
+     warnings.notices=context.notices;
+     if (status) { rmc_finish_assertion_observation(&warnings, status); return {{ error_status }}; }
+@@ -104,6 +105,7 @@
+     if (status{% if op.kind == "PureCallObservation" and observation_mode == 0 %} && status!=2{% endif %}) return {{ error_status }};
+ {% endif %}
+     }
++{%- elif op.kind == "TensorLoad" and op.borrowed_parameter_load|default(false) %}
+ {%- elif op.kind == "TensorLoad" and op.lanes == 1 %}    for (size_t k=0; k<{{ op.count }}; ++k) r[{{ op.dst }}+k] = m->{{ op.input | lower }}[{{ op.input_start }}+k];
+ {%- elif op.kind == "TensorBinary" and op.lanes == 1 %}    for (size_t k=0; k<{{ op.count }}; ++k) r[{{ op.dst }}+k] = {{ binary(op.operator, op.lhs_start ~ "+k*" ~ op.lhs_stride, op.rhs_start ~ "+k*" ~ op.rhs_stride) }};
+ {%- elif op.kind == "TensorIntegerPower" and op.lanes == 1 %}    for (size_t k=0; k<{{ op.count }}; ++k) {
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_arithmetic.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_arithmetic.jinja
+index a6562a8..1d75497 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_arithmetic.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_arithmetic.jinja
+@@ -19,6 +19,12 @@
+ memcpy({{ dst }}, {{ src }}, sizeof({{ dst }}));
+ {% endmacro %}
+ 
++{#- A register may be a pointer. Its checked type supplies the extent. -#}
++{%- macro register_copy(program, destination, src) -%}
++{% set n=program.register_types[destination].scalar_count -%}
++memcpy(r{{ destination }}, {{ src }}, {{ n if n > 0 else 1 }} * sizeof(r{{ destination }}[0]));
++{% endmacro %}
++
+ {%- macro domain_check(dst, ty) -%}
+ {% if ty.scalar.kind == "integer" and (ty.scalar.profile.minimum|string != "-9223372036854775808" or ty.scalar.profile.maximum|string != "9223372036854775807") -%}
+ for (size_t k=0; k<{{ ty.scalar_count }}; ++k) if ({{ dst }}[k]<{{ integer(ty.scalar.profile.minimum) }} || {{ dst }}[k]>{{ integer(ty.scalar.profile.maximum) }}) return 1;
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+index e6abec0..c471ac9 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+@@ -1,5 +1,5 @@
+ {#- Follows the whitespace convention stated in `typed_arithmetic.jinja`. -#}
+-{%- from "fmi-typed-arithmetic.jinja" import integer, declaration, copy, import_scalars, arithmetic %}
++{%- from "fmi-typed-arithmetic.jinja" import integer, declaration, copy, register_copy, import_scalars, arithmetic %}
+ {%- from "fmi-typed-tensors.jinja" import tensor %}
+ 
+ {#- A binder's trip count. The template engine's `//` does not floor a negative
+@@ -57,11 +57,16 @@ return status;
+ {% elif x.state == "output" %}*(bool*)out[{{ output_count(program) }}+2*{{ x.output }}]=present{{ x.source }}; if(present{{ x.source }}) memcpy(out[{{ output_count(program) }}+2*{{ x.output }}+1],v{{ x.source }},sizeof(v{{ x.source }}));
+ {% elif x.state == "is_present" %}r{{ x.destination }}[0]=present{{ x.source }};
+ {% elif x.state == "all_present" %}r{{ x.destination }}[0]=true{% for i in x.sources %} && present{{ i }}{% endfor %};
+-{% elif x.state == "project_checked" %}if(!present{{ x.source }})return 1; {{ copy("r" ~ x.destination,"v" ~ x.source) }}
++{% elif x.state == "project_checked" %}if(!present{{ x.source }})return 1; {{ register_copy(program,x.destination,"v" ~ x.source) }}
+ {% else %}{{ fail("unsupported assigned operation") }}{% endif -%}
+ {% elif op.operation == "assigned_conditional" -%}
+ {% set c=op.program -%}
+-{ int status=(r{{ c.condition }}[0] ? {{ region_name }}_true : {{ region_name }}_false)((const void*[]){ {% for i in c.captures %}r{{ i }},{% endfor %}{% for i in c.state_captures %}&present{{ i }},v{{ i }},{% endfor %}NULL }, (void*[]){ {% for i in c.destinations %}r{{ i }},{% endfor %}{% for i in c.state_destinations %}&present{{ i }},v{{ i }},{% endfor %}NULL },observer); if(status)return status; }
++{
++const void* inputs[]={ {% for i in c.captures %}r{{ i }},{% endfor %}{% for i in c.state_captures %}&present{{ i }},v{{ i }},{% endfor %}NULL };
++void* outputs[]={ {% for i in c.destinations %}r{{ i }},{% endfor %}{% for i in c.state_destinations %}&present{{ i }},v{{ i }},{% endfor %}NULL };
++int status = r{{ c.condition }}[0] ? {{ region_name }}_true(inputs,outputs,observer) : {{ region_name }}_false(inputs,outputs,observer);
++if(status)return status;
++}
+ {% elif op.operation == "check_finite" -%}
+ for (size_t k=0; k<{{ program.register_types[op.operand].scalar_count }}; ++k) if (!isfinite(r{{ op.operand }}[k])) return 1;
+ {% elif op.operation == "check_assertion" -%}
+@@ -80,11 +85,12 @@ if (!observer || !observer->observe || observer->observe(observer->context, {{ s
+ {% elif op.operation in ["constant", "unary", "binary", "broadcast_binary", "compare", "convert"] -%}
+ {{ arithmetic(op, program) -}}
+ {% elif op.operation == "load" -%}
+-{{ copy("r" ~ op.destination, "s" ~ op.slot) -}}
++{{ register_copy(program,op.destination,"s" ~ op.slot) -}}
+ {% elif op.operation == "store" -%}
+-{{ copy("s" ~ op.slot, "r" ~ op.source) -}}
++{% set home=program.storage.aliases.homes[op.source] -%}
++{% if home.home != "output_slot" or home.slot != op.slot %}{{ copy("s" ~ op.slot, "r" ~ op.source) }}{% endif -%}
+ {% elif op.operation == "select" -%}
+-{{ copy("r" ~ op.destination, "(r" ~ op.condition ~ "[0] ? r" ~ op.if_true ~ " : r" ~ op.if_false ~ ")") -}}
++{{ register_copy(program,op.destination,"(r" ~ op.condition ~ "[0] ? r" ~ op.if_true ~ " : r" ~ op.if_false ~ ")") -}}
+ {% elif op.operation == "conditional" -%}
+ if (r{{ op.condition }}[0]) { {{ call(region_name ~ "_true", op.captures, op.destinations)|trim }} }
+ else { {{ call(region_name ~ "_false", op.captures, op.destinations)|trim }} }
+@@ -102,7 +108,9 @@ const RmcAssertionObserver* observer=&forwarded;
+ {% endif -%}
+ {% elif op.operation == "fold" -%}
+ {
+-{% for dst in op.destinations %}{{ copy("r" ~ dst, "r" ~ op.initial[loop.index0]) }}{% endfor -%}
++{% for dst in op.destinations -%}
++{% if program.storage.aliases.homes[dst].home != "register" %}{{ register_copy(program,dst,"r" ~ op.initial[loop.index0]) }}{% endif -%}
++{% endfor -%}
+ int fold_done=0; (void)fold_done;
+ {% for binder in op.domain.binders -%}
+ {% set count = trip_count(binder) -%}
+@@ -160,39 +168,37 @@ if (i{{ loop.index0 }}) b{{ loop.index0 }}[0]+={{ integer(binder.step) }};
+ {% endfor -%}
+ static int {{ name }}(const void* const in[], void* const out[], const RmcAssertionObserver* observer) {
+ (void)in; (void)out; (void)observer; (void)rumoca_real64;
+-{% set input = namespace(index=0, pointers=[]) -%}
+ {% for slot in program.slots -%}
+-{% set stored = namespace(value=false) -%}
+-{% for issued in program.operations %}{% if issued.operation.operation == "store" and issued.operation.slot == slot.id %}{% set stored.value = true %}{% endif %}{% endfor -%}
+-{% if slot.storage == "input" and not stored.value and slot.value_type.scalar_count > 0 -%}
+-{#- An input slot the body never writes reads the caller's array. -#}
+-const {{ ctype(slot.value_type) }}* s{{ slot.id }} = in[{{ input.index }}]; (void)s{{ slot.id }};
+-{% set input.index = input.index + 1 -%}
+-{% set input.pointers = input.pointers + [slot.id] -%}
++{% set placement=program.storage.slots[slot.id] -%}
++{% if placement.placement == "argument" -%}
++const {{ ctype(slot.value_type) }}* s{{ slot.id }} = in[{{ placement.argument }}]; (void)s{{ slot.id }};
+ {% else -%}
+ {{ declaration("s" ~ slot.id, slot.value_type) }}
+-{% if slot.storage == "input" -%}
+-memcpy(s{{ slot.id }}, in[{{ input.index }}], sizeof(s{{ slot.id }}));
+-{% set input.index = input.index + 1 -%}
+-{% endif -%}
++{% if slot.storage == "input" %}memcpy(s{{ slot.id }}, in[{{ placement.argument }}], sizeof(s{{ slot.id }}));{% endif %}
+ {% endif -%}
+ {% endfor -%}
+-{#- A register only a load of such an input slot defines reads the slot's
+-    array as well (every other operation issues fresh registers). -#}
+-{% set written = namespace(ids=[]) -%}
+-{% for issued in program.operations -%}
+-{% if issued.operation.destination is defined %}{% set written.ids = written.ids + [issued.operation.destination] %}{% endif -%}
+-{% if issued.operation.destinations is defined %}{% set written.ids = written.ids + issued.operation.destinations|list %}{% endif -%}
++{% for ty in program.assigned_states.types|default([]) %}bool present{{ loop.index0 }}=false; (void)present{{ loop.index0 }}; {{ declaration("v" ~ loop.index0, ty) }}{% endfor %}
++{#- Declare owned cells before their views, independently of register numbering. -#}
++{% for ty in program.register_types -%}
++{% if program.storage.aliases.homes[loop.index0].home in ["own","scalar"] %}{{ declaration("r" ~ loop.index0, ty) }}{% endif %}
++{% endfor -%}
++{% for ty in program.register_types -%}
++{% set reg=loop.index0 -%}
++{% set home=program.storage.aliases.homes[reg] -%}
++{% if home.home == "register" -%}
++{{ ctype(ty) }}* const r{{ reg }}=r{{ home.register }}; (void)r{{ reg }};
++{% elif home.home == "output_slot" -%}
++{{ ctype(ty) }}* const r{{ reg }}=s{{ home.slot }}; (void)r{{ reg }};
++{% elif home.home == "input_slot" -%}
++const {{ ctype(ty) }}* r{{ reg }}=s{{ home.slot }}; (void)r{{ reg }};
++{% endif -%}
+ {% endfor -%}
+-{% set alias = namespace(ids=[]) -%}
+ {% for issued in program.operations -%}
+-{% set op = issued.operation -%}
+-{% if op.operation == "load" and op.slot in input.pointers and written.ids|select("equalto", op.destination)|list|length == 1 %}{% set alias.ids = alias.ids + [op.destination] %}{% endif -%}
++{% set op=issued.operation -%}
++{% if op.operation != "load" or program.storage.aliases.homes[op.destination].home != "input_slot" -%}
++{{ operation(op, program, name ~ "_region_" ~ loop.index0, prefix, assertion_outputs, source_predicate_outputs) -}}
++{% endif -%}
+ {% endfor -%}
+-{% for ty in program.assigned_states.types|default([]) %}bool present{{ loop.index0 }}=false; (void)present{{ loop.index0 }}; {{ declaration("v" ~ loop.index0, ty) }}{% endfor %}
+-{% for ty in program.register_types %}{% if loop.index0 not in alias.ids %}{{ declaration("r" ~ loop.index0, ty) }}{% endif %}{% endfor %}
+-{% for issued in program.operations %}{% set op = issued.operation %}{% if op.operation == "load" and op.destination in alias.ids %}const {{ ctype(program.register_types[op.destination]) }}* r{{ op.destination }} = s{{ op.slot }}; (void)r{{ op.destination }};
+-{% else %}{{ operation(op, program, name ~ "_region_" ~ loop.index0, prefix, assertion_outputs, source_predicate_outputs) }}{% endif %}{% endfor -%}
+ {% set output = namespace(index=0) -%}
+ {% for slot in program.slots -%}
+ {% if slot.storage == "output" -%}
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
+index a491214..9b50629 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
+@@ -1,5 +1,5 @@
+ {#- Follows the whitespace convention stated in `typed_arithmetic.jinja`. -#}
+-{%- from "fmi-typed-arithmetic.jinja" import copy, binary, integer_binary, domain_check %}
++{%- from "fmi-typed-arithmetic.jinja" import register_copy, binary, integer_binary, domain_check %}
+ {%- macro bounds(index, extent) -%}
+ if (r{{ index }}[0]<1 || r{{ index }}[0]>{{ extent }}) return 1;
+ {% endmacro %}
+@@ -100,7 +100,7 @@ index=index*{{ shape[loop.index0] }}+(size_t)(r{{ index }}[0]-1);
+ {% endif -%}
+ {% endfor -%}
+ {% if op.operation == "update_element" -%}
+-{{ copy(dst, "r" ~ op.aggregate) -}}
++{% if program.storage.aliases.homes[op.destination].home != "register" %}{{ register_copy(program,op.destination,"r" ~ op.aggregate) }}{% endif -%}
+ {{ dst }}[index]=r{{ op.value }}[0];
+ {% else -%}
+ {{ dst }}[0]=r{{ op.aggregate }}[index];
+@@ -109,7 +109,7 @@ index=index*{{ shape[loop.index0] }}+(size_t)(r{{ index }}[0]-1);
+ {% elif op.operation in ["project_slice", "update_slice"] -%}
+ {% set shape = program.register_types[op.aggregate].dimensions -%}
+ {% set slice = program.register_types[op.value] if op.operation == "update_slice" else ty -%}
+-{% if op.operation == "update_slice" %}{{ copy(dst, "r" ~ op.aggregate) }}{% endif -%}
++{% if op.operation == "update_slice" and program.storage.aliases.homes[op.destination].home != "register" %}{{ register_copy(program,op.destination,"r" ~ op.aggregate) }}{% endif -%}
+ {% if slice.scalar_count > 0 -%}
+ for (size_t k=0; k<{{ slice.scalar_count }}; ++k) { size_t rest=k; size_t offset=0; (void)rest;
+ {% for i in range(slice.dimensions|length)|reverse -%}
+@@ -126,7 +126,7 @@ offset+=({{ op.origin[i] }}+rest%{{ slice.dimensions[i] }})*{{ stride }}; rest/=
+ {% elif op.operation in ["project_view", "update_view"] -%}
+ {% set shape = program.register_types[op.aggregate].dimensions -%}
+ {% set count = program.register_types[op.value].scalar_count if op.operation == "update_view" else ty.scalar_count -%}
+-{% if op.operation == "update_view" %}{{ copy(dst, "r" ~ op.aggregate) }}{% endif -%}
++{% if op.operation == "update_view" and program.storage.aliases.homes[op.destination].home != "register" %}{{ register_copy(program,op.destination,"r" ~ op.aggregate) }}{% endif -%}
+ {% for axis in op.axes %}{% if axis.index is defined %}{{ bounds(axis.index, shape[loop.index0]) }}{% endif %}{% endfor -%}
+ for (size_t k=0; k<{{ count }}; ++k) { size_t rest=k; size_t offset=0; (void)rest;
+ {% for i in range(op.axes|length)|reverse -%}
+@@ -160,7 +160,7 @@ for (size_t k=0; k<{{ ty.scalar_count }}; ++k) {
+ {% set shape = program.register_types[op.aggregate].dimensions -%}
+ {% set block = program.register_types[op.value].dimensions if op.operation == "update_slice" else ty.dimensions -%}
+ {% set count = program.register_types[op.value].scalar_count if op.operation == "update_slice" else ty.scalar_count -%}
+-{% if op.operation == "update_slice" %}{{ copy(dst, "r" ~ op.aggregate) }}{% endif -%}
++{% if op.operation == "update_slice" and program.storage.aliases.homes[op.destination].home != "register" %}{{ register_copy(program,op.destination,"r" ~ op.aggregate) }}{% endif -%}
+ for (size_t k=0; k<{{ count }}; ++k) { size_t rest=k; size_t offset=0; (void)rest;
+ {% for i in range(block|length)|reverse -%}
+ {% set stride = shape[i+1:]|product -%}

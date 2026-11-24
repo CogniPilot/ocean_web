@@ -28,6 +28,10 @@ else
   revision=$(cat compiler/rumoca-revision)
   compiler_dir="$root/.deps/rumoca-upstream"
   fetch rumoca-upstream https://github.com/CogniPilot/rumoca "$revision"
+  patch="$root/compiler/rumoca-array-storage.patch"
+  if ! git -C "$compiler_dir" apply --reverse --check "$patch" 2>/dev/null; then
+    git -C "$compiler_dir" apply "$patch"
+  fi
   (cd "$compiler_dir" && cargo build --locked -p rumoca --bin rumoca --no-default-features \
     --features scheduled-sim,scenario-config,input-keyboard,transport-udp,transport-zenoh,viewer-web,process-control,fmu-packaging,component-build)
   compiler="$compiler_dir/target/debug/rumoca"
