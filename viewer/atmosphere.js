@@ -364,11 +364,21 @@ function makeFoamTexture(T){
  return texture;
 }
 const windTextureRange=32;
+// More samples near the boat and progressively larger cells offshore. Use
+// the inverse mapping for history and shading so the foam stays in world space.
+const foamPatchNearWidth=128,foamPatchCurvature=640;
+const foamPatchGLSL=`
+ const float foamPatchNearWidth=${foamPatchNearWidth}.;
+ const float foamPatchCurvature=${foamPatchCurvature}.;
+ vec2 foamPatchUV(vec2 offset){
+   return .5+2.*offset/(foamPatchNearWidth+sqrt(foamPatchNearWidth*foamPatchNearWidth
+     +4.*foamPatchCurvature*abs(offset)));
+ }
+`;
 // Short, directionally spread gravity waves close the unresolved end of
 // the wind-wave spectrum. Their deformation seeds foam, which then advects
 // and decays in a world-space atlas independently of the breaking crest.
 function whitecapField(T,U){
- const span=160;
  let size=320;
  const targets=Array.from({length:2},()=>new T.WebGLRenderTarget(size,size,{
    depthBuffer:false,stencilBuffer:false,magFilter:T.LinearFilter,minFilter:T.LinearMipmapLinearFilter,
@@ -401,7 +411,7 @@ function whitecapField(T,U){
    const speed=Math.sqrt(9.80665*k).toFixed(7);
    return `${(steepness/k).toFixed(7)}*cos(dot(local,vec2(${x},${y}))-${speed}*tm+${phase})`;
  }).join('+');
- const bounds={value:new T.Vector4(0,0,0,0)};
+ const bounds={value:new T.Vector3()};
  const map={value:targets[0].texture};
  const controls={
    ...U,history:{value:targets[1].texture},patchCenter:{value:new T.Vector2()},
@@ -412,14 +422,14 @@ function whitecapField(T,U){
  const camera=new T.OrthographicCamera(-1,1,1,-1,0,1);
  const material=new T.ShaderMaterial({uniforms:controls,depthTest:false,depthWrite:false,blending:T.NoBlending,
    vertexShader:'varying vec2 uvPatch;void main(){uvPatch=uv;gl_Position=vec4(position.xy,0.,1.);}',
-   fragmentShader:oceanHeightGLSL+`
+   fragmentShader:oceanHeightGLSL+foamPatchGLSL+`
      uniform sampler2D windMap,history;
      uniform float elapsed,hasHistory,windBlend,windPeriod,windFieldActive,referenceWind,bearing,tm;
      uniform vec2 patchCenter,previousCenter,surfaceCurrent;
      varying vec2 uvPatch;
      void main(){
-       const float span=${span}.;
-       vec2 world=patchCenter+span*(uvPatch-.5);
+       vec2 offset=uvPatch-.5;
+       vec2 world=patchCenter+offset*(foamPatchNearWidth+foamPatchCurvature*abs(offset));
        vec2 downwind=vec2(cos(bearing),sin(bearing)),across=vec2(-downwind.y,downwind.x);
        vec4 air=texture2D(windMap,world/windPeriod+.5/48.);
        float wind10=mix(referenceWind,${windTextureRange}.*mix(air.r,air.g,windBlend),windFieldActive);
@@ -452,11 +462,12 @@ function whitecapField(T,U){
        // Semi-Lagrangian advection. Foam moves with the water and wind
        // drift while the dispersive crest moves away at phase speed.
        vec2 drift=surfaceCurrent+(.025*wind10+.46*orbital.x)*downwind+.46*orbital.y*across;
-       vec2 back=(world-elapsed*drift-previousCenter)/span+.5;
+       vec2 back=foamPatchUV(world-elapsed*drift-previousCenter);
        float residual=0.;
        if(hasHistory>.5&&all(greaterThan(back,vec2(0.)))&&all(lessThan(back,vec2(1.)))){
          // Residual bubbles disperse preferentially downwind as the lip moves on.
-         vec2 spread=downwind*sqrt(.35*elapsed)/span;
+         vec2 metresPerUV=foamPatchNearWidth+2.*foamPatchCurvature*abs(back-.5);
+         vec2 spread=downwind*sqrt(.35*elapsed)/metresPerUV;
          float foam=.6*texture2D(history,back).g+.2*(texture2D(history,back-spread).g
            +texture2D(history,back+spread).g);
          // Callaghan et al. (2012) model the decay of foam area exponentially.
@@ -469,7 +480,8 @@ function whitecapField(T,U){
                              +.61803399*floor(tm*28.)));
        residual=floor(255.*residual+rounding)/255.;
        // Cox & Munk's measured slope variance rises with wind speed.
-       float roughness=sqrt(clamp((waveWind-2.)/11.,0.,1.2));
+       float cellSize=max(fwidth(world.x),fwidth(world.y));
+       float roughness=sqrt(clamp((waveWind-2.)/11.,0.,1.2))*(1.-.5*smoothstep(.85,2.4,cellSize));
        gradient=(gradient.x*downwind+gradient.y*across)*roughness;
        gl_FragColor=vec4(source,residual,clamp(128./255.+.8*gradient,0.,1.));
      }
@@ -477,7 +489,7 @@ function whitecapField(T,U){
  scene.add(new T.Mesh(quad,material));
  let slot=0,lastTime=-Infinity,lastWall=-Infinity;
  function update(renderer,wall,east,north,currentEast,currentNorth){
-   const cell=span/size,time=U.tm.value,cx=Math.round(east/cell)*cell,cy=Math.round(north/cell)*cell;
+   const cell=foamPatchNearWidth/size,time=U.tm.value,cx=Math.round(east/cell)*cell,cy=Math.round(north/cell)*cell;
    const old=controls.patchCenter.value,dt=time-lastTime;
    const moved=(cx-old.x)**2+(cy-old.y)**2>4;
    if(!moved&&(dt===0||wall-lastWall<1000/28))return;
@@ -490,7 +502,7 @@ function whitecapField(T,U){
    const previous=renderer.getRenderTarget();
    renderer.setRenderTarget(targets[slot]);renderer.render(scene,camera);renderer.setRenderTarget(previous);
    map.value=targets[slot].texture;
-   bounds.value.set(cx,cy,span,1/span);
+   bounds.value.set(cx,cy,1);
    lastTime=time;lastWall=wall;
  }
  function setResolution(resolution){
@@ -768,8 +780,8 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    #endif
  }
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
- fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+`
- uniform sampler2D windMap,foamTexture,whitecapMap; uniform vec4 whitecapBounds; uniform float windFieldActive,windBlend,referenceWind,windPeriod,rippleScale;
+ fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+foamPatchGLSL+`
+ uniform sampler2D windMap,foamTexture,whitecapMap; uniform vec3 whitecapBounds; uniform float windFieldActive,windBlend,referenceWind,windPeriod,rippleScale;
  uniform highp sampler2D reflection,transmission; uniform mat4 mirrorMatrix;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
  #ifndef DISABLE_STERN_FOAM
  uniform sampler2D sternFoamMap;
@@ -915,13 +927,13 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    d+=baseDir*(.043*rippleScale*puff*resolved*fade*cos(ripplePhase));
    float breakingWind=mix(wind,localSpeed,windFieldActive);
    float roughSea=smoothstep(3.,13.,breakingWind);
-   vec3 flecks=texture2D(foamTexture,(p-vec2(.022*breakingWind*tm,0.))*vec2(.64,.34)).rgb;
+   vec3 flecks=texture2D(foamTexture,(p-vec2(.022*breakingWind*tm,0.))*vec2(.28,.12)).rgb;
    float scum=dot(flecks,vec3(.60,.29,.11));
-   vec2 atlas=(wp.xy-whitecapBounds.xy)*whitecapBounds.w;
-   float atlasWeight=1.-smoothstep(.36,.49,length(atlas));
+   vec2 atlas=foamPatchUV(wp.xy-whitecapBounds.xy);
+   float atlasWeight=1.-smoothstep(.36,.49,length(atlas-.5));
    vec2 whitecap=vec2(0.);
    if(under<.5&&whitecapBounds.z>0.&&atlasWeight>0.){
-     vec4 seaFoam=texture2D(whitecapMap,atlas+.5);
+     vec4 seaFoam=texture2D(whitecapMap,atlas);
      whitecap=seaFoam.rg*atlasWeight;
      d+=atlasWeight*(seaFoam.ba-vec2(128./255.));
    }
@@ -1030,13 +1042,13 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      float specular=sunReflection(n,eye,.0018+slopeVariance*(.04+.56*subpixel));
      if(specular>.00015)color+=vec3(4.4,3.8,2.8)*sampleSky(sunDir).a*specular;
      color+=vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
-     float bubbleNoise=.31*flecks.g+.69*flecks.b;
-     float bubbles=smoothstep(.29,.70,bubbleNoise);
+     float bubbleNoise=dot(flecks,vec3(.40,.37,.23));
+     float bubbles=smoothstep(.29,.67,bubbleNoise);
      float fresh=whitecap.x;
      float crisp=1.-smoothstep(.18,.70,length(fwidth(wp.xy)));
-     // Preserve the small holes in a nearby spilling front while retaining
-     // the atlas's area average when that front falls below a pixel.
-     float lip=smoothstep(.16+.08*bubbleNoise,.67,whitecap.x)*(.82+.18*bubbles);
+     // Let strands of froth break up the lip at distances where their
+     // structure resolves. Use area coverage when the lip falls below a pixel.
+     float lip=smoothstep(.10+.28*bubbleNoise,.69,whitecap.x)*(.62+.38*bubbles);
      fresh=mix(fresh,lip,crisp);
      float residue=whitecap.y*(.33+.67*bubbles);
      float foam=1.-(1.-fresh)*(1.-.54*residue);
