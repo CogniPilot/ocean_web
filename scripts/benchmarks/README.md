@@ -104,6 +104,14 @@ includes the approach and release in IIHR's 40 × 20 × 3 m wave basin. The
 single gauge gives a time series at one location. It cannot establish a
 spatial map of the ship-generated wake. [Facility](https://iihr.uiowa.edu/facilities-and-resources/wave-basin-and-towing-tank)
 
+The steady-tow display regression runs the shipped 40 ms wave sampler and reconstructs
+the surface in coordinates that translate with the hull. Run
+`node scripts/benchmarks/check-onrt-wake.mjs` to check for repeated frames
+and measure changes at hull-following probes. From 26 to 32 seconds, the display
+varied by 0.00482 mm RMS per snapshot over 350,448 probe comparisons. This
+measures presentation stability. Wave-cut CSVs sample the native grid using
+bilinear interpolation.
+
 The head-sea replay initializes from the release row and applies the measured
 rudder history. On 572 post-release samples over 28.55 s, track RMS error was
 0.827 m, surge RMS error 0.083 m/s and heave RMS error 0.024 m. The model
@@ -159,6 +167,31 @@ The propeller viewer compares a steady rotating-frame OpenFOAM v2412 calculation
 At zero phase the two 16-cell masks contain 27.36 and 22.74 cm³ of solid. Their fractional intersection divided by union across phases is 0.612. Reusing the OpenFOAM wall isolates this effect. The original Modelica force drives all three velocity components of a partially occupied cell toward the moving wall velocity. Its axial wall target is zero, so it brakes axial inflow in mixed cells. A sensitivity run projects the velocity difference onto the local CAD wall normal in those cells and retains the full constraint in filled cells. This single change reverses the erroneous thrust sign at both resolutions. At 16 cells per diameter the resulting torque exceeds IIHR by 35%. At 20 cells per diameter it exceeds IIHR by 43%. The three-grid series is nonmonotonic in thrust and torque. These lattices do not resolve the viscous boundary layer.
 
 At a second advance ratio, J = 1.0, the 16-cell blade-normal model with the same wall and settings gave Kₜ = 0.22584 and Kq = 0.10363. The corresponding IIHR values were 0.26381 and 0.07336. OpenFOAM on the 84,266-cell mesh gave 0.32995 and 0.08963. The lattice was closer for thrust at both operating points. OpenFOAM was closer for torque at both. The IIHR file supplies no uncertainty column for these coefficients. To establish parity, specify acceptable differences in errors for each quantity before examining the remaining advance ratios, quantify discretization and averaging uncertainty for each solver, and obtain uncertainty for the experimental loads. ITTC describes the open-water and self-propulsion procedures. An interpolated moving-wall boundary offers a published treatment of curved surfaces for a further lattice test. SVA's independent VP1304 benchmark supplies measured downstream velocities as well as open-water loads. [ITTC self-propulsion CFD](https://ittc.info/media/11964/75-03-03-01.pdf) · [ITTC open-water uncertainty example](https://ittc.info/media/1840/75-02-03-022.pdf) · [Bouzidi, Firdaouss & Lallemand (2001)](https://doi.org/10.1063/1.1399290) · [Potsdam Propeller Test Case](https://www.sva-potsdam.de/pptc-smp11-workshop/)
+
+The third operating point increases inlet speed to 1.147 m/s at J = 1.2.
+The input STL, OpenFOAM mesh points and faces have identical file hashes at
+all three speeds. Every lattice case uses the same 16-cell/D mask and normal
+tensors. The final-revolution Kₜ and Kq at J = 1.2 are 0.11310 and 0.08211;
+OpenFOAM gives 0.21879 and 0.06547. The measured values are 0.17247 and
+0.05455. Here OpenFOAM is closer on both loads. Lattice torque changes by
+0.31% between the last two revolution means, compared with a 50.51%
+overprediction relative to IIHR. This window comparison measures remaining
+drift and does not quantify discretization uncertainty.
+
+| Advance ratio J | Measured open-water efficiency | OpenFOAM | Rumoca, blade-normal |
+|---:|---:|---:|---:|
+| 0.8 | 0.491 | 0.490 | 0.339 |
+| 1.0 | 0.572 | 0.586 | 0.347 |
+| 1.2 | 0.604 | 0.638 | 0.263 |
+
+Open-water efficiency is useful thrust power divided by shaft power,
+η = J Kₜ/(2π Kq). At J = 0.8 the OpenFOAM thrust and torque errors largely
+cancel in this ratio. At J = 1.2 the lattice produces too little axial thrust
+while requiring too much shaft torque. One diameter downstream, the lattice
+disk-average azimuthal velocity is −0.262 m/s and OpenFOAM gives −0.139 m/s.
+This identifies excessive rotation relative to the reference solution as a
+specific target for a blade boundary-condition test. Independent velocity
+measurements would be needed to validate either wake field experimentally.
 
 A signed face-velocity audit of the baseline OpenFOAM run recovered −56.33923 rad/s on 1,233 wall faces. Integrating the original pressure field over the patch reproduced the axial pressure force (−4.32444 N) and moment (+0.118796 N·m) in a continuation at iteration 352. The Rumoca audit measures the physical orientation of the rotating mask from its fourth angular harmonic. The collision-kernel test independently computes the stress tensor and momentum exchange in NumPy and compares each output with the compiled FMI function. These checks cover the local operator and shaft conventions.
 

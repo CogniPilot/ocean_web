@@ -1,4 +1,23 @@
 const T=window.THREE, el=id=>document.getElementById(id);
+async function loadComparison(){
+  const response=await fetch(new URL('./assets/onrt/open-water.json',import.meta.url));
+  if(!response.ok)throw Error('Open-water comparison unavailable');
+  const cases=await response.json(),menu=el('loadCase');
+  for(const run of cases)menu.add(new Option(run.J.toFixed(1),String(run.J)));
+  function show(){
+    const run=cases[menu.selectedIndex],body=el('loads');
+    body.replaceChildren();
+    for(const [key,label] of [['KT','Thrust Kₜ'],['KQ','Torque Kq'],['eta','Efficiency']]){
+      const row=body.insertRow(),name=document.createElement('th');
+      name.scope='row';name.textContent=label;row.append(name);
+      for(const source of ['IIHR','OpenFOAM','Rumoca'])row.insertCell().textContent=run[source][key].toFixed(3);
+    }
+  }
+  menu.onchange=show;
+  show();
+}
+loadComparison().catch(error=>{el('loadComparison').querySelector('summary').textContent=error.message;});
+
 async function load(){
   const requested=new URLSearchParams(location.search).get('solver');
   const solver=['volume','openfoam'].includes(requested)?requested:'rumoca',lattice=solver!=='openfoam';
