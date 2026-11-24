@@ -109,7 +109,8 @@ async function load(){
   const mode=['rumoca','openfoam'].includes(requested)?requested:'compare';
   const solvers=mode==='compare'?['rumoca','openfoam']:[mode];
   const startup=query.get('recording')!=='reference';
-  el('recording').value=startup?'startup':'reference';
+  const finalTurn=query.get('recording')==='final-turn';
+  el('recording').value=finalTurn?'final-turn':startup?'startup':'reference';
   el('recording').onchange=e=>{const url=new URL(location.href);url.searchParams.set('recording',e.target.value);location.assign(url);};
   el('solver').value=mode;
   el('solver').onchange=e=>{const url=new URL(location.href);url.searchParams.set('solver',e.target.value);location.assign(url);};
@@ -135,7 +136,10 @@ async function load(){
   for(const solution of data)panes.push(createPane(solution));
   const sequence=data.filter(d=>d.recording).sort((a,b)=>a.recording.duration-b.recording.duration)[0],slider=el('phase'),animate=el('animate');
   const updateShaftLoads=installShaftLoads(el('shaftLoads'),data,scaleCases);
-  let elapsed=0,lastFrame,scheduled,selectedFrame;
+  const firstFrame=finalTurn ? sequence.recording.frameAt(sequence.recording.duration-60/sequence.m.rpm,false) : 0;
+  const startOffset=sequence ? sequence.seq.frames[firstFrame].time-sequence.recording.start : 0;
+  const playDuration=sequence ? sequence.recording.duration-startOffset : 0;
+  let elapsed=startOffset,lastFrame,scheduled,selectedFrame;
   function paintTime(){
     const index=selectedFrame??sequence?.recording.frameAt(elapsed,!startup);
     const frame=sequence?.seq.frames[index];
@@ -182,8 +186,8 @@ async function load(){
   for(const id of ['station','paths','cut','tracers','bladePressure'])el(id).oninput=()=>{for(const p of panes)p.update();drawAll();};
   el('pressureLabel').textContent=mode==='rumoca'?'Grid pressure at blade surface':'Blade surface pressure';
   el('phaseControl').hidden=!sequence;el('spinControl').hidden=!!sequence;
-  if(sequence)slider.max=sequence.seq.frames.length-1;
-  el('fieldClock').textContent=startup?'Tank-frame solver output. Shaft and inflow ramp together from rest. Side by side plays the time range both solvers recorded.':mode==='compare'?'Rumoca replays a recorded revolution. The OpenFOAM field is steady; the blade follows the displayed shaft angle.':sequence?'Recorded Rumoca flow · one shaft revolution.':'Steady OpenFOAM field · tracers follow the streamlines.';
+  if(sequence){slider.min=firstFrame;slider.max=sequence.seq.frames.length-1;}
+  el('fieldClock').textContent=finalTurn?'Final shaft revolution at full speed, sampled in the tank frame.':startup?'Tank-frame solver output. Shaft and inflow ramp together from rest. Side by side plays the time range both solvers recorded.':mode==='compare'?'Rumoca replays a recorded revolution. The OpenFOAM field is steady; the blade follows the displayed shaft angle.':sequence?'Recorded Rumoca flow · one shaft revolution.':'Steady OpenFOAM field · tracers follow the streamlines.';
   el('metrics').textContent=data[0].m.rpm+' rpm · J '+data[0].m.J.toFixed(2)+' · port propeller';
   el('bladeRange').onchange=()=>{
     const scale=Number(el('bladeRange').value);
@@ -203,7 +207,7 @@ async function load(){
   el('recenter').onclick=()=>{orbit.pan.set(0,0,0);Object.assign(orbit,{theta:-1.98,phi:.34,radius:5.7});drawAll();};
   function tick(now){if(lastFrame!==undefined)elapsed+=(now-lastFrame)*.001*Number(el('rate').value);
     lastFrame=now;
-    if(startup && sequence) elapsed %= sequence.recording.duration;
+    if(startup && sequence) elapsed=startOffset+(elapsed-startOffset)%playDuration;
     paintTime();scheduled=requestAnimationFrame(tick);}
   function playback(){
     cancelAnimationFrame(scheduled);lastFrame=undefined;

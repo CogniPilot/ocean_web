@@ -22,7 +22,7 @@ export function installOrbit(canvas,camera,offset,distance,orbit,zoom,redraw){
       camera.updateMatrixWorld();
       offset.addScaledVector(right.setFromMatrixColumn(camera.matrixWorld,0),-dx*scale);
       offset.addScaledVector(up.setFromMatrixColumn(camera.matrixWorld,1),dy*scale);
-    }else orbit(dx,dy);
+    }else orbit(-dx,dy);
     old.x=e.clientX;old.y=e.clientY;redraw();
   };
   canvas.onwheel=e=>{e.preventDefault();zoom(Math.exp(.001*e.deltaY));redraw();};
