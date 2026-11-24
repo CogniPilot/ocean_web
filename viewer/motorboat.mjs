@@ -125,6 +125,14 @@ function installSearchlightDepth(T){
     }`);
 }
 export function cabinCruiser(T,sonarCanvas,chartCanvas){
+  // Keep local light counts fixed so toggle changes are uniform updates.
+  // Remote cruisers add lights only when they actually illuminate the scene.
+  const fixedLightCount=Boolean(sonarCanvas);
+  function switchFixture(fixture,on){
+    fixture.userData.ratedIntensity??=fixture.intensity;
+    fixture.visible=fixedLightCount||on;
+    fixture.intensity=on?fixture.userData.ratedIntensity:0;
+  }
   const group=new T.Group();group.name='Cabin cruiser';group.rotation.order='ZYX';
   const ivory=0xe7e9df,white=0xf4f4eb,wood=0x966943,plank=0xae865d,trim=0x253b40,
     steel=0xb8c9c8,brass=0xb29255,upholstery=0xdfddca;
@@ -615,11 +623,11 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   filament.scale.set(.106,.106,.040);
   const cabinLamp=new T.PointLight(0xffdfbc,1.9,2.6,2);
   cabinLamp.name='Cabin lamp emitter';cabinLamp.position.copy(dome.position);cabinLamp.position.z-=.14;
-  cabinLamp.visible=false;cabin.add(cabinLamp);
+  switchFixture(cabinLamp,false);cabin.add(cabinLamp);
   cabinObjects.set('light',dome);
   function setCabinLight(on){
     on=on&&electricalPower;
-    cabinLamp.visible=on;filament.material.emissive.setHex(on?0xffc77a:0);filament.material.emissiveIntensity=on?.8:0;
+    switchFixture(cabinLamp,on);filament.material.emissive.setHex(on?0xffc77a:0);filament.material.emissiveIntensity=on?.8:0;
   }
   function setRadio(on){display.material.emissive.setHex(on&&electricalPower?0x6dcc91:0);}
   const grainSize=128,grainPixels=new Uint8Array(grainSize*grainSize*4);
@@ -728,7 +736,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     emitters.setMatrixAt(i,new T.Matrix4().makeTranslation(x,y,z));
     const flood=i===1||i===8;
     const led=new T.SpotLight(0xffc476,flood?122:62,flood?22:11,.91,.89,1.25);
-    led.name='Hull downlight '+(i+1);led.visible=false;
+    led.name='Hull downlight '+(i+1);switchFixture(led,false);
     led.userData.scatterGain=.24;led.userData.diffuseHullOnly=!flood;
     if(!flood)led.layers.set(31); // Overlapping hull glow carries these fixtures in the water.
     led.position.set(x,y,z-.002);led.target.position.set(x,y,z-1.002);
@@ -747,7 +755,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   const lens=fixed(new T.CircleGeometry(.11,20),0xfff1c6,swivel,true);
   lens.rotation.y=Math.PI/2;lens.position.x=.096;
   const light=new T.SpotLight(0xffedcd,125,48,.21,.65,1.25);light.position.set(.097,0,0);
-  light.name='Roof searchlight emitter';light.visible=lens.visible=false;
+  light.name='Roof searchlight emitter';switchFixture(light,false);lens.visible=false;
   light.target.position.set(1,0,0);swivel.add(light,light.target);
   installSearchlightDepth(T);
   const resolution=64,depthPixels=new Uint8Array(4*resolution*resolution);
@@ -815,8 +823,9 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     panelScreen?.color.setHex(on?0xffffff:0x000000);
     if(on)return;
     setCabinLight(false);setRadio(false);
-    emitters.visible=light.visible=beam.visible=lens.visible=false;
-    for(const led of underwaterLamps)led.visible=false;
+    emitters.visible=beam.visible=lens.visible=false;
+    switchFixture(light,false);
+    for(const led of underwaterLamps)switchFixture(led,false);
     for(const indicator of helmIndicators.values())indicator.light.material.emissiveIntensity=0;
   }
   function positionSearchlight(bearing,tilt){
@@ -828,18 +837,13 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
   async function preloadLighting(bearing,tilt,compile){
     positionSearchlight(bearing,tilt);
     updateSearchDepth();
-    const fixtures=[cabinLamp,light,beam,lens,emitters,...underwaterLamps];
-    const visibility=fixtures.map(fixture=>fixture.visible);
+    const meshes=[beam,lens,emitters];
+    const visibility=meshes.map(mesh=>mesh.visible);
     try{
-      for(let state=0;state<8;state++){
-        cabinLamp.visible=Boolean(state&1);
-        light.visible=beam.visible=lens.visible=Boolean(state&2);
-        emitters.visible=Boolean(state&4);
-        for(const led of underwaterLamps)led.visible=emitters.visible;
-        await compile(state+1,8);
-      }
+      for(const mesh of meshes)mesh.visible=true;
+      await compile();
     }finally{
-      fixtures.forEach((fixture,index)=>{fixture.visible=visibility[index];});
+      meshes.forEach((mesh,index)=>{mesh.visible=visibility[index];});
     }
   }
   let previousTime,shaftRPM=0;
@@ -849,10 +853,11 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     previousTime=t;shaftRPM=rpm;rudder.rotation.z=steer;
     if(electricalPower&&panel&&t-lastPanel>=.2){panel(rpm);lastPanel=t;}
     emitters.visible=electricalPower&&Boolean(settings[1]);
-    for(const led of underwaterLamps)led.visible=emitters.visible;
+    for(const led of underwaterLamps)switchFixture(led,emitters.visible);
     positionSearchlight(settings[2],settings[3]);
-    light.visible=beam.visible=lens.visible=electricalPower&&Boolean(settings[0]);
-    if(light.visible)updateSearchDepth();
+    beam.visible=lens.visible=electricalPower&&Boolean(settings[0]);
+    switchFixture(light,beam.visible);
+    if(beam.visible)updateSearchDepth();
   }
   function dispose(){
     depthMap.dispose();

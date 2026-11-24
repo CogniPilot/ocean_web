@@ -1300,7 +1300,7 @@ async function run(saved=readReset(),carried){
     submergedLights.push(light);
   }
   function addHullLights(cruiser,eye){
-    if(!cruiser.underwaterLamps[0].visible)return;
+    if(cruiser.underwaterLamps[0].intensity<=0)return;
     if(glowingHulls.length<5&&cruiser.group.position.distanceToSquared(eye.position)<42*42)glowingHulls.push(cruiser.group);
     for(const light of cruiser.underwaterLamps)collectLight(light,eye);
   }
@@ -2400,16 +2400,17 @@ async function run(saved=readReset(),carried){
     const tilt=-T.MathUtils.degToRad($('lampTilt').valueAsNumber);
     try{
       reportStartup('Preparing cruiser lighting',.74);
-      await motor.preloadLighting(bearing,tilt,async(completed,total)=>{
+      await motor.preloadLighting(bearing,tilt,async()=>{
         scene.fog=underwaterFog;
         await renderer.compileAsync(scene,camera);
+        reportStartup('Preparing cruiser lighting',.76);
         renderer.setRenderTarget(lightTarget);
         try{
           await renderer.compileAsync(scene,camera);
           if(!profile.skipCaptures){scene.fog=null;await renderer.compileAsync(scene,camera);}
         }
         finally{renderer.setRenderTarget(null);}
-        reportStartup('Preparing cruiser lighting',.74+.06*completed/total);
+        reportStartup('Preparing cruiser lighting',.79);
       });
       renderer.initTexture(motor.searchlight.light.map);
       await lampPass.preload();
@@ -2837,11 +2838,11 @@ async function run(saved=readReset(),carried){
       if(remoteEncounterCruiser?.group.visible)litBoats.push(remoteEncounterCruiser);
       let litCount=0;
       for(let i=motor?-1:0;i<litBoats.length&&litCount<5;i++){
-        const cruiser=i<0?motor:litBoats[i],lamp=cruiser.searchlight,downlights=cruiser.underwaterLamps[0].visible;
+        const cruiser=i<0?motor:litBoats[i],lamp=cruiser.searchlight,downlights=cruiser.underwaterLamps[0].intensity>0;
         const base=4*litCount++,p=cruiser.group.position;
         lighting.cruiserPose.value.set([p.x,p.y,p.z,cruiser.group.rotation.z],base);
         lighting.cruiserTilt.value.set([cruiser.group.rotation.x,cruiser.group.rotation.y],base/2);
-        lighting.cruiserAim.value.set([lamp.swivel.rotation.z,lamp.swivel.rotation.y,Number(lamp.light.visible),Number(downlights)],base);
+        lighting.cruiserAim.value.set([lamp.swivel.rotation.z,lamp.swivel.rotation.y,Number(lamp.light.intensity>0),Number(downlights)],base);
       }
       lighting.cruiserCount.value=litCount;
       document.body.dataset.visiblePeers=remote.visible;
