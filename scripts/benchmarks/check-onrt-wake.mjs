@@ -4,7 +4,18 @@ import {readFile} from 'node:fs/promises';
 import {loadBasin,period} from '../../viewer/onrt-basin.mjs';
 import {createWakeDisplayGrid} from '../../viewer/onrt-wake-display.mjs';
 
-const basin=await loadBasin({tow:1,towSpeed:1.11},async url=>new Response(await readFile(url)));
+const read=async url=>new Response(await readFile(url));
+const turn={shaftDemand:538,helm:35,initialSurge:1.11,initialRpm:538,basinContact:0};
+const releases=await Promise.all([0,-5].map(initialNorth=>loadBasin({...turn,initialNorth},read)));
+// A five-metre translation equals 25 cells. Both calm-water releases should
+// therefore produce the same field to roundoff when registered on that grid.
+for(let tick=0;tick<12;tick++){
+  const [origin,shifted]=releases.map(run=>{run.advance();return run.wake.get('wakeHeight');});
+  for(let y=0;y<64;y++)for(let x=0;x<64;x++){
+    assert(Math.abs(origin[y*64+x]-shifted[((y+64-25)%64)*64+x])<1e-8,'Wake depends on release location');
+  }
+}
+const basin=await loadBasin({tow:1,towSpeed:1.11},read);
 const size=64, register=createWakeDisplayGrid(size,period);
 function splineWeights(t){
   return [(1-t)**3/6,(4-6*t*t+3*t**3)/6,(1+3*t+3*t*t-3*t**3)/6,t**3/6];

@@ -81,6 +81,88 @@ if args.lattice:
     # Sample nearby lattice pressure at its vertices.
     pressure = np.array([interpolate(p)[3] for p in points])/1000
 
+# Uniform display samples, in the same inertial frame as the solved velocity.
+# X varies fastest in the exported arrays. Keep an explicit fluid-domain mask.
+from vtkmodules.util.numpy_support import numpy_to_vtk
+from vtkmodules.vtkCommonCore import vtkPoints
+from vtkmodules.vtkCommonDataModel import vtkPolyData, vtkDataObject
+from vtkmodules.vtkFiltersCore import vtkProbeFilter, vtkCellDataToPointData
+from vtkmodules.vtkFiltersGeneral import vtkGradientFilter
+
+resolution = 20
+nx, ny, nz = 81, 33, 33
+grid_origin = np.array([-1., -.8, -.8])
+zz, yy, xx = np.indices((nz, ny, nx))
+query = (np.column_stack((xx.ravel(), yy.ravel(), zz.ravel())) / resolution + grid_origin) * D
+if args.lattice:
+    # The Rumoca rotor is phase-shifted from the stationary OpenFOAM blade mesh.
+    # Sample that mesh in its original orientation to mask out the solid.
+    unrotated = query @ np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+    valid = np.array([locator.FindCell(p) >= 0 for p in unrotated])
+    gradients = [np.gradient(grid[...,i], dx) for i in range(3)]  # z, y, x
+    curl = np.stack((gradients[2][1]-gradients[1][0], gradients[0][0]-gradients[2][2],
+                     gradients[1][2]-gradients[0][1]), axis=-1)
+    def sample_lattice(values):
+        address = (query-origin)/dx
+        assert np.all(address >= 0) and np.all(address < dims-1)
+        base = np.floor(address).astype(int)
+        frac = address-base
+        result = np.zeros((len(query),values.shape[-1]))
+        for offset in np.ndindex(2,2,2):
+            i,j,k = (base+offset).T
+            weight = np.prod(np.where(offset,frac,1-frac),axis=1)
+            result += weight[:,None]*values[k,j,i]
+        return result
+    samples = sample_lattice(grid)
+    velocity, fluid_pressure = samples[:,:3], samples[:,3]/1000
+    rotation = sample_lattice(curl)
+else:
+    # Differentiate the stationary-frame velocity on the native unstructured mesh
+    # before resampling. Differentiating nearest-cell display values creates spikes.
+    derivative = vtkGradientFilter()
+    derivative.SetInputData(volume)
+    derivative.SetInputScalars(vtkDataObject.FIELD_ASSOCIATION_CELLS, 'U')
+    derivative.ComputeGradientOff()
+    derivative.ComputeVorticityOn()
+    interp = vtkCellDataToPointData()
+    interp.SetInputConnection(derivative.GetOutputPort())
+    vtk_points = vtkPoints()
+    vtk_points.SetData(numpy_to_vtk(query,deep=True))
+    cloud = vtkPolyData()
+    cloud.SetPoints(vtk_points)
+    probe = vtkProbeFilter()
+    probe.SetInputData(cloud)
+    probe.SetSourceConnection(interp.GetOutputPort())
+    probe.SetCellLocatorPrototype(vtkStaticCellLocator())
+    probe.Update()
+    sampled = probe.GetOutput().GetPointData()
+    def values(key):
+        return vtk_to_numpy(sampled.GetArray(key))
+    valid = values('vtkValidPointMask').astype(bool)
+    velocity, rotation = values('U'), values('Vorticity')
+    fluid_pressure = values('p')*meta['rho_kg_m3']/1000
+fields = {'velocity': np.linalg.norm(velocity,axis=1), 'fluidPressure': fluid_pressure,
+          'vorticity': np.linalg.norm(rotation,axis=1)}
+if not args.lattice:
+    fields['turbulenceK'] = values('k')
+# Quantize each field independently. Zero is reserved for masked samples.
+# The full numerical range is retained; the color scale uses the 99th percentile.
+field_meta = {}
+with (args.output/'volume.bin').open('wb') as output:
+    for key, data in fields.items():
+        sample = data[valid]
+        if not np.all(np.isfinite(sample)):
+            raise ValueError('Nonfinite volume field: '+key)
+        low, high = float(sample.min()), float(sample.max())
+        step = (high-low)/65534 or 1.
+        packed = np.zeros(len(query),dtype='<u2')
+        packed[valid] = 1+np.rint((sample.astype(float)-low)/step).astype(np.uint16)
+        field_meta[key] = dict(offset=output.tell(), min=low, max=high, step=step,
+                               colorLimit=float(np.quantile(np.abs(sample),.99)),
+                               initial=float(np.quantile(sample,.90)))
+        output.write(packed.tobytes())
+meta['volumeGrid'] = dict(dims=[nx,ny,nz], origin=grid_origin.tolist(), spacing=1/resolution, fields=field_meta)
+
 # Cross-sections sample the volume solution in the stationary frame.
 offsets = [-.75, -.25, 0, .25, .5, 1, 1.5, 2, 3]
 n = 49

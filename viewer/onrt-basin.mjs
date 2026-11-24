@@ -9,11 +9,16 @@ export const stateNames = ['east','north','heading','heave','pitch','roll','surg
 
 export async function loadBasin(inputs={}, read=fetch) {
   const geometry = await read(new URL('./assets/onrt/wake.json', import.meta.url)).then(r=>r.json());
-  const [vessel,wake] = await Promise.all([
-    loadInstance('OnrTumblehome',{...inputs,stations:geometry.stations,beamHalf:geometry.beamHalf,
-      bareVolume:geometry.volume.slice(0,6)},read),
-    loadInstance('OnrtWake',{...geometry,period,edgeDamping:9,depth:inputs.depth??3,separation:0},read)
-  ]);
+  const vessel=await loadInstance('OnrTumblehome',{...inputs,stations:geometry.stations,
+    beamHalf:geometry.beamHalf,bareVolume:geometry.volume.slice(0,6)},read);
+  function wakeInputs(s){
+    return {east:s.east,north:s.north,heading:s.heading,pitch:s.pitch,heel:s.roll,
+      volume:[...s.immersedVolume,0,0,0,0,0,0]};
+  }
+  // The wake FMU samples its displacement history during initialization.
+  // Seed it with the vessel's actual release pose and submerged sections.
+  const wake=await loadInstance('OnrtWake',{...geometry,period,edgeDamping:9,
+    depth:inputs.depth??3,separation:0,...wakeInputs(snapshot())},read);
   function snapshot() {
     const values=vessel.getMany(stateNames);
     const s=Object.fromEntries(stateNames.map((name,i)=>[name,values[i]]));
@@ -26,9 +31,7 @@ export async function loadBasin(inputs={}, read=fetch) {
       vessel.advance(vesselStep);
     }
     const s=snapshot();
-    for(const name of ['east','north','heading','pitch']) wake.set(name,s[name]);
-    wake.set('heel',s.roll);
-    wake.set('volume',[...s.immersedVolume,0,0,0,0,0,0]);
+    for(const [name,value] of Object.entries(wakeInputs(s)))wake.set(name,value);
     wake.advance(wakeStep);
     return s;
   }

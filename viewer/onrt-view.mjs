@@ -41,12 +41,24 @@ async function start() {
   }
   const finishes=await loadBasinMaterials(T,renderer);
   const facility=await createFacility(T,scene,finishes);
-  const cameraModel=await loadInstance('BasinCamera',{solids:facility.cameraSolids});
+  const rigControl=$('trackingRig');
+  try{rigControl.checked=localStorage.getItem('onrt-tracking-rig')!=='off';}catch{}
+  const activeSolids=()=>rigControl.checked?facility.collisionCount:facility.staticCollisionCount;
+  const cameraModel=await loadInstance('BasinCamera',{solids:facility.cameraSolids,activeSolids:activeSolids()});
+  facility.trackingRig.visible=rigControl.checked;
+  rigControl.onchange=()=>{
+    facility.trackingRig.visible=rigControl.checked;
+    cameraModel.set('activeSolids',activeSolids());
+    try{localStorage.setItem('onrt-tracking-rig',rigControl.checked?'on':'off');}catch{}
+  };
   // Bake the hall and its bright fixtures once for roughness-filtered specular lighting.
   const reflectionType=renderer.extensions.has('EXT_color_buffer_float')?T.HalfFloatType:T.UnsignedByteType;
   const capture=new T.WebGLCubeRenderTarget(128,{type:reflectionType});
   const probe=new T.CubeCamera(.1,90,capture);probe.position.set(14.5,1.1,0);
+  // Only stationary hall finishes belong in the persistent reflection probe.
+  facility.trackingRig.visible=false;
   probe.update(renderer,scene);
+  facility.trackingRig.visible=rigControl.checked;
   const pmrem=new T.PMREMGenerator(renderer);
   scene.environment=pmrem.fromCubemap(capture.texture).texture;
   capture.dispose();pmrem.dispose();
@@ -165,9 +177,25 @@ async function start() {
     }`});
   const water=new T.Mesh(surface,material);scene.add(water);
   const L=3.147,mid=1.625-L/2,turnNorth=-5;
-  const landmark=new T.Mesh(new T.RingGeometry(.20,.25,40),new T.MeshBasicMaterial({color:0x43eaf2,side:T.DoubleSide}));
-  landmark.rotation.x=-Math.PI/2;landmark.position.set(mid+2.35*L,.035,-(turnNorth+1.32*L));
-  landmark.visible=false;scene.add(landmark);
+  // SIMMAN 5.2.3 gives a steady diameter and 90° advance/transfer. Align the
+  // circle with that checkpoint and the release tangent; the approach is schematic.
+  const turnGuide=new T.Group(),radiusMetres=3.19*L/2;
+  const entryEast=mid+2.35*L-Math.sqrt(radiusMetres**2-(1.32*L-radiusMetres)**2);
+  const guideMaterial=new T.MeshBasicMaterial({color:0x43eaf2,side:T.DoubleSide,toneMapped:false});
+  const circle=new T.Mesh(new T.RingGeometry(radiusMetres-.022,radiusMetres+.022,192),guideMaterial);
+  circle.rotation.x=-Math.PI/2;circle.position.set(entryEast,0,-turnNorth-radiusMetres);
+  turnGuide.add(circle);
+  const approach=new T.Line(new T.BufferGeometry().setFromPoints([
+    new T.Vector3(mid,0,-turnNorth),new T.Vector3(entryEast,0,-turnNorth)]),
+    new T.LineDashedMaterial({color:0x43eaf2,dashSize:.23,gapSize:.15,toneMapped:false}));
+  approach.computeLineDistances();turnGuide.add(approach);
+  const arrow=new T.Shape();
+  arrow.moveTo(.22,0);arrow.lineTo(-.18,.14);arrow.lineTo(-.18,-.14);arrow.closePath();
+  const direction=new T.Mesh(new T.ShapeGeometry(arrow),guideMaterial);
+  const angle=Math.PI/4;
+  direction.rotation.set(-Math.PI/2,0,angle);
+  direction.position.set(entryEast+radiusMetres*Math.sin(angle),.001,-turnNorth-radiusMetres*(1-Math.cos(angle)));
+  turnGuide.add(direction);turnGuide.position.y=.065;turnGuide.visible=false;scene.add(turnGuide);
   let previousTurn;
   function recordTurn(s){
     if(previousTurn)for(const [angle,ids] of [[Math.PI/2,['advance','transfer']],[Math.PI,['tactical']]]){
@@ -192,6 +220,7 @@ async function start() {
     if(view==='ship'){azimuth=1.13;elevation=.37;radius=innerWidth<580?5.9:4.7;}
     else if(view==='props'){azimuth=2.83;elevation=-.24;radius=.62;}
     else if(view==='generator'){azimuth=2.56;elevation=.36;radius=10;}
+    else if($('mode').value==='turn'){azimuth=Math.PI;elevation=.62;radius=6;flyEye.set(-8.85,8.35,.25);}
     else {azimuth=Math.PI+.08;elevation=.22;radius=6;flyEye.set(-7.9,5.7,-1.8);}
   }
   activeView=$('cameraView').value;
@@ -243,9 +272,10 @@ async function start() {
   function fail(message){failed=true;ready=false;$('readout').textContent='Basin stopped · '+message;worker?.terminate();}
   function reset(){
     const replay=replayMode(),turn=$('mode').value==='turn';
-    previousTurn=undefined;landmark.visible=turn;$('turnPanel').hidden=!turn;
+    if(turn&&!turnGuide.visible&&activeView==='hall')recenter();
+    previousTurn=undefined;turnGuide.visible=turn;$('turnPanel').hidden=!turn;
     for(const id of ['advance','transfer','tactical'])$(id).textContent='—';
-    trial=undefined;readoutTick=-1;ghost.visible=false;
+    trial=undefined;readoutTick=-1;ship.visible=false;ghost.visible=false;uniforms.amp.value=0;
     $('comparison').hidden=!replay;$('manual').hidden=replay||turn;$('generatorControl').hidden=replay||turn;
     $('trackGap').textContent=$('heaveGap').textContent=$('rpmHistory').textContent='';
     if(replay&&activeView==='hall'){activeView=$('cameraView').value='ship';recenter();}
@@ -349,6 +379,7 @@ async function start() {
     }
     const sample=playback.sample(dt,trial?.end);
     if(sample){
+      ship.visible=true;
       const {left,right,mix}=sample;
       if(left!==uploadedLeft||right!==uploadedRight){
         for(const [index,frame] of [left,right].entries()){
@@ -443,8 +474,8 @@ async function start() {
       mirror.up.setFromMatrixColumn(camera.matrixWorld,1);mirror.up.y*=-1;
       mirror.lookAt(sight);mirror.updateMatrixWorld();
       mirrorMatrix.multiplyMatrices(mirror.projectionMatrix,mirror.matrixWorldInverse);
-      const showGhost=ghost.visible,showMarker=landmark.visible;ghost.visible=false;landmark.visible=false;water.visible=false;renderer.clippingPlanes=clipWater;renderer.setRenderTarget(reflection);
-      renderer.render(scene,mirror);renderer.setRenderTarget(null);renderer.clippingPlanes=[];water.visible=true;ghost.visible=showGhost;landmark.visible=showMarker;
+      const showGhost=ghost.visible,showGuide=turnGuide.visible;ghost.visible=false;turnGuide.visible=false;water.visible=false;renderer.clippingPlanes=clipWater;renderer.setRenderTarget(reflection);
+      renderer.render(scene,mirror);renderer.setRenderTarget(null);renderer.clippingPlanes=[];water.visible=true;ghost.visible=showGhost;turnGuide.visible=showGuide;
     }
     renderer.render(scene,camera);requestAnimationFrame(frame);
   }

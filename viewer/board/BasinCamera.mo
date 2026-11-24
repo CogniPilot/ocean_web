@@ -2,12 +2,14 @@ model BasinCamera "Kinematic camera with a spherical contact envelope in the IIH
   constant Integer count=1024;
   parameter Real solids[count,9]=zeros(count,9) "Box center and half extents or capsule endpoints, shape, frame, radius";
   parameter Real radius=.15;
+  input Real activeSolids(start=count) "Number of collision shapes enabled in the scene";
   input Real previous[3],desired[3];
   input Real carrier[3] "Bridge x, trolley z and plunger displacement";
   input Real boat[4] "Model x, y, z and heading";
   output Real position[3];
 
   function clearPoint
+    input Integer activeCount;
     input Real q[3],objects[:,9],carrier[3],boat[4],radius;
     output Real p[3];
   protected
@@ -15,7 +17,7 @@ model BasinCamera "Kinematic camera with a spherical contact envelope in the IIH
     Integer frame,insideAxis;
   algorithm
     p:=q;c:=cos(boat[4]);s:=sin(boat[4]);
-    for i in 1:size(objects,1) loop
+    for i in 1:min(activeCount,size(objects,1)) loop
       if objects[i,7]<0.5 then break;end if;
       frame:=integer(objects[i,8]);local:=p;
       if frame==1 or frame==2 then local[1]:=p[1]-carrier[1];end if;
@@ -56,6 +58,7 @@ model BasinCamera "Kinematic camera with a spherical contact envelope in the IIH
     p[3]:=max(-12.99+radius,min(12.99-radius,p[3]));
   end clearPoint;
   function moveSphere
+    input Integer activeCount;
     input Real startPos[3],goal[3],objects[:,9],carrier[3],boat[4],radius;
     output Real p[3];
   protected
@@ -67,9 +70,9 @@ model BasinCamera "Kinematic camera with a spherical contact envelope in the IIH
     n:=min(32,max(1,integer(ceil(distance/(.45*radius)))));
     step:=step/max(n,distance/(.45*radius));p:=startPos;
     for i in 1:n loop
-      p:=clearPoint(p+step,objects,carrier,boat,radius);
+      p:=clearPoint(activeCount,p+step,objects,carrier,boat,radius);
     end for;
   end moveSphere;
 equation
-  position=moveSphere(previous,desired,solids,carrier,boat,radius);
+  position=moveSphere(integer(activeSolids),previous,desired,solids,carrier,boat,radius);
 end BasinCamera;

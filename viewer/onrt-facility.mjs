@@ -4,12 +4,13 @@ import {metricSurface} from './onrt-materials.mjs';
 
 export async function createFacility(T,scene,finishes){
   const hall=new T.Group(),bridge=new T.Group(),trolley=new T.Group();
-  scene.add(hall,bridge);bridge.add(trolley);
+  const trackingRig=new T.Group(),rails=new T.Group();
+  trackingRig.add(rails,bridge);scene.add(hall,trackingRig);bridge.add(trolley);
   const shapes={box:new T.BoxGeometry(1,1,1),tube:new T.CylinderGeometry(.5,.5,1,16)};
-  const solids=[];
+  const solids=[],trackingSolids=[];
   const frameOf=parent=>parent===bridge?1:parent===trolley?2:0;
-  const solidBox=(x,y,z,l,h,w,frame=0)=>solids.push([x,y,z,l/2,h/2,w/2,1,frame,0]);
-  const solidTube=(a,b,d,frame=0)=>solids.push([...a,...b,2,frame,d/2]);
+  const solidBox=(x,y,z,l,h,w,frame=0,list=solids)=>list.push([x,y,z,l/2,h/2,w/2,1,frame,0]);
+  const solidTube=(a,b,d,frame=0,list=solids)=>list.push([...a,...b,2,frame,d/2]);
   const batches=new Map(),up=new T.Vector3(0,1,0);
   const white=0xf0f1ea,steel=0x798589,iron=0x344347,gold=0xffb724,concrete=0xd7d4c8;
   function part(parent,shape,color,position,scale,rotation=new T.Quaternion()){
@@ -18,22 +19,51 @@ export async function createFacility(T,scene,finishes){
     if(!group.has(key))group.set(key,{shape,color,matrices:[]});
     group.get(key).matrices.push(new T.Matrix4().compose(new T.Vector3(...position),rotation,new T.Vector3(...scale)));
   }
-  function box(x,y,z,l,h,w,color,parent=hall){if(Math.max(l,h,w)>.6&&color!==0xaab1b2&&color!==0xb0bab9)solidBox(x,y,z,l,h,w,frameOf(parent));part(parent,'box',color,[x,y,z],[l,h,w]);}
+  const solidsFor=parent=>parent===bridge||parent===trolley||parent===rails?trackingSolids:solids;
+  function box(x,y,z,l,h,w,color,parent=hall){if(Math.max(l,h,w)>.6&&color!==0xaab1b2&&color!==0xb0bab9)solidBox(x,y,z,l,h,w,frameOf(parent),solidsFor(parent));part(parent,'box',color,[x,y,z],[l,h,w]);}
   function bar(a,b,diameter,color,parent=hall){
-    if(diameter>=.04)solidTube(a,b,diameter,frameOf(parent));
+    if(diameter>=.04)solidTube(a,b,diameter,frameOf(parent),solidsFor(parent));
     const delta=new T.Vector3(b[0]-a[0],b[1]-a[1],b[2]-a[2]);
     const center=a.map((v,i)=>(v+b[i])/2),length=delta.length();
     part(parent,'tube',color,center,[diameter,length,diameter],new T.Quaternion().setFromUnitVectors(up,delta.normalize()));
   }
+  // Cross-sections are drawn across the hall, then extruded along its length.
+  // Use the same eave and ridge for the ceiling and the two closed gables.
+  const halfWidth=13.24,eave=9.05,ridge=10.60,sheet=.14;
+  function hallSection(outline,depth,eastFace,color){
+    const profile=new T.Shape(outline.map(([z,y])=>new T.Vector2(z,y)));
+    const geometry=new T.ExtrudeGeometry(profile,{depth,bevelEnabled:false});
+    geometry.rotateY(-Math.PI/2);
+    const mesh=new T.Mesh(metricSurface(T,geometry),finishes.material('panel',color));
+    mesh.position.x=eastFace;hall.add(mesh);
+  }
+  hallSection([[-halfWidth,eave],[0,ridge],[halfWidth,eave],
+    [halfWidth,eave+sheet],[0,ridge+sheet],[-halfWidth,eave+sheet]],49,39,0xe3e7e4);
+
+  // A shallow fluorescent housing tilts out at the bottom. Its diffuser faces
+  // into the room and slightly upwards, with a metal lip around the luminous face.
+  function wallFixture(x,y,z,yaw){
+    const angle=Math.PI/6;
+    const rotation=new T.Quaternion().setFromEuler(new T.Euler(-angle,yaw,0,'YXZ'));
+    const center=new T.Vector3(x,y,z);
+    const normal=new T.Vector3(0,0,1).applyQuaternion(rotation);
+    const mount=center.clone().addScaledVector(new T.Vector3(Math.sin(yaw),0,Math.cos(yaw)),-.095);
+    const mountingRotation=new T.Quaternion().setFromAxisAngle(up,yaw);
+    part(hall,'box',steel,mount.toArray(),[.84,.10,.17],mountingRotation);
+    part(hall,'box',steel,center.toArray(),[1.26,.31,.044],rotation);
+    part(hall,'box',0xfffae7,center.addScaledVector(normal,.024).toArray(),[1.21,.26,.006],rotation);
+    const along=Math.abs(Math.cos(yaw)),across=Math.abs(Math.sin(yaw));
+    solidBox(x,y,z,along*1.26+across*.20,.31,across*1.26+along*.20);
+  }
   // Ribbed steel hall, roof frames and pendant luminaires.
   for(const side of [-1,1]){
-    box(14.5,4.05,side*13.15,49,11,.18,white);
+    box(14.5,(eave-1.45)/2,side*13.15,49,eave+1.45+.03,.18,white);
     // The coping ends at |z|=10.20. Begin the deck there so its top
     // and inner face cannot coincide with the basin wall at grazing angles.
     box(14.5,.37,side*11.65,48.2,.30,2.90,concrete);
     box(14.5,-1.24,side*10.10,40,3.52,.20,0xe9ece6);
-    box(14.5,.59,side*10.82,44,.12,.16,steel);
-    box(14.5,.72,side*10.82,44,.13,.07,iron);
+    box(14.5,.59,side*10.82,44,.12,.16,steel,rails);
+    box(14.5,.72,side*10.82,44,.13,.07,iron,rails);
     for(let x=-9;x<=38;x+=1.1)box(x,5.0,side*13.02,.036,8.2,.06,0xaab1b2);
     // Each float is a moulded spool threaded on a continuous dark cable.
     const spool=shapes.float??new T.LatheGeometry([[.22,-.5],[.48,-.44],[.5,-.31],[.35,-.20],
@@ -70,16 +100,15 @@ export async function createFacility(T,scene,finishes){
         const z=side*j*2.56;
         bar([x,8.92,z],[x,10.4-(j+1)*.30,z+side*2.56],.075,steel);
       }
-      box(x,4.6,side*12.78,1.25,.18,.18,0xfaf3d9);
       bar([x,9.8,side*5.6],[x,8.55,side*5.6],.035,iron);
       box(x,8.52,side*5.6,.85,.14,.52,steel);
       box(x,8.42,side*5.6,.81,.06,.48,0xfffae7);
     }
-    const roof=new T.Mesh(metricSurface(T,new T.BoxGeometry(49,.14,13.3)),finishes.material('panel',0xe3e7e4));
-    roof.position.set(14.5,9.73,side*6.53);roof.rotation.x=side*.116;hall.add(roof);
   }
   for(const x of [-9.6,38.6]){
-    box(x,4.55,0,.17,10,26.4,white);
+    hallSection([[-halfWidth,-.45],[halfWidth,-.45],[halfWidth,eave],[0,ridge],
+      [-halfWidth,eave]],.17,x+.085,white);
+    solidBox(x,(eave-.45)/2,0,.17,eave+.45,2*halfWidth);
     box(x,2.3,0,.24,3.5,3.1,0x75868a);
     for(let z=-12;z<=12;z+=1.1)box(x+(x<0?.11:-.11),6,z,.05,6.4,.04,0xb0bab9);
   }
@@ -114,10 +143,8 @@ export async function createFacility(T,scene,finishes){
     const t=j/12,x=18.25+1.19*t,y=.55+2.89*t;
     bar([x,y,-12.45],[x,y,-11.93],.042,gold);
   }
-  // Parallel fluorescent tubes sit in a shallow metal reflector on each wall.
   for(const side of [-1,1])for(let x=-4.6;x<35;x+=4.7){
-    box(x,3.25,side*12.96,1.34,.20,.105,steel);
-    for(const y of [3.205,3.29])bar([x-.60,y,side*12.88],[x+.60,y,side*12.88],.035,0xfffae7);
+    wallFixture(x,3.08,side*12.92,side<0?0:Math.PI);
   }
   // Release platform on the beach end, and the safety rail at its landward edge.
   for(const z of [-4.25,4.25]){
@@ -140,8 +167,7 @@ export async function createFacility(T,scene,finishes){
   for(let i=0;i<6;i++)bar([-3.22,.25-.27*i,2.84],[-3.22,.25-.27*i,3.26],.032,steel);
   for(let j=0;j<6;j++){
     const z=(j-2.5)*3.3;
-    box(38.43,3.27,z,.11,.23,1.29,steel);
-    for(const y of [3.22,3.31])bar([38.36,y,z-.56],[38.36,y,z+.56],.035,0xfffae7);
+    wallFixture(38.38,4.23,z,-Math.PI/2);
   }
   // A yellow triangular space truss with wheeled end trucks and a transverse measuring carriage.
   for(const offset of [-.76,.76]){
@@ -227,9 +253,10 @@ export async function createFacility(T,scene,finishes){
   for(let i=0;i<6;i++)solidBox(34.18,-.11,(i-2.5)*3.3,.60,.86,3.27,3);
   solidBox(-3.92,-.35,0,3.43,.8,19.65);
   solidBox(0,.04,0,3.15,.38,.40,4);
-  if(solids.length>1024)throw Error('Basin camera collision capacity exceeded: '+solids.length);
-  const cameraSolids=new Float64Array(1024*9);cameraSolids.set(solids.flat());
-  return {cameraSolids,bridge,trolley,stroke:0,update(x,z,stroke){
+  const collisionCount=solids.length+trackingSolids.length;
+  if(collisionCount>1024)throw Error('Basin camera collision capacity exceeded: '+collisionCount);
+  const cameraSolids=new Float64Array(1024*9);cameraSolids.set([...solids,...trackingSolids].flat());
+  return {cameraSolids,collisionCount,staticCollisionCount:solids.length,trackingRig,bridge,trolley,stroke:0,update(x,z,stroke){
     bridge.position.x=Math.max(-4.1,Math.min(33.1,x));
     trolley.position.z=Math.max(-9.8,Math.min(9.8,z));
     this.stroke=stroke;

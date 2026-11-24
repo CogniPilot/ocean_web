@@ -10,6 +10,7 @@ table{width:100%;font-size:.83rem;border-collapse:collapse}th,td{text-align:righ
 <aside><h1>ONR Tumblehome</h1><small>Rumoca simulation · University of Iowa · IIHR model 5613 · 3.147 m LWL · 72.6 kg</small>
 <div id="readout" aria-live="off">Loading vessel and wave solver…</div>
 <label>View <select id="cameraView" title="Press V to cycle views"><option value="hall">Basin overview</option><option value="ship">Follow model</option><option value="generator">Wavemakers</option><option value="props">Stern propellers</option></select></label>
+<label><input type="checkbox" id="trackingRig" checked> Tracking carriage and rails</label>
 <small id="cameraHelp">Overview · WASD or arrows to fly, R/F up/down, left-drag to look, right-drag to pan, V to switch.</small>
 <label>Run <select id="mode"><option value="drive">Free running</option><option value="tow">Straight tow</option><option value="turn">IIHR 35° port turn</option><option value="iihr">IIHR head-seas replay</option></select></label>
 <div id="comparison" hidden>
@@ -21,7 +22,7 @@ table{width:100%;font-size:.83rem;border-collapse:collapse}th,td{text-align:righ
 <small>±40 mm · 0–28.55 s · bow gauge. Basin waves and plunger stroke are reconstructed.</small></details>
 <div class="row"><a href="https://t2015.nmri.go.jp/Instructions_ONRT/Case_3.12/Case3.12-000.zip">IIHR Case 3.12 data</a> · <a href="https://w2025.nl/download/onrt-sample-files/">W2025 shafts</a></div>
 </div>
-<div id="turnPanel" hidden><small>Cyan ring · measured midships at 90°. Distances in ship lengths.</small>
+<div id="turnPanel" hidden><small>Cyan circle · IIHR steady turn diameter (10.04 m). Dashed approach and arrow illustrate the port turn. Table distances in ship lengths.</small>
 <table><thead><tr><th></th><th>IIHR</th><th>Simulation</th></tr></thead><tbody>
 <tr><td>Advance at 90°</td><td>2.35</td><td id="advance">—</td></tr>
 <tr><td>Transfer at 90°</td><td>1.32</td><td id="transfer">—</td></tr>

@@ -20,7 +20,7 @@ export function installOrbit(canvas,camera,offset,distance,orbit,zoom,redraw){
     }else if(old.pan){
       const scale=2*distance()*Math.tan(camera.fov*Math.PI/360)/canvas.clientHeight;
       camera.updateMatrixWorld();
-      offset.addScaledVector(right.setFromMatrixColumn(camera.matrixWorld,0),-dx*scale);
+      offset.addScaledVector(right.setFromMatrixColumn(camera.matrixWorld,0),dx*scale);
       offset.addScaledVector(up.setFromMatrixColumn(camera.matrixWorld,1),dy*scale);
     }else orbit(dx,dy);
     old.x=e.clientX;old.y=e.clientY;redraw();
