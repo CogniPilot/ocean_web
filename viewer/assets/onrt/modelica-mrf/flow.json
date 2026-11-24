@@ -1,0 +1,116 @@
+{
+  "J": 0.8,
+  "rpm": 538,
+  "diameter_m": 0.1066,
+  "rho_kg_m3": 998.6,
+  "mesher": "Modelica Meshing",
+  "meshAsset": "mesh-modelica",
+  "meshSettings": {
+    "baseCells": [
+      72,
+      32,
+      32
+    ],
+    "levels": 2,
+    "snapFraction": 0.45,
+    "layers": 0
+  },
+  "volumeGrid": {
+    "dims": [
+      81,
+      33,
+      33
+    ],
+    "origin": [
+      -1.0,
+      -0.8,
+      -0.8
+    ],
+    "spacing": 0.05,
+    "fields": {
+      "velocity": {
+        "offset": 0,
+        "min": 0.08213004469871521,
+        "max": 2.4999680519104004,
+        "step": 3.6894406067257994e-05,
+        "colorLimit": 1.384439468383789,
+        "initial": 1.180159091949463
+      },
+      "fluidPressure": {
+        "offset": 176418,
+        "min": -2.4008593559265137,
+        "max": 1.7921230792999268,
+        "step": 6.398178709107395e-05,
+        "colorLimit": 0.49482452869415283,
+        "initial": 0.01982213370501995
+      },
+      "vorticity": {
+        "offset": 352836,
+        "min": 0.0006609720876440406,
+        "max": 204.96725463867188,
+        "step": 0.0031276374655382585,
+        "colorLimit": 91.92742919921875,
+        "initial": 32.62046432495117
+      },
+      "turbulenceK": {
+        "offset": 529254,
+        "min": 8.234109554905444e-05,
+        "max": 0.5886373519897461,
+        "step": 8.980910838560092e-06,
+        "colorLimit": 0.28248193860054016,
+        "initial": 0.08459194004535675
+      }
+    }
+  },
+  "arrays": {
+    "blade": [
+      0,
+      5106
+    ],
+    "pressure": [
+      20424,
+      1702
+    ],
+    "indices": [
+      27232,
+      10116
+    ],
+    "speed": [
+      67696,
+      21609
+    ],
+    "lines": [
+      154132,
+      37974
+    ],
+    "travelSeconds": [
+      306028,
+      6329
+    ],
+    "pathEnds": [
+      331344,
+      48
+    ]
+  },
+  "iteration": 300,
+  "cells": 123824,
+  "sliceOffsets": [
+    -0.75,
+    -0.25,
+    0,
+    0.25,
+    0.5,
+    1,
+    1.5,
+    2,
+    3
+  ],
+  "samples": 49,
+  "sliceHalfWidth": 0.8,
+  "kt": 0.1697696657065918,
+  "kq": 0.09950812896593288,
+  "pressureLimit": 1.970044732093811,
+  "speedLimit": 1.60544753074646,
+  "streamlines": 48,
+  "solver": "OpenFOAM"
+}

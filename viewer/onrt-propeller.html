@@ -51,11 +51,12 @@ input{accent-color:#7ad7c0}input[type=range]{width:100%;margin-inline:0}output,#
 <aside aria-label="Propeller flow controls"><h1>Port propeller in open water</h1>
 <div id="metrics" role="status">Loading flow solution…</div>
 <label for="solver">Solver <select id="solver"><option value="compare">Side by side</option><option value="rumoca">Rumoca</option><option value="openfoam">OpenFOAM</option></select></label>
-<label>Recording <select id="recording"><option value="startup">From rest</option><option value="final-turn">Final shaft revolution</option><option value="steady">Steady operating point</option><option value="reference">Steady OpenFOAM reference</option></select></label>
+<label>Recording <select id="recording"><option value="startup">From rest</option><option value="final-turn">Final shaft revolution</option><option value="steady">Steady operating point</option><option value="reference">Steady OpenFOAM reference</option><option value="geometry">Inspect repaired geometry</option><option value="mesh-comparison">Earlier meshes · steady CFD</option></select></label>
 <label><input type="checkbox" id="animate" checked> Play animation</label>
 <a class="flow-link" href="./onrt.html">Return to Iowa basin <span aria-hidden="true">→</span></a>
+<a id="meshLink" href="?recording=geometry">Inspect repaired propeller geometry</a>
 <label><input type="checkbox" id="showMesh"> Show solver mesh</label>
-<div id="meshOptions" hidden><label>Mesh view <select id="meshMode"><option value="section">Section through shaft</option><option value="volume">Full volume</option></select></label><small>Native cell edges. The transient OpenFOAM mesh rotates with the shaft.</small></div>
+<div id="meshOptions" hidden><label>Mesh view <select id="meshMode"><option value="section">Section through shaft</option><option value="volume">Full volume</option></select></label><small id="meshHint">Native cell edges. The transient OpenFOAM mesh rotates with the shaft.</small></div>
 <small id="meshStatus" role="status"></small>
 <details id="shaftLoads"><summary>Thrust and shaft torque</summary><div class="pane-body"></div></details>
 <details><summary>Flow field</summary><div class="pane-body">
@@ -69,7 +70,7 @@ input{accent-color:#7ad7c0}input[type=range]{width:100%;margin-inline:0}output,#
 <details><summary>Propeller pressure</summary><div class="pane-body"><label><input type="checkbox" checked id="bladePressure"> <span id="pressureLabel">Blade pressure</span> <output>kPa</output></label>
 <label>Pressure color range <select id="bladeRange"><option value=".2">±0.2 kPa</option><option value=".5">±0.5 kPa</option><option value="1">±1 kPa</option><option value="2" selected>±2 kPa</option><option value="4">±4 kPa</option></select></label>
 <div class="scale" style="background:linear-gradient(90deg,#204477,#e5ebd8,#b33220)"></div><div class="ticks" id="pressureTicks"></div>
-<div class="hint">Rumoca samples the nearby lattice pressure. OpenFOAM samples its blade wall. Blade and flow pressure share this range across solvers. Values beyond its limits use the end colors.</div>
+<div class="hint" id="pressureNote">Rumoca samples the nearby lattice pressure. OpenFOAM samples its blade wall. Blade and flow pressure share this range across solvers. Values beyond its limits use the end colors.</div>
 <label id="spinControl"><input type="checkbox" id="spin" checked> Spin propeller</label></div></details>
 <details><summary>Streamlines and tracers</summary><div class="pane-body">
 <label><input type="checkbox" id="paths" checked> Streamlines by speed (m/s)</label>

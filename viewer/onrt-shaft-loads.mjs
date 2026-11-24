@@ -1,9 +1,9 @@
 // Each recorded sample contains physical time (s), ahead thrust (N), drive torque (N·m) and unwrapped shaft turns.
 export function installShaftLoads(panel, solutions, scaleCases) {
-  const colors = {rumoca: '#72d3c3', openfoam: '#efac6f'};
+  const colors = {'modelica-mesh': '#72d3c3', rumoca: '#72d3c3', openfoam: '#efac6f'};
   const series = solutions.map(({solver, m, loads}) => {
     const scale = m.rho_kg_m3 * (m.rpm / 60) ** 2 * m.diameter_m ** 4;
-    return {name: m.solver, color: colors[solver], loads,
+    return {name: m.mesher ?? (solutions.some(d=>d.m.mesher) ? 'snappyHexMesh' : m.solver), color: colors[solver], loads,
       steady: !m.sequence, mean: [0, m.kt * scale, m.kq * scale * m.diameter_m]};
   });
   const body = panel.querySelector('.pane-body');

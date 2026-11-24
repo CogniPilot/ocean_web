@@ -4,7 +4,7 @@ cd "$(dirname "$0")/.."
 out=${1:-build/pages}
 mkdir -p "$out"/{board,fmi3,vendor}
 cp viewer/{index.html,world-view.mjs,sailing-start.mjs,instrumentation.mjs,compass.mjs,sonar-map.mjs,imaging-sonar.mjs,vehicle.js,vehicle-assets.mjs,propulsion.js,sub-worker.mjs,sub-lamp.mjs,submarine.mjs,sailing-live.mjs,wave-worker.mjs,captains.mjs,fleet-numbers.mjs,fleet.mjs,deck-traffic.mjs,fleet-room.mjs,npc-room.mjs,npc-vessels.mjs,npc-sailing-worker.mjs,npc-sailing-frame.mjs,npc-hobie-race.mjs,race-rules.mjs,wildlife-wake.mjs,water-spray.mjs,whale-effects.mjs,harbor-map.mjs,harbor-traffic.mjs,harbor-worker.mjs,feeding-harbor.mjs,gull.mjs,fish-finder.mjs,cruiser-sonar.mjs,cruiser-sonar-view.mjs,cruiser-sonar-worker.mjs,cruiser-chart.mjs,motorboat.mjs,keyboard-sticks.mjs,fleet-timeline.mjs,fleet-sea-clock.mjs,drone.mjs,lap-board.mjs,regatta.mjs,inboard-audio.mjs,drone-audio.mjs,render-layers.mjs,physics-view.mjs,collision-view.mjs,inertia-view.mjs,surface-collision-view.mjs,sub-collision-view.mjs,waterline.mjs,caustics.mjs,mast-camera.mjs,camera-cones.mjs,atmosphere.js,bow-grid.mjs,wreck.js,fauna.js,island-landscape.js,visuals.js} "$out/"
-cp viewer/onrt{,-propeller}.html viewer/onrt-{view,orbit,facility,materials,trial,worker,basin,playback,wake-display,propeller,volume,mesh,recording,shaft-loads}.mjs "$out/"
+cp viewer/onrt{,-propeller}.html viewer/onrt-{view,orbit,facility,materials,trial,worker,basin,playback,wake-display,propeller,volume,mesh,geometry,recording,shaft-loads}.mjs "$out/"
 cp viewer/board/{boat,trampoline,sail-battens,sail-telltale}.mjs "$out/board/"
 cp viewer/piccard-geometry.mjs "$out/"
 cp viewer/vendor/{three.min.js,gltf-loader.mjs,THREE-LICENSE,trystero.mjs} "$out/vendor/"

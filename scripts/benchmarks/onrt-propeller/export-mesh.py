@@ -14,6 +14,7 @@ from vtkmodules.vtkIOGeometry import vtkOpenFOAMReader
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("case", type=Path)
 parser.add_argument("output", type=Path)
+parser.add_argument("--blade", action="store_true", help="also export the propeller wall face edges")
 args = parser.parse_args()
 diameter = json.loads((args.case / "case.json").read_text())["diameter_m"]
 reader = vtkOpenFOAMReader()
@@ -55,3 +56,18 @@ section.GenerateTrianglesOff()
 section.Update()
 save_edges(section.GetOutput(), "section")
 save_edges(mesh, "volume")
+
+
+if args.blade:
+    reader.SetPatchArrayStatus("patch/propeller", 1)
+    reader.UpdateTimeStep(0)
+    out = reader.GetOutput()
+    it = out.NewIterator()
+    it.InitTraversal()
+    while not it.IsDoneWithTraversal():
+        if it.GetCurrentMetaData().Get(out.NAME()) == "propeller":
+            save_edges(it.GetCurrentDataObject(), "blade")
+            break
+        it.GoToNextItem()
+    else:
+        raise ValueError("Missing propeller wall patch")
