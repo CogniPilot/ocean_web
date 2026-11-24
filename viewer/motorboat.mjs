@@ -6,6 +6,14 @@ export const hullLamps=[-1,1].flatMap(side=>[
   [-3.599,side*.759,-.288],[-2.750,side*.864,-.380],[-.200,side*.905,-.437],
   [1.590,side*.761,-.358],[2.765,side*.395,-.083]
 ]);
+// Lens centre and sight target in hull coordinates. The keel image is bow-up.
+export const cruiserUnderwaterViews={
+  motorBow:[[2.77,-.38,-.77],[9,-.38,-3.22]],
+  motorStern:[[-3.83,.63,-.76],[-10,.63,-3.19]],
+  motorPort:[[-.38,1.20,-.45],[-.38,7.4,-3.20]],
+  motorStarboard:[[-.38,-1.20,-.45],[-.38,-7.4,-3.20]],
+  motorKeel:[[.45,0,-.88],[.45,0,-2],[1,0,0]]
+};
 // Broad, overlapping lobes from the paired stern, midship and bow emitters.
 // Coordinates/radii are metres in the body frame. The stern pair is brightest.
 export const hullGlowLobes=[-1,1].flatMap(side=>[
@@ -743,10 +751,18 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     group.add(led,led.target);return led;
   });
   bezel.dispose();
-  // Hull-mounted camera housings terminate just behind their optical ports.
-  for(const [x,y,z,sign,base] of [[2.68,-.38,-.74,1,-.25],[-3.74,.63,-.73,-1,-.20]]){
-    rod([x-.12*sign,y,base],[x-.08*sign,y,z],.041,steel);
-    rod([x-.16*sign,y,z+.066],[x+.066*sign,y,z-.027],.067,trim);
+  // Bake each housing into the existing hull batches. Keep its glass just
+  // behind the feed origin so the sensor can see out across its whole field.
+  for(const [id,[position,target]] of Object.entries(cruiserUnderwaterViews)){
+    const lensCentre=v3(...position),axis=v3(...target).sub(lensCentre).normalize();
+    const behind=distance=>lensCentre.clone().addScaledVector(axis,-distance).toArray();
+    if(id!=='motorKeel'){
+      const [x,y,z]=behind(.18);
+      rod([x,y,-.16],[x,y,z],.041,steel);
+    }
+    rod(behind(.23),behind(.022),.067,trim);
+    rod(behind(.025),behind(.006),.069,steel);
+    rod(behind(.006),behind(.003),.052,0x234450);
   }
   const swivel=new T.Group();swivel.name='Roof searchlight';swivel.userData.physicsJoint={axis:[0,0,1],label:'Searchlight swivel'};swivel.position.set(.56,0,searchlightHeight);group.add(swivel);
   rod([.56,0,2.18],[.56,0,searchlightHeight-.035],.043,steel);

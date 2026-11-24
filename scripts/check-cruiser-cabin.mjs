@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import vm from 'node:vm';
-import {cabinCruiser} from '../viewer/motorboat.mjs';
+import {cabinCruiser,cruiserUnderwaterViews} from '../viewer/motorboat.mjs';
 const env={console};
 vm.runInNewContext(await readFile(new URL('../viewer/vendor/three.min.js',import.meta.url),'utf8'),env);
 const T=env.THREE;
@@ -44,3 +44,15 @@ cabin.traverse(mesh=>{
 console.log({minClearance,numSamples,outside,outerPortRims:mounts.length});
 assert.equal(outside,0);
 assert.equal(mounts.length,4);
+
+// Check the actual batched geometry. Every feed should emerge from a visible
+// glass port and its centre ray should clear the hull and fixtures.
+const fixedMeshes=group.children.filter(mesh=>mesh.visible&&mesh.material?.isMeshStandardMaterial);
+for(const [name,[position,look]] of Object.entries(cruiserUnderwaterViews)){
+  const lens=new T.Vector3(...position),direction=new T.Vector3(...look).sub(lens).normalize();
+  ray.set(lens.clone().addScaledVector(direction,.5),direction.clone().negate());
+  const face=ray.intersectObjects(fixedMeshes,false)[0];
+  assert(face&&Math.abs(face.distance-.503)<.001,name+' optical port is missing or misplaced');
+  ray.set(lens,direction);
+  assert.equal(ray.intersectObjects(fixedMeshes,false).length,0,name+' optical axis is obstructed');
+}

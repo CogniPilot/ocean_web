@@ -25,7 +25,7 @@ import {lapLeaderboard,lapClock} from "./lap-board.mjs";
 import {animalSticks,controlGain,keyboardAxisKey,keyboardSticks,pilotSticks} from './keyboard-sticks.mjs';
 import {surfaceSpray} from './water-spray.mjs';
 import {wildlifeWater} from './wildlife-wake.mjs';
-import {cabinCruiser,hullLamps,hullGlowLobes,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight} from './motorboat.mjs';
+import {cabinCruiser,cruiserUnderwaterViews,hullLamps,hullGlowLobes,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight} from './motorboat.mjs';
 import {fishFinder} from './fish-finder.mjs';
 import {harborTraffic} from './harbor-traffic.mjs';
 import {gullIndex,vesselNpcNames} from './npc-room.mjs';
@@ -346,10 +346,7 @@ async function run(saved=readReset(),carried){
     motorCabin:[[1.28,0,.65],[2.48,.10,.72]],
     motorHelm:[[-.92,-.49,1.82],[3.1,-.47,.80]],
     motorCockpit:[[-2.98,.42,1.94],[1.00,-.14,1.22]],
-    motorBow:[[2.77,-.38,-.77],[9,-.38,-3.22]],
-    motorStern:[[-3.83,.63,-.76],[-10,.63,-3.19]],
-    motorPort:[[-.38,1.20,-.45],[-.38,7.4,-3.20]],
-    motorStarboard:[[-.38,-1.20,-.45],[-.38,-7.4,-3.20]]
+    ...cruiserUnderwaterViews
   };
 
   const motor=mode==='motorboat'?cabinCruiser(T,$('cruiserSonarCanvas'),$('cruiserChartCanvas')):null;
@@ -359,7 +356,15 @@ async function run(saved=readReset(),carried){
   cleanup(()=>{motor?.dispose();backgroundCruiser?.dispose();remoteEncounterCruiser?.dispose();});
   if(motor){
     scene.add(motor.group);
-    for(const [title,id] of [['Helm','motorHelm'],['Cabin','motorCabin'],['Aft cockpit','motorCockpit'],['Underwater bow camera','motorBow'],['Underwater stern camera','motorStern'],['Underwater port camera','motorPort'],['Underwater starboard camera','motorStarboard']])$('cameraDepth').add(new Option(title,id));
+    const cameraDepth=$('cameraDepth');
+    for(const [title,id] of [['Helm','motorHelm'],['Cabin','motorCabin'],['Aft cockpit','motorCockpit']]){
+      cameraDepth.add(new Option(title,id));
+    }
+    for(const option of $('echoCamera').options){
+      if(Object.hasOwn(cruiserUnderwaterViews,option.value)){
+        cameraDepth.add(new Option('Underwater '+option.text.toLowerCase()+' camera',option.value));
+      }
+    }
   }
   const race=world?.race??await loadInstance('Regatta',{...startGate,windBearing,east:model.get('east'),north:model.get('north'),utc:Date.now()/1000,
     hullStations:model.get('stationX'),hullWidths:model.get('beamHalf'),hullOffset:model.get('halfSpacing')});
@@ -1315,7 +1320,7 @@ async function run(saved=readReset(),carried){
     for(const cruiser of remote.cruisers)addHullLights(cruiser,eye);
     if(submergedLights.length>5)submergedLights.sort((a,b)=>lampScores.get(b)-lampScores.get(a));
     const view=$('cameraDepth').value;
-    const onboard=thumbnail||view==='onboard'||Boolean(motor&&['motorBow','motorStern','motorPort','motorStarboard'].includes(view));
+    const onboard=thumbnail||view==='onboard'||Boolean(motor&&Object.hasOwn(cruiserUnderwaterViews,view));
     const exposure=onboard?Math.floor(ocean.U.tm.value*24)%1024:-1;
     lampPass(world,eye,selector.value,submergedLights,exposure,thumbnail,glowingHulls);
   }
@@ -1388,16 +1393,17 @@ async function run(saved=readReset(),carried){
     eye.lookAt(fpvForward.set(1,0,0).applyQuaternion(quaternion).add(eye.position));
   }
   function placeCruiserCamera(eye,id){
-    const [position,look]=cruiserViews[id];
+    const [position,look,up]=cruiserViews[id];
     eye.position.fromArray(position);motor.group.localToWorld(eye.position);
-    eye.up.set(0,0,1).applyQuaternion(motor.group.quaternion);
+    if(up)eye.up.fromArray(up);else eye.up.set(0,0,1);
+    eye.up.applyQuaternion(motor.group.quaternion);
     if(id==='motorCabin'){
       const yaw=.083+cabinLook.yaw,pitch=.13+cabinLook.pitch;
       fpvForward.set(position[0]+Math.cos(pitch)*Math.cos(yaw),position[1]+Math.cos(pitch)*Math.sin(yaw),position[2]+Math.sin(pitch));
     }else fpvForward.fromArray(look);
     eye.lookAt(motor.group.localToWorld(fpvForward));
   }
-  // Render one active sensor per tick. The four-way display shares a GPU target
+  // Render one active sensor per tick. The multiview display shares a GPU target
   // and independently retains the latest image from each camera.
   const feedWidth=256,feedHeight=144;
   const motorEye=motor&&new T.PerspectiveCamera(64,feedWidth/feedHeight,.045,objectDrawRange);
@@ -1416,7 +1422,7 @@ async function run(saved=readReset(),carried){
     coneEye??=new T.PerspectiveCamera(52,1);
     cones.clear();
     if(motor){
-      const colors=[0x75eefa,0xffb568,0xff90ad,0xa4ed8d];
+      const colors=[0x75eefa,0xffb568,0xff90ad,0xa4ed8d,0xbb9aff];
       feeds.forEach(({canvas},i)=>{
         const id=canvas.dataset.camera;
         if(id===view)return;
@@ -2987,7 +2993,7 @@ async function run(saved=readReset(),carried){
       }
       const viewMode=$('cameraDepth').value;
       const skipperView=viewMode==='ballast'&&boat?.ballastPosition;
-      const baseFov=skipperView?60:viewMode==='motorCabin'?75:viewMode==='motorHelm'?62:['motorBow','motorStern','motorPort','motorStarboard','onboard'].includes(viewMode)?64:52;
+      const baseFov=skipperView?60:viewMode==='motorCabin'?75:viewMode==='motorHelm'?62:(viewMode==='onboard'||Object.hasOwn(cruiserUnderwaterViews,viewMode))?64:52;
       const lens=fixedView(viewMode)?cameraZoom.get(viewMode)??1:1;
       const fov=lens===1?baseFov:T.MathUtils.radToDeg(2*Math.atan(lens*Math.tan(T.MathUtils.degToRad(baseFov/2))));
       if(camera.fov!==fov){camera.fov=fov;camera.updateProjectionMatrix();lastReflection=-Infinity;}
