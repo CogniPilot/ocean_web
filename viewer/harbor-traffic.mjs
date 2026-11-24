@@ -70,6 +70,7 @@ export class SwimmerTrack {
     for(let k=60;k<65;k++)row[k]=left[k]??0;
     if(right[22]<left[22])row[22]=left[22];
     this.gape=a.gape+mix*(b.gape-a.gape);
+    this.rightFrame=right;this.fraction=left===right?1:mix;
     return row;
   }
 }
@@ -142,6 +143,11 @@ async function marineAnimal(T,name,length,caustics,tideUniform){
       trunk(flex);peduncle(bend-flex);tail((state[72]??0)-bend);
     };
   }
+  const collisionRig=new Map();
+  model.traverse(bone=>{
+    if(bone.isBone)collisionRig.set(bone.name,{bone,inverseRest:bone.matrixWorld.clone().invert()});
+  });
+  group.userData.collisionRig=collisionRig;
   group.name=name==='whale'?'NPC humpback':'NPC shark';
   const jaws=[];
   model.traverse(m=>{const index=m.morphTargetDictionary?.Feed;if(index!=null)jaws.push([m,index]);});
@@ -413,7 +419,16 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     }
     const blend=Math.max(0,Math.min(1,(now-arrival)/interval));
     sections.forEach((section,i)=>{
-      if(section?.sources.length===60)water.sample(i,section.stamp,section.sources,section.impact,section.id,blend);
+      if(section?.sources.length!==60)return;
+      const entry=visuals.get(section.id),track=entry?.track,right=track?.rightFrame;
+      if(!right){water.sample(i,section.stamp,section.sources,section.impact,section.id,blend);return;}
+      if(entry.waterFrame!==right){
+        const start=wakesByKind[i].start;
+        entry.waterFrame=right;entry.waterSources=right.slice(start,start+60);
+        entry.waterImpact=i===0?right.slice(60,65):noImpact;
+      }
+      if(entry.waterSources.length===60)
+        water.sample(i,right[0],entry.waterSources,entry.waterImpact,section.id,track.fraction);
     });
   }
   const disturbances=new Float64Array(4*38);

@@ -362,7 +362,8 @@ export function writeAnimalContacts(roster,current,animals,joints){
     if(!row||slot>=10)continue;
     const k=whale?17:9,yaw=row[k+3],c=Math.cos(yaw),s=Math.sin(yaw);
     const surge=row[whale?27:65]??0,sway=row[whale?38:74]??0;
-    if(whale&&joints)joints.set([(row[31]??0)-(row[29]??0),row[39]??0,row[40]??0,row[41]??0],4*slot);
+    if(joints)joints.set(whale?[(row[31]??0)-(row[29]??0),row[39]??0,row[40]??0,row[41]??0]:
+      [row[202]??0,row[70]??0,row[72]??0,0],4*slot);
     animals.set([whale?1:2,row[k],row[k+1],row[k+2],yaw,row[whale?21:67]??0,
       surge*c-sway*s,surge*s+sway*c,row[whale?35:203]??0],9*slot);
   }

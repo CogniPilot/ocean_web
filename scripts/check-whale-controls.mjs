@@ -60,7 +60,9 @@ for(const sign of [-1,1]){
   console.log({bankDegrees:bank*180/Math.PI,recoveredDegrees:recovered*180/Math.PI});
 }
 await env.reset({state:launch(2,-18,-11.7,3)});
-assert(Math.abs(env.observe().clearance-.10)<1e-9);
+const hulls=JSON.parse(await readFile(new URL('../viewer/assets/swimmer-hulls.json',import.meta.url),'utf8'));
+const lowestProbe=Math.min(...hulls.probes.whale.map(point=>point[2]));
+assert(Math.abs(env.observe().clearance-(13.7-11.7+lowestProbe))<1e-9);
 assert.equal(env.observe().normalForce,0);
 for(const [name,start,pitch,limitX,limitZ] of [
   ['flat bottom',launch(2,-18,-10.8,3,-.4),-.8,70,-9],

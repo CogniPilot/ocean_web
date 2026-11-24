@@ -22,8 +22,8 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
     output Real loads[8] "Forward, port, up, pitch, yaw, normal load, minimum signed gap, roll";
   protected
     // Body, rostrum, bottom of the caudal fin, paired pectorals, dorsal and flank skin points.
-    constant Real skin[13,3]=[2.32,0,-.09;1.22,0,-.36;0,0,-.47;-1.12,0,-.32;-2.18,0,-.55;
-      .04,.91,-.30;.04,-.91,-.30;-.20,0,.92;1.02,0,.34;-1.25,0,-.05;-.42,0,-.05;.42,0,-.05;1.25,0,-.05];
+    constant Real skin[13,3]=cat(1,Wreck.SwimmerHulls.sharkSkin,
+      [-1.25,0,-.05;-.42,0,-.05;.42,0,-.05;1.25,0,-.05]);
     Real cy,sy,cp,sp,cr,sr,arm[3],point[3],velocity[3],contact[5],hull[5],along,side,up,tailRate;
   algorithm
     loads:=zeros(8);loads[7]:=1e6;
@@ -31,7 +31,7 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
     cr:=cos(bank[1]);sr:=sin(bank[1]);
     // Even with maximum tail sweep, all probes fit inside this sphere.
     // The gap remains the exact minimum over the rotated contact points.
-    if Shore.aboveFlatBottom(origin[1],origin[2],origin[3],2.33*abs(length/4.8)+.91) and
+    if Shore.aboveFlatBottom(origin[1],origin[2],origin[3],2.5*abs(length/4.8)+.91) and
        (min(origin-Wreck.WreckSolids.wreckLow)<-3.3*length/4.8 or min(Wreck.WreckSolids.wreckHigh-origin)<-3.3*length/4.8) then
       for i in 1:9 loop
         along:=length/4.8*skin[i,1];up:=length/4.8*skin[i,3];

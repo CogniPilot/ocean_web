@@ -3,12 +3,14 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
 const read=async url=>new Response(await readFile(url));
+const hulls=JSON.parse(await readFile(new URL('../viewer/assets/swimmer-hulls.json',import.meta.url),'utf8'));
+const dorsal=hulls.probes.shark[7];
 for(const [name,e,n,z,u,w,manual,pitch] of [
   ['flat bottom',2,-18,-12.9,2,-.9,true,-.9],
   ['powered shore approach',7,40,-1,4.6,0,true,.1],
   ['NPC shore approach',7,40,-1,4.6,0,false,0],
   ['drop on island',36,40,6.2,1,-1,true,1],
-  ['beached',36,40,4.5,0,0,true,1],
+  ['beached',36,40,4.75,0,0,true,1],
   ['surfacing in open water',2,-18,-.48,1.8,0,false,0]
 ]){
   const shore=n===40&&e===7,dry=e===36,open=z===-.48;
@@ -28,7 +30,7 @@ for(const [name,e,n,z,u,w,manual,pitch] of [
     if(dry)assert(thrust===0,'dry tail generated water thrust');
     maxHeight=Math.max(maxHeight,state[11]);furthest=Math.max(furthest,state[9]);
     largestGapLoss=Math.max(largestGapLoss,-gap);normalPeak=Math.max(normalPeak,load);
-    if(state[11]+.92*Math.cos(fish[2])>0&&state[11]+.47<0)finCrossed=true;
+    if(state[11]+dorsal[0]*Math.sin(fish[2])+dorsal[2]*Math.cos(fish[2])>0&&state[11]+.47<0)finCrossed=true;
   }
   if(open)assert(first===undefined&&finCrossed);
   else assert(first!==undefined&&normalPeak>1000&&largestGapLoss<.30);

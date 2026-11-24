@@ -36,14 +36,15 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   discrete output Real npcContact[6](each start=0,each fixed=true);
   discrete output Real hullReaction[2,3](each start=0,each fixed=true) "Forward/port reaction and yaw moment on each animal";
   function vesselReactions
-    input Real whale[9],shark[9],craft[32,8],hulls[32,5],joints[4];
+    input Real whale[9],shark[9],craft[32,8],hulls[32,5],joints[2,4];
     output Real reaction[2,3];
   protected
     Real a[9],traffic[10,9],load[6],mass,length,width,spacing,draft,dx,dy,articulation[10,4];
   algorithm
     reaction:=zeros(2,3);traffic:=zeros(10,9);articulation:=zeros(10,4);
-    articulation[1,:]:=joints;
+
     for k in 1:2 loop
+      articulation[1,:]:=joints[k,:];
       a:=if k==1 then whale else shark;traffic[1,:]:=a;
       for i in 1:32 loop
         dx:=craft[i,3]-a[2];dy:=craft[i,4]-a[3];
@@ -89,7 +90,7 @@ equation
     hullReaction=vesselReactions({1,swimmer.x[1],swimmer.x[2],swimmer.x[3],swimmer.x[10],swimmer.x[6],
       swimmer.x[4]*cos(swimmer.x[10])-swimmer.x[15]*sin(swimmer.x[10]),
       swimmer.x[4]*sin(swimmer.x[10])+swimmer.x[15]*cos(swimmer.x[10]),swimmer.x[12]},
-      {2,state[10],state[11],state[12],state[13],fish[3],whiteShark.velocity[1],whiteShark.velocity[2],sharkBankState[1]},craft,craftHull,whaleJoints);
+      {2,state[10],state[11],state[12],state[13],fish[3],whiteShark.velocity[1],whiteShark.velocity[2],sharkBankState[1]},craft,craftHull,{whaleJoints,{sharkTrunkFlex,fish[6],fish[8],0}});
   end when;
   swimmer.boatLoad=hullReaction[1,:];whiteShark.boatLoad=hullReaction[2,:];
   der(state[1])=1;

@@ -92,22 +92,20 @@ export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768
     }
     vertices(segments,frame,coords,value);
   }
-  function swimmerShapes(frame,rows){
-    const local=new T.Matrix4(),shapeFrame=new T.Object3D();
-    for(let i=0;i<7;i++){
-      const k=207+i*16,kind=rows[k];
-      if(kind<2.5)continue;
-      local.set(rows[k+4],rows[k+5],rows[k+6],rows[k+1],
-                rows[k+7],rows[k+8],rows[k+9],rows[k+2],
-                rows[k+10],rows[k+11],rows[k+12],rows[k+3],0,0,0,1);
-      shapeFrame.matrixWorld.multiplyMatrices(frame.matrixWorld,local);
-      if(kind<3.5)capsule(shapeFrame,[0,0,0],rows[k+13],rows[k+14],'#f599d3');
-      else this.box(shapeFrame,[0,0,0],rows.subarray(k+13,k+16),'#f599d3');
+  function swimmerSkin(frame,parts){
+    const shapeFrame=new T.Object3D();
+    for(const {bone,wire} of parts){
+      if(!bone){vertices(segments,frame,wire,'#f599d3');continue;}
+      const joint=frame.userData.collisionRig?.get(T.PropertyBinding.sanitizeNodeName(bone));
+      if(!joint)continue;
+      joint.bone.updateWorldMatrix(true,false);
+      shapeFrame.matrixWorld.multiplyMatrices(joint.bone.matrixWorld,joint.inverseRest);
+      vertices(segments,shapeFrame,wire,'#f599d3');
     }
   }
   const rigFrame=new T.Object3D(),rigEnd=new T.Vector3(),rigAxis=new T.Vector3(1,0,0);
   return {
-    swimmerShapes,
+    swimmerSkin,
     rigCapsules(frame,rows){
       frame.updateWorldMatrix(true,false);
       for(let i=0;i<rows.length;i+=7){
@@ -152,32 +150,39 @@ export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768
 
 // WildlifeContact's nominal animal envelopes, expanded by the opposing hull
 // sample in Modelica. Skin probes use the same offsets as each ground contact.
-const sharkHulls=[[[0,0,-.13],[2.4,.43,.46]],[[.05,0,.51],[.38,.09,.34]]];
-const whaleSkin=[-2,0,-.84, .5,0,-1.23, 4.35,0,-.3, -.55,3.42,-1.9, -.55,-3.42,-1.9];
-const sharkSkin=[2.32,0,-.09, 1.22,0,-.36, 0,0,-.47, -1.12,0,-.32, -2.18,0,-.55,
-  .04,.91,-.30, .04,-.91,-.30, -.20,0,.92, 1.02,0,.34];
-
+let swimmerHulls,loadingHulls;
+function loadSwimmerHulls(){
+  if(!loadingHulls){
+    const url=new URL('./assets/swimmer-hulls.json',import.meta.url);
+    url.search=new URL(import.meta.url).search;
+    loadingHulls=fetch(url).then(response=>{
+      if(!response.ok)throw Error(response.statusText);
+      return response.json();
+    }).then(hulls=>{swimmerHulls=hulls;}).catch(error=>console.warn('Swimmer collision mesh unavailable',error));
+  }
+}
 export function drawAnimalCollision(painter,frame,kind){
   if(kind!=='whale'&&kind!=='shark')return;
   frame.updateWorldMatrix(true,false);
   const pose=frame.userData.contactPose;
-  if(kind==='whale'&&pose)painter.swimmerShapes(frame,pose);
-  if(kind==='shark')for(const [center,radii] of sharkHulls)painter.ellipsoid(frame,center,radii,'#f599d3');
+  if(!swimmerHulls){loadSwimmerHulls();return;}
+  painter.swimmerSkin(frame,swimmerHulls[kind]);
+  const skin=swimmerHulls.probes[kind];
   if(kind==='whale'){
-    painter.points(frame,whaleSkin,'#f8ec9d');
+    painter.points(frame,skin.slice(0,5).flat(),'#f8ec9d');
     if(!pose)return;
     // A fluke probe follows tail pitch relative to the rolled torso and
     // translates with the torso hinge at x = -2.35 m.
     const roll=pose[35],pitch=pose[31]-pose[29],cr=Math.cos(roll),sr=Math.sin(roll);
     const ct=Math.cos(pitch),st=Math.sin(pitch),flukes=[];
-    for(const y of [-2.16,2.16]){
-      const ry=y*cr+.22*sr,rz=y*sr-.22*cr;
-      const z=-3.72*st+rz*ct;
-      flukes.push(-2.35-3.72*ct-rz*st,ry*cr+z*sr,-ry*sr+z*cr);
+    for(const [x,y,z] of skin.slice(5)){
+      const ry=y*cr-z*sr,rz=y*sr+z*cr;
+      const up=(x+2.35)*st+rz*ct;
+      flukes.push(-2.35+(x+2.35)*ct-rz*st,ry*cr+up*sr,-ry*sr+up*cr);
     }
     painter.points(frame,flukes,'#f8ec9d');
   }else{
-    const probes=sharkSkin.slice();
+    const probes=skin.flat();
     if(pose)probes[13]-=.91*Math.sin(pose[70]);
     painter.points(frame,probes,'#f8ec9d');
   }

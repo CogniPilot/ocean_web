@@ -50,9 +50,10 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
     input Real state[18];
     output Real loads[11] "Body Fx,Fz,pitch and tail Fx,Fz,pitch, total Fy,yaw,roll, normal force, minimum clearance";
   protected
-    constant Real along[11]={-2,.5,4.35,-.55,-.55,-3.72,-3.72,-2.35,-.95,.65,2.3};
-    constant Real side[11]={0,0,0,3.42,-3.42,2.16,-2.16,0,0,0,0};
-    constant Real below[11]={-.84,-1.23,-.30,-1.90,-1.90,-.22,-.22,0,0,0,0};
+    constant Real skin[11,3]=cat(1,Wreck.SwimmerHulls.whaleSkin,
+      [-2.35,0,0;-.95,0,0;.65,0,0;2.3,0,0]);
+    constant Real along[11]=skin[:,1]-{0,0,0,0,0,bx,bx,0,0,0,0};
+    constant Real side[11]=skin[:,2],below[11]=skin[:,3];
     Real cy,sy,cr,sr,cp,sp,ct,st,lever,zOffset,yOffset,cosPitch,sinPitch,rate;
     Real arm[3],velocity[3],pos[3],force[3],rel[3],contact[5],hull[5];
   algorithm
