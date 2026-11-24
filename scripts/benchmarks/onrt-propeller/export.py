@@ -214,8 +214,8 @@ meta.update(arrays=arrays,iteration=iteration,cells=volume.GetNumberOfCells(),sl
 if args.lattice:
     meta.update({key: lattice[key] for key in ("computeDevice", "solveWallSeconds", "kernelSeconds", "settled") if key in lattice})
     if "sequence" in meta:
-        meta["shaftLoadSamples"] = write_loads(args.output, meta["sequence"]["frames"],
-            loads["time_s"], loads["thrust_N"], loads["torque_Nm"], loads["revolutions"])
+        meta.update(write_loads(args.output, meta["sequence"]["frames"],
+            loads["time_s"], loads["thrust_N"], loads["torque_Nm"], loads["revolutions"]))
     last=loads[-lattice["stepsPerRev"]:]
     meta.update(solver="Rumoca",startsFromRest=lattice.get("startsFromRest", False),wallTreatment=lattice.get("wallTreatment","volume-no-slip"),cells=int(np.prod(dims)),kt=float(last["KT"].mean()),
         kq=float(last["KQ"].mean()),steps=lattice["steps"],revolutions=float(loads[-1]["revolutions"]),

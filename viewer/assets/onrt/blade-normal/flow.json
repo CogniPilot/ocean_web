@@ -614,5 +614,15 @@
   "steps": 2684,
   "revolutions": 3.5,
   "cellsPerDiameter": 16,
-  "shaftLoadSamples": 672
+  "shaftLoadSamples": 672,
+  "shaftLoadBounds": [
+    [
+      1.8711704015731812,
+      4.698100566864014
+    ],
+    [
+      0.09730164706707001,
+      0.17749148607254028
+    ]
+  ]
 }

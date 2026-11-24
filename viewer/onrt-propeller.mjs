@@ -134,7 +134,7 @@ async function load(){
   function drawAll(){for(const pane of panes)pane.draw();}
   for(const solution of data)panes.push(createPane(solution));
   const sequence=data.filter(d=>d.recording).sort((a,b)=>a.recording.duration-b.recording.duration)[0],slider=el('phase'),animate=el('animate');
-  const updateShaftLoads=installShaftLoads(el('shaftLoads'),data);
+  const updateShaftLoads=installShaftLoads(el('shaftLoads'),data,scaleCases);
   let elapsed=0,lastFrame,scheduled,selectedFrame;
   function paintTime(){
     const index=selectedFrame??sequence?.recording.frameAt(elapsed,!startup);

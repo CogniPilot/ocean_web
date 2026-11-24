@@ -20,7 +20,8 @@ def write_loads(directory, frames, time, thrust, torque, turns):
     if not np.allclose(angles, [f["turns"] for f in frames], atol=.0002, rtol=0):
         raise ValueError("Shaft motion and recorded blade phase disagree")
     samples.astype("<f4").tofile(directory/"shaft-loads.bin")
-    return len(samples)
+    return {"shaftLoadSamples": len(samples),
+            "shaftLoadBounds": [[float(v.min()), float(v.max())] for v in samples[:,1:3].T]}
 
 
 def foam_loads(case):

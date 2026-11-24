@@ -1,5 +1,5 @@
-// Each recorded sample contains physical time (s), ahead thrust (N) drive torque (N·m) and unwrapped shaft turns.
-export function installShaftLoads(panel, solutions) {
+// Each recorded sample contains physical time (s), ahead thrust (N), drive torque (N·m) and unwrapped shaft turns.
+export function installShaftLoads(panel, solutions, scaleCases) {
   const colors = {rumoca: '#72d3c3', openfoam: '#efac6f'};
   const series = solutions.map(({solver, m, loads}) => {
     const scale = m.rho_kg_m3 * (m.rpm / 60) ** 2 * m.diameter_m ** 4;
@@ -71,12 +71,11 @@ export function installShaftLoads(panel, solutions) {
         return e;
       }
       let min = 0, max = 0;
-      for (const s of series) {
-        if (s.loads) for (let i = field; i < s.loads.length; i += 4) {
-          min = Math.min(min, s.loads[i]); max = Math.max(max, s.loads[i]);
-        } else if (s.steady) {
-          min = Math.min(min, s.mean[field]); max = Math.max(max, s.mean[field]);
-        }
+      for (const m of scaleCases) {
+        const scale=m.rho_kg_m3*(m.rpm/60)**2*m.diameter_m**4;
+        const mean=field===1?m.kt*scale:m.kq*scale*m.diameter_m;
+        const bounds=m.shaftLoadBounds?.[field-1] ?? [mean,mean];
+        min=Math.min(min,bounds[0]); max=Math.max(max,bounds[1]);
       }
       const x = t => 38 + 250*(t-start)/(end-start);
       const y = v => 73 - 65*(v-min)/(max-min || 1);
