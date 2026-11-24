@@ -503,7 +503,7 @@ async function run(saved=readReset(),carried){
   let anchorLowered=cruiserRuntime?.anchorLowered??false;
   const cabinView=$('cabinControls'),cabinLight=$('cabinLight'),cabinRadio=$('cabinRadio'),integrityDisplay=$('cruiserIntegrity');
   const radioState=$('cabinRadioState'),radioStatus=$('cabinRadioStatus');
-  const cabinLook={yaw:0,pitch:0};
+  const cabinLookDefault={yaw:0,pitch:0},cabinLook={...cabinLookDefault};
   const radioLocation=new URL('./assets/audio/spanish-ladies-radio.mp3',import.meta.url);
   const cruiserLampControls=['searchLamp','keelLamp','cameraKeelLamp'].map($);
   const encounterVariables=['encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage'];
@@ -1078,37 +1078,58 @@ async function run(saved=readReset(),carried){
   const underwaterFog=new T.FogExp2(0x124759,.075),cabinWaterFog=new T.FogExp2(0x124759,.48),split=splitCamera(T);
   const fpvForward=new T.Vector3(),cabinEye=new T.Vector3(),drawInstruments=firstPersonInstruments($('flightHud'));
   const helmSeat=new T.Vector3(cat ? -1.2 : -.73,0,cat ? .65 : .18),orbitCenter=new T.Vector3();
-  const cameraMenu=$('cameraDepth'),skipper={yaw:0,pitch:-.12};
+  const cameraMenu=$('cameraDepth'),skipperDefault={yaw:0,pitch:-.12},skipper={...skipperDefault};
   const skipperOption=cat?new Option('Skipper','ballast'):null;
   if(skipperOption)cameraMenu.add(skipperOption);
   function showSkipperView(show){
     if(skipperOption)skipperOption.hidden=skipperOption.disabled=!show;
   }
-  let angle=-.8,distance=motor?11.5:cat?14:5.7,tilt=.16,running=true,manual=true;
-  // Keep wildlife framing independent of the vehicle's orbit and zoom.
-  const wildlifeOrbits={gull:{angle:-1,tilt:.36,distance:3.3},whale:{angle:-1.15,tilt:.20,distance:14},shark:{angle:-1.15,tilt:.12,distance:6}};
-  const wildlifeOrbit=()=>wildlifeOrbits[cameraMenu.value.split('-')[0]];
-  const cameraZoom=new Map(),cameraPan=new Map();
+  let running=true,manual=true;
+  const defaultDistance=motor?11.5:cat?14:5.7;
+  const wildlifeDefaults={gull:{angle:-1,tilt:.36,distance:3.3},whale:{angle:-1.15,tilt:.20,distance:14},shark:{angle:-1.15,tilt:.12,distance:6}};
+  const cameraOrbits=new Map(),cameraZoom=new Map(),cameraPan=new Map();
+  const vehicleViews=new Set(['deck','line','keel']);
+  function orbitKey(view){
+    if(vehicleViews.has(view)){
+      if(sub?.active)return 'sub-'+view;
+      if(drone?.active)return 'drone-'+view;
+    }
+    return view;
+  }
+  function orbitFor(view){
+    const key=orbitKey(view);
+    let orbit=cameraOrbits.get(key);
+    if(!orbit){
+      const animal=wildlifeDefaults[view.split('-')[0]];
+      const defaultTilt=sub?.active ? .32 : .16;
+      orbit=animal?{...animal}:{
+        angle:sub?.active?Math.PI-.48:-.8,
+        tilt:view==='keel'?-.9:defaultTilt,
+        distance:defaultDistance
+      };
+      cameraOrbits.set(key,orbit);
+    }
+    return orbit;
+  }
   const panRight=new T.Vector3(),panUp=new T.Vector3(),gullCameraTarget=new T.Vector3();
   let followedGull;
-  let panDistance=distance;
+  let panDistance=defaultDistance;
   function panView(dx,dy){
-    const view=cameraMenu.value;
-    let offset=cameraPan.get(view);
-    if(!offset){offset=new T.Vector3();cameraPan.set(view,offset);}
+    const key=orbitKey(cameraMenu.value);
+    let offset=cameraPan.get(key);
+    if(!offset){offset=new T.Vector3();cameraPan.set(key,offset);}
     const scale=2*panDistance*Math.tan(T.MathUtils.degToRad(camera.fov/2))/Math.max(1,viewport.clientHeight);
     offset.addScaledVector(panRight.set(1,0,0).applyQuaternion(camera.quaternion),-dx*scale);
     offset.addScaledVector(panUp.set(0,1,0).applyQuaternion(camera.quaternion),dy*scale);
   }
   const fixedView=view=>view==='ballast'||view==='fpv'||view==='onboard'||Object.hasOwn(cruiserViews,view);
   function zoomView(scale){
-    const view=cameraMenu.value,orbit=wildlifeOrbit();
+    const view=cameraMenu.value;
     if(fixedView(view)||view.startsWith('npc-')){
       cameraZoom.set(view,T.MathUtils.clamp((cameraZoom.get(view)??1)*scale,.32,2.5));
-    }else if(orbit){
-      orbit.distance=T.MathUtils.clamp(orbit.distance*scale,2,45);
     }else{
-      distance=T.MathUtils.clamp(distance*scale,2,22);
+      const orbit=orbitFor(view),maxDistance=wildlifeDefaults[view.split('-')[0]]?45:22;
+      orbit.distance=T.MathUtils.clamp(orbit.distance*scale,2,maxDistance);
     }
   }
   const viewport=$('view'),pointers=new Map();
@@ -1171,10 +1192,10 @@ async function run(saved=readReset(),carried){
     }else if(cameraMenu.value==='ballast'){
       skipper.yaw=T.MathUtils.clamp(skipper.yaw-dx,-1.8,1.8);
       skipper.pitch=T.MathUtils.clamp(skipper.pitch-dy,-1.1,1.1);
-    }else{
-      const orbit=wildlifeOrbit(),elevation=T.MathUtils.clamp((orbit?.tilt??tilt)+dy,-1.45,1.4);
-      if(orbit){orbit.angle-=dx;orbit.tilt=elevation;}
-      else{angle-=dx;tilt=elevation;}
+    }else if(!fixedView(cameraMenu.value)){
+      const orbit=orbitFor(cameraMenu.value);
+      orbit.angle-=dx;
+      orbit.tilt=T.MathUtils.clamp(orbit.tilt+dy,-1.45,1.4);
     }
   };
   viewport.oncontextmenu=e=>e.preventDefault();
@@ -1191,12 +1212,17 @@ async function run(saved=readReset(),carried){
     const delta=e.deltaY*(e.deltaMode===1?16:e.deltaMode===2?viewport.clientHeight:1);
     zoomView(Math.exp(delta*.0015));
   };
-  $('cameraDepth').onchange=()=>{
-    const view=$('cameraDepth').value;
-    refreshCabinControls();
-    if(view==='deck')tilt=.23;
-    if(view==='keel')tilt=-.9;
-  };
+  cameraMenu.onchange=refreshCabinControls;
+  function recenterView(){
+    const view=cameraMenu.value,key=orbitKey(view);
+    cameraOrbits.delete(key);
+    cameraPan.delete(key);
+    cameraZoom.delete(view);
+    if(view==='ballast')Object.assign(skipper,skipperDefault);
+    if(view==='motorCabin')Object.assign(cabinLook,cabinLookDefault);
+    viewport.focus({preventScroll:true});
+  }
+  $('recenterView').onclick=recenterView;
   let moveTraveler;
   if(cat){
     const marker=$('showBallastMarker');
@@ -1860,7 +1886,7 @@ async function run(saved=readReset(),carried){
       toggles:Object.fromEntries(toggleSettings.map(id=>[id,active(id)])),
       panels:[...settingPanels()].map(panel=>panel.open),controls:!panel.hidden,settings:!setup.hidden,
       map:mapDialog.open,mast:!mastPanel.hidden,sonarTab:$('cruiserSonarPanel').dataset.view,
-      orbit:{angle,distance,tilt,skipper,zoom:[...cameraZoom],pan:[...cameraPan].map(([view,offset])=>[view,offset.toArray()])},
+      orbit:{views:[...cameraOrbits],skipper,cabinLook,zoom:[...cameraZoom],pan:[...cameraPan].map(([view,offset])=>[view,offset.toArray()])},
       paused:!running};
   }
   let resetting=false;
@@ -1963,7 +1989,6 @@ async function run(saved=readReset(),carried){
     }
     if(sub)sub.active=targetSelect.value==='sub';
     if(sub?.active){
-      angle=Math.PI-.48;tilt=.32;
       if(!enteredSub){
         enteredSub=true;
         sub.manual=false;
@@ -1987,7 +2012,7 @@ async function run(saved=readReset(),carried){
       option.disabled=option.hidden;
     }
     if(viewSelect.selectedOptions[0]?.disabled){
-      viewSelect.value='deck';tilt=.23;
+      viewSelect.value='deck';
     }
     $('cutMotors').hidden=$('flightKeys').hidden=!flying;
     document.querySelector('h1').textContent=motor?'Inboard cabin cruiser':sub?.active?'Piccard Sub':flying?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
@@ -2007,7 +2032,7 @@ async function run(saved=readReset(),carried){
   if(targetSelect.value==='boat'){
     const useSkipper=skipperOption&&['ballast','trapeze-port','trapeze-starboard'].includes(requestedView);
     cameraMenu.value=useSkipper?skipperOption.value:'deck';
-  }else if(Object.hasOwn(wildlifeOrbits,requestedView))cameraMenu.value=requestedView;
+  }else if(Object.hasOwn(wildlifeDefaults,requestedView))cameraMenu.value=requestedView;
 
   function helm(){
     updateShaft();
@@ -2085,6 +2110,7 @@ async function run(saved=readReset(),carried){
       e.target.isContentEditable||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
     if(e.key==='Enter'&&chatScope&&e.target.tagName!=='BUTTON')openChat();
     else if(e.code==='KeyV'){if(!cycleCamera())return;}
+    else if(e.code==='Home')recenterView();
     else if(e.code==='KeyM')toggleMap();
     else if(e.key==='Escape'&&mapDialog.open)mapDialog.close();
     else return;
@@ -2369,10 +2395,17 @@ async function run(saved=readReset(),carried){
     if(saved.mast&&hasMastCameras)mastButton.click();
     if(saved.paused)$('play').click();
     if(saved.orbit){
-      ({angle,distance,tilt}=saved.orbit);
-      Object.assign(skipper,saved.orbit.skipper);
+      const savedOrbit=saved.orbit;
+      if(savedOrbit.views){
+        for(const [key,orbit] of savedOrbit.views)cameraOrbits.set(key,orbit);
+      }else if(Number.isFinite(savedOrbit.distance)){
+        const {angle,tilt,distance}=savedOrbit;
+        cameraOrbits.set(orbitKey(saved.view??'deck'),{angle,tilt,distance});
+      }
+      Object.assign(skipper,savedOrbit.skipper);
+      Object.assign(cabinLook,savedOrbit.cabinLook);
       for(const [view,zoom] of saved.orbit.zoom)cameraZoom.set(view,zoom);
-      for(const [view,offset] of saved.orbit.pan)cameraPan.set(view,new T.Vector3().fromArray(offset));
+      for(const [key,offset] of saved.orbit.pan)cameraPan.set(savedOrbit.views?key:orbitKey(key),new T.Vector3().fromArray(offset));
     }
   }
   let savedView=saved?.view;
@@ -2996,6 +3029,7 @@ async function run(saved=readReset(),carried){
         ocean.U.boat.value.set(orbitCenter.x,orbitCenter.y,motor?motor.group.rotation.z:0,0);
       }
       const viewMode=$('cameraDepth').value;
+      const {angle,distance,tilt}=orbitFor(viewMode);
       const skipperView=viewMode==='ballast'&&boat?.ballastPosition;
       const baseFov=skipperView?60:viewMode==='motorCabin'?75:viewMode==='motorHelm'?62:(viewMode==='onboard'||Object.hasOwn(cruiserUnderwaterViews,viewMode))?64:52;
       const lens=fixedView(viewMode)?cameraZoom.get(viewMode)??1:1;
@@ -3083,18 +3117,19 @@ async function run(saved=readReset(),carried){
       followedGull=gullSubject;
       if(subject){
         const target=gullSubject?gullCameraTarget:subject.position;
-        const orbit=npcSubject?{angle,tilt:Math.max(.16,tilt),distance:npcSubject.userData.orbitDistance*(cameraZoom.get(view)??1)}:wildlifeOrbit();
-        const range=orbit.distance*Math.cos(orbit.tilt);
+        const subjectTilt=npcSubject?Math.max(.16,tilt):tilt;
+        const subjectDistance=npcSubject?npcSubject.userData.orbitDistance*(cameraZoom.get(view)??1):distance;
+        const range=subjectDistance*Math.cos(subjectTilt);
         camera.position.copy(target);
-        camera.position.x+=range*Math.cos(orbit.angle);
-        camera.position.y+=range*Math.sin(orbit.angle);
-        camera.position.z=Math.max(-13.1,target.z+orbit.distance*Math.sin(orbit.tilt));
+        camera.position.x+=range*Math.cos(angle);
+        camera.position.y+=range*Math.sin(angle);
+        camera.position.z=Math.max(-13.1,target.z+subjectDistance*Math.sin(subjectTilt));
         camera.up.set(0,0,1);
         camera.lookAt(target);
       }
       const panPivot=subject?.position??(drone?.active?drone.group.position:sub?.active?sub.mesh.position:orbitCenter);
       panDistance=fixedView(view)?3.5:Math.max(2,camera.position.distanceTo(panPivot));
-      const panOffset=cameraPan.get(view);
+      const panOffset=cameraPan.get(orbitKey(view));
       if(panOffset)camera.position.add(panOffset);
       drawForces(!drone?.active&&$('showForces').getAttribute('aria-pressed')==='true',s,subFrame,!!sub?.active,t,hullBlend,hullDisplay.previous);
       const waterCenter=subject?.position??boat?.group.position??motor?.group.position;

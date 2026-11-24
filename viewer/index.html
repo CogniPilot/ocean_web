@@ -225,6 +225,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <label class="control-select" id="subModeLabel" hidden><span>Sub mode</span><select id="subMode"><option value="0">Position</option><option value="1">Auto-level</option><option value="2">Acro</option></select></label>
 <label class="control-select" id="flightModeLabel" hidden><span>Flight mode</span><select id="flightMode"><option value="0">Position hold</option><option value="1">Auto level</option><option value="2">Acro</option></select></label>
 </div><div class="control-row">
+<button type="button" id="recenterView" aria-keyshortcuts="Home" title="Restore the selected camera’s default view (Home)">Recenter view</button>
 <button id="helm" title="Sail the regatta course automatically">Engage race autopilot</button>
 <button type="button" id="easeTraveler" aria-keyshortcuts="C" title="Release the main traveler line fully (C)" hidden>Ease traveler</button>
 <button id="cutMotors" hidden aria-pressed="false">Cut motors</button>
@@ -397,7 +398,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <p id="gullKeys" hidden>↑/↓ pitch · ←/→ bank · A/D turn · W flap · S glide · Space call</p>
 <p id="flightKeys" hidden>RDD2 · ↑/↓ pitch · ←/→ roll · W/S climb/descend · A/D yaw · Space arm/disarm · hold Shift for fast horizontal flight · release direction to hover</p>
 <p id="sailKeys" data-boat>A/D steer · W eases the sheets · S hauls them in.</p>
-<p>Hold Shift for faster control or Ctrl for finer control. V cycles cameras, M opens the map, and Enter opens room chat.</p>
+<p>Hold Shift for faster control or Ctrl for finer control. V cycles cameras, Home recenters the current view, M opens the map, and Enter opens room chat.</p>
 </div></details>
 </div>
 </div>
