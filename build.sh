@@ -25,21 +25,9 @@ node scripts/piccard-solids.mjs
 if [[ -n ${RUMOCA:-} ]]; then
   compiler=$RUMOCA
 else
-  compiler_dir="$root/.deps/rumoca-src"
   revision=$(cat compiler/rumoca-revision)
-  if [[ ! -d "$compiler_dir/.git" ]]; then
-    fetch rumoca-src https://github.com/CogniPilot/rumoca "$revision"
-  fi
-  if [[ $(git -C "$compiler_dir" rev-parse HEAD) != "$revision" ]]; then
-    echo "Rumoca checkout differs from compiler/rumoca-revision. Set RUMOCA to test another compiler." >&2
-    exit 1
-  fi
-  fixes=(marine state-initialization navigation scatter mesh sail-guard batten loop-shadow snapshot-reads
-    clock-assertions div-bounds-test comprehension-replay quotient-seeds return-prefix fold-captures initial-clock flat-subscripts tensor-concat sampled-initial division-cutoff clock-runs mooring-initial direct-isolation lazy-event-history stay-slices projection-workspace bulk-history scan-projection
-    cs-event-reuse tensor-result-publication event-scratch)
-  patches=()
-  for name in "${fixes[@]}"; do patches+=("$root/compiler/rumoca-$name.patch"); done
-  python3 scripts/patch-rumoca.py "$compiler_dir" "$revision" "${patches[@]}"
+  compiler_dir="$root/.deps/rumoca-upstream"
+  fetch rumoca-upstream https://github.com/CogniPilot/rumoca "$revision"
   (cd "$compiler_dir" && cargo build --locked -p rumoca --bin rumoca --no-default-features \
     --features scheduled-sim,scenario-config,input-keyboard,transport-udp,transport-zenoh,viewer-web,process-control,fmu-packaging,component-build)
   compiler="$compiler_dir/target/debug/rumoca"

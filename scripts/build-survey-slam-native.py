@@ -11,7 +11,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("source", type=Path)
 parser.add_argument("output", type=Path)
-parser.add_argument("--headers", type=Path, default=Path(".deps/rumoca-src/crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers"))
+parser.add_argument("--headers", type=Path, default=Path(".deps/rumoca-upstream/crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers"))
 args = parser.parse_args()
 arch = {"x86_64": "x86_64", "aarch64": "aarch64"}.get(platform.machine())
 if platform.system() != "Linux" or not arch:

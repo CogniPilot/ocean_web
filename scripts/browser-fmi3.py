@@ -12,7 +12,7 @@ if xml.get('generationTool') != 'Rumoca' or xml.get('fmiVersion') != '3.0':
     raise ValueError('Expected a Rumoca FMI 3 model')
 destination.mkdir(parents=True, exist_ok=True)
 name = xml.attrib['modelName']
-headers = Path('.deps/rumoca-src/crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers')
+headers = Path('.deps/rumoca-upstream/crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers')
 c = source / 'sources'
 # Binaryen's -O2 pass expands the spectral FMU's large array initialization.
 if name in ('OnrtWake', 'WakeSpectrum', 'SwimmerWake', 'Wreck_SurveySLAM'):

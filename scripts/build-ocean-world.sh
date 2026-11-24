@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-compiler=${RUMOCA:-.deps/rumoca-src/target/debug/rumoca}
+compiler=${RUMOCA:-.deps/rumoca-upstream/target/debug/rumoca}
 lib=build/world-libs
 mkdir -p "$lib"
 for package in "$PWD"/.deps/modelica_models/*/package.mo "$PWD"/.deps/msl/*/package.mo "$PWD"/Wreck/package.mo; do

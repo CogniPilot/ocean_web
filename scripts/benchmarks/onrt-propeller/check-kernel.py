@@ -29,7 +29,7 @@ def equilibrium(rho, velocity):
 with tempfile.TemporaryDirectory() as tmp:
     library = Path(tmp) / "cell.so"
     subprocess.run([os.getenv("CC", "gcc"), "-O3", "-shared", "-fPIC",
-                    "-I"+str(root/".deps/rumoca-src/crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers"),
+                    "-I"+str(root/".deps/rumoca-upstream/crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers"),
                     *sorted(sources.glob("*.c")), "-lm", "-o", library], check=True)
     module = ct.CDLL(str(library))
     ptr, size, boolean = ct.c_void_p, ct.c_size_t, ct.c_bool
