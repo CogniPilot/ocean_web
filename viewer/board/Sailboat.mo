@@ -749,7 +749,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     input Real amp,kDir[2],phase,waveNumber,frequency,translation[3],spinRate[3];
     output Real lift,pitchTorque,rollTorque,dynamicForce[3],dynamicPitch,maxForedeckDepth,volume[size(xs,1)-1],skin,swellForce[2];
   protected
-    Real stationDeck,stationLevel,stationDepth,stationPhase,center[3],x,y,w,bottom,localZ,area,wetDepth,lever[3];
+    Real stationDeck,stationLevel,stationDepth,stationPhase,stationVolume,center[3],x,y,w,bottom,localZ,area,wetDepth,lever[3];
     Real sectionZ[4],localLift,crestPhase,crestSin,deckWet,wetFraction,normalV,waterV[3],velocity[3],panelForce[3];
     Real deckPressure,entryPressure,edgeDepth[2,4],depthA,depthB,wetLength,stripWidth,skinLength,sideSign;
     Real verticalProjection,normalY,waveY,waveZ,depthScaleInv,rotY[3],rotZ[3],waveSpeed;
@@ -769,6 +769,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       stationLevel:=waterLevel+(if useSections>.5 then sections[station]-surface[1:2]*center[1:2] else 0);
       stationDepth:=stationLevel+surface*center;
       stationPhase:=phase+kDir*center[1:2];
+      stationVolume:=0;
       // Adjacent sides of the transverse strips share their edges.
       for side in 1:2 loop
         sideSign:=if side==1 then 1 else -1;
@@ -794,7 +795,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
           crestSin:=if hasSwell then sin(crestPhase) else 0;
           wetDepth:=min(stationDeck-bottom,max(0,(stationDepth+normalY*y+verticalProjection*localZ+amp*crestSin)*depthScaleInv));
           lever:=center+y*rotY+(localZ+(if verticalProjection<=0 then .5*wetDepth else -.5*wetDepth))*rotZ;
-          volume[station]:=volume[station]+area*wetDepth;
+          stationVolume:=stationVolume+area*wetDepth;
           localLift:=1025*9.80665*area*wetDepth;
           if depthScale>1 then
             deckWet:=stationDepth+normalY*y+verticalProjection*stationDeck+(if hasSwell then
@@ -821,10 +822,11 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
           lift:=lift+localLift;rollTorque:=rollTorque+lever[2]*localLift; pitchTorque:=pitchTorque-lever[1]*localLift;
         end for;
       end for;
+      volume[station]:=stationVolume;
       // Froude-Krylov surge from the near-surface horizontal pressure gradient.
       // Each shallow wetted section integrates -grad(rho*g*wave elevation).
-      if hasSwell and volume[station]>0 then
-        swellForce:=swellForce-Wreck.rho*Wreck.g*volume[station]*amp*cos(stationPhase)*kDir;
+      if hasSwell and stationVolume>0 then
+        swellForce:=swellForce-Wreck.rho*Wreck.g*stationVolume*amp*cos(stationPhase)*kDir;
       end if;
     end for;
   end hullHydrostatics;
