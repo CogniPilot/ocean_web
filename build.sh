@@ -21,6 +21,7 @@ if ! git -C .deps/modelica_models apply --reverse --check "$root/compiler/rdd2-d
 fi
 fetch msl https://github.com/modelica/ModelicaStandardLibrary 8ae3d35c24e519cb2996cab20f3b13daf2b0c50a
 node scripts/wreck-solids.mjs
+node scripts/piccard-solids.mjs
 if [[ -n ${RUMOCA:-} ]]; then
   compiler=$RUMOCA
 else
