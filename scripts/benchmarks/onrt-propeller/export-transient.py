@@ -1,6 +1,7 @@
 """Export time-resolved PIMPLE fields and blade-patch pressures on the tank-frame display grid."""
 import argparse
 import json
+import re
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,27 @@ parser.add_argument("case", type=Path)
 parser.add_argument("output", type=Path)
 args = parser.parse_args()
 meta = json.loads((args.case / "case.json").read_text())
+log = args.case / "log.transient"
+if log.exists():
+    device = None
+    wall_seconds = None
+    completed = False
+    with log.open() as stream:
+        for line in stream:
+            if line.startswith("OpenFOAM linear systems on OpenCL GPU "):
+                device = line.removeprefix("OpenFOAM linear systems on OpenCL GPU ").strip()
+            elif line.startswith("ExecutionTime"):
+                clock = re.search(r"ClockTime = ([.0-9]+) s", line)
+                if clock:
+                    wall_seconds = float(clock[1])
+            elif line.strip() == "End":
+                completed = True
+    if not completed:
+        raise ValueError("OpenFOAM has not finished the transient")
+    if wall_seconds is not None:
+        meta["solveWallSeconds"] = wall_seconds
+    if device:
+        meta.update(computeDevice=device, linearSolver="OpenCL velocity and turbulence, GAMG pressure")
 out = args.output
 out.mkdir(parents=True, exist_ok=True)
 D, rpm, rho = meta["diameter_m"], meta["rpm"], meta["rho_kg_m3"]

@@ -1,11 +1,10 @@
 // OpenFOAM v2412 serial moving-mesh case. OpenFOAM assembles the equations;
-// ViennaCL solves each symmetric or asymmetric sparse system on the GPU.
+// ViennaCL solves the asymmetric velocity and turbulence systems on the GPU.
 #include "lduMatrix.H"
 #include "Pstream.H"
 #include "sigFpe.H"
 #define VIENNACL_WITH_OPENCL
 #include <viennacl/compressed_matrix.hpp>
-#include <viennacl/linalg/cg.hpp>
 #include <viennacl/linalg/bicgstab.hpp>
 #include <viennacl/linalg/jacobi_precond.hpp>
 #include <viennacl/ocl/backend.hpp>
@@ -20,7 +19,6 @@ public:
     solverPerformance solve(scalarField& psi, const scalarField& source, const direction cmpt) const override;
 };
 defineTypeNameAndDebug(OpenCLSolver,0);
-lduMatrix::solver::addsymMatrixConstructorToTable<OpenCLSolver> registerSymOpenCL;
 lduMatrix::solver::addasymMatrixConstructorToTable<OpenCLSolver> registerAsymOpenCL;
 
 solverPerformance OpenCLSolver::solve(scalarField& psi, const scalarField& source, const direction cmpt) const {
@@ -68,20 +66,14 @@ solverPerformance OpenCLSolver::solve(scalarField& psi, const scalarField& sourc
     Matrix A;A.set(rows.data(),cols.data(),values.data(),n,n,cols.size());
     viennacl::linalg::jacobi_precond<Matrix> M(A,{});
     viennacl::vector<double> rhs(n),delta(n);
-    const bool symmetric=matrix_.symmetric();
     do{
         viennacl::fast_copy(residual.begin(),residual.end(),rhs.begin());
         const double target=std::min(.3,.3*std::max(tolerance_,relTol_*perf.initialResidual())/perf.finalResidual());
         const unsigned remaining=maxIter_-perf.nIterations();
-        if(symmetric){
-            viennacl::linalg::cg_tag tag(target,remaining);
-            delta=viennacl::linalg::solve(A,rhs,tag,M);
-            perf.nIterations()+=std::max(1u,(unsigned)tag.iters());
-        }else{
-            viennacl::linalg::bicgstab_tag tag(target,remaining);
-            delta=viennacl::linalg::solve(A,rhs,tag,M);
-            perf.nIterations()+=std::max(1u,(unsigned)tag.iters());
-        }
+        viennacl::linalg::bicgstab_tag tag(target,remaining);
+        tag.iters(0);
+        delta=viennacl::linalg::solve(A,rhs,tag,M);
+        perf.nIterations()+=std::max(1u,(unsigned)tag.iters());
         viennacl::fast_copy(delta.begin(),delta.end(),scratch.begin());
         psi+=scratch;
         matrix_.Amul(product,psi,interfaceBouCoeffs_,interfaces_,cmpt);
