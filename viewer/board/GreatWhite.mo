@@ -61,7 +61,7 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
       loads[8]:=loads[8]+arm[2]*(cp*contact[3]-sp*contact[1])-(side*sr+up*cr)*contact[2];
     end for;
   end groundContact;
-  output Real ground[8];
+  discrete output Real ground[8](each start=0,each fixed=true);
   output Real tailThrust,shaftPower,frequency,finAngle,velocity[2],trunkFlex;
 protected
   Real u,v,along,normal,wet,tailWet,finWet,turn,effort,amplitude,rate,target,rawTorque,torque,caudalArm,torqueLimit,powerLimit,limitedTorque;
@@ -138,7 +138,11 @@ equation
   // remaining peduncle deflection and compliant caudal foil keep the tail beat.
   trunkFlex=.29*x[6]/(1+(abs(along)/1.18)^6);
   forward=tailX+finX+drag;vertical=cr*finZ+bodyNormal;
-  ground=groundContact({east,north,z},heading,x,length,bank);
+  // Use the same contact clock as the humpback so a face change on the wreck
+  // cannot force arbitrarily small adaptive integration steps.
+  when sample(0,.005) then
+    ground=groundContact({east,north,z},heading,x,length,bank);
+  end when;
   der(x[1])=(boatLoad[1]+ground[1]+cp*forward-sp*vertical)/mass+x[9]*x[10];
   der(x[2])=(ground[3]+sp*forward+cp*vertical)/mass+9.81*(.992*wet-1);
   der(x[3])=x[4];
