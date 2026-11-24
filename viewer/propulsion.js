@@ -21,7 +21,7 @@ function bubbleWake(T,scene,sub){
    vertexShader:'attribute float strength;uniform float pixels;varying float a;void main(){a=strength;vec4 p=modelViewMatrix*vec4(position,1.);gl_Position=projectionMatrix*p;gl_PointSize=clamp(pixels*.012/max(.1,-p.z),1.,8.);}',
    fragmentShader:'varying float a;void main(){float r=length(gl_PointCoord-.5)*2.;if(r>1.||a<=0.)discard;gl_FragColor=vec4(.75,.94,.98,a*(.2+.7*smoothstep(.45,.86,r))*(1.-smoothstep(.86,1.,r)));}'});
  const points=new T.Points(geometry,material);points.frustumCulled=false;scene.add(points);
- const fractions=Array(7).fill(0),origin=new T.Vector3(),jet=new T.Vector3();
+ const fractions=Array(sub.userData.rotors.length).fill(0),origin=new T.Vector3(),jet=new T.Vector3();
  let head=0;
  return (dt,rpm,cavitation,current,height)=>{
    material.uniforms.pixels.value=height;

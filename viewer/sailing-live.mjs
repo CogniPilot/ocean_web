@@ -1742,7 +1742,7 @@ async function run(saved=readReset(),carried){
     $('sailKeys').textContent=steerKeys+' steer · W eases the sheets · S hauls them in'+(cat?' · Arrows adjust travelers · C releases the main traveler.':'.');
     $('motorKeys').textContent='W/S throttle · '+steerKeys+' helm · Arrows aim searchlight · Z/X lights · C wipers';
     if(sub?.active)$('subKeys').textContent=verticalKeys+' rise/dive · '+steerKeys+' yaw · '+foreAftKeys+
-      (sub.mode===0?' forward/back · '+sideKeys+' strafe':' pitch · '+sideKeys+' roll')+' · Z lamp · X sonar map · C DVL rays';
+      (sub.mode===0?' forward/back':' pitch · '+sideKeys+' roll')+' · Z lamp · X sonar map · C DVL rays';
     $('animalPilot').hidden=!swimming;$('gullKeys').hidden=!gull;
     if(swimming)$('swimKeys').textContent='W/S swim effort · '+steerKeys+' turn · '+
       (wasd()?'R rise · F dive':animalKind()==='shark'?'↓ rise · ↑ dive':'↑ rise · ↓ dive')+
@@ -1793,7 +1793,7 @@ async function run(saved=readReset(),carried){
     }else if(drone?.active){
       leftLabel=attitudeControl?'Yaw / throttle':'Yaw / climb';rightLabel='Roll / pitch';
     }else if(sub?.active){
-      leftLabel='Yaw / heave';rightLabel=sub.mode===0?'Strafe / surge':'Roll / pitch';
+      leftLabel='Yaw / heave';rightLabel=sub.mode===0?'Surge':'Roll / pitch';
     }else{
       leftLabel=motor?'Helm / throttle':'Rudder / sheet';
     }

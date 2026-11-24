@@ -39,10 +39,10 @@ function surveyVehicle(T,housing){
   motor.side=T.DoubleSide;
   const linerProfile=[[.092,-.034],[.090,-.032],[.090,-.010],[.092,-.008]]
     .map(([r,z])=>new T.Vector2(r,z));
-  const liners=new T.InstancedMesh(new T.LatheGeometry(linerProfile,28).rotateX(Math.PI/2),motor,7);
-  const guards=new T.InstancedMesh(guardGeometry,plastic,7);
-  const motors=new T.InstancedMesh(new T.CylinderGeometry(.03,.029,.047,16).rotateX(Math.PI/2),motor,7);
-  const spokes=new T.InstancedMesh(new T.BoxGeometry(.075,.008,.013),plastic,21);
+  const liners=new T.InstancedMesh(new T.LatheGeometry(linerProfile,28).rotateX(Math.PI/2),motor,mounts.length);
+  const guards=new T.InstancedMesh(guardGeometry,plastic,mounts.length);
+  const motors=new T.InstancedMesh(new T.CylinderGeometry(.03,.029,.047,16).rotateX(Math.PI/2),motor,mounts.length);
+  const spokes=new T.InstancedMesh(new T.BoxGeometry(.075,.008,.013),plastic,3*mounts.length);
   const blades=finish(0x202429,.18,.37);
   const up=new T.Vector3(0,0,1),placement=new T.Object3D(),arm=new T.Object3D();
   sub.userData.rotors=mounts.map((center,id)=>{
@@ -67,9 +67,17 @@ function surveyVehicle(T,housing){
   sub.add(guards,liners,motors,spokes);
   const light=new T.SpotLight(0xc8f0ff,45,18,.55,.38,1.3);
   light.name='Survey lamp';light.target.name='Survey lamp target';
-  light.position.set(.55,.20,.06);light.target.position.set(8,.20,-.52);
-  const emitter=new T.Mesh(new T.CircleGeometry(.035,16),new T.MeshBasicMaterial({color:0xe6f9ff,toneMapped:false}));
-  emitter.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),light.target.position.clone().sub(light.position).normalize());
+  // The port plate ends at z = −.0805 m; the tray rail starts at −.128 m.
+  // Seat the barrel on that rail, with the lens just forward of the plate edge.
+  light.position.set(.605,.218,-.105);
+  const beam=new T.Vector3(7.45,0,-.58).normalize();
+  light.target.position.copy(light.position).addScaledVector(beam,7.5);
+  const barrel=new T.Mesh(new T.CylinderGeometry(.023,.023,.04,20),plastic);
+  barrel.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),beam);
+  barrel.position.copy(light.position).addScaledVector(beam,-.021);
+  sub.add(barrel);
+  const emitter=new T.Mesh(new T.CircleGeometry(.019,20),new T.MeshBasicMaterial({color:0xe6f9ff,toneMapped:false}));
+  emitter.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),beam);
   emitter.name="Survey lamp lens";emitter.position.copy(light.position);sub.add(emitter);
   sub.add(light,light.target);
   sub.traverse(mesh=>{

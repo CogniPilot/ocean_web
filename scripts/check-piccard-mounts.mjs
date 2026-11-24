@@ -10,6 +10,8 @@ const {mounts,axes}=JSON.parse(frame.extras.thrusterLayout);
 const plant=await loadInstance('Wreck_Plant',{},async url=>new Response(await readFile(url)));
 assert.deepEqual(mounts.flat(),Array.from(plant.get('propMount')));
 assert.deepEqual(axes.flat(),Array.from(plant.get('propAxis')));
+assert.equal(mounts.length,6);
+assert(axes.every(axis=>axis[1]===0));
 for(const side of [0,1]){
   const [drive,mid,aft]=[side,side+2,side+4];
   assert(mounts[drive][0]>mounts[mid][0] && mounts[mid][0]>mounts[aft][0]);
@@ -27,4 +29,4 @@ assert(lift.every(force=>force>0 && force<14));
 assert(Math.abs(lift.reduce((a,b)=>a+b,0)-plant.get('heave'))<1e-9);
 assert(Math.abs(torque(1)-plant.get('rollCmd'))<1e-9);
 assert(Math.abs(-torque(0)-plant.get('pitchCmd'))<1e-9);
-console.log('Seven mount positions and shaft directions agree between the exported shell and plant.');
+console.log('Six mount positions and shaft directions agree between the exported shell and plant.');

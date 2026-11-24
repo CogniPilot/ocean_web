@@ -47,7 +47,7 @@ self.onmessage=async({data})=>{
     const [survey,position,q,rpm,cavitation,flow]=plant.getMany(
       ['surveyTelemetry','position','orientation','propellerRPM','cavitation','current']);
     self.postMessage({waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,
-      thrust:survey.slice(3,10),buoyancy:survey.slice(10,13),contact:survey.slice(13,16),mapRows,
+      thrust:survey.slice(3,9),buoyancy:survey.slice(9,12),contact:survey.slice(12,15),mapRows,
       time:tick*.01,position,q,rpm,cavitation,flow,
       ...(previousEstimate!==estimate?{estimate,dvl}:{}),
       ...(data.showSensorImage && sentImage!==image?{image,features,ping}:{})},mapRows?[mapRows.buffer]:[]);

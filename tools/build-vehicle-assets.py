@@ -411,14 +411,14 @@ for x in (-.53,.53):
 # Keep mounts in the physical body frame even when Blender batches the shell.
 plant = (DEST.parents[1]/"Wreck/package.mo").read_text()
 def motor_table(name):
-    rows = re.search(r"parameter Real " + name + r"\[7,3\]=\[([^\]]+)\]", plant)[1]
+    rows = re.search(r"parameter Real " + name + r"\[6,3\]=\[([^\]]+)\]", plant)[1]
     return [list(map(float,row.split(","))) for row in rows.split(";")]
 
 mounts = motor_table("propMount")
 axes = motor_table("propAxis")
 for side in (-1,1):
     y = side*.218
-    # Open central ports give the transverse thruster a clear discharge path.
+    # Open central ports in the side plates.
     for x in (-.356,.356):
         block('Longitudinal side plate', (x,y,.015), (.49,.015,.191), frame)
     block('Upper plate bridge',(0,y,.091),(.23,.015,.039),frame)

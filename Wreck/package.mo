@@ -63,7 +63,7 @@ package Wreck
     MultiBodyLie.Forces.WorldForceAndTorque collision(resolveInFrame=MultiBodyLie.Types.ResolveInFrameB.world);
     MultiBodyLie.Forces.WorldForceAndTorque loads(resolveInFrame=MultiBodyLie.Types.ResolveInFrameB.frame_b);
     input Real windSpeed(start=11), windDirection(start=0.45);
-    input Real hullSurfaceOffset=0, propSurfaceOffset[7]=zeros(7)
+    input Real hullSurfaceOffset=0, propSurfaceOffset[6]=zeros(6)
       "Additional local free-surface elevation at the hull and at each propeller [m]";
     input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
     input Real seaState=-1;
@@ -84,17 +84,15 @@ package Wreck
     input Real manual(start=0) "Enable manual control above 0.5";
     input Real manualMode(start=0) "0 position, 1 auto-level, 2 body-rate acro";
     input Real attitudePilot[2](each start=0) "Normalized roll and pitch stick commands";
-    input Real pilot[4](each start=0) "Body surge, port sway, yaw rate and upward speed [m/s,m/s,rad/s,m/s]";
-    Real lateralThrust(start=0,fixed=true,stateSelect=StateSelect.always) "Reversible transverse thruster [N]";
-    Real swayCommand;
+    input Real pilot[4](each start=0) "Body surge, reserved (unactuated sway), yaw rate and upward speed [m/s,m/s,rad/s,m/s]";
     parameter Real propellerDiameter=0.17, thrustCoefficient=0.035, inceptionNumber=3.5;
-    output Real propellerRPM[7], cavitation[7], appliedThrust[7];
-    parameter Real propMount[7,3]=[.36,.32,0;.36,-.32,0;.065,.32,0;.065,-.32,0;-.43,.32,0;-.43,-.32,0;0,0,0] "Photo-estimated Piccard mounts, forward/port/up in metres";
-    parameter Real propAxis[7,3]=[1,0,0;1,0,0;0,0,1;0,0,1;0,0,1;0,0,1;0,1,0];
-    parameter Real propMomentArm[7,3]={cross(propMount[i,:],propAxis[i,:]) for i in 1:7};
-    Real propPosition[7,3],propDiskHeight[7],diskCut[7],localSurface[7];
-    output Real propWet[7];
-    Real shaftDemand[7], tipDynamicPressure[7];
+    output Real propellerRPM[6], cavitation[6], appliedThrust[6];
+    parameter Real propMount[6,3]=[.36,.32,0;.36,-.32,0;.065,.32,0;.065,-.32,0;-.43,.32,0;-.43,-.32,0] "Photo-estimated Piccard mounts, forward/port/up in metres";
+    parameter Real propAxis[6,3]=[1,0,0;1,0,0;0,0,1;0,0,1;0,0,1;0,0,1];
+    parameter Real propMomentArm[6,3]={cross(propMount[i,:],propAxis[i,:]) for i in 1:6};
+    Real propPosition[6,3],propDiskHeight[6],diskCut[6],localSurface[6];
+    output Real propWet[6];
+    Real tipDynamicPressure[6];
     output Real position[3]=body.r_0, orientation[4]=body.Q, velocity[3]=body.frame_a.v, yawRate=body.w_a[3], pressure=ocean.gaugePressure, current[3]=ocean.velocity, tankLitres[2]=1000*{fore.volume,aft.volume}, motor[6]=thrust;
     output Real nav[3](start={-5,0,0},each fixed=true) "East, north, yaw from onboard sensors";
     output Real cornerScore, visualWeight;
@@ -110,15 +108,15 @@ package Wreck
       "ENU survey stations at the stern, companionways three deck passages and back over the upper hull";
     output Integer waypoint(start=1,fixed=true);
     output Boolean surveyDone(start=false,fixed=true);
-    output Real surveyTelemetry[16]=cat(1,{waypoint,waypointCount,if surveyDone then 1 else 0},appliedThrust,buoy,contactForce)
+    output Real surveyTelemetry[15]=cat(1,{waypoint,waypointCount,if surveyDone then 1 else 0},appliedThrust,buoy,contactForce)
       "Survey station, total, completion, applied motor forces, body buoyancy and world contact";
-    Real goal[3],eastError,northError,verticalError,surgeRef,swayRef,depthEst,surge,yawCmd,heave,rollCmd,pitchCmd;
+    Real goal[3],eastError,northError,verticalError,surgeRef,depthEst,surge,yawCmd,heave,rollCmd,pitchCmd;
     Real goalDepth,headingError,approach,forwardError,legStart[2],legVector[2],legLength,lookback;
     Real pilotEast,pilotNorth;
     Real foreLift,aftLift;
     Boolean positionMode,acroMode,translate,dive;
     Real heldStation[3](start={-5,0,10.29},each fixed=true) "Estimated east, north and pressure depth";
-    Real holdE,holdN,positionSurge,positionSway,heaveRef;
+    Real holdE,holdN,positionSurge,heaveRef;
     Real cmd[6], thrust[6](each stateSelect=StateSelect.always,each start=0,each fixed=true), rel[3], up[3], buoy[3], ballast[3], wet;
     parameter Real airDensity=1.225, windageCdA[3]={0.12,0.32,0.25} "Exposed hull drag areas [m2]";
     parameter Real windageCenter[3]={0.04,0,0.12} "Centre of wind pressure in body axes [m]";
@@ -156,7 +154,7 @@ package Wreck
     depthEst=sensor[59]/(rho*g);
     positionMode=manual>.5 and manualMode<.5;
     acroMode=manual>.5 and manualMode>1.5;
-    translate=abs(pilot[1])+abs(pilot[2])>.025;
+    translate=abs(pilot[1])>.025;
     dive=abs(pilot[4])>.025;
     goalDepth=if positionMode then heldStation[3] elseif manual>.5 then depthEst else .29-goal[3];
     // Let the reference follow the navigation estimate during translation.
@@ -169,8 +167,6 @@ package Wreck
     holdN=heldStation[2]-sensor[61];
     positionSurge=if translate then pilot[1] elseif sensor[63]>.5 then
       max(-.55,min(.55,.8*(holdE*cos(heading)+holdN*sin(heading)))) else 0;
-    positionSway=if translate then pilot[2] elseif sensor[63]>.5 then
-      max(-.38,min(.38,.8*(-holdE*sin(heading)+holdN*cos(heading)))) else 0;
     heaveRef=if dive then pilot[4] else max(-.4,min(.4,.8*(depthEst-heldStation[3])));
     verticalError=depthEst-goalDepth;
     // Waypoints advance only on measured arrival. Hold the final station.
@@ -190,11 +186,8 @@ package Wreck
     forwardError=pilotEast*cos(heading)+pilotNorth*sin(heading);
     approach=max(0,min(1,(cos(headingError)-.78)/.18));
     surgeRef=approach*max(0,min(.65,forwardError));
-    swayRef=approach*max(-.15,min(.15,-pilotEast*sin(heading)+pilotNorth*cos(heading)));
     surge=if positionMode then 18*(positionSurge-sensor[64]) elseif manual>.5 then 0 else 24*(surgeRef-sensor[64]);
     yawCmd=if manual>.5 then 4*(pilot[3]-sensor[58]) else 5*max(-.95,min(.95,headingError))-4*sensor[58];
-    swayCommand=if positionMode then 22*(positionSway-sensor[65]) elseif manual>.5 then 0 else 26*(swayRef-sensor[65]);
-    der(lateralThrust)=(max(-16,min(16,swayCommand))-lateralThrust)/0.14;
     heave=if positionMode then 24*(heaveRef-verticalSpeed) elseif manual>.5 then 24*pilot[4]
       else 12*verticalError-15*verticalSpeed;
     roll=attitude[1];
@@ -215,15 +208,14 @@ package Wreck
     for i in 1:6 loop
       der(thrust[i])=(max(-14,min(14,cmd[i]))-thrust[i])/0.14;
     end for;
-    shaftDemand=cat(1,thrust,{lateralThrust});
-    for i in 1:7 loop
+    for i in 1:6 loop
       propPosition[i,:]=body.r_0+transpose(body.frame_a.R.T)*propMount[i,:];
       localSurface[i]=propSurfaceOffset[i]+seaLevel+Perception.seaHeight(ocean.tile,propPosition[i,1],propPosition[i,2]);
       propDiskHeight[i]=.5*propellerDiameter*sqrt(max(0,1-(up*propAxis[i,:])^2));
       diskCut[i]=max(-1,min(1,(localSurface[i]-propPosition[i,3])/max(.001,propDiskHeight[i])));
       propWet[i]=.5+(asin(diskCut[i])+diskCut[i]*sqrt(max(0,1-diskCut[i]^2)))/pi;
-      appliedThrust[i]=(propWet[i]+(1-propWet[i])*airDensity/rho)*shaftDemand[i];
-      propellerRPM[i]=60*shaftDemand[i]/sqrt(rho*thrustCoefficient*propellerDiameter^4*sqrt(shaftDemand[i]^2+0.0001));
+      appliedThrust[i]=(propWet[i]+(1-propWet[i])*airDensity/rho)*thrust[i];
+      propellerRPM[i]=60*thrust[i]/sqrt(rho*thrustCoefficient*propellerDiameter^4*sqrt(thrust[i]^2+0.0001));
       tipDynamicPressure[i]=0.5*rho*(pi*propellerDiameter*propellerRPM[i]/60)^2;
       cavitation[i]=propWet[i]*max(0,min(1,1-(101325+ocean.gaugePressure-2300)/(inceptionNumber*max(1,tipDynamicPressure[i]))));
     end for;

@@ -46,7 +46,7 @@ export function dopplerDisplay(T,vehicle){
 
 export function submarinePilot(axis,mode=0){
   const {pitch,roll,yaw,throttle}=animalSticks(axis);
-  return {pilot:[mode===0?pitch:0,mode===0?-roll:0,yaw,throttle],
+  return {pilot:[mode===0?pitch:0,0,yaw,throttle],
     attitude:mode===0?[0,0]:[roll,pitch]};
 }
 
@@ -113,7 +113,7 @@ export function submarine(T,scene,world,signal){
         receive({time,position:world.get('sub.position'),q:world.get('sub.orientation'),rpm:world.get('sub.propellerRPM'),
           cavitation:world.get('sub.cavitation'),flow:world.get('sub.current'),estimate,ping:world.get('ping'),dvl:world.get('sensor'),
           mapRows:rows!==displayedMap?rows:undefined,
-          waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,thrust:survey.slice(3,10),buoyancy:survey.slice(10,13),contact:survey.slice(13,16)});
+          waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,thrust:survey.slice(3,9),buoyancy:survey.slice(9,12),contact:survey.slice(12,15)});
         if(rows)displayedMap=rows;
         return;
       }

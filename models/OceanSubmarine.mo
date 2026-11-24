@@ -4,25 +4,25 @@ model OceanSubmarine "Submarine with onboard navigation and a shared sea"
   input Real idleCamera(start=0),subManual(start=1),subPilot[4],subMode(start=0),subAttitudePilot[2];
   Wreck.Plant sub(seaClockOffset=seaClockOffset,seaState=seaState,windSpeed=windSpeed,windDirection=windBearing,
     sensor=sensor,elevationRanges=elev,manual=subManual,pilot=subPilot,manualMode=subMode,attitudePilot=subAttitudePilot,
-    hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:8]);
+    hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:7]);
   discrete Real previousGyro[3](each start=0,each fixed=true);
   final parameter Real beams[1017,3]=Wreck.Perception.directions();
   discrete output Real sensor[91](each start=0,each fixed=true),elev[100](each start=0,each fixed=true),
     image[864](each start=0,each fixed=true),estimate[21](each start=0,each fixed=true),
     keyframes[48,180](each start=0,each fixed=true),features[24,5](each start=0,each fixed=true),ping[65,32](each start=0,each fixed=true);
-  Real receiverPosition[8,2],receiverWater[8];
-  discrete Real sampledWake[8](each start=0,each fixed=true),priorWake[8](each start=0,each fixed=true);
+  Real receiverPosition[7,2],receiverWater[7];
+  discrete Real sampledWake[7](each start=0,each fixed=true),priorWake[7](each start=0,each fixed=true);
 equation
   focus=sub.position;
   committeeLoad=zeros(6);
   receiverPosition[1,:]=sub.position[1:2];
-  receiverPosition[2:8,:]=sub.propPosition[:,1:2];
-  for i in 1:8 loop
+  receiverPosition[2:7,:]=sub.propPosition[:,1:2];
+  for i in 1:7 loop
     receiverWater[i]=(1-waterFraction)*priorWake[i]+waterFraction*sampledWake[i]
       +swell[1]*sin(swell[2]+receiverPosition[i,:]*swell[3:4]);
   end for;
   when sample(0,.1) then
-    for i in 1:8 loop
+    for i in 1:7 loop
       sampledWake[i]=Regatta.elevationAt(waves.height,receiverPosition[i,1]-waves.driftE,
         receiverPosition[i,2]-waves.driftN,waves.period);
     end for;

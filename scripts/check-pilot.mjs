@@ -16,9 +16,14 @@ function drive(pilot,seconds){
   }
 }
 drive([0,0,0,-1.65],10);drive([0,0,0,1.65],46);
-const y=plant.get('position')[1];drive([0,.85,0,0],3);
-const strafe=plant.get('position')[1]-y;
+const twin=await subHarness(),idle=await subHarness();
+for(const [rig,side] of [[twin,.85],[idle,0]]){
+  rig.plant.set('manual',1);rig.plant.set('pilot',[0,side,0,0]);
+  for(let tick=0;tick<15;tick++){rig.sample();rig.step();}
+}
+assert.deepEqual(twin.plant.get('position'),idle.plant.get('position'));
+assert.deepEqual(twin.plant.get('appliedThrust'),idle.plant.get('appliedThrust'));
 const before=plant.get('nav')[2];drive([0,0,.95,0],4);
 const turn=plant.get('nav')[2]-before;
-console.log({minimumZ,contact,surfaceGap,peakRPM,peakCavitation,echoes,strafe,turn});
-assert(minimumZ>=-13.8&&contact>1&&surfaceGap>-.26&&peakCavitation>0&&echoes>=8&&strafe>.15&&turn>.25);
+console.log({minimumZ,contact,surfaceGap,peakRPM,peakCavitation,echoes,turn});
+assert(minimumZ>=-13.8&&contact>1&&surfaceGap>-.26&&peakCavitation>0&&echoes>=8&&turn>.25);
