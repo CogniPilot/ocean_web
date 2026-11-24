@@ -241,6 +241,13 @@ Add `--wave-field wake.csv` to export the final Modelica wake grid with
 hull-relative forward and port coordinates in meters. The resistance time
 series still goes to standard output.
 
+Use `--geometry hull.json` to compare custom strip geometries at a prescribed
+draft and trim. Supply seven `stations` in increasing fore-aft order in meters
+(aft to bow), seven corresponding `beamHalf` values in meters, and twelve
+`volume` entries in cubic meters, six consecutive strips per side. Set
+half-spacing to zero for a centered source and set the unused row's volumes to
+zero. Keep displacement and test conditions matched when comparing designs.
+
 Run `node scripts/check-kelvin-wake.mjs > kelvin.json` for a compact
 displacement-source tow at three speeds in deep, still water. It measures
 wave elevation along rays 12–22 m astern, verifies port/starboard symmetry and

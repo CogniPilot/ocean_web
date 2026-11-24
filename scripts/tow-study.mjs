@@ -3,14 +3,25 @@
 import {readFile,writeFile} from 'node:fs/promises';
 import {parseArgs} from 'node:util';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
-const {positionals,values}=parseArgs({allowPositionals:true,options:{'wave-field':{type:'string'}}});
+const {positionals,values}=parseArgs({allowPositionals:true,options:{'wave-field':{type:'string'},geometry:{type:'string'}}});
 const [speed=2,separation=1.02,heading=0]=positionals.map(Number);
 if(![speed,separation,heading].every(Number.isFinite)||speed<0||separation<0)throw Error('Expected speed, half-spacing and heading');
 const read=async url=>new Response(await readFile(url));
-const hull=await loadInstance('Hobie16',{launchSpeed:0,launchHeight:.2},read);
-const stations=hull.get('stationX'),length=stations[stations.length-1]-stations[0];
-const water=await loadInstance('WakeSpectrum',{volume:hull.get('sectionVolume'),stations,
-  beamHalf:hull.get('beamHalf'),separation,heading},read);
+let geometry;
+if(values.geometry){
+  geometry=JSON.parse(await readFile(values.geometry,'utf8'));
+}else{
+  const hull=await loadInstance('Hobie16',{launchSpeed:0,launchHeight:.2},read);
+  geometry={stations:hull.get('stationX'),beamHalf:hull.get('beamHalf'),volume:hull.get('sectionVolume')};
+}
+const {stations,beamHalf,volume}=geometry??{};
+const validArray=(list,count,min)=>list?.length===count&&Array.from(list).every(x=>Number.isFinite(x)&&x>=min);
+if(!validArray(stations,7,-Infinity)||!Array.from(stations).every((x,i)=>i===0||x>stations[i-1])||
+   !validArray(beamHalf,7,0)||!validArray(volume,12,0)){
+  throw Error('Expected seven increasing stations in meters, seven nonnegative half-beams, and twelve nonnegative strip volumes in m³.');
+}
+const length=stations[6]-stations[0];
+const water=await loadInstance('WakeSpectrum',{volume,stations,beamHalf,separation,heading},read);
 const c=Math.cos(heading),s=Math.sin(heading);
 console.log('time_s,distance_m,speed_m_s,half_spacing_m,heading_rad,froude_length,resistance_N,side_force_N,yaw_Nm,crest_m,trough_m');
 let distance=0;
