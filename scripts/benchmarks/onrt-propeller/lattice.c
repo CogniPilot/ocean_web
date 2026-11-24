@@ -18,7 +18,7 @@ static FILE *open_file(const char *name,const char *mode){FILE *f=fopen(name,mod
 static void *allocate(size_t n,size_t bytes){void *p=calloc(n,bytes);if(!p){perror("allocation");exit(1);}return p;}
 
 int main(int argc,char **argv){
-    if(argc!=5&&argc!=6){fprintf(stderr,"Usage: lattice MASK J RPM REVOLUTIONS [NORMAL_TENSORS]\n");return 2;}
+    if(argc<5||argc>7){fprintf(stderr,"Usage: lattice MASK J RPM REVOLUTIONS [NORMAL_TENSORS [FRAMES_PER_TURN]]\n");return 2;}
     FILE *maskfile=open_file(argv[1],"rb");
     int info[3]; if(fread(info,sizeof(int),3,maskfile)!=3)return 1;
     const int res=info[0],width=info[1],phases=info[2];
@@ -28,7 +28,7 @@ int main(int argc,char **argv){
     if(fread(mask,1,mask_size,maskfile)!=mask_size)return 1;
     fclose(maskfile);
     float *tensors=NULL;
-    if(argc==6){
+    if(argc>=6){
         FILE *file=open_file(argv[5],"rb");
         int shape[3];
         if(fread(shape,sizeof(int),3,file)!=3||memcmp(info,shape,sizeof(info))!=0)return 2;
@@ -60,6 +60,13 @@ int main(int argc,char **argv){
     FILE *history=open_file("rumoca-loads.csv","w");
     fprintf(history,"step,time_s,revolutions,thrust_N,torque_Nm,KT,KQ,max_mach,mask_phase,omega_rad_s\n");
     const int end=(int)ceil(revs*stepsPerRev);
+    const int frames=argc==7?atoi(argv[6]):0;
+    if(argc==7&&(frames<2||frames>stepsPerRev||end<2*stepsPerRev))return 2;
+    FILE *sequence=NULL;
+    if(frames){
+        sequence=open_file("rumoca-frames.csv","w");
+        fprintf(sequence,"step,time_s,revolutions,file\n");
+    }
     // Integrate annular loads over the final full-speed revolution. The last
     // bin also includes mixed cells whose centres sit outside the nominal tip.
     enum {rings=5};
@@ -77,6 +84,10 @@ int main(int argc,char **argv){
             // Ramp the rotor through its first revolution to limit acoustic startup waves.
             double s=fmin(1.,step/(double)stepsPerRev),ramp=s*s*(3-2*s);
             double turns=(step<=stepsPerRev?s*s*s-.5*s*s*s*s:step/(double)stepsPerRev-.5);
+            // Save physical timesteps across the final revolution, including both endpoints.
+            const int localStep=step-(end-stepsPerRev);
+            const int frame=(int)lround(localStep*(double)frames/stepsPerRev);
+            const int capture=frames&&localStep>=0&&localStep==(int)lround(frame*(double)stepsPerRev/frames);
             double angle=fmod(-4*turns,1.);if(angle<0)angle++;
             double phase=angle*phases;
             int pa=(int)phase%phases,pb=(pa+1)%phases;
@@ -115,7 +126,7 @@ int main(int argc,char **argv){
                         ringAxial[ring]+=out[19];ringMoment[ring]+=shaftMoment;
                     }
                     double v2=out[22]*out[22]+out[23]*out[23]+out[24]*out[24];maxMach=fmax(maxMach,sqrt(3*v2));
-                    if(step==end){
+                    if(step==end || capture){
                         for(int v=0;v<3;v++)field[4*k+v]=(float)(out[22+v]*dx/dt);
                         field[4*k+3]=(float)(out[25]*rho*(dx/dt)*(dx/dt));
                     }
@@ -127,6 +138,13 @@ int main(int argc,char **argv){
                 double thrust=-axial*scale,torque=moment*scale*dx;
                 fprintf(history,"%d,%.9g,%.8g,%.9g,%.9g,%.8g,%.8g,%.5g,%.12g,%.12g\n",step,step*dt,turns,thrust,torque,
                     thrust/(rho*n*n*pow(D,4)),torque/(rho*n*n*pow(D,5)),maxMach,phase,ramp*omega/dt);
+                if(capture){
+                    char filename[64];
+                    snprintf(filename,sizeof(filename),"rumoca-frame-%04d.bin",frame);
+                    FILE *file=open_file(filename,"wb");
+                    if(fwrite(field,sizeof(float),4*cells,file)!=4*cells||fclose(file))exit(1);
+                    fprintf(sequence,"%d,%.12g,%.12g,%s\n",step,step*dt,turns,filename);
+                }
                 if(step%20==0)fflush(history);
                 if(!isfinite(thrust)||!isfinite(torque)||maxMach>0.4){fprintf(stderr,"unstable step %d\n",step);exit(1);}
                 axial=moment=maxMach=0;double *old=current;current=next;next=old;
@@ -135,6 +153,7 @@ int main(int argc,char **argv){
         fmi3FreeInstance(model);
     }
     fclose(history);
+    if(sequence)fclose(sequence);
     if(end>=2*stepsPerRev){
         FILE *annuli=open_file("rumoca-annuli.csv","w");
         fprintf(annuli,"inner_r_over_R,KT,KQ\n");
@@ -148,7 +167,7 @@ int main(int argc,char **argv){
     if(fwrite(field,4,4*cells,f)!=4*cells)return 1;
     fclose(f);
     f=open_file("rumoca-volume.json","w");
-    fprintf(f,"{\"dims\":[%d,%d,%d],\"wallTreatment\":\"%s\",\"spacing_m\":%.12g,\"firstCenter_m\":[%.12g,%.12g,%.12g],\"dt_s\":%.12g,\"steps\":%d,\"stepsPerRev\":%d,\"J\":%.8g,\"rpm\":%.8g}\n",
-        nx,ny,nz,tensors?"normal-slip":"volume-no-slip",dx,(.5-cx0)*dx,(.5-cy0)*dx,(.5-cz0)*dx,dt,end,stepsPerRev,J,rpm);
+    fprintf(f,"{\"dims\":[%d,%d,%d],\"wallTreatment\":\"%s\",\"spacing_m\":%.12g,\"firstCenter_m\":[%.12g,%.12g,%.12g],\"dt_s\":%.12g,\"steps\":%d,\"stepsPerRev\":%d,\"framesPerTurn\":%d,\"J\":%.8g,\"rpm\":%.8g}\n",
+        nx,ny,nz,tensors?"normal-slip":"volume-no-slip",dx,(.5-cx0)*dx,(.5-cy0)*dx,(.5-cz0)*dx,dt,end,stepsPerRev,frames,J,rpm);
     fclose(f);return 0;
 }

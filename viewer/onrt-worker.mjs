@@ -1,11 +1,12 @@
 import {createWakeDisplayGrid} from './onrt-wake-display.mjs';
-import {loadBasin,period} from './onrt-basin.mjs';
+import {loadBasin,period,bowGaugeElevation} from './onrt-basin.mjs';
 import {readHeadSeaTrial,sampleTrial,attachShaftRecord} from './onrt-trial.mjs';
 
 let basin,trial,helmAt;
 const displayGrid=createWakeDisplayGrid(64,period);
 function frame(state){
   const tile=basin.wake.get('wakeHeight',new Float32Array(64*64));
+  if(trial)state.bowGauge=bowGaugeElevation(state,tile,trial.initial);
   return {state,tile,display:displayGrid(tile,state.east,state.north)};
 }
 self.onmessage=async ({data})=>{

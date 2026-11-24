@@ -1,3 +1,4 @@
+import {loadRecording} from './onrt-recording.mjs';
 import {volumeGeometry} from './onrt-volume.mjs';
 import {installOrbit} from './onrt-orbit.mjs';
 const T=window.THREE, el=id=>document.getElementById(id);
@@ -27,9 +28,16 @@ async function load(){
   el('solver').onchange=e=>{const url=new URL(location.href);url.searchParams.set('solver',e.target.value);location.assign(url);};
   const base='./assets/onrt/'+(lattice?'blade-normal/':'propeller/');
   const version=new URL(import.meta.url).search;
-  const [m,buf,volumeBuffer]=await Promise.all([fetch(base+'flow.json'+version).then(r=>r.json()),fetch(base+'flow.bin'+version).then(r=>r.arrayBuffer()),fetch(base+'volume.bin'+version).then(r=>r.arrayBuffer())]);
-  // Clip legend limits at the saved 99th percentiles to preserve contrast.
-  const speedScale=m.speedLimit,pressureScale=m.pressureLimit;
+  async function readAsset(file){
+    const response=await fetch(base+file+version);
+    if(!response.ok)throw Error(file+' · HTTP '+response.status);
+    return response;
+  }
+  const binary=async file=>(await readAsset(file)).arrayBuffer();
+  const meta=await readAsset('flow.json'),m=await meta.json(),seq=m.sequence;
+  const [buf,volumeBuffer,recording]=await Promise.all([binary('flow.bin'),seq?null:binary('volume.bin'),loadRecording(m,binary)]);
+  // Use the same signed pressure scale for both J = 0.8 blade surfaces.
+  const speedScale=m.speedLimit,pressureScale=2;
   const field=(name,type=Float32Array)=>new type(buf,...m.arrays[name]);
   const canvas=document.querySelector('canvas'),renderer=new T.WebGLRenderer({canvas,antialias:true});
   renderer.setPixelRatio(Math.min(2,devicePixelRatio));
@@ -51,9 +59,11 @@ async function load(){
   const shaftOmega=-2*Math.PI*m.rpm/60;
   const segments=field('lines');
   const traces=new T.BufferGeometry();traces.setAttribute('position',new T.BufferAttribute(segments,3));
-  const pathColors=new Float32Array(segments.length),travel=field('travelSeconds'),pathEnds=field('pathEnds',Uint32Array);
+  const needed=seq?6*seq.paths*(seq.verticesPerPath-1):segments.length;
+  if(seq)traces.setAttribute('position',new T.BufferAttribute(new Float32Array(needed),3));
+  const pathColors=new Float32Array(needed),travel=field('travelSeconds'),pathEnds=field('pathEnds',Uint32Array);
   let nextPath=0,previousTime=0;
-  for(let i=0;i<travel.length;i++){
+  for(let i=0;!seq && i<travel.length;i++){
     const j=6*i,length=Math.hypot(segments[j+3]-segments[j],segments[j+4]-segments[j+1],segments[j+5]-segments[j+2]);
     const speed=length*m.diameter_m/(travel[i]-previousTime);
     const color=ramp(speed/speedScale,[0x182952,0x289790,0xefc54a]);
@@ -67,7 +77,7 @@ async function load(){
   // Each segment end has its own travel time from the integration of ds / |U|.
   // Keep tracers inside their own streamline when they return to the inlet.
   const times=travel,ends=pathEnds;
-  const dotsPerPath=4,positions=new Float32Array(ends.length*dotsPerPath*3);
+  const dotsPerPath=4,positions=new Float32Array((seq?.tracers??ends.length*dotsPerPath)*3);
   const particleGeometry=new T.BufferGeometry(),particlePositions=new T.BufferAttribute(positions,3);
   particlePositions.setUsage(T.DynamicDrawUsage);
   particleGeometry.setAttribute('position',particlePositions);
@@ -104,7 +114,13 @@ async function load(){
   const cloud=new T.Points(new T.BufferGeometry(),new T.PointsMaterial({size:.028,vertexColors:true,transparent:true,opacity:.70,depthWrite:false}));
   scene.add(iso,cloud,new T.HemisphereLight(0xffffff,0x83969f,1.5));
   const light=new T.DirectionalLight(0xffffff,1.4);light.position.set(1,-2,3);scene.add(light);
-  let scalar,descriptor,pressureField=false;
+  let scalar=new Float32Array(count),descriptor,pressureField=false,frameIndex=-1;
+  const geometries=new Map();
+  let cacheBytes=0;
+  function clearVolumeCache(){
+    for(const g of geometries.values())g.dispose();
+    geometries.clear();cacheBytes=0;
+  }
   const color=new T.Color(),sequential=colorStops.map(v=>new T.Color(v)),diverging=pressureStops.map(v=>new T.Color(v));
   function tint(value){
     const stops=pressureField?diverging:sequential;
@@ -119,8 +135,14 @@ async function load(){
     el('level').textContent=threshold.toPrecision(3)+' '+quantities[el('quantity').value][1];
     if(!iso.visible&&!cloud.visible)return;
     const object=iso.visible?iso:cloud;
-    object.geometry.dispose();
-    object.geometry=volumeGeometry(T,grid,scalar,threshold,cloud.visible,tint);
+    let g=geometries.get(frameIndex);
+    if(!g){
+      g=volumeGeometry(T,grid,scalar,threshold,cloud.visible,tint);
+      const bytes=Object.values(g.attributes).reduce((s,a)=>s+a.array.byteLength,0);
+      if(cacheBytes+bytes>64*1024*1024)clearVolumeCache();
+      geometries.set(frameIndex,g);cacheBytes+=bytes;
+    }
+    object.geometry=g;
     if(iso.visible)iso.material.color.copy(tint(threshold));
     el('emptyField').hidden=object.geometry.attributes.position.count>0;
   }
@@ -128,10 +150,15 @@ async function load(){
     const key=el('quantity').value;
     pressureField=key==='fluidPressure';
     descriptor=grid.fields[key];
-    const packed=new Uint16Array(volumeBuffer,descriptor.offset,count);
-    scalar=Float32Array.from(packed,v=>v===0?NaN:descriptor.min+(v-1)*descriptor.step);
+    clearVolumeCache();
+    if(recording)recording.decode(key,Math.max(0,frameIndex),scalar);
+    else{
+      const packed=new Uint16Array(volumeBuffer,descriptor.offset,count);
+      scalar=Float32Array.from(packed,v=>v===0?NaN:descriptor.min+(v-1)*descriptor.step);
+    }
     const slider=el('threshold');
-    slider.min=descriptor.min;slider.max=descriptor.max;slider.step=(descriptor.max-descriptor.min)/2000;
+    slider.min=seq?Math.min(...seq.fields[key].map(s=>s.min)):descriptor.min;
+    slider.max=seq?Math.max(...seq.fields[key].map(s=>s.max)):descriptor.max;slider.step=(slider.max-slider.min)/2000;
     slider.value=descriptor.initial;
     el('fieldTicks').replaceChildren();
     const limit=descriptor.colorLimit;
@@ -155,7 +182,9 @@ async function load(){
   function update(){
     particles.visible=el('tracers').checked;paths.visible=el('paths').checked;
     section.visible=el('cut').checked;el('section').hidden=!section.visible;
-    rotor.material.vertexColors=el('bladePressure').checked;rotor.material.needsUpdate=true;
+    if(rotor.material.vertexColors!==el('bladePressure').checked){
+      rotor.material.vertexColors=el('bladePressure').checked;rotor.material.needsUpdate=true;
+    }
     rotor.material.color.set(rotor.material.vertexColors?0xffffff:0x6b787d);
     if(!section.visible)return;
     const x=Number(el('station').value),indices=[];
@@ -174,7 +203,7 @@ async function load(){
     const url=new URL(location.href);url.searchParams.set('field',el('quantity').value);
     history.replaceState(null,'',url);selectField();update();draw();
   };
-  for(const id of ['threshold','volumeMode'])el(id).oninput=()=>{updateVolume();draw();};
+  for(const id of ['threshold','volumeMode'])el(id).oninput=()=>{clearVolumeCache();updateVolume();draw();};
   el('pressureLabel').textContent=lattice?'Grid pressure at blade surface':'Blade pressure relative to outlet';
   const method=lattice?'Rumoca · '+m.revolutions.toFixed(1)+' turns · '+m.cellsPerDiameter+' cells/D':'OpenFOAM · iteration '+m.iteration;
   el('metrics').innerText=method+' · '+m.cells.toLocaleString()+' cells'+'\n'+m.rpm+' rpm · J '+m.J.toFixed(2)+' · Kₜ '+m.kt.toFixed(3)+' · Kq '+m.kq.toFixed(3)+(m.J===.8?'\nIIHR port · Kₜ 0.351 · Kq 0.091':'')+(m.J===.8&&m.kt<0?'\nPredicted thrust reverses the measured direction':'');
@@ -194,12 +223,51 @@ async function load(){
   const animate=el('animate'),rate=el('rate');
   animate.checked=!window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let elapsed=0,lastFrame,scheduled;
+  const slider=el('phase');
+  el('phaseControl').hidden=!recording;
+  el('spinControl').hidden=!!recording;
+  el('fieldClock').textContent=recording?'Recorded Rumoca flow · one shaft revolution in the tank frame.':'Steady OpenFOAM field in the tank frame. Playback moves the tracers and optional blade mesh.';
+  if(seq)slider.max=seq.frames.length-1;
+  const palette=(stops)=>Array.from({length:256},(_,i)=>ramp(i/255,stops));
+  const speedPalette=palette(colorStops),bladePalette=palette(pressureStops);
+  const lookup=(v)=>Math.min(255,Math.max(0,Math.round(v*255)));
+  function showFrame(index){
+    if(index===frameIndex)return;
+    frameIndex=index;
+    const frame=seq.frames[index],{pressure,tracer,lines}=recording.geometryAt(index);
+    recording.decode(el('quantity').value,index,scalar);
+    rotor.rotation.x=-2*Math.PI*(frame.turns-m.revolutions);
+    pressure.forEach((p,i)=>bladePalette[lookup(.5+.5*p/pressureScale)].toArray(colors,3*i));
+    blade.attributes.color.needsUpdate=true;
+    positions.set(tracer);particlePositions.needsUpdate=true;
+    const xyz=traces.attributes.position.array;
+    let n=0;
+    for(let path=0;path<seq.paths;path++)for(let j=1;j<seq.verticesPerPath;j++){
+      const end=(path*seq.verticesPerPath+j)*4;
+      if(!lines[end+3]||!lines[end-1])break;
+      for(const i of [end-4,end]){
+        xyz[n]=lines[i]/8192;xyz[n+1]=lines[i+1]/8192;xyz[n+2]=lines[i+2]/8192;
+        speedPalette[lookup(.001*lines[i+3]/speedScale)].toArray(pathColors,n);n+=3;
+      }
+    }
+    traces.setDrawRange(0,n/3);traces.attributes.position.needsUpdate=true;traces.attributes.color.needsUpdate=true;
+    paths.frustumCulled=false;
+    slider.value=index;el('phaseLabel').value=(frame.time*1000).toFixed(1)+' ms · '+Math.round(360*(frame.turns-seq.frames[0].turns))+'°';
+    updateVolume();update();
+  }
+  slider.oninput=()=>{
+    animate.checked=false;playback();
+    const index=Number(slider.value);elapsed=seq.frames[index].time-recording.start;showFrame(index);draw();
+  };
   function tick(now){
     scheduled=undefined;
     if(lastFrame!==undefined)elapsed+=(now-lastFrame)*.001*Number(rate.value);
     lastFrame=now;
-    rotor.rotation.x=el('spin').checked?(shaftOmega*elapsed)%(2*Math.PI):0;
-    if(particles.visible)placeTracers(elapsed);
+    if(recording)showFrame(recording.frameAt(elapsed));
+    else{
+      rotor.rotation.x=el('spin').checked?(shaftOmega*elapsed)%(2*Math.PI):0;
+      if(particles.visible)placeTracers(elapsed);
+    }
     draw();
     scheduled=requestAnimationFrame(tick);
   }
@@ -216,6 +284,6 @@ async function load(){
     renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;
     camera.updateProjectionMatrix();draw();
   }
-  selectField();update();placeTracers(0);window.addEventListener('resize',resize);resize();playback();
+  selectField();update();if(recording)showFrame(0);else placeTracers(0);window.addEventListener('resize',resize);resize();playback();
 }
 load().catch(e=>{el('metrics').textContent='Could not load the flow field · '+e.message;});

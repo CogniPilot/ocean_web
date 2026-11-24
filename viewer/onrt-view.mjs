@@ -1,5 +1,5 @@
 import {loadInstance} from './fmi3/instance.mjs';
-import {sampleTrial} from './onrt-trial.mjs';
+import {sampleTrial,bowGaugeComparison} from './onrt-trial.mjs';
 import {installOrbit} from './onrt-orbit.mjs';
 import {keyboardAxisKey,preferredKeyboardLayout,saveKeyboardLayout} from './keyboard-sticks.mjs';
 import {period,wakeStep,waveCutCsv} from './onrt-basin.mjs';
@@ -182,20 +182,24 @@ async function start() {
   const turnGuide=new T.Group(),radiusMetres=3.19*L/2;
   const entryEast=mid+2.35*L-Math.sqrt(radiusMetres**2-(1.32*L-radiusMetres)**2);
   const guideMaterial=new T.MeshBasicMaterial({color:0x43eaf2,side:T.DoubleSide,toneMapped:false});
-  const circle=new T.Mesh(new T.RingGeometry(radiusMetres-.022,radiusMetres+.022,192),guideMaterial);
+  // Six triangle pairs of arc followed by a four-pair gap in each dash period.
+  const ring=new T.RingGeometry(radiusMetres-.022,radiusMetres+.022,560);
+  ring.setIndex(Array.from(ring.index.array).filter((_,i)=>Math.floor(i/6)%10<6));
+  const circle=new T.Mesh(ring,guideMaterial);
   circle.rotation.x=-Math.PI/2;circle.position.set(entryEast,0,-turnNorth-radiusMetres);
   turnGuide.add(circle);
   const approach=new T.Line(new T.BufferGeometry().setFromPoints([
     new T.Vector3(mid,0,-turnNorth),new T.Vector3(entryEast,0,-turnNorth)]),
     new T.LineDashedMaterial({color:0x43eaf2,dashSize:.23,gapSize:.15,toneMapped:false}));
   approach.computeLineDistances();turnGuide.add(approach);
-  const arrow=new T.Shape();
-  arrow.moveTo(.22,0);arrow.lineTo(-.18,.14);arrow.lineTo(-.18,-.14);arrow.closePath();
-  const direction=new T.Mesh(new T.ShapeGeometry(arrow),guideMaterial);
-  const angle=Math.PI/4;
-  direction.rotation.set(-Math.PI/2,0,angle);
-  direction.position.set(entryEast+radiusMetres*Math.sin(angle),.001,-turnNorth-radiusMetres*(1-Math.cos(angle)));
-  turnGuide.add(direction);turnGuide.position.y=.065;turnGuide.visible=false;scene.add(turnGuide);
+  const square=new T.PlaneGeometry(.32,.32);
+  for(const [advance,transfer] of [[0,0],[2.35,1.32]]){
+    const marker=new T.Mesh(square,guideMaterial);
+    marker.rotation.x=-Math.PI/2;
+    marker.position.set(mid+advance*L,.003,-(turnNorth+transfer*L));
+    turnGuide.add(marker);
+  }
+  turnGuide.position.y=.065;turnGuide.visible=false;scene.add(turnGuide);
   let previousTurn;
   function recordTurn(s){
     if(previousTurn)for(const [angle,ids] of [[Math.PI/2,['advance','transfer']],[Math.PI,['tactical']]]){
@@ -239,7 +243,7 @@ async function start() {
     else radius=Math.max(.35,Math.min(45,radius*factor));
   },()=>{});
   let worker,ready=false,busy=false,state,tile,playback,uploadedLeft,uploadedRight,accum=0,last=performance.now(),failed=false;
-  let generatorStart=-100000,program={},trial,readoutTick=-1;
+  let generatorStart=-100000,program={},trial,gauge,readoutTick=-1;
   const replayMode=()=>$('mode').value==='iihr';
   const requestedRun=new URLSearchParams(location.search).get('run');
   if(['iihr','turn'].includes(requestedRun))$('mode').value=requestedRun;
@@ -275,7 +279,10 @@ async function start() {
     if(turn&&!turnGuide.visible&&activeView==='hall')recenter();
     previousTurn=undefined;turnGuide.visible=turn;$('turnPanel').hidden=!turn;
     for(const id of ['advance','transfer','tactical'])$(id).textContent='—';
-    trial=undefined;readoutTick=-1;ship.visible=false;ghost.visible=false;uniforms.amp.value=0;
+    trial=gauge=undefined;readoutTick=-1;
+    for(const id of ['gaugeTrace','simTrace'])$(id).removeAttribute('points');
+    for(const id of ['measuredValue','computedValue','gaugeRange','gaugeError'])$(id).textContent='';
+    ship.visible=false;ghost.visible=false;uniforms.amp.value=0;
     $('comparison').hidden=!replay;$('manual').hidden=replay||turn;$('generatorControl').hidden=replay||turn;
     $('trackGap').textContent=$('heaveGap').textContent=$('rpmHistory').textContent='';
     if(replay&&activeView==='hall'){activeView=$('cameraView').value='ship';recenter();}
@@ -295,12 +302,14 @@ async function start() {
       if(turn&&data.frames)for(const {state} of data.frames)recordTurn(state);
       if(data.ready){
         if(data.trial){
-          $('gaugeTrace').setAttribute('points',data.trial.rows.map(r=>(300*r.time/data.trial.end).toFixed(2)+','+(40-r.gauge*1000).toFixed(2)).join(' '));
+          gauge=bowGaugeComparison(data.trial.rows);
+          gauge.append(data.first.state);
         }
         trial=data.trial;playback.append([data.first]);ready=true;last=performance.now();return;
       }
       busy=false;
       if(!data.frames.every(frame=>Number.isFinite(frame.state.surge))){fail('Non-finite state');return;}
+      if(gauge)for(const {state} of data.frames)gauge.append(state);
       playback.append(data.frames);
       ({state,tile}=data.frames.at(-1));
       $('save').disabled=false;
@@ -356,6 +365,23 @@ async function start() {
     e.preventDefault();keys.add(e.code);
   });
   window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>keys.clear());
+  function drawGauge(time,measured,computed){
+    const rows=trial.rows,samples=gauge.samples;
+    let count=samples.length;
+    while(count && samples[count-1].time>time+1e-8)count--;
+    const shown=samples.slice(0,count);
+    const peak=Math.max(.04,...rows.map(r=>Math.abs(r.gauge)),...shown.map(r=>Math.abs(r.value)));
+    const range=Math.ceil(peak*100)*10; // millimetres, rounded up to the next ten
+    const point=(t,v)=>(300*t/trial.end).toFixed(2)+','+(40-39*v*1000/range).toFixed(2);
+    $('gaugeTrace').setAttribute('points',rows.map(r=>point(r.time,r.gauge)).join(' '));
+    $('simTrace').setAttribute('points',shown.map(r=>point(r.time,r.value)).join(' '));
+    for(const attr of ['x1','x2'])$('gaugeCursor').setAttribute(attr,300*time/trial.end);
+    $('measuredValue').textContent='IIHR '+(1000*measured).toFixed(1)+' mm';
+    $('computedValue').textContent='Sim '+(1000*computed).toFixed(1)+' mm';
+    $('gaugeRange').textContent='±'+range+' mm · 0–'+trial.end.toFixed(2)+' s';
+    $('gaugeError').textContent=count?'RMSE '+(1000*shown.at(-1).rmse).toFixed(1)+' mm · '+count+' samples':'';
+  }
+  $('comparison').ontoggle=()=>{readoutTick=-1;};
   function frame(now) {
     const dt=Math.max(0,Math.min(.15,(now-last)*.001));last=now;
     if(canvas.width!==Math.floor(innerWidth*renderer.getPixelRatio())||canvas.height!==Math.floor(innerHeight*renderer.getPixelRatio())){
@@ -423,8 +449,7 @@ async function start() {
           const dz=1000*(at('heave')-measured('heave'));
           $('trackGap').textContent='Track separation '+gap.toFixed(2)+' m';
           $('heaveGap').textContent='Heave Δ '+(dz>=0?'+':'')+dz.toFixed(0)+' mm';
-          $('gaugeValue').textContent=(measured('gauge')*1000).toFixed(1)+' mm';
-          for(const attr of ['x1','x2'])$('gaugeCursor').setAttribute(attr,300*time/trial.end);
+          if($('comparison').open)drawGauge(time,measured('gauge'),at('bowGauge'));
           $('rpmHistory').textContent='Recorded shafts (P/S) '+Math.round(measured('portRpm'))+' / '+Math.round(measured('starboardRpm'))+' rpm';
         }
       }

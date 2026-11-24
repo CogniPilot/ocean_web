@@ -24,13 +24,15 @@ aside{top:22px;right:24px;left:auto;bottom:auto;max-height:calc(100dvh - 44px);o
 <div id="section" hidden><label for="station">Shaft position <output id="x"></output></label><input type="range" id="station" min="0"></div></fieldset>
 <fieldset><legend>Propeller</legend><label><input type="checkbox" checked id="bladePressure"> <span id="pressureLabel">Blade pressure</span> <output>kPa</output></label>
 <div class="scale" style="background:linear-gradient(90deg,#204477,#e5ebd8,#b33220)"></div><div class="ticks" id="pressureTicks"></div>
-<label><input type="checkbox" id="spin" checked> Spin propeller</label></fieldset>
-<details><summary>Streamlines and animation</summary>
+<div class="hint">Both solvers use the same ±2 kPa blade scale.</div>
+<label id="spinControl"><input type="checkbox" id="spin" checked> Spin propeller</label></fieldset>
+<details><summary>Streamlines and tracers</summary>
 <label><input type="checkbox" id="paths" checked> Streamlines by speed (m/s)</label>
 <div class="scale" style="background:linear-gradient(90deg,#182952,#289790,#efc54a)"></div><div class="ticks" id="speedTicks"></div>
 <label><input type="checkbox" id="tracers" checked> Flow tracers</label>
+</details><fieldset><legend>Playback</legend><div id="phaseControl" hidden><label for="phase">Solver time <output id="phaseLabel"></output></label><input id="phase" type="range" min="0" value="0" step="1"></div>
 <label><input type="checkbox" id="animate" checked> Play animation</label>
-<label>Playback speed <select id="rate"><option value=".025">0.025×</option><option value=".1" selected>0.1×</option><option value=".25">0.25×</option><option value="1">1×</option></select></label></details>
-<p class="hint">Flow is shown in the tank frame at one saved blade phase. Turn off spin to align the blades with that field.</p>
+<label>Playback speed <select id="rate"><option value=".025">0.025×</option><option value=".1" selected>0.1×</option><option value=".25">0.25×</option><option value="1">1×</option></select></label></fieldset>
+<p id="fieldClock" class="hint"></p>
 <div class="hint">Drag to orbit · right-drag to pan · scroll to zoom<br><button id="recenter">Re-center view</button></div></aside>
 <script src="vendor/three.min.js"></script><script type="module" src="onrt-propeller.mjs"></script></body></html>

@@ -57,3 +57,21 @@ export function attachShaftRecord(trial,text){
     }
   }
 }
+
+// Resample successive solver steps onto the instrument clock before comparing elevations.
+export function bowGaugeComparison(rows){
+  const samples=[];
+  let previous,sumSquared=0;
+  return {samples,append(state){
+    const a=previous??state;
+    while(samples.length<rows.length){
+      const row=rows[samples.length];
+      if(row.time>state.time)break;
+      const weight=state.time>a.time?(row.time-a.time)/(state.time-a.time):0;
+      const value=a.bowGauge+weight*(state.bowGauge-a.bowGauge);
+      sumSquared+=(value-row.gauge)**2;
+      samples.push({time:row.time,value,rmse:Math.sqrt(sumSquared/(samples.length+1))});
+    }
+    previous=state;
+  }};
+}

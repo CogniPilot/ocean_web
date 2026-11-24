@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+from lattice_playback import sample_fields, write_sequence
 from vtkmodules.util.numpy_support import vtk_to_numpy
 from vtkmodules.vtkCommonDataModel import vtkStaticCellLocator
 from vtkmodules.vtkFiltersCore import vtkTriangleFilter
@@ -99,23 +100,10 @@ if args.lattice:
     # Sample that mesh in its original orientation to mask out the solid.
     unrotated = query @ np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
     valid = np.array([locator.FindCell(p) >= 0 for p in unrotated])
-    gradients = [np.gradient(grid[...,i], dx) for i in range(3)]  # z, y, x
-    curl = np.stack((gradients[2][1]-gradients[1][0], gradients[0][0]-gradients[2][2],
-                     gradients[1][2]-gradients[0][1]), axis=-1)
-    def sample_lattice(values):
-        address = (query-origin)/dx
-        assert np.all(address >= 0) and np.all(address < dims-1)
-        base = np.floor(address).astype(int)
-        frac = address-base
-        result = np.zeros((len(query),values.shape[-1]))
-        for offset in np.ndindex(2,2,2):
-            i,j,k = (base+offset).T
-            weight = np.prod(np.where(offset,frac,1-frac),axis=1)
-            result += weight[:,None]*values[k,j,i]
-        return result
-    samples = sample_lattice(grid)
-    velocity, fluid_pressure = samples[:,:3], samples[:,3]/1000
-    rotation = sample_lattice(curl)
+    velocity, fluid_pressure, rotation = sample_fields(grid,query,origin,dx)
+    if lattice.get('framesPerTurn',0):
+        meta['sequence'] = write_sequence(args.lattice,args.output,lattice,query,
+                                          vtk_to_numpy(surface.GetPoints().GetData()),locator,D)
 else:
     # Differentiate the stationary-frame velocity on the native unstructured mesh
     # before resampling. Differentiating nearest-cell display values creates spikes.

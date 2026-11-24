@@ -47,6 +47,16 @@ export function elevation(tile,east,north) {
   return (1-b)*((1-a)*at(i,j)+a*at(i+1,j))+b*((1-a)*at(i,j+1)+a*at(i+1,j+1));
 }
 
+// Case 3.12 locates the probe beside the forward perpendicular at release.
+export function bowGaugeElevation(s,tile,wave) {
+  const x=1.625*Math.cos(s.pitch)+.1*Math.sin(s.roll)*Math.sin(s.pitch);
+  const z=.1*Math.cos(s.roll);
+  const east=s.east+x*Math.cos(s.heading)+z*Math.sin(s.heading);
+  const north=s.north+x*Math.sin(s.heading)-z*Math.cos(s.heading);
+  const along=east*Math.cos(wave.waveDirection)+north*Math.sin(wave.waveDirection);
+  return elevation(tile,east,north)+wave.waveAmplitude*Math.cos(s.waveNumber*along-s.waveOmega*s.time+wave.initialPhase);
+}
+
 export function waveCutCsv(s,tile) {
   const rows=['time_s,surge_m_s,rpm,x_aft_of_FP_m,offset_to_port_m,wake_elevation_m,inside_undamped_window'];
   for(const offset of [.49,1.14]) {
