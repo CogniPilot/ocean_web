@@ -1,19 +1,31 @@
+import {installShaftLoads} from './onrt-shaft-loads.mjs';
 import {loadRecording} from './onrt-recording.mjs';
 import {volumeGeometry} from './onrt-volume.mjs';
 import {installOrbit} from './onrt-orbit.mjs';
 const T=window.THREE, el=id=>document.getElementById(id);
+const metadataCache=new Map();
+function assetBase(solver,startup){
+  return './assets/onrt/'+(startup?'startup-'+solver:solver==='rumoca'?'blade-normal':'propeller')+'/';
+}
+function solverMetadata(solver,startup){
+  const path=assetBase(solver,startup)+'flow.json'+new URL(import.meta.url).search;
+  if(!metadataCache.has(path)) metadataCache.set(path,fetch(path).then(response=>{
+    if(!response.ok)throw Error(path+' · HTTP '+response.status);
+    return response.json();
+  }));
+  return metadataCache.get(path);
+}
 async function loadComparison(){
   const response=await fetch(new URL('./assets/onrt/open-water.json',import.meta.url));
   if(!response.ok)throw Error('Open-water comparison unavailable');
   const cases=await response.json(),menu=el('loadCase');
   const startup=new URLSearchParams(location.search).get('recording')!=='reference';
-  if(startup){
-    for(const source of ['OpenFOAM','Rumoca']){
-      const url=new URL('./assets/onrt/startup-'+source.toLowerCase()+'/flow.json',import.meta.url);
-      url.search=new URL(import.meta.url).search;
-      const response=await fetch(url);
-      if(!response.ok)throw Error('Startup comparison unavailable');
-      const {J,kt,kq}=await response.json(),run=cases.find(c=>c.J===J);
+  for(const source of ['OpenFOAM','Rumoca']){
+    const {J,kt,kq,computeDevice,solveWallSeconds}=await solverMetadata(source.toLowerCase(),true);
+    if(source==='OpenFOAM' && computeDevice && solveWallSeconds>0)
+      el('foamGpuFull').textContent=Math.round(solveWallSeconds)+' s';
+    if(startup){
+      const run=cases.find(c=>c.J===J);
       run[source]={KT:kt,KQ:kq,eta:J*kt/(2*Math.PI*kq)};
       run.fromRest=true;
     }
@@ -59,21 +71,37 @@ loadComparison().catch(error=>{el('loadComparison').querySelector('summary').tex
 
 async function readSolver(solver,startup){
   const lattice=solver==='rumoca';
-  const base='./assets/onrt/'+(startup?'startup-'+solver+'/':lattice?'blade-normal/':'propeller/');
+  const base=assetBase(solver,startup);
   const version=new URL(import.meta.url).search;
   async function readAsset(file){
     const response=await fetch(base+file+version);
     if(!response.ok)throw Error(file+' · HTTP '+response.status);
     return response;
   }
-  const meta=await readAsset('flow.json'),m=await meta.json(),seq=m.sequence;
+  const m=await solverMetadata(solver,startup),seq=m.sequence;
   async function binary(file){
     if(!m.binaryCompression)return (await readAsset(file)).arrayBuffer();
     const response=await readAsset(file+'.gz');
     return new Response(response.body.pipeThrough(new DecompressionStream('gzip'))).arrayBuffer();
   }
-  const [buf,volumeBuffer,recording]=await Promise.all([binary('flow.bin'),seq?null:binary('volume.bin'),loadRecording(m,binary)]);
-  return {m,buf,seq,volumeBuffer,recording,lattice,solver};
+  const [buf,volumeBuffer,recording,loadBuffer]=await Promise.all([binary('flow.bin'),seq?null:binary('volume.bin'),loadRecording(m,binary),m.shaftLoadSamples?binary('shaft-loads.bin'):null]);
+  const loads=loadBuffer?new Float32Array(loadBuffer):null;
+  if(loads && loads.length!==4*m.shaftLoadSamples)throw Error('Incomplete shaft loads');
+  return {m,buf,seq,volumeBuffer,recording,lattice,solver,loads};
+}
+
+// Interpolate unwrapped shaft turns, including the acceleration from rest.
+function shaftTurns(data, time){
+  const rows = data.loads;
+  if(!rows) return null;
+  let lo=0, hi=rows.length/4-1;
+  while(hi-lo>1){
+    const mid=(lo+hi)>>>1;
+    if(rows[4*mid]<=time) lo=mid; else hi=mid;
+  }
+  const a=4*lo,b=4*hi;
+  const fraction=Math.max(0,Math.min(1,(time-rows[a])/(rows[b]-rows[a])));
+  return rows[a+3]+fraction*(rows[b+3]-rows[a+3]);
 }
 
 async function load(){
@@ -94,7 +122,9 @@ async function load(){
       throw Error('Comparison requires matched operating points and sample grids.');
   }
   const sharedKeys=Object.keys(data[0].m.volumeGrid.fields).filter(key=>data.every(d=>key in d.m.volumeGrid.fields));
-  const speedScale=Math.max(...data.map(d=>d.m.speedLimit));
+  const scaleCases=await Promise.all(['rumoca','openfoam'].map(solver=>solverMetadata(solver,startup)));
+  const speedScale=Math.max(...scaleCases.map(m=>m.volumeGrid.fields.velocity.colorLimit));
+  if([...el('bladeRange').options].some(o=>o.value===query.get('pressureRange'))) el('bladeRange').value=query.get('pressureRange');
   const quantities={velocity:['Speed','m/s'],fluidPressure:['Flow pressure','kPa'],
     vorticity:['Vorticity magnitude','s⁻¹'],turbulenceK:['Modeled turbulence energy','m²/s²']};
   for(const key of sharedKeys)el('quantity').add(new Option(quantities[key][0],key));
@@ -104,33 +134,42 @@ async function load(){
   function drawAll(){for(const pane of panes)pane.draw();}
   for(const solution of data)panes.push(createPane(solution));
   const sequence=data.filter(d=>d.recording).sort((a,b)=>a.recording.duration-b.recording.duration)[0],slider=el('phase'),animate=el('animate');
+  const updateShaftLoads=installShaftLoads(el('shaftLoads'),data);
   let elapsed=0,lastFrame,scheduled,selectedFrame;
   function paintTime(){
     const index=selectedFrame??sequence?.recording.frameAt(elapsed,!startup);
     const frame=sequence?.seq.frames[index];
-    const angle=frame?-2*Math.PI*(frame.turns-sequence.m.revolutions):undefined;
+    const time=selectedFrame!==undefined ? frame.time : sequence
+      ? sequence.recording.start+elapsed%sequence.recording.duration : elapsed;
+    const turns=sequence ? shaftTurns(sequence,time)??frame.turns : 0;
+    updateShaftLoads(time);
+    const angle=sequence ? -2*Math.PI*(turns-sequence.m.revolutions) : undefined;
     if(frame){
       slider.value=index;
-      el('phaseLabel').value=(frame.time*1000).toFixed(1)+' ms · '+Math.round(360*(frame.turns-sequence.seq.frames[0].turns))+'°';
+      el('phaseLabel').value=(time*1000).toFixed(1)+' ms · '+Math.round(360*(turns-sequence.seq.frames[0].turns))+'°';
     }
     for(const [i,pane] of panes.entries()){
       const recording=data[i].recording;
       const sample=startup&&recording?recording.frameAt(frame.time-recording.start,false):index;
-      pane.time(elapsed,sample,angle);
+      const nativeTurns=data[i]===sequence ? turns : shaftTurns(data[i],time);
+      const rotorAngle=recording && nativeTurns!=null ? -2*Math.PI*(nativeTurns-data[i].m.revolutions) : angle;
+      pane.time(elapsed,sample,rotorAngle);
     }
     drawAll();
   }
   let fieldRequest=0;
   async function fieldChanged(){
     const request=++fieldRequest;
-    const key=el('quantity').value,descriptors=data.map(d=>d.m.volumeGrid.fields[key]);
+    const key=el('quantity').value;
+    const available=scaleCases.filter(m=>key in m.volumeGrid.fields);
+    const descriptors=available.map(m=>m.volumeGrid.fields[key]);
     await Promise.all(data.map(d=>d.recording?.ensureField(key)));
     if(request!==fieldRequest)return;
-    const limits=data.flatMap((d,i)=>d.seq?d.seq.fields[key]:[descriptors[i]]);
+    const limits=available.flatMap((m,i)=>m.sequence?m.sequence.fields[key]:[descriptors[i]]);
     const slider=el('threshold');
     slider.min=Math.min(...limits.map(d=>d.min));slider.max=Math.max(...limits.map(d=>d.max));
     slider.step=(slider.max-slider.min)/2000||'any';slider.value=descriptors[0].initial;
-    const limit=Math.max(...descriptors.map(d=>d.colorLimit));
+    const limit=key==='fluidPressure'?Number(el('bladeRange').value):Math.max(...descriptors.map(d=>d.colorLimit));
     for(const pane of panes)pane.selectField(key,limit);
     el('fieldTicks').replaceChildren();ticks('fieldTicks',key==='fluidPressure'?[-limit,0,limit]:[0,limit/2,limit]);
     el('fieldScale').style.background=key==='fluidPressure'?'linear-gradient(90deg,#204477,#e5ebd8,#b33220)':'linear-gradient(90deg,#4485ad,#289790,#efc54a)';
@@ -146,7 +185,20 @@ async function load(){
   if(sequence)slider.max=sequence.seq.frames.length-1;
   el('fieldClock').textContent=startup?'Tank-frame solver output. Shaft and inflow ramp together from rest. Side by side plays the time range both solvers recorded.':mode==='compare'?'Rumoca replays a recorded revolution. The OpenFOAM field is steady; the blade follows the displayed shaft angle.':sequence?'Recorded Rumoca flow · one shaft revolution.':'Steady OpenFOAM field · tracers follow the streamlines.';
   el('metrics').textContent=data[0].m.rpm+' rpm · J '+data[0].m.J.toFixed(2)+' · port propeller';
-  ticks('pressureTicks',[-2,0,2]);ticks('speedTicks',[0,.5*speedScale,speedScale]);
+  el('bladeRange').onchange=()=>{
+    const scale=Number(el('bladeRange').value);
+    el('pressureTicks').replaceChildren();ticks('pressureTicks',[-scale,0,scale]);
+    const url=new URL(location.href);
+    url.searchParams.set('pressureRange',el('bladeRange').value);history.replaceState(null,'',url);
+    for(const p of panes)p.colorBlade();
+    if(el('quantity').value==='fluidPressure' && el('fieldUnit').textContent==='kPa'){
+      for(const p of panes)p.selectField('fluidPressure',scale);
+      el('fieldTicks').replaceChildren();ticks('fieldTicks',[-scale,0,scale]);
+    }
+    drawAll();
+  };
+  const pressureLimit=Number(el('bladeRange').value);
+  ticks('pressureTicks',[-pressureLimit,0,pressureLimit]);ticks('speedTicks',[0,.5*speedScale,speedScale]);
   function ticks(id,values){for(const v of values){const t=document.createElement('span');t.textContent=Number(v.toPrecision(3));el(id).append(t);}}
   el('recenter').onclick=()=>{orbit.pan.set(0,0,0);Object.assign(orbit,{theta:-1.98,phi:.34,radius:5.7});drawAll();};
   function tick(now){if(lastFrame!==undefined)elapsed+=(now-lastFrame)*.001*Number(el('rate').value);
@@ -177,12 +229,11 @@ async function load(){
     panel.className='flow-pane';canvas.tabIndex=0;canvas.setAttribute('aria-label',solver+' propeller flow');
     caption.className='pane-caption';
     const title=document.createElement('strong');title.textContent=lattice?'Rumoca':'OpenFOAM';caption.append(title);
-    caption.append((lattice?'Blade-normal':startup?'Transient RANS':'Steady RANS')+' · '+m.cells.toLocaleString()+' cells · '+(startup?'final-revolution ':'')+'Kₜ '+m.kt.toFixed(3)+' · Kq '+m.kq.toFixed(3)+(m.kt<0?' · reversed thrust':''));
+    caption.append((lattice?'Transient lattice · blade-normal slip':startup?'Transient RANS · no-slip wall':'Steady RANS · no-slip wall')+' · '+m.cells.toLocaleString()+' cells · '+(startup?'final-revolution ':'')+'Kₜ '+m.kt.toFixed(3)+' · Kq '+m.kq.toFixed(3)+(m.kt<0?' · reversed thrust':''));
     if(m.computeDevice) caption.append(' · '+m.computeDevice.replace('NVIDIA GeForce ','')+(lattice?' lattice':' velocity & turbulence'));
     const clock=document.createElement('span');clock.className='pane-clock';caption.append(clock);
     panel.append(canvas,caption);el('flowViews').append(panel);
-    // Use the same signed pressure scale for both J = 0.8 blade surfaces.
-    const pressureScale=2;
+
     const field=(name,type=Float32Array)=>new type(buf,...m.arrays[name]);
     const renderer=new T.WebGLRenderer({canvas,antialias:true});
     renderer.setPixelRatio(Math.min(2,devicePixelRatio));
@@ -196,7 +247,7 @@ async function load(){
     blade.setAttribute('position',new T.BufferAttribute(field('blade'),3));
     blade.setIndex(new T.BufferAttribute(field('indices',Uint32Array),1));
     const colors=new Float32Array(pressure.length*3);
-    pressure.forEach((p,i)=>ramp(.5+.5*p/pressureScale,[0x204477,0xe5ebd8,0xb33220]).toArray(colors,3*i));
+    let bladeValues=pressure;
     blade.setAttribute('color',new T.BufferAttribute(colors,3));
     const rotor=new T.Mesh(blade,new T.MeshBasicMaterial({vertexColors:true,side:T.DoubleSide}));
     scene.add(rotor);
@@ -340,14 +391,19 @@ async function load(){
     const palette=(stops)=>Array.from({length:256},(_,i)=>ramp(i/255,stops));
     const speedPalette=palette(colorStops),bladePalette=palette(pressureStops);
     const lookup=(v)=>Math.min(255,Math.max(0,Math.round(v*255)));
-    function showFrame(index){
-      if(index===frameIndex)return;
-      frameIndex=index;
-      const frame=seq.frames[index],{pressure,tracer,lines}=recording.geometryAt(index);
-      recording.decode(fieldKey,index,scalar);
-      rotor.rotation.x=-2*Math.PI*(frame.turns-m.revolutions);
-      pressure.forEach((p,i)=>bladePalette[lookup(.5+.5*p/pressureScale)].toArray(colors,3*i));
+    function colorBlade(){
+      const limit=Number(el('bladeRange').value);
+      bladeValues.forEach((p,i)=>bladePalette[lookup(.5+.5*p/limit)].toArray(colors,3*i));
       blade.attributes.color.needsUpdate=true;
+    }
+    colorBlade();
+    function showFrame(index){
+      if(!fieldKey || index===frameIndex)return;
+      frameIndex=index;
+      const {pressure,tracer,lines}=recording.geometryAt(index);
+      recording.decode(fieldKey,index,scalar);
+
+      bladeValues=pressure; colorBlade();
       positions.set(tracer);particlePositions.needsUpdate=true;
       const xyz=traces.attributes.position.array;
       let n=0;
@@ -363,11 +419,12 @@ async function load(){
       paths.frustumCulled=false;
       updateVolume();update();
     }
-    return {draw,update,selectField(key,limit){selectField(key,limit);update();},
+    return {draw,update,colorBlade,selectField(key,limit){selectField(key,limit);update();},
       volume(){clearVolumeCache();updateVolume();},
       time(seconds,index,angle){
         if(recording){
           clock.textContent=seq.frames[index].time.toFixed(3)+' s';
+          rotor.rotation.x=angle??(-2*Math.PI*(seq.frames[index].turns-m.revolutions));
           showFrame(index);return;
         }
         rotor.rotation.x=angle??(el('spin').checked?shaftOmega*seconds:0);

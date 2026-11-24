@@ -12,6 +12,7 @@ from vtkmodules.vtkFiltersCore import vtkCellDataToPointData, vtkProbeFilter, vt
 from vtkmodules.vtkFiltersGeneral import vtkGradientFilter
 from vtkmodules.vtkIOGeometry import vtkOpenFOAMReader
 
+from shaft_loads import foam_loads, write_loads
 from lattice_playback import sample, streamlines
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -172,4 +173,5 @@ meta.update(solver="OpenFOAM",cells=mesh.GetNumberOfCells(),arrays=arrays,revolu
             kt=coefficient('force',-1,4),kq=coefficient('moment',1,5),speedLimit=descriptors['velocity']['colorLimit'],
             volumeGrid=dict(dims=[81,33,33],origin=[-1,-.8,-.8],spacing=.05,fields=descriptors),
             sequence=dict(frames=frames,fields=history,tracers=len(tracer),paths=len(seeds),verticesPerPath=lines.shape[1]))
+meta["shaftLoadSamples"] = write_loads(out, frames, *foam_loads(args.case))
 (out/'flow.json').write_text(json.dumps(meta,indent=2)+'\n')

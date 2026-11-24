@@ -18,6 +18,10 @@ if not meta["startsFromRest"] or frames[0]["time"] != 0 or frames[0]["turns"] !=
 if any(a["time"] >= b["time"] for a, b in zip(frames, frames[1:])):
     raise ValueError("Frame times must increase")
 names = ["flow.bin", "turn-geometry.bin"]
+if meta.get("shaftLoadSamples"):
+    if (args.recording / "shaft-loads.bin").stat().st_size != 16*meta["shaftLoadSamples"]:
+        raise ValueError("Incomplete recorded shaft loads")
+    names.append("shaft-loads.bin")
 samples = math.prod(meta["volumeGrid"]["dims"])
 for name, descriptors in sequence["fields"].items():
     file = f"turn-{name}.bin"

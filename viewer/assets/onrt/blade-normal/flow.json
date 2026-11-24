@@ -613,5 +613,6 @@
   "wallTreatment": "normal-slip",
   "steps": 2684,
   "revolutions": 3.5,
-  "cellsPerDiameter": 16
+  "cellsPerDiameter": 16,
+  "shaftLoadSamples": 672
 }

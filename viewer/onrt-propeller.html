@@ -39,6 +39,14 @@ input{accent-color:#7ad7c0}input[type=range]{width:100%;margin-inline:0}output,#
 .bar-track i{position:absolute;top:3px;bottom:3px;border-radius:2px;background:#72d3c3}.error-series.foam i{background:#efac6f}
 #errorPlot h4{margin:.4rem 0 .05rem}#errorValue{display:block;float:none;min-height:2.6em;font:12px/1.3 system-ui;color:#d3e3e5;margin:.35rem 0}
 #loadComparison table{font:13px/1.5 system-ui;font-variant-numeric:tabular-nums}#loadComparison td,#loadComparison th{padding:4px 8px;border-bottom:1px solid #355661}
+#shaftLoads svg{display:block;width:100%;background:#0b222b;border-radius:3px}
+#shaftLoads svg text{fill:#bad7d6;font:10px system-ui}
+.shaft-legend{display:flex;gap:.8rem;font-size:.8rem;margin-bottom:.4rem}
+#shaftLoads strong{display:block;font-size:.85rem;margin:.45rem 0 .15rem}
+.shaft-values,.shaft-time{font:.75rem/1.5 ui-monospace,monospace;color:#c7e0df}
+#benchmarks table{width:100%;border-collapse:collapse;font-size:.79rem;font-variant-numeric:tabular-nums}
+#benchmarks th,#benchmarks td{padding:.3rem .12rem;text-align:right;border-bottom:1px solid #355661}
+#benchmarks th:first-child{text-align:left}
 </style></head><body><main id="flowViews" aria-label="Propeller flow comparison"></main>
 <aside aria-label="Propeller flow controls"><h1>Port propeller in open water</h1>
 <div id="metrics" role="status">Loading flow solution…</div>
@@ -46,6 +54,7 @@ input{accent-color:#7ad7c0}input[type=range]{width:100%;margin-inline:0}output,#
 <label>Recording <select id="recording"><option value="startup">From rest</option><option value="reference">Steady OpenFOAM reference</option></select></label>
 <label><input type="checkbox" id="animate" checked> Play animation</label>
 <a class="flow-link" href="./onrt.html">Return to Iowa basin <span aria-hidden="true">→</span></a>
+<details id="shaftLoads"><summary>Thrust and shaft torque</summary><div class="pane-body"></div></details>
 <details><summary>Flow field</summary><div class="pane-body">
 <label>Quantity <select id="quantity"></select></label>
 <label>3D display <select id="volumeMode"><option value="surface">Threshold surface</option><option value="samples">Colored samples ≥ threshold</option><option value="off">Off</option></select></label>
@@ -55,8 +64,9 @@ input{accent-color:#7ad7c0}input[type=range]{width:100%;margin-inline:0}output,#
 <label><input type="checkbox" id="cut"> Cross-section</label>
 <div id="section" hidden><label for="station">Shaft position <output id="x"></output></label><input type="range" id="station" min="0"></div></div></details>
 <details><summary>Propeller pressure</summary><div class="pane-body"><label><input type="checkbox" checked id="bladePressure"> <span id="pressureLabel">Blade pressure</span> <output>kPa</output></label>
+<label>Pressure color range <select id="bladeRange"><option value=".2">±0.2 kPa</option><option value=".5">±0.5 kPa</option><option value="1">±1 kPa</option><option value="2" selected>±2 kPa</option><option value="4">±4 kPa</option></select></label>
 <div class="scale" style="background:linear-gradient(90deg,#204477,#e5ebd8,#b33220)"></div><div class="ticks" id="pressureTicks"></div>
-<div class="hint">Rumoca samples the nearby lattice pressure. OpenFOAM samples its blade wall. Both use the same ±2 kPa scale.</div>
+<div class="hint">Rumoca samples the nearby lattice pressure. OpenFOAM samples its blade wall. Blade and flow pressure share this range across solvers. Values beyond its limits use the end colors.</div>
 <label id="spinControl"><input type="checkbox" id="spin" checked> Spin propeller</label></div></details>
 <details><summary>Streamlines and tracers</summary><div class="pane-body">
 <label><input type="checkbox" id="paths" checked> Streamlines by speed (m/s)</label>
@@ -74,6 +84,19 @@ input{accent-color:#7ad7c0}input[type=range]{width:100%;margin-inline:0}output,#
 <details><summary>Measured and computed coefficients</summary><table aria-label="Isolated port propeller coefficients"><thead><tr><th scope="col">Quantity</th><th scope="col">IIHR</th><th scope="col">OpenFOAM</th><th scope="col">Rumoca</th></tr></thead><tbody id="loads"></tbody></table></details>
 <div class="hint" id="loadBasis"></div>
 <a href="https://simman2020.kr/download/propeller_IIHR2%28ONRT%29.zip">IIHR open-water data</a>
+</div></details>
+<details id="benchmarks"><summary>Compute benchmarks</summary><div class="pane-body">
+<table aria-label="Startup benchmark wall times in seconds">
+<thead><tr><th scope="col">Solver</th><th scope="col">Build</th><th scope="col">First<br>0.223 s</th><th scope="col">Full<br>1.338 s</th></tr></thead>
+<tbody>
+<tr><th scope="row">Rumoca CPU</th><td>8.84 s</td><td>114.94 s</td><td id="rumocaCpuFull">Pending</td></tr>
+<tr><th scope="row">Rumoca GPU</th><td>68.68 s</td><td>6.57 s</td><td>39.87 s</td></tr>
+<tr><th scope="row">OpenFOAM CPU</th><td>Prebuilt</td><td>102 s</td><td>744 s</td></tr>
+<tr><th scope="row">OpenFOAM GPU-assisted</th><td>17.4 s</td><td>434 s*</td><td id="foamGpuFull">Pending</td></tr>
+</tbody></table>
+<p class="hint">Ryzen 9 5950X and RTX 3090. Rumoca uses a uniform 144 × 64 × 64 lattice with 16 cells per diameter. It ran on 10 CPU threads or the GPU. OpenFOAM refines its 52,953-cell mesh near the rotor and blade walls. It ran on four CPU ranks or one rank with GPU velocity and turbulence solves.</p>
+<p class="hint">Build times cover the Rumoca native executable, or 2.66 s for source generation plus 66.02 s for a cold OpenCL build. OpenFOAM used the v2412 binary. Its GPU build time covers the adapter compilation. Solve times exclude visualization export.</p>
+<p class="hint">*Another job shared the GPU during this interval. For the same later 60 steps with that job stopped, four CPU ranks took 12 s, one CPU rank took 54 s, and the GPU-assisted run took 53 s.</p>
 </div></details>
 <details><summary>Camera controls</summary><div class="pane-body"><p class="hint">Drag to orbit · right-drag to pan · scroll to zoom</p><button id="recenter">Re-center view</button></div></details></aside>
 <script src="vendor/three.min.js"></script><script type="module" src="onrt-propeller.mjs"></script></body></html>
