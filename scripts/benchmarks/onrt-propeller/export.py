@@ -212,7 +212,7 @@ meta.update(arrays=arrays,iteration=iteration,cells=volume.GetNumberOfCells(),sl
             speedLimit=float(np.quantile(speeds[speeds>=0],.99)),
             streamlines=len(path_ends))
 if args.lattice:
-    meta.update({key: lattice[key] for key in ("computeDevice", "solveWallSeconds", "kernelSeconds", "settled") if key in lattice})
+    meta.update({key: lattice[key] for key in ("computeDevice", "solveWallSeconds", "kernelSeconds", "settled", "periodicInitialization") if key in lattice})
     if "sequence" in meta:
         meta.update(write_loads(args.output, meta["sequence"]["frames"],
             loads["time_s"], loads["thrust_N"], loads["torque_Nm"], loads["revolutions"]))

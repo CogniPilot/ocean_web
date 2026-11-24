@@ -1,10 +1,14 @@
 import {installShaftLoads} from './onrt-shaft-loads.mjs';
 import {loadRecording} from './onrt-recording.mjs';
+import {nativeMesh} from './onrt-mesh.mjs';
 import {volumeGeometry} from './onrt-volume.mjs';
 import {installOrbit} from './onrt-orbit.mjs';
 const T=window.THREE, el=id=>document.getElementById(id);
 const metadataCache=new Map();
+const selection=new URLSearchParams(location.search).get('recording');
+const steady=selection==='steady',startup=!steady && selection!=='reference';
 function assetBase(solver,startup){
+  if(steady && !startup && solver==='rumoca')return './assets/onrt/periodic-rumoca/';
   return './assets/onrt/'+(startup?'startup-'+solver:solver==='rumoca'?'blade-normal':'propeller')+'/';
 }
 function solverMetadata(solver,startup){
@@ -19,15 +23,16 @@ async function loadComparison(){
   const response=await fetch(new URL('./assets/onrt/open-water.json',import.meta.url));
   if(!response.ok)throw Error('Open-water comparison unavailable');
   const cases=await response.json(),menu=el('loadCase');
-  const startup=new URLSearchParams(location.search).get('recording')!=='reference';
   for(const source of ['OpenFOAM','Rumoca']){
     const {J,kt,kq,computeDevice,solveWallSeconds}=await solverMetadata(source.toLowerCase(),true);
     if(source==='OpenFOAM' && computeDevice && solveWallSeconds>0)
       el('foamGpuFull').textContent=Math.round(solveWallSeconds)+' s';
-    if(startup){
-      const run=cases.find(c=>c.J===J);
-      run[source]={KT:kt,KQ:kq,eta:J*kt/(2*Math.PI*kq)};
-      run.fromRest=true;
+    if(startup || steady){
+      const result=steady ? await solverMetadata(source.toLowerCase(),false) : {J,kt,kq};
+      const run=cases.find(c=>c.J===result.J);
+      run[source]={KT:result.kt,KQ:result.kq,eta:result.J*result.kt/(2*Math.PI*result.kq)};
+      run.fromRest=startup;
+      run.periodic=steady;
     }
   }
   for(const run of cases)menu.add(new Option(run.J.toFixed(1),String(run.J)));
@@ -38,7 +43,7 @@ async function loadComparison(){
     sources.map(source=>Math.abs(error(run,source,key))))))/10);
   function show(){
     const run=cases[menu.selectedIndex],body=el('loads'),plot=el('errorPlot'),value=el('errorValue');
-    el('loadBasis').textContent=run.fromRest?'Both computed loads are averages over the final shaft revolution of the startup recordings.':
+    el('loadBasis').textContent=run.periodic?'Rumoca loads are means over a repeating shaft revolution. OpenFOAM loads come from the steady rotating-frame solve.':run.fromRest?'Both computed loads are averages over the final shaft revolution of the startup recordings.':
       'Reference runs use steady OpenFOAM and the 16-cell/D Rumoca blade-normal model. The 3D view shows J = 0.8.';
     body.replaceChildren();plot.replaceChildren();
     value.textContent='Hover, tap or focus a bar for the values.';
@@ -108,9 +113,8 @@ async function load(){
   const query=new URLSearchParams(location.search),requested=query.get('solver');
   const mode=['rumoca','openfoam'].includes(requested)?requested:'compare';
   const solvers=mode==='compare'?['rumoca','openfoam']:[mode];
-  const startup=query.get('recording')!=='reference';
   const finalTurn=query.get('recording')==='final-turn';
-  el('recording').value=finalTurn?'final-turn':startup?'startup':'reference';
+  el('recording').value=steady?'steady':finalTurn?'final-turn':startup?'startup':'reference';
   el('recording').onchange=e=>{const url=new URL(location.href);url.searchParams.set('recording',e.target.value);location.assign(url);};
   el('solver').value=mode;
   el('solver').onchange=e=>{const url=new URL(location.href);url.searchParams.set('solver',e.target.value);location.assign(url);};
@@ -161,6 +165,20 @@ async function load(){
     }
     drawAll();
   }
+  let meshRequest=0;
+  async function changeMesh(){
+    const request=++meshRequest,enabled=el('showMesh').checked;
+    el('meshOptions').hidden=!enabled;
+    el('meshStatus').textContent=enabled?'Loading native mesh…':'';
+    try{
+      await Promise.all(panes.map(p=>p.mesh.select(enabled?el('meshMode').value:null)));
+      if(request===meshRequest)el('meshStatus').textContent='';
+    }catch(error){
+      if(request===meshRequest)el('meshStatus').textContent=error.message;
+    }
+    drawAll();
+  }
+  el('showMesh').onchange=changeMesh;el('meshMode').onchange=changeMesh;
   let fieldRequest=0;
   async function fieldChanged(){
     const request=++fieldRequest;
@@ -185,9 +203,10 @@ async function load(){
   for(const id of ['threshold','volumeMode'])el(id).oninput=()=>{for(const p of panes)p.volume();drawAll();};
   for(const id of ['station','paths','cut','tracers','bladePressure'])el(id).oninput=()=>{for(const p of panes)p.update();drawAll();};
   el('pressureLabel').textContent=mode==='rumoca'?'Grid pressure at blade surface':'Blade surface pressure';
-  el('phaseControl').hidden=!sequence;el('spinControl').hidden=!!sequence;
+  el('phaseControl').hidden=!sequence;el('spinControl').hidden=!!sequence||steady;
+  if(steady)el('spin').checked=false;
   if(sequence){slider.min=firstFrame;slider.max=sequence.seq.frames.length-1;}
-  el('fieldClock').textContent=finalTurn?'Final shaft revolution at full speed, sampled in the tank frame.':startup?'Tank-frame solver output. Shaft and inflow ramp together from rest. Side by side plays the time range both solvers recorded.':mode==='compare'?'Rumoca replays a recorded revolution. The OpenFOAM field is steady; the blade follows the displayed shaft angle.':sequence?'Recorded Rumoca flow · one shaft revolution.':'Steady OpenFOAM field · tracers follow the streamlines.';
+  el('fieldClock').textContent=steady?'Matched blade angle at 538 rpm. Rumoca shows one phase of the repeating wake. OpenFOAM shows the steady rotating-frame solution. Velocity is displayed in the tank frame.':finalTurn?'Final shaft revolution at full speed, sampled in the tank frame.':startup?'Tank-frame solver output. Shaft and inflow ramp together from rest. Side by side plays the time range both solvers recorded.':mode==='compare'?'Rumoca replays a recorded revolution. The OpenFOAM field is steady; the blade follows the displayed shaft angle.':sequence?'Recorded Rumoca flow · one shaft revolution.':'Steady OpenFOAM field · tracers follow the streamlines.';
   el('metrics').textContent=data[0].m.rpm+' rpm · J '+data[0].m.J.toFixed(2)+' · port propeller';
   el('bladeRange').onchange=()=>{
     const scale=Number(el('bladeRange').value);
@@ -233,15 +252,17 @@ async function load(){
     panel.className='flow-pane';canvas.tabIndex=0;canvas.setAttribute('aria-label',solver+' propeller flow');
     caption.className='pane-caption';
     const title=document.createElement('strong');title.textContent=lattice?'Rumoca':'OpenFOAM';caption.append(title);
-    caption.append((lattice?'Transient lattice · blade-normal slip':startup?'Transient RANS · no-slip wall':'Steady RANS · no-slip wall')+' · '+m.cells.toLocaleString()+' cells · '+(startup?'final-revolution ':'')+'Kₜ '+m.kt.toFixed(3)+' · Kq '+m.kq.toFixed(3)+(m.kt<0?' · reversed thrust':''));
+    caption.append((m.periodicInitialization?'Periodic lattice · blade-normal slip':lattice?'Transient lattice · blade-normal slip':startup?'Transient RANS · no-slip wall':'Steady RANS · no-slip wall')+' · '+m.cells.toLocaleString()+' cells · '+(startup?'final-revolution ':'')+'Kₜ '+m.kt.toFixed(3)+' · Kq '+m.kq.toFixed(3)+(m.kt<0?' · reversed thrust':''));
     if(m.computeDevice) caption.append(' · '+m.computeDevice.replace('NVIDIA GeForce ','')+(lattice?' lattice':' velocity & turbulence'));
     const clock=document.createElement('span');clock.className='pane-clock';caption.append(clock);
+    if(m.periodicInitialization)clock.textContent='One-turn lattice residual '+(100*m.periodicInitialization.populationResidual).toFixed(2)+'%';
     panel.append(canvas,caption);el('flowViews').append(panel);
 
     const field=(name,type=Float32Array)=>new type(buf,...m.arrays[name]);
     const renderer=new T.WebGLRenderer({canvas,antialias:true});
     renderer.setPixelRatio(Math.min(2,devicePixelRatio));
     const scene=new T.Scene();scene.background=new T.Color(0x071d27);
+    const mesh=nativeMesh(T,scene,m,startup);
     const camera=new T.PerspectiveCamera(36,1,.01,40);camera.up.set(0,0,1);
     function ramp(v,stops){
       const t=Math.max(0,Math.min(1,v))*2,i=Math.min(1,Math.floor(t));
@@ -390,7 +411,7 @@ async function load(){
       camera.position.add(pan);camera.lookAt(.82+pan.x,pan.y,pan.z);renderer.render(scene,camera);
     }
     installOrbit(canvas,camera,orbit.pan,()=>orbit.radius,(dx,dy)=>{
-      orbit.theta-=dx*.008;orbit.phi=Math.max(-1.52,Math.min(1.52,orbit.phi+dy*.008));
+      orbit.theta+=dx*.008;orbit.phi=Math.max(-1.52,Math.min(1.52,orbit.phi+dy*.008));
     },factor=>{orbit.radius=Math.min(10,Math.max(.65,orbit.radius*factor));},drawAll);
     const palette=(stops)=>Array.from({length:256},(_,i)=>ramp(i/255,stops));
     const speedPalette=palette(colorStops),bladePalette=palette(pressureStops);
@@ -423,12 +444,13 @@ async function load(){
       paths.frustumCulled=false;
       updateVolume();update();
     }
-    return {draw,update,colorBlade,selectField(key,limit){selectField(key,limit);update();},
+    return {mesh,draw,update,colorBlade,selectField(key,limit){selectField(key,limit);update();},
       volume(){clearVolumeCache();updateVolume();},
       time(seconds,index,angle){
         if(recording){
           clock.textContent=seq.frames[index].time.toFixed(3)+' s';
           rotor.rotation.x=angle??(-2*Math.PI*(seq.frames[index].turns-m.revolutions));
+          mesh.setAngle(rotor.rotation.x-2*Math.PI*m.revolutions);
           showFrame(index);return;
         }
         rotor.rotation.x=angle??(el('spin').checked?shaftOmega*seconds:0);

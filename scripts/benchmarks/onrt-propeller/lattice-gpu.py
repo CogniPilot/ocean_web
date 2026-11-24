@@ -17,6 +17,7 @@ parser.add_argument("normals", type=Path)
 parser.add_argument("output", type=Path)
 parser.add_argument("--periods", type=int, default=48)
 parser.add_argument("--frames", type=int, default=8)
+parser.add_argument("--periodic", action="store_true", help="Find a repeating full-speed lattice state at one shaft phase")
 args = parser.parse_args()
 devices = [d for p in cl.get_platforms() for d in p.get_devices(device_type=cl.device_type.GPU) if d.double_fp_config]
 if not devices:
@@ -89,7 +90,12 @@ mf=cl.mem_flags
 def buffer(a,flags):
     return cl.Buffer(ctx,flags|mf.COPY_HOST_PTR,hostbuf=a)
 weights=np.r_[1/3,np.full(6,1/18),np.full(12,1/36)]
-src=buffer(np.broadcast_to(weights[:,None],(19,cells)).copy(),mf.READ_WRITE)
+initial=weights
+if args.periodic:
+    inflow=J*n*D*dt/dx
+    eu=dirs[:,0]*inflow
+    initial=weights*(1+3*eu+4.5*eu**2-1.5*inflow**2)
+src=buffer(np.broadcast_to(initial[:,None],(19,cells)).copy(),mf.READ_WRITE)
 dst=cl.Buffer(ctx,mf.READ_WRITE,src.size)
 mask,normals,reflect=[buffer(a,mf.READ_ONLY) for a in (mask,normals,reflect)]
 field=np.zeros((nz,ny,nx,4),dtype='<f4')
@@ -107,7 +113,11 @@ def snapshot(i,step,turns):
     file=f'rumoca-frame-{i:04d}.bin'
     field.tofile(out/file)
     sequence.writerow([step,step*dt,turns,file])
-snapshot(0,0,0)
+if args.periodic:
+    populations=np.empty((19,cells))
+    previous_populations=np.broadcast_to(initial[:,None],populations.shape).copy()
+else:
+    snapshot(0,0,0)
 region=np.s_[int(2*res-.8*res):int(2*res+.8*res)+1,int(2*res-.8*res):int(2*res+.8*res)+1,2*res:6*res+1,:3]
 previous=np.zeros_like(field[region])
 stable=0
@@ -119,9 +129,13 @@ for step in range(1,rev*args.periods+1):
     s=min(1.,step/rev)
     ramp=s*s*(3-2*s)
     turns=s**3-.5*s**4 if step<=rev else step/rev-.5
+    if args.periodic:
+        ramp=1.
+        turns=step/rev
     phase=(-4*turns%1)*phases
     frame=math.floor(step*args.frames/rev+.5)
     capture=step==math.floor(frame*rev/args.frames+.5)
+    if args.periodic: capture=step%rev==0
     event=kernel(queue,(cells,),(128,),src,dst,mask,normals,reflect,field_gpu,loads_gpu,
                  *map(np.int32,(res,width,phases)),*map(np.float64,(phase,ramp,omega,J*n*D*dt/dx,1.054e-6*dt/dx**2,dx/dt,rho*(dx/dt)**2)),np.int32(capture))
     cl.enqueue_copy(queue,blocks,loads_gpu)
@@ -133,19 +147,34 @@ for step in range(1,rev*args.periods+1):
     history.writerow([step,step*dt,turns,*force,kt,kq,max_mach,phase,ramp*omega/dt])
     total+=force/rev
     if capture:
-        cl.enqueue_copy(queue,field,field_gpu);snapshot(frame,step,turns)
+        cl.enqueue_copy(queue,field,field_gpu)
+        if not args.periodic: snapshot(frame,step,turns)
     if step%rev==0:
         region_values=field[region]
         diff=np.linalg.norm(region_values-previous)/max(np.linalg.norm(region_values),1e-15)
-        stable=stable+1 if diff<.02 and np.all(abs(total-last)<.02*abs(total)) else 0
+        if args.periodic:
+            # Fixed point of one full revolution, including all 19 streamed populations.
+            cl.enqueue_copy(queue,populations,dst)
+            residual=np.linalg.norm(populations-previous_populations)/np.linalg.norm(populations-weights[:,None])
+            load_change=np.max(abs(total-last)/np.maximum(abs(total),1e-15))
+            repeat=max(residual,diff,load_change)<.005
+            previous_populations,populations=populations,previous_populations
+        else:
+            repeat=diff<.02 and np.all(abs(total-last)<.02*abs(total))
+        stable=stable+1 if repeat else 0
         periods.writerow([step//rev,step*dt,*total,diff,stable])
         print(f'Period {step//rev}, velocity change {diff:.3%}, {stable} settled, {time.monotonic()-start:.1f}s elapsed',flush=True)
         previous=region_values.copy();last=total;total=np.zeros(2)
         if stable>=3: break
     src,dst=dst,src
+if args.periodic and stable<3:
+    raise RuntimeError("Full-speed state failed the three-revolution repeatability test")
 field.tofile(out/'rumoca-volume.bin')
 meta=dict(dims=[nx,ny,nz],spacing_m=dx,firstCenter_m=[(.5-a*res)*dx for a in [3,2,2]],
-          dt_s=dt,steps=step,stepsPerRev=rev,framesPerTurn=args.frames,startsFromRest=True,
+          dt_s=dt,steps=step,stepsPerRev=rev,framesPerTurn=0 if args.periodic else args.frames,startsFromRest=not args.periodic,
           J=J,rpm=rpm,wallTreatment='normal-slip',computeDevice=devices[0].name,
           solveWallSeconds=time.monotonic()-start,kernelSeconds=gpu_time,settled=stable>=3)
+if args.periodic:
+    meta['periodicInitialization']=dict(populationResidual=float(residual),velocityResidual=float(diff),
+        loadResidual=float(load_change),tolerance=.005,successivePeriods=stable)
 (out/'rumoca-volume.json').write_text(json.dumps(meta,indent=2)+'\n')
