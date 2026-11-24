@@ -1,3 +1,4 @@
+import {keyboardAxisKey,preferredKeyboardLayout,saveKeyboardLayout} from './keyboard-sticks.mjs';
 import {period,wakeStep,waveCutCsv} from './onrt-basin.mjs';
 
 import {wakeSamplingGLSL} from './onrt-wake-display.mjs';
@@ -158,10 +159,14 @@ async function start() {
     const url=URL.createObjectURL(new Blob([waveCutCsv(state,tile)],{type:'text/csv'}));
     const a=document.createElement('a');a.download='onrt-wave-cuts.csv';a.href=url;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
-  const bindings=['KeyW','KeyS','KeyA','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+  const layout=$('keyLayout');
+  layout.value=preferredKeyboardLayout();
+  function updateHelp(){$('steerKeys').textContent=layout.value==='mode2'?'A/D':'Q/E';}
+  updateHelp();
+  layout.onchange=()=>{keys.clear();saveKeyboardLayout(layout.value);updateHelp();layout.blur();};
   window.addEventListener('keydown',e=>{
     if(e.code==='Home'){e.preventDefault();recenter();return;}
-    if(!bindings.includes(e.code)||e.target.tagName==='SELECT'||e.ctrlKey||e.metaKey||e.altKey)return;
+    if(!keyboardAxisKey(e.code,layout.value,'motorboat')||e.target.tagName==='SELECT'||e.ctrlKey||e.metaKey||e.altKey)return;
     e.preventDefault();keys.add(e.code);
   });
   window.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',()=>keys.clear());
@@ -179,9 +184,10 @@ async function start() {
       if(!busy && accum>=wakeStep){
         const steps=Math.min(4,Math.floor(accum/wakeStep));accum-=steps*wakeStep;
         if(keys.size&&$('mode').value==='drive'){
+          const steerPort=layout.value==='mode2'?'KeyA':'KeyQ',steerStarboard=layout.value==='mode2'?'KeyD':'KeyE';
           const held=(a,b)=>Number(keys.has(a)||keys.has(b));
           $('shaft').value=+$('shaft').value+Math.round(steps*wakeStep*140)*(held('KeyW','ArrowUp')-held('KeyS','ArrowDown'));
-          $('helm').value=+$('helm').value+Math.round(steps*wakeStep*35)*(held('KeyA','ArrowLeft')-held('KeyD','ArrowRight'));labels();
+          $('helm').value=+$('helm').value+Math.round(steps*wakeStep*35)*(held(steerPort,'ArrowLeft')-held(steerStarboard,'ArrowRight'));labels();
         }
         busy=true;worker.postMessage({type:'step',steps,inputs:inputs()});
       }

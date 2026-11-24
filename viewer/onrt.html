@@ -11,7 +11,8 @@
 <label>Helm <output id="helmLabel">Amidships</output><input id="helm" type="range" min="-35" max="35" value="0" step="1"></label>
 <label>Incident waves <select id="waves"><option value="calm">Calm water</option><option value="180">Head seas</option><option value="135">Bow quarter</option><option value="90">Beam seas</option><option value="45">Stern quarter</option><option value="0">Following seas</option></select></label>
 <div class="row"><button id="design">538 rpm</button><button id="center">Center helm</button><button id="reset">Reset run</button></div>
-<small>W/S adjust shaft speed. A/D steer. Drag to orbit and scroll or pinch to zoom.</small>
+<label>Keyboard layout <select id="keyLayout"><option value="wasd">WASD + Q/E + R/F</option><option value="mode2">WASD + arrows (Mode 2)</option></select></label>
+<small>W/S adjust shaft speed. <span id="steerKeys">Q/E</span> steer. Drag to orbit and scroll or pinch to zoom.</small>
 </details><div class="row"><label><input type="checkbox" id="contours"> Wake contours</label><button id="recenter">Re-center view</button><button id="save" disabled>Export wave cuts</button></div>
 <footer><a href="./onrt-propeller.html">3D propeller flow</a> · <a href="./">Ocean Web models</a> · <a href="https://t2015.nmri.go.jp/onrt_gc.html">Experiment particulars</a></footer></aside>
 <span id="distance">40 × 20 × 3 m basin · 1 m grid</span>

@@ -22,7 +22,7 @@ import {cameraCones} from './camera-cones.mjs';
 import {courseScene,raceCoursePoints,raceAudio,firstLeg,raceTarget} from "./regatta.mjs";
 import {raceRules} from './race-rules.mjs';
 import {lapLeaderboard,lapClock} from "./lap-board.mjs";
-import {animalSticks,controlGain,keyboardAxisKey,keyboardSticks,pilotSticks} from './keyboard-sticks.mjs';
+import {animalSticks,controlGain,keyboardAxisKey,keyboardSticks,pilotSticks,preferredKeyboardLayout,saveKeyboardLayout} from './keyboard-sticks.mjs';
 import {surfaceSpray} from './water-spray.mjs';
 import {wildlifeWater} from './wildlife-wake.mjs';
 import {cabinCruiser,cruiserUnderwaterViews,hullLamps,hullGlowLobes,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight} from './motorboat.mjs';
@@ -155,7 +155,7 @@ async function run(saved=readReset(),carried){
     try{localStorage.setItem(crtStorage,crtFilter.checked?'on':'off');}catch{}
   });
   const keyLayout=$('keyLayout');
-  if(!saved?.fields.keyLayout){try{if(localStorage.getItem('ocean-key-layout')==='wasd')keyLayout.value='wasd';}catch{}}
+  keyLayout.value=saved?.fields.keyLayout??preferredKeyboardLayout();
   const wasd=()=>keyLayout.value==='wasd';
   let url=new URL(location.href);
   if(url.searchParams.get('control')==='onrt'){location.replace('./onrt.html');return;}
@@ -2184,7 +2184,7 @@ async function run(saved=readReset(),carried){
   function releaseControls(){pressedMotion.clear();keys.clear();keyboard.clear();analog.clear();heldLever=undefined;helm();}
   keyLayout.onchange=()=>{
     releaseControls();touchControls();
-    try{localStorage.setItem('ocean-key-layout',keyLayout.value);}catch{}
+    saveKeyboardLayout(keyLayout.value);
     focusGame();
   };
   on(window,'blur',releaseControls);

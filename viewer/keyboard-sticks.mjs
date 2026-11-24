@@ -1,3 +1,12 @@
+export function preferredKeyboardLayout(){
+  try{return localStorage.getItem('ocean-key-layout')==='mode2'?'mode2':'wasd';}
+  catch{return 'wasd';}
+}
+
+export function saveKeyboardLayout(layout){
+  try{localStorage.setItem('ocean-key-layout',layout);}catch{}
+}
+
 const transmitterKeys=new Set(['KeyW','KeyS','KeyA','KeyD','ArrowLeft','ArrowRight','ArrowUp','ArrowDown']);
 const movementKeys={KeyW:'ArrowUp',KeyS:'ArrowDown',KeyA:'ArrowLeft',KeyD:'ArrowRight',
   KeyQ:'KeyA',KeyE:'KeyD',KeyR:'KeyW',KeyF:'KeyS'};
