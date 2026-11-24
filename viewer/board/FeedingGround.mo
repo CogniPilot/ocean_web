@@ -4,6 +4,8 @@ model FeedingGround "Kinematic bait schools and body-mounted fish finder"
   input Real whale "One for a humpback, zero for a white shark";
   input Real feedAge "Time since the last feeding command, negative when idle";
   constant Integer fishCount=72;
+  input Real restock[fishCount]=zeros(fishCount) "Time when each eaten fish returns";
+  output Real prey[5] "Target available, ENZ of live fish and mouth opening request";
   output Real gape,capture;
   output Real school[fishCount,4] "East, north, up and course in radians";
   output Real returns[fishCount,4] "Slant range, bearing, elevation, relative echo strength";
@@ -54,7 +56,29 @@ model FeedingGround "Kinematic bait schools and body-mounted fish finder"
         (.65+.35*abs(sin(fish[i,4]-p[4]-b)))/(1+.014*r*r) else 0};
     end for;
   end scan;
+  function choosePrey
+    input Real fish[:,4],echoes[:,4],inside[:],restock[:],clock,isWhale;
+    output Real target[5];
+  protected
+    Real score,best,reach;
+  algorithm
+    target:=zeros(5);best:=35;
+    for i in 1:size(fish,1) loop
+      if restock[i]<=clock then
+        // Prefer the school ahead of the mouth and a fish near swimming depth.
+        score:=echoes[i,1]*(1+.5*abs(echoes[i,2])+.6*abs(echoes[i,3]));
+        if score<best then
+          best:=score;target[1]:=1;target[2:4]:=fish[i,1:3];
+        end if;
+        reach:=if isWhale>.5 then 4 else 2.4;
+        if inside[i]>.5 or (echoes[i,1]<reach and abs(echoes[i,2])<.5 and abs(echoes[i,3])<.45) then
+          target[5]:=1;
+        end if;
+      end if;
+    end for;
+  end choosePrey;
 equation
+  prey=choosePrey(school,returns,inMouth,restock,clock,whale);
   // These are instantaneous observations. A single stateless FMU can evaluate
   // different animals at the same harbor time without advancing an event clock.
   gape=noEvent(if feedAge<0 then 0 elseif whale>.5 then max(0,min(1,min(feedAge/.65,(2.6-feedAge)/.8)))

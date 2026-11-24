@@ -68,7 +68,9 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
       // Extra animals have independent simulation clocks. Keep the prior event
       // sample locally, outside the roster that is sent over the network.
       lastAnimalFrames.set(a.id,frame);
-      if(!a.seat||a.feedAt==null){a.gape=0;continue;}
+      const attempt=a.feedingAttempt;
+      if(!a.seat&&attempt&&(a.feedAt==null||animalTime-a.feedAt>(a.kind==='whale'?5:3)))a.feedAt=animalTime;
+      if(a.feedAt==null){a.gape=0;continue;}
       if(!school){loadSchool();continue;}
       observer(a,frame,animalTime);
       const [gape,capture,inside]=school.getMany(['gape','capture','inMouth']);
@@ -107,10 +109,16 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment){
     if(stamp!==time){school.set('clock',time);positions=school.get('school');stamp=time;}
     return {positions,restock:room.habitat.restock,time};
   }
+  function prey(a,frame,time){
+    if(!school){loadSchool();return [0,0,0,0,0];}
+    observer(a,frame,time);
+    school.set('restock',room.habitat.restock);
+    return school.get('prey');
+  }
   function ping(a,frame,time){
     if(!school||!frame)return;
     observer(a,frame,time);
     return school.get('returns');
   }
-  return {step,stepGulls,draw,fish,ping,gull(index){return birds[index]?.group;}};
+  return {step,stepGulls,draw,fish,ping,prey,gull(index){return birds[index]?.group;}};
 }

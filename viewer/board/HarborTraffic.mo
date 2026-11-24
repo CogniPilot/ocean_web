@@ -3,6 +3,10 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   parameter Real initialState[17]={0,-28,6,0,2,-25,2,6,0,9,-12,-4,0,-.06,0,0,0};
   input Real wind[2]={0,11};
   input Real craft[32,8]=zeros(32,8),sharkSurface=0,whaleSlope[2]={0,0},sharkSlope[2]={0,0};
+  input Real whalePrey[5]=zeros(5),sharkPrey[5]=zeros(5);
+  parameter Real behaviorOffset=0 "Seconds of offset between NPC activity schedules";
+  Real foragePhase[2];
+  output Real feedingAttempt[2] "Open mouth for a live prey encounter during an autonomous foraging bout";
   parameter Real initialGuidance[6]=zeros(6);
   discrete Real whaleGuide[9](start=cat(1,{0,0,1.7,1,0,0},initialGuidance[1:3]),each fixed=true);
   discrete Real sharkGuide[9](start=cat(1,{0,0,1.65,1,0,0},initialGuidance[4:6]),each fixed=true);
@@ -104,13 +108,18 @@ equation
   der(state[16])=(tanh(6*sin(offWind))*min(1.25,.08+.39*abs(offWind))-state[16])/.55;
   der(state[17])=(.022*min(14,windSpeed)*sin(offWind)-state[17])/1.15;
 
+  foragePhase={mod(state[1]+behaviorOffset+12,83),mod(state[1]+behaviorOffset+5,57)};
+  feedingAttempt={if whalePilot[1]<.5 and whaleGuide[6]>1.5 and foragePhase[1]<18 then whalePrey[5] else 0,
+    if sharkPilot[1]<.5 and sharkGuide[6]>1.5 and foragePhase[2]<16 then sharkPrey[5] else 0};
   when sample(0,.2) then
     // Include the projected nose position in the soundings used for depth control.
     whaleBottomAhead=max(Shore.seabed(swimmer.x[1],swimmer.x[2]),
       Shore.seabed(swimmer.x[1]+(5+3*max(0,swimmer.x[4]))*cos(swimmer.x[10]),
                    swimmer.x[2]+(5+3*max(0,swimmer.x[4]))*sin(swimmer.x[10])));
-    whaleGuide=WildlifeGuidance(true,state[1],{swimmer.x[1],swimmer.x[2],swimmer.x[3],swimmer.x[10]},swimmer.x[4],craft,pre(whaleGuide[7:9]));
-    sharkGuide=WildlifeGuidance(false,state[1],state[10:13],fish[1],craft,pre(sharkGuide[7:9]));
+    whaleGuide=WildlifeGuidance(true,state[1],{swimmer.x[1],swimmer.x[2],swimmer.x[3],swimmer.x[10]},swimmer.x[4],craft,pre(whaleGuide[7:9]),
+      if foragePhase[1]<18 then whalePrey[1:4] else zeros(4));
+    sharkGuide=WildlifeGuidance(false,state[1],state[10:13],fish[1],craft,pre(sharkGuide[7:9]),
+      if foragePhase[2]<16 then sharkPrey[1:4] else zeros(4));
   end when;
   guidanceMemory=cat(1,whaleGuide[7:9],sharkGuide[7:9]);
   encounter=if whalePilot[1]>.5 then {1,swimmer.x[10]+whaleTurn,1.7,1,0,0} else whaleGuide[1:6];
@@ -136,7 +145,7 @@ equation
   swimmer.burst=whaleRequest*min(1,max(0,whaleReserve)/.32);
   swimmer.bankCommand=whaleBank;swimmer.directDrive=whaleDirect;swimmer.actuators=whaleActuators;
   whaleContact={swimmer.ground[10],swimmer.ground[11]};whaleFinLift={swimmer.portLift,swimmer.starboardLift};
-  swimmer.bottomAhead=whaleBottomAhead;swimmer.pilot=whalePilot;swimmer.encounter=encounter;swimmer.clock=state[1];swimmer.surface=localSurface;swimmer.current=currentVelocity;swimmer.strokeGain=strokeGain;
+  swimmer.behaviorOffset=behaviorOffset;swimmer.bottomAhead=whaleBottomAhead;swimmer.pilot=whalePilot;swimmer.encounter=encounter;swimmer.clock=state[1];swimmer.surface=localSurface;swimmer.current=currentVelocity;swimmer.strokeGain=strokeGain;
   swimmerState=swimmer.x;wetSections=swimmer.stations;tailForce=swimmer.tailThrust;tailPower=swimmer.musclePower;
   whale={swimmer.x[1],swimmer.x[2],swimmer.x[3],swimmer.x[10],swimmer.x[6]};
   // Arm the blow underwater and release it once the blowholes clear the surface.
@@ -150,7 +159,7 @@ equation
   // The shark rises on patrol, then dives past a submerged vehicle with an offset.
   subWeight=.5-.5*tanh(4*cos(state[1]*.085));
   sharkE=6+12*cos(state[1]*.074);sharkN=-12+6*sin(state[1]*.074);
-  sharkZ=sharkSurface-.42+subWeight*(if sharkVisit[6]>.5 then min(-1,sharkVisit[5]+.8-sharkSurface) else -2.8);
+  sharkZ=if sharkVisit[6]>1.5 then sharkVisit[5] else sharkSurface-.42+subWeight*(if sharkVisit[6]>.5 then min(-1,sharkVisit[5]+.8-sharkSurface) else -2.8);
   sharkHeading=if sharkVisit[1]>.5 then sharkVisit[2] else atan2(.38*(sharkN-state[11])+.444*cos(state[1]*.074),
                      .38*(sharkE-state[10])-.888*sin(state[1]*.074)+1e-8);
   der(state[13])=fish[9];

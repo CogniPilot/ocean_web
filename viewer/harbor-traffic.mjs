@@ -15,6 +15,65 @@ export function interpolateSharkTail(previous,next,f){
   return from+f*f*(3-2*f)*delta+duration*f*(1-f)*((1-f)*fromRate-f*toRate);
 }
 
+// Render a little behind the solved clock. Packet arrivals can bunch up even
+// when the sender produces perfectly spaced model-time samples.
+export class SwimmerTrack {
+  constructor(){
+    this.samples=[];
+    this.row=new Float64Array(319);
+  }
+  receive(frame,gape,now){
+    let latest=this.samples.at(-1);
+    if(latest?.frame[0]===frame[0])return;
+    if(latest&&(frame[0]<latest.frame[0]||now-latest.arrival>1800)){
+      this.samples.length=0;latest=undefined;
+    }
+    if(!latest){
+      this.cursor=frame[0];this.speed=1;this.spacing=.1;this.lastDraw=now;this.ready=false;
+    }else{
+      const step=frame[0]-latest.frame[0];
+      this.spacing+=.15*(step-this.spacing);
+      const base=this.samples[0];
+      if(now-base.arrival>=300){
+        const measured=(frame[0]-base.frame[0])*1000/(now-base.arrival);
+        this.speed+=.15*(measured-this.speed);
+      }
+    }
+    this.samples.push({frame,gape,arrival:now});
+    if(this.samples.length>16)this.samples.shift();
+  }
+  at(now){
+    const samples=this.samples,latest=samples.at(-1);
+    if(!latest)return;
+    const dt=Math.max(0,(now-this.lastDraw)/1000);this.lastDraw=now;
+    const delay=1.8*this.spacing;
+    if(latest.frame[0]-this.cursor>=delay)this.ready=true;
+    if(this.ready){
+      const error=latest.frame[0]-this.cursor-delay;
+      const rate=this.speed*Math.min(1.22,Math.max(.78,1+error));
+      this.cursor=Math.min(latest.frame[0],Math.max(samples[0].frame[0],this.cursor+dt*rate));
+    }
+    let i=0;
+    while(i+1<samples.length&&samples[i+1].frame[0]<=this.cursor)i++;
+    const a=samples[i],b=samples[i+1]??a,left=a.frame,right=b.frame;
+    const span=right[0]-left[0],mix=span>0?(this.cursor-left[0])/span:0;
+    const row=this.row;
+    for(let k=0;k<row.length;k++){
+      const from=left[k]??0,to=right[k]??from;
+      row[k]=from+mix*(to-from);
+    }
+    for(const k of [12,20]){
+      const delta=right[k]-left[k];
+      row[k]=left[k]+mix*Math.atan2(Math.sin(delta),Math.cos(delta));
+    }
+    row[70]=interpolateSharkTail(left,right,mix);
+    for(let k=60;k<65;k++)row[k]=left[k]??0;
+    if(right[22]<left[22])row[22]=left[22];
+    this.gape=a.gape+mix*(b.gape-a.gape);
+    return row;
+  }
+}
+
 async function marineAnimal(T,name,length,caustics,tideUniform){
   const url=new URL('./assets/'+name+'.glb',import.meta.url);
   url.search=new URL(import.meta.url).search;
@@ -130,7 +189,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     }
     for(const [id,animal] of room.animals){
       if(visuals.has(id))continue;
-      const entry={};
+      const entry={track:new SwimmerTrack()};
       visuals.set(id,entry);
       const whale=animal.kind==='whale';
       marineAnimal(T,animal.kind,whale?10:greatWhiteLength,caustics,tideUniform).then(visual=>{
@@ -176,6 +235,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     const [e,n]=pose;
     return {
       [isWhale?'whalePilot':'sharkPilot']:[Number(Boolean(a.seat)),pitch,effort,age],
+      [isWhale?'whalePrey':'sharkPrey']:!a.seat&&frame?feeding.prey(a,frame,clock):[0,0,0,0,0],
       [isWhale?'whaleTurn':'sharkTurn']:turn,
       [isWhale?'whaleBank':'sharkBank']:roll,
       [isWhale?'whaleSlope':'sharkSlope']:[(sampleSurface(e+1,n)-sampleSurface(e-1,n))/2,(sampleSurface(e,n+1)-sampleSurface(e,n-1))/2],
@@ -201,16 +261,19 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       const {steps}=pending;
       pending=undefined;
       let base;
-      for(const {id,frame} of data.frames){
+      for(const {id,frame,attempt} of data.frames){
         frame[23]=sampleSurface(frame[17],frame[18]);
         if(id==='harbor'){
           base=frame;
           for(const kind of ['whale','shark']){
             const a=room.animals.get(kind);
-            if(a?.spawn)a.spawn=undefined;
+            if(a){a.spawn=undefined;a.feedingAttempt=attempt[kind==='whale'?0:1];}
           }
         }
-        else if(room.animals.has(id))room.animals.get(id).frame=frame;
+        else if(room.animals.has(id)){
+          const animal=room.animals.get(id);
+          animal.frame=frame;animal.feedingAttempt=attempt[animal.kind==='whale'?0:1];
+        }
       }
       if(base){
         const time=Math.max((room.habitat.time??0)+steps*.01,base[0]);
@@ -227,7 +290,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       stopWorker();
       session=room.session;lastTime=time;acc=0;gullDebt=0;
       current=lastPacket=undefined;
-      for(const entry of visuals.values())entry.frame=undefined;
+      for(const entry of visuals.values())entry.track=new SwimmerTrack();
     }
     const elapsed=Math.min(.35,Math.max(0,time-(lastTime??time)));
     lastTime=time;
@@ -284,6 +347,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
           seed.initialState[9]+=5*offset;seed.initialState[10]-=6;
           seed.initialSwimmer[0]+=7*offset;seed.initialSwimmer[1]-=8;
         }
+        seed.behaviorOffset=17*(Number(id.split('-')[1])||2);
         useSpawn(seed,animal);
         actor.seed=seed;
       }
@@ -304,29 +368,19 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       current=packet?.frame;lastPacket=packet;
       interval=Math.max(1,Math.min(250,now-arrival));arrival=now;
     }
-    const f=Math.min(1,(now-arrival)/interval);
     feeding.draw(room.habitat.time??current?.[0]??0,now);
     for(const [id,entry] of visuals){
       const animal=room.animals.get(id),v=entry.visual;
       if(!v)continue;
       const frame=animal.frame??(id===animal.kind?current:undefined);
       if(!frame){v.group.visible=false;continue;}
-      if(entry.frame!==frame){
-        entry.previous=entry.frame??frame;entry.frame=frame;
-        entry.shown??=new Float64Array(319);
-      }
-      const row=entry.shown,previous=entry.previous;
-      for(let k=0;k<row.length;k++)row[k]=(previous[k]??0)+f*((frame[k]??0)-(previous[k]??0));
-      v.group.visible=true;v.group.userData.contactPose=row;v.mouth(animal.gape??0);
+      entry.track.receive(frame,animal.gape??0,now);
+      const row=entry.track.at(now);
+      v.group.visible=true;v.group.userData.contactPose=row;v.mouth(entry.track.gape);
       if(animal.kind==='whale'){
-        row.set(frame.slice(60,65),60);
-        const angle=frame[20]-previous[20];
-        row[20]=previous[20]+f*Math.atan2(Math.sin(angle),Math.cos(angle));
-        if(frame[22]<previous[22])row[22]=frame[22];
         v.group.position.fromArray(row,17);v.group.rotation.set(row[35],-row[21],row[20],'ZYX');v.articulate(row,24);
         entry.effects.update(row,row[0],v,wind);
       }else{
-        row[70]=interpolateSharkTail(previous,frame,f);
         v.group.position.fromArray(row,9);v.group.rotation.set(row[203],-row[67],row[12],'ZYX');v.articulate(row);
       }
     }

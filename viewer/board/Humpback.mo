@@ -5,6 +5,7 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
   input Real pilot[4] "Manual flag, desired pitch, stroke effort, breach cycle seconds (-1 idle)";
   input Real bankCommand "Manual bank demand, positive starboard-down radians";
   input Real directDrive,actuators[5] "Independent normalized port fin, starboard fin, peduncle, fluke feather and lateral scull";
+  input Real behaviorOffset;
   input Real clock, surface, current[2],encounter[6];
   input Real bottomAhead "Seabed elevation under the projected approach";
   input Real burst "Available fraction of maximum-effort muscle boost";
@@ -49,17 +50,18 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
     input Real state[18];
     output Real loads[11] "Body Fx,Fz,pitch and tail Fx,Fz,pitch, total Fy,yaw,roll, normal force, minimum clearance";
   protected
-    constant Real along[7]={-2,.5,4.35,-.55,-.55,-3.72,-3.72};
-    constant Real side[7]={0,0,0,3.42,-3.42,2.16,-2.16};
-    constant Real below[7]={-.84,-1.23,-.30,-1.90,-1.90,-.22,-.22};
+    constant Real along[11]={-2,.5,4.35,-.55,-.55,-3.72,-3.72,-2.35,-.95,.65,2.3};
+    constant Real side[11]={0,0,0,3.42,-3.42,2.16,-2.16,0,0,0,0};
+    constant Real below[11]={-.84,-1.23,-.30,-1.90,-1.90,-.22,-.22,0,0,0,0};
     Real cy,sy,cr,sr,cp,sp,ct,st,lever,zOffset,yOffset,cosPitch,sinPitch,rate;
-    Real arm[3],velocity[3],pos[3],force[3],rel[3],contact[5];
+    Real arm[3],velocity[3],pos[3],force[3],rel[3],contact[5],hull[5];
   algorithm
     loads:=zeros(11); loads[11]:=1e6;
     cr:=cos(state[12]);sr:=sin(state[12]);
     cp:=cos(state[6]);sp:=sin(state[6]);ct:=cos(state[8]);st:=sin(state[8]);
     // The furthest fluke probe stays within 6.7 m of the body origin.
-    if Shore.aboveFlatBottom(state[1],state[2],state[3],6.7) then
+    if Shore.aboveFlatBottom(state[1],state[2],state[3],6.7) and
+       (min(state[1:3]-Wreck.WreckSolids.wreckLow)<-6.7 or min(Wreck.WreckSolids.wreckHigh-state[1:3])<-6.7) then
       for i in 1:7 loop
         zOffset:=side[i]*sr+below[i]*cr;
         loads[11]:=min(loads[11],state[3]+(if i<=5 then along[i]*sp+zOffset*cp
@@ -68,23 +70,26 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
       return;
     end if;
     cy:=cos(state[10]);sy:=sin(state[10]);
-    for i in 1:7 loop
+    for i in 1:11 loop
       // Rotate the skin offsets in roll and pitch. Fluke points translate with the torso hinge.
       yOffset:=side[i]*cr-below[i]*sr; zOffset:=side[i]*sr+below[i]*cr;
-      lever:=along[i];cosPitch:=if i<=5 then cp else ct;sinPitch:=if i<=5 then sp else st;
-      rate:=if i<=5 then state[7] else state[9];
+      lever:=along[i];cosPitch:=if (i<=5 or i>=8) then cp else ct;sinPitch:=if (i<=5 or i>=8) then sp else st;
+      rate:=if (i<=5 or i>=8) then state[7] else state[9];
       rel:={lever*cosPitch-zOffset*sinPitch,yOffset,lever*sinPitch+zOffset*cosPitch};
-      arm:=rel+(if i<=5 then zeros(3) else {bx*cp,0,bx*sp});
+      arm:=rel+(if (i<=5 or i>=8) then zeros(3) else {bx*cp,0,bx*sp});
       velocity:={state[4]-state[11]*arm[2]-rate*rel[3]-state[13]*yOffset*sinPitch,
         state[15]+state[11]*arm[1]-state[13]*zOffset,
         state[5]+rate*rel[1]+state[13]*yOffset*cosPitch};
-      if i>5 then velocity:=velocity+{-state[7]*bx*sp,0,state[7]*bx*cp}; end if;
+      if i==6 or i==7 then velocity:=velocity+{-state[7]*bx*sp,0,state[7]*bx*cp}; end if;
       pos:={state[1]+cy*arm[1]-sy*arm[2],state[2]+sy*arm[1]+cy*arm[2],state[3]+arm[3]};
-      contact:=Shore.skinContact(pos,cy,sy,velocity,if i<=5 then 55000 else 16000);
+      contact:=if i<=7 then Shore.skinContact(pos,cy,sy,velocity,if i<=5 then 55000 else 16000) else {0,0,0,0,1e6};
+      hull:=Wreck.swimmerContact(pos,cy,sy,velocity,if i>=8 then .78 elseif i==3 then .38 else .20,
+        if (i<=5 or i>=8) then 55000 else 16000);
+      contact[1:4]:=contact[1:4]+hull[1:4];contact[5]:=min(contact[5],hull[5]);
       loads[11]:=min(loads[11],contact[5]);
       if contact[4]>0 then
         force:=contact[1:3];
-        if i<=5 then
+        if (i<=5 or i>=8) then
           loads[1]:=loads[1]+force[1];loads[2]:=loads[2]+force[3];
           loads[3]:=loads[3]+rel[1]*force[3]-rel[3]*force[1];
         else
@@ -98,6 +103,7 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
     end for;
   end bottomContact;
   Real c,s,ct,st,u,w,v,b,q,a,r,course,turn,roll,omega,stroke,amplitude,cycle,divePhase;
+  Real restPhase,rest;
   Real zTarget,pCmd,speedCmd,finCmd,finDiff,torque,tailWater,flukeWater,finWater;
   Real hx,hz,kx,kz,tu,tw,fu,fw,cu,cw,axial,normal;
   Real bodyWet[6],hydro[6],fbx,fbz,ftx,ftz,tb,tt,df,dn,fx,fz,pfx,pfz,sfx,sfz;
@@ -132,20 +138,25 @@ equation
   end when;
   // Depth pilot schedules quiet breathing and fluke-up dives; one energetic
   // run every four cycles. Targets drive fin incidence and muscle torque only.
-  cycle=if pilot[1]>.5 then (if pilot[4]>=0 then min(120,91+pilot[4]) else 0) elseif encounter[4]>.5 then mod(clock,168) else 0;divePhase=mod(clock+8,42);
-  zTarget=surface+(if cycle>=91 and cycle<108 then -9.0 elseif cycle>=108 and cycle<112 then 3
+  cycle=if pilot[1]>.5 then (if pilot[4]>=0 then min(120,91+pilot[4]) else 0) elseif encounter[4]>.5 and encounter[6]<1.5 then mod(clock,168) else 0;divePhase=mod(clock+8,42);
+  // A quiet bout has a gradual stroke reduction, a shallow breathing depth and a gradual return to patrol.
+  restPhase=mod(clock+behaviorOffset,168);
+  rest=if pilot[1]>.5 or directDrive>.5 or encounter[6]>1.5 or encounter[4]<.5 then 0
+    else max(0,min(1,min((restPhase-24)/5,(68-restPhase)/5)));
+  zTarget=if encounter[6]>1.5 then min(surface-.7,max(bottomAhead+3.2,encounter[5]+.55))
+    elseif rest>.01 then surface-1.1 else surface+(if cycle>=91 and cycle<108 and encounter[6]<1.5 then -9.0 elseif cycle>=108 and cycle<112 then 3
     elseif divePhase<12 then -.70 elseif divePhase<18 then -.34 else -4.8);
-  speedCmd=if cycle>=90 and cycle<115 then 7.3 elseif pilot[1]>.5 then 1.4+3.6*pilot[3]+4.3*burst elseif encounter[1]>.5 then min(4,encounter[3]) else 2.0;
+  speedCmd=if cycle>=90 and cycle<115 then 7.3 elseif rest>0 then (1-rest)*(if encounter[1]>.5 then min(4,encounter[3]) else 2)+rest*.65 elseif pilot[1]>.5 then 1.4+3.6*pilot[3]+4.3*burst elseif encounter[1]>.5 then min(4,encounter[3]) else 2.0;
   pCmd=if cycle>=106.8 and cycle<113.0 then min(1.2,(cycle-106.8)*.65)
     elseif pilot[1]<.5 and bottomAhead>surface-8 then
       max(-.15,min(.55,.48*(min(surface-.7,max(zTarget,bottomAhead+3.2))-x[3])-.30*w))
-    elseif pilot[1]>.5 and cycle<90 then pilot[2] elseif divePhase>=18 and divePhase<22.5 and cycle<90 then -.98
+    elseif pilot[1]>.5 and cycle<90 then pilot[2] elseif rest<.01 and encounter[6]<1.5 and divePhase>=18 and divePhase<22.5 and cycle<90 then -.98
     else max(-.48,min(.40,.18*(zTarget-x[3])-.32*w));
   course=if encounter[1]>.5 then encounter[2] else atan2(-18-x[2],-10-x[1])+1.57-atan(.080*(sqrt((x[1]+10)^2+(x[2]+18)^2+.01)-22));
   turn=if cycle>90 and cycle<113 and encounter[1]<.5 then 0 else atan2(sin(course-x[10]),cos(course-x[10]));
   roll=if pilot[1]>.5 and (cycle<90 or abs(bankCommand)>.001) then bankCommand elseif cycle>=110.3 and cycle<114 then 1.10 else max(-.34,min(.34,turn));
-  amplitude=strokeGain*(if speedCmd>4 then max(.38,min(.83+.15*burst,.67+.085*(speedCmd-axial))) else max(.14,min(.62,.36+.22*(speedCmd-axial))));
-  omega=if speedCmd>4 then 4.45+2.40*burst else min(3.4,2.25+.6*max(0,speedCmd-1.8));
+  amplitude=strokeGain*(1-.74*rest)*(if speedCmd>4 then max(.38,min(.83+.15*burst,.67+.085*(speedCmd-axial))) else max(.14,min(.62,.36+.22*(speedCmd-axial))));
+  omega=if speedCmd>4 then 4.45+2.40*burst else (1-.44*rest)*min(3.4,2.25+.6*max(0,speedCmd-1.8));
   der(x[14])=if directDrive>.5 then 0 else omega;
   stroke=if directDrive>.5 then .85*max(-1,min(1,actuators[3])) else amplitude*sin(x[14]);
   burstTorque=maxJointTorque*(1+1.35*burst);

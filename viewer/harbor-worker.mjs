@@ -18,7 +18,7 @@ async function advance({actors,environment,steps}){
     for(let step=0;step<steps;step++)model.advance(.01);
     const [state,animal,age,...rest]=model.getMany(outputs);
     // The host samples the live sea at the resulting whale position.
-    frames.push({id:actor.id,frame:[...state,...animal,age,0,...rest.flat()]});
+    frames.push({id:actor.id,attempt:model.get('feedingAttempt'),frame:[...state,...animal,age,0,...rest.flat()]});
   }
   return frames;
 }

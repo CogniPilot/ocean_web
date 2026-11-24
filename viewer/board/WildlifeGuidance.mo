@@ -3,10 +3,12 @@ function WildlifeGuidance "Patrol interruptions, target choice and closest appro
   input Real clock,pose[4],speed;
   input Real craft[32,8] "Stable identifier, type (boat=1, sub=2, drone=3, NPC boat=4), ENZ, EN velocity, host flag";
   input Real memory[3] "Target identifier, encounter episode, passing side";
+  input Real prey[4]=zeros(4) "Live prey during a foraging bout";
   output Real result[9] "Investigating, course, speed, breach clearance, target depth, submarine, then memory";
 protected
   // The -10 m contour of Shore.terrain plus clearance for body length and fins.
   constant Real eastRadius=39,northRadius=29;
+  Real ahead,reach,margin,low[3],high[3];
   Integer target;
   Real east,north,radius,norm,ne,nn,radial,tangent,limit,lookahead;
   Real best,score,dx,dy,d,clearance,notice,episode,side,heading,pace,cruise,ux,uy,ex,ey,along,across;
@@ -42,6 +44,11 @@ algorithm
     result[1]:=1;result[5]:=craft[target,5];result[6]:=if craft[target,2]==2 then 1 else 0;
     result[7]:=craft[target,1];
   end if;
+  if prey[1]>.5 then
+    heading:=atan2(prey[3]-pose[2],prey[2]-pose[1]);
+    pace:=if whale then 2.7 else 2.9;
+    result[1]:=1;result[5]:=prey[4];result[6]:=2;
+  end if;
   safety:=0;sx:=0;sy:=0;clear:=1;
   for i in 1:32 loop
     if craft[i,2]>0 and (craft[i,2]<>3 or craft[i,5]<=2) then
@@ -57,6 +64,7 @@ algorithm
     end if;
   end for;
   if safety>0 then
+    result[6]:=0;
     escape:=atan2(sy,sx);heading:=heading+safety*atan2(sin(escape-heading),cos(escape-heading));result[1]:=1;
   end if;
   if whale then
@@ -79,9 +87,26 @@ algorithm
         side:=if abs(tangent)>.12 then sign(tangent)
           elseif -nn*cos(heading)+ne*sin(heading)<-.12 then -1 else 1;
         heading:=atan2(nn,ne)+side*acos(limit);
-        result[1]:=1;pace:=min(pace,2.4);
+        result[1]:=1;result[6]:=0;pace:=min(pace,2.4);
       end if;
     end if;
+  end if;
+  // Steer away before a submerged animal's swept path enters the wreck envelope.
+  // Above the deck the same horizontal track is safe.
+  low:=Wreck.WreckSolids.wreckLow;high:=Wreck.WreckSolids.wreckHigh;
+  reach:=if whale then 6.7 else 2.6;
+  if pose[3]-(if whale then 2.5 else 1.1)<high[3] and pose[3]+reach>low[3] then
+    ahead:=min(28,reach+max(1,speed)*(if whale then 6 else 4));
+    margin:=if whale then 3.6 else 1.4;
+    for j in 0:8 loop
+      px:=pose[1]+ahead*j/8*cos(pose[4]);py:=pose[2]+ahead*j/8*sin(pose[4]);
+      if px>=low[1]-margin and px<=high[1]+margin and py>=low[2]-margin and py<=high[2]+margin then
+        // Keep passing on the animal's present side of the wreck's long axis.
+        side:=if pose[2]>=.5*(low[2]+high[2]) then 1 else -1;
+        heading:=atan2(side,.35*cos(pose[4]));pace:=min(pace,1.4);clear:=0;result[1]:=1;result[6]:=0;
+        break;
+      end if;
+    end for;
   end if;
   result[2]:=heading;result[3]:=pace;result[4]:=clear;
 end WildlifeGuidance;

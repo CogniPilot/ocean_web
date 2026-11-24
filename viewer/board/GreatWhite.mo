@@ -22,16 +22,17 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
     output Real loads[8] "Forward, port, up, pitch, yaw, normal load, minimum signed gap, roll";
   protected
     // Body, rostrum, bottom of the caudal fin, paired pectorals, dorsal and flank skin points.
-    constant Real skin[9,3]=[2.32,0,-.09;1.22,0,-.36;0,0,-.47;-1.12,0,-.32;-2.18,0,-.55;
-      .04,.91,-.30;.04,-.91,-.30;-.20,0,.92;1.02,0,.34];
-    Real cy,sy,cp,sp,cr,sr,arm[3],point[3],velocity[3],contact[5],along,side,up,tailRate;
+    constant Real skin[13,3]=[2.32,0,-.09;1.22,0,-.36;0,0,-.47;-1.12,0,-.32;-2.18,0,-.55;
+      .04,.91,-.30;.04,-.91,-.30;-.20,0,.92;1.02,0,.34;-1.25,0,-.05;-.42,0,-.05;.42,0,-.05;1.25,0,-.05];
+    Real cy,sy,cp,sp,cr,sr,arm[3],point[3],velocity[3],contact[5],hull[5],along,side,up,tailRate;
   algorithm
     loads:=zeros(8);loads[7]:=1e6;
     cp:=cos(state[3]);sp:=sin(state[3]);
     cr:=cos(bank[1]);sr:=sin(bank[1]);
     // Even with maximum tail sweep, all probes fit inside this sphere.
     // The gap remains the exact minimum over the rotated contact points.
-    if Shore.aboveFlatBottom(origin[1],origin[2],origin[3],2.33*abs(length/4.8)+.91) then
+    if Shore.aboveFlatBottom(origin[1],origin[2],origin[3],2.33*abs(length/4.8)+.91) and
+       (min(origin-Wreck.WreckSolids.wreckLow)<-3.3*length/4.8 or min(Wreck.WreckSolids.wreckHigh-origin)<-3.3*length/4.8) then
       for i in 1:9 loop
         along:=length/4.8*skin[i,1];up:=length/4.8*skin[i,3];
         side:=length/4.8*skin[i,2]-(if i==5 then .91*sin(state[6]) else 0);
@@ -40,7 +41,7 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
       return;
     end if;
     cy:=cos(heading);sy:=sin(heading);
-    for i in 1:9 loop
+    for i in 1:13 loop
       along:=length/4.8*skin[i,1];
       side:=length/4.8*skin[i,2]-(if i==5 then .91*sin(state[6]) else 0);
       up:=length/4.8*skin[i,3];
@@ -50,7 +51,9 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
       velocity:={state[1]-state[9]*arm[2]-state[4]*arm[3]-sp*(tailRate*sr+bank[2]*arm[2]),
         state[10]+state[9]*arm[1]+tailRate*cr-bank[2]*(side*sr+up*cr),
         state[2]+state[4]*arm[1]+cp*(tailRate*sr+bank[2]*arm[2])};
-      contact:=Shore.skinContact(point,cy,sy,velocity,5800);
+      contact:=if i<=9 then Shore.skinContact(point,cy,sy,velocity,5800) else {0,0,0,0,1e6};
+      hull:=Wreck.swimmerContact(point,cy,sy,velocity,min(.78,length/4.8*(if i>=10 then .40 else .12)),5800);
+      contact[1:4]:=contact[1:4]+hull[1:4];contact[5]:=min(contact[5],hull[5]);
       loads[1:3]:=loads[1:3]+contact[1:3];
       loads[4]:=loads[4]+arm[1]*contact[3]-arm[3]*contact[1];
       loads[5]:=loads[5]+arm[1]*contact[2]-arm[2]*contact[1];
