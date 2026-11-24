@@ -329,6 +329,54 @@ export function physicsView(T,canvas,status){
       center.copy(a).lerp(b,.5);dot(center,null,ink.strokeStyle,2.3);
     }
   }
+
+  const contourLevels=[-.4,-.2,-.1,-.05,-.02,-.005,.005,.02,.05,.1,.2,.4];
+  const cornerX=[0,1,1,0],cornerY=[0,0,1,1],crossings=new Float64Array(8);
+  let wakeContours;
+  function drawWakeContours(field,x,y,tide){
+    const {values,length,east=0,north=0}=field;
+    const side=Math.sqrt(values.length),step=length/side;
+    const ix=Math.floor((x-east)/step),iy=Math.floor((y-north)/step),radius=Math.min(side/2,Math.ceil(24/step));
+    if(wakeContours?.values!==values||wakeContours.ix!==ix||wakeContours.iy!==iy){
+      const wrap=index=>(index%side+side)%side;
+      const at=(i,j)=>values[wrap(j)*side+wrap(i)];
+      const z=new Float64Array(4),paths=contourLevels.map(()=>[]);
+      let low=0,high=0;
+      for(let j=iy-radius;j<iy+radius;j++)for(let i=ix-radius;i<ix+radius;i++){
+        z[0]=at(i,j);z[1]=at(i+1,j);z[2]=at(i+1,j+1);z[3]=at(i,j+1);
+        const min=Math.min(...z),max=Math.max(...z),centre=.25*(z[0]+z[1]+z[2]+z[3]);
+        low=Math.min(low,min);high=Math.max(high,max);
+        for(const [line,level] of contourLevels.entries()){
+          if(level<min||level>=max)continue;
+          let edges=0;
+          for(let k=0;k<4;k++){
+            const next=(k+1)%4;
+            if((z[k]>level)===(z[next]>level))continue;
+            const t=(level-z[k])/(z[next]-z[k]);
+            crossings[edges++]=i+cornerX[k]+t*(cornerX[next]-cornerX[k]);
+            crossings[edges++]=j+cornerY[k]+t*(cornerY[next]-cornerY[k]);
+          }
+          const path=paths[line],other=edges===8&&(z[0]>level)!==(centre>level);
+          if(edges===4||edges===8)path.push(crossings[0],crossings[1],crossings[other?6:2],crossings[other?7:3]);
+          if(edges===8)path.push(crossings[4],crossings[5],crossings[other?2:6],crossings[other?3:7]);
+        }
+      }
+      wakeContours={values,ix,iy,paths,low,high};
+    }
+    for(const [index,path] of wakeContours.paths.entries()){
+      if(!path.length)continue;
+      const level=contourLevels[index];
+      ink.strokeStyle=level>0?'#ffc582':'#80cdff';ink.lineWidth=1.4;ink.beginPath();
+      for(let i=0;i<path.length;i+=4){
+        a.set(east+step*path[i],north+step*path[i+1],tide+level);
+        b.set(east+step*path[i+2],north+step*path[i+3],tide+level);
+        segment(a,b);
+      }
+      ink.stroke();
+    }
+    return `Modelica wake elevation ${(100*wakeContours.low).toFixed(1)} to ${(100*wakeContours.high).toFixed(1)} cm\n`+
+      'Warm colors above tide · blue below · levels ±0.5, 2, 5, 10, 20, 40 cm';
+  }
   function drawPontoonTraces({points,sections}){
     for(let side=0;side<2;side++){
       const offset=3*side*sections;
@@ -343,6 +391,8 @@ export function physicsView(T,canvas,status){
     return sections+' native Modelica water samples per pontoon';
   }
   function drawWater(fields,x,y,layer){
+    if(layer==='contours')return fields?.wake?.values?
+      drawWakeContours(fields.wake,x,y,fields.tide):'Wake contours require an active displacement field. Use Medium or High graphics.';
     if(layer==='auto')layer=fields?.swimmerKind?'swimmer':fields?.pontoons?'pontoons':'surface';
     if(layer==='near'){
       if(fields?.swimmerKind)layer='swimmer';

@@ -233,9 +233,27 @@ For the default Hobie strip geometry and 1.02 m half-spacing, the level-tow mode
 
 | Tow speed | Wave resistance | Mean crest |
 | --- | --- | --- |
-| 0.5 m/s | 0.29 N | 0.42 mm |
-| 2 m/s | 2.85 N | 9.38 mm |
-| 5 m/s | 10.29 N | 29.17 mm |
+| 0.5 m/s | 0.375 N | 0.451 mm |
+| 2 m/s | 3.09 N | 7.60 mm |
+| 5 m/s | 13.81 N | 33.81 mm |
+
+Add `--wave-field wake.csv` to export the final Modelica wake grid with
+hull-relative forward and port coordinates in meters. The resistance time
+series still goes to standard output.
+
+Run `node scripts/check-kelvin-wake.mjs > kelvin.json` for a compact
+displacement-source tow at three speeds in deep, still water. It measures
+wave elevation along rays 12–22 m astern, verifies port/starboard symmetry and
+positive wave resistance, and compares the RMS elevation around the analytical
+19.47° Kelvin half-angle with the elevation outside the wedge. The angle of
+maximum amplitude is printed separately because it can lie inside the Kelvin
+envelope. The check exercises the 64×64 Modelica wave solver. Comparing actual
+hull drag, trim and loads with tow-tank data requires a separate validation.
+[Kelvin wake angles and finite disturbance size](https://arxiv.org/abs/1304.2653)
+
+In the viewer, select **Physics view → Wave grids → Wake elevation contours**
+under **Settings → View & diagnostics** to inspect the radiated wake in
+centimeters. Use Medium or High to enable wake radiation.
 
 
 ### Vehicle assets and underwater lighting
