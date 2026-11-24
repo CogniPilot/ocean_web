@@ -5,6 +5,7 @@ export function installOrbit(canvas,camera,offset,distance,orbit,zoom,redraw){
   canvas.oncontextmenu=e=>e.preventDefault();
   canvas.onpointerdown=e=>{
     if(e.button!==0&&e.button!==2)return;
+    canvas.focus({preventScroll:true});
     canvas.setPointerCapture(e.pointerId);
     touches.set(e.pointerId,{x:e.clientX,y:e.clientY,pan:e.button===2});
   };

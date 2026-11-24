@@ -96,3 +96,13 @@ The isolated propeller flow comparison uses the corrected dimensional port
 propeller IGES supplied by the 2025 Workshop on CFD in Ship Hydrodynamics.
 The flow fields and streamlines are simulator calculations.
 https://w2025.nl/news/update-of-onrt-shaft-geometry/
+
+ONRT replay shaft speeds are the n1 and n2 series in Wageningen 2025 Case
+1.1-2. Thrust and torque in that file are dummy channels. Blade phase is
+integrated from release and has an arbitrary initial azimuth.
+https://w2025.nl/download/onrt-sample-files/
+
+The epoxy deck albedo in viewer/assets/onrt/materials/epoxy-diff.webp was
+created with OpenAI ImageGen. Roughness and tangent-space normal maps
+are derived from its grain. Generation prompt:
+Create a square seamless PBR base-color tile of the cool light gray, fine-grained nonslip epoxy-coated concrete walkway in an indoor university wave basin. Orthographic 1 m square material scan, edge to edge, uniform diffuse light, subtle mineral speckling and faint wear. No baked shadows, highlights, joints, objects, lettering, borders or swatch layout.

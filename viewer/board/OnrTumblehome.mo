@@ -23,11 +23,13 @@ model OnrTumblehome "Model 5613 at Iowa basin scale; body axes forward, port, up
   input Real towSpeed=1.11;
   input Real waveAmplitude=0, waveDirection=3.14159265 "Travel direction from east towards north [rad]";
   input Real wavelength=3.147, depth=3;
-  input Real generatorStart=-100000 "Simulation time of the most recent eight-cycle wavemaker command [s]";
+  input Real generatorStart=-100000 "Simulation time of the most recent wavemaker command [s]";
   input Real generatorStroke=0.10 "Peak-to-peak vertical plunger travel [m]";
+  input Real generatorFrequency=0 "Hz, zero selects the incident-wave frequency";
+  input Real generatorCycles=8, generatorRampCycles=2, generatorStop=1e9;
   parameter Real generatorX=34.5, tankLength=40, wedgeWidth=.36 "Effective wedge width at the waterline [m]";
-  output Real plungerTravel, generatorProfile[161], trainDuration;
-  Real groupSpeed, wavePeriod, trainAge, trainAmplitude;
+  output Real plungerTravel, generatorProfile[641], trainDuration, driveDuration;
+  Real groupSpeed, wavePeriod, trainAge, trainAmplitude, driveOmega, driveK, rampTime, stroke;
   Real generatedLevel[6],generatedSlope[6],generatedForce[6],centerLevel,centerSlope;
   input Real basinContact=0;
   parameter Real initialEast=0,initialNorth=0;
@@ -84,24 +86,32 @@ model OnrTumblehome "Model 5613 at Iowa basin scale; body axes forward, port, up
     end for;
     wrench:={c*world[1]+s*world[2],-s*world[1]+c*world[2],torque};
   end basinReaction;
+  function dispersionK
+    input Real omega,h;
+    output Real k;
+  protected
+    Real th;
+  algorithm
+    k:=max(omega^2/9.80665,omega/sqrt(9.80665*h));
+    for j in 1:5 loop
+      th:=tanh(k*h);
+      k:=k-(k*th-omega^2/9.80665)/(th+k*h*(1-th^2));
+    end for;
+  end dispersionK;
   function waveTrain "Linear regular-wave packet travelling west from the six synchronous plungers"
-    input Real distance,age,k,omega,groupSpeed,period,amplitude;
+    input Real distance,age,k,omega,groupSpeed,duration,ramp,amplitude;
     output Real eta,slope "Elevation and derivative with respect to east position";
   protected
-    Real arrival,envelope,rate,phase;
+    Real arrival,envelope,rate,phase,rise,fall,riseAngle,fallAngle;
   algorithm
     arrival:=age-distance/groupSpeed;
     eta:=0; slope:=0;
-    if distance>=0 and arrival>0 and arrival<8*period then
-      if arrival<2*period then
-        envelope:=.5*(1-cos(pi*arrival/(2*period)));
-        rate:=pi/(4*period)*sin(pi*arrival/(2*period));
-      elseif arrival>6*period then
-        envelope:=.5*(1-cos(pi*(8*period-arrival)/(2*period)));
-        rate:=-pi/(4*period)*sin(pi*(8*period-arrival)/(2*period));
-      else
-        envelope:=1;rate:=0;
-      end if;
+    if distance>=0 and arrival>0 and arrival<duration then
+      riseAngle:=pi*min(1,arrival/ramp);
+      fallAngle:=pi*min(1,(duration-arrival)/ramp);
+      rise:=.5*(1-cos(riseAngle)); fall:=.5*(1-cos(fallAngle));
+      envelope:=rise*fall;
+      rate:=pi/(2*ramp)*(sin(riseAngle)*fall-rise*sin(fallAngle));
       phase:=k*distance-omega*age;
       eta:=amplitude*envelope*cos(phase);
       slope:=amplitude*(rate/groupSpeed*cos(phase)+envelope*k*sin(phase));
@@ -166,19 +176,25 @@ equation
     +speedScale^2*(-.532*vPrime^3-.629*vPrime^2*rPrime-.139*vPrime*rPrime^2-.00446*rPrime^3));
   waveNumber=2*pi/max(.1,wavelength);
   waveOmega=sqrt(g*waveNumber*tanh(waveNumber*depth));
-  wavePeriod=2*pi/waveOmega;
-  groupSpeed=.5*waveOmega/waveNumber*(1+2*waveNumber*depth/sinh(2*waveNumber*depth));
+  driveOmega=if generatorFrequency>0 then 2*pi*min(2,max(.25,generatorFrequency)) else waveOmega;
+  driveK=dispersionK(driveOmega,max(.1,depth));
+  wavePeriod=2*pi/driveOmega;
+  groupSpeed=.5*driveOmega/driveK*(1+2*driveK*depth/sinh(2*driveK*depth));
   trainAge=time-generatorStart;
-  trainDuration=8*wavePeriod+tankLength/groupSpeed;
-  // Linear volume-flux approximation: wedgeWidth times vertical speed
-  // supplies the depth-integrated progressive-wave flux eta*omega/k.
-  trainAmplitude=.5*generatorStroke*wedgeWidth*waveNumber;
-  plungerTravel=if trainAge>0 and trainAge<8*wavePeriod then
-    -.5*generatorStroke*sin(waveOmega*trainAge)*(.5-.5*cos(pi*min(1,min(trainAge,8*wavePeriod-trainAge)/(2*wavePeriod)))) else 0;
-  for j in 1:161 loop
-    generatorProfile[j]=waveTrain(tankLength*(161-j)/160,trainAge,waveNumber,waveOmega,groupSpeed,wavePeriod,trainAmplitude);
+  rampTime=wavePeriod*max(.25,min(generatorRampCycles,max(1,generatorCycles)/2));
+  driveDuration=if generatorStart<0 then 0 else min(max(1,generatorCycles)*wavePeriod,
+    max(0,generatorStop-generatorStart)+rampTime);
+  trainDuration=driveDuration+tankLength/groupSpeed;
+  // Approximate the documented stroke limits using constant peak speed above 0.62 Hz.
+  stroke=max(0,min(generatorStroke,min(.25,.155*wavePeriod)));
+  trainAmplitude=.5*stroke*wedgeWidth*driveK;
+  plungerTravel=if trainAge>0 and trainAge<driveDuration then
+    -.5*stroke*sin(driveOmega*trainAge)*.25*(1-cos(pi*min(1,trainAge/rampTime)))*
+    (1-cos(pi*min(1,(driveDuration-trainAge)/rampTime))) else 0;
+  for j in 1:641 loop
+    generatorProfile[j]=waveTrain(tankLength*(641-j)/640,trainAge,driveK,driveOmega,groupSpeed,driveDuration,rampTime,trainAmplitude);
   end for;
-  (centerLevel,centerSlope)=waveTrain(generatorX-east,trainAge,waveNumber,waveOmega,groupSpeed,wavePeriod,trainAmplitude);
+  (centerLevel,centerSlope)=waveTrain(generatorX-east,trainAge,driveK,driveOmega,groupSpeed,driveDuration,rampTime,trainAmplitude);
   waveElevation=centerLevel+waveAmplitude*cos(waveNumber*(east*cos(waveDirection)+north*sin(waveDirection))-waveOmega*time+initialPhase);
   for i in 1:6 loop
     x[i]=(stations[i+1]+stations[i])/2;
@@ -186,7 +202,7 @@ equation
     wavePhase[i]=waveNumber*((east+x[i]*cos(heading))*cos(waveDirection)
       +(north+x[i]*sin(heading))*sin(waveDirection))-waveOmega*time+initialPhase;
     (generatedLevel[i],generatedSlope[i])=waveTrain(generatorX-east-x[i]*cos(heading),trainAge,
-      waveNumber,waveOmega,groupSpeed,wavePeriod,trainAmplitude);
+      driveK,driveOmega,groupSpeed,driveDuration,rampTime,trainAmplitude);
     generatedForce[i]=-rho*g*immersedVolume[i]*generatedSlope[i];
     relativeLevel[i]=generatedLevel[i]+waveAmplitude*cos(wavePhase[i])-heave-x[i]*pitch;
     immersedVolume[i]=max(0,bareVolume[i]*mass/(rho*sum(bareVolume))+area[i]*relativeLevel[i]);

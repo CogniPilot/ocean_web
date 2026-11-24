@@ -140,6 +140,17 @@ uses lumped added mass and damping, six hydrostatic sections and regular-wave
 forcing. Free-surface radiation is one-way coupled. Input file SHA-256:
 `5366e01617f829c28958041d6c9ceeb29d5270d5008b7336a2f8ed54d4d9392b`.
 
+The 2025 workshop also publishes the head-seas shaft-speed history.
+Case 1.1-2 has the same 1,322 samples and release clock as Case 3.12,
+with slightly different rounding of time. The replay integrates the two
+shaft rates independently. Both columns contain identical rates, ranging
+from 526 to 553 rpm after release. The initial blade azimuth is arbitrary.
+The same file flags its thrust and torque columns as dummy. The measured
+bow wave gauge ranges from −32.4 to +39.1 mm over the replay. The scene
+reconstructs the surrounding incident plane wave and the corresponding
+synchronous plunger stroke using linear theory.
+[Wageningen 2025 sample archive](https://w2025.nl/download/onrt-sample-files/)
+
 The calm-water speed at 538 rpm and the steady 35° port turning diameter
 were calibration targets. Other SIMMAN FRMT measurements remained outside
 the fit:

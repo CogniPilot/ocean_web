@@ -1,3 +1,4 @@
+import {loadInstance} from './fmi3/instance.mjs';
 import {sampleTrial} from './onrt-trial.mjs';
 import {installOrbit} from './onrt-orbit.mjs';
 import {keyboardAxisKey,preferredKeyboardLayout,saveKeyboardLayout} from './keyboard-sticks.mjs';
@@ -11,16 +12,36 @@ import {createWakePlayback} from './onrt-playback.mjs';
 const $=id=>document.getElementById(id);
 const T=window.THREE, canvas=$('view');
 async function start() {
+  const filter=$('crtFilter');
+  try{filter.checked=localStorage.getItem('ocean-crt-filter')!=='off';}catch{filter.checked=true;}
+  $('crtOverlay').hidden=!filter.checked;
+  filter.onchange=()=>{ $('crtOverlay').hidden=!filter.checked;
+    try{localStorage.setItem('ocean-crt-filter',filter.checked?'on':'off');}catch{}
+  };
   const renderer=new T.WebGLRenderer({canvas,antialias:true});
   renderer.setPixelRatio(Math.min(devicePixelRatio,1.75));
   const scene=new T.Scene(),camera=new T.PerspectiveCamera(44,1,.025,220);
   scene.background=new T.Color(0xb8d4dd);
   scene.fog=new T.FogExp2(0xc5cecd,.009);
-  scene.add(new T.HemisphereLight(0xfffcf4,0xa1b9bd,2.15));
-  const sun=new T.DirectionalLight(0xfff6e9,1.8);
-  sun.position.set(5,13,6);sun.target.position.set(12,0,0);scene.add(sun,sun.target);
+
+  renderer.toneMapping=T.ACESFilmicToneMapping;
+  // Light from the paired pendant rows, with a small diffuse room bounce.
+  scene.add(new T.HemisphereLight(0xe6f0fa,0xaccac2,.45));
+  for(const x of [.4,14.5,28.6])for(const z of [-5.6,5.6]){
+    const lamp=new T.SpotLight(0xfff4df,245,34,1.17,.65,2);
+    lamp.position.set(x,8.35,z);lamp.target.position.set(x,0,z);
+    scene.add(lamp,lamp.target);
+  }
+  // The wall fixtures wash the cladding and rails across the side galleries.
+  for(const z of [-12.6,12.6]){
+    for(const x of [4.8,23.6]){
+      const lamp=new T.PointLight(0xf2f6ff,24,9,2);
+      lamp.position.set(x,3.22,z);scene.add(lamp);
+    }
+  }
   const finishes=await loadBasinMaterials(T,renderer);
   const facility=await createFacility(T,scene,finishes);
+  const cameraModel=await loadInstance('BasinCamera',{solids:facility.cameraSolids});
   // Bake the hall and its bright fixtures once for roughness-filtered specular lighting.
   const reflectionType=renderer.extensions.has('EXT_color_buffer_float')?T.HalfFloatType:T.UnsignedByteType;
   const capture=new T.WebGLCubeRenderTarget(128,{type:reflectionType});
@@ -62,26 +83,34 @@ async function start() {
   }
 
   const ghost=new T.Group();
-  const ghostSkin=new T.MeshBasicMaterial({color:0x44e8fc,transparent:true,opacity:.48,depthWrite:false});
-  const ghostEdge=new T.LineBasicMaterial({color:0x8df7ff});
+  // A depth prepass keeps the technical overlay at one opacity through overlapping
+  // hull sections. Exclude the overlay from the physical water reflection.
+  const ghostDepth=new T.MeshBasicMaterial({transparent:true,colorWrite:false,depthWrite:true,side:T.DoubleSide});
+  const ghostSkin=new T.MeshBasicMaterial({color:0x44e8fc,transparent:true,opacity:.52,depthWrite:false,side:T.DoubleSide});
+  ghostDepth.forceSinglePass=ghostSkin.forceSinglePass=true;
   for(const part of ['topsides','house','bottom']){
     const geometry=meshes[part].geometry;
-    const skin=new T.Mesh(geometry,ghostSkin);
-    skin.add(new T.LineSegments(new T.EdgesGeometry(geometry,28),ghostEdge));
-    ghost.add(skin);
+    const depth=new T.Mesh(geometry,ghostDepth),skin=new T.Mesh(geometry,ghostSkin);
+    depth.renderOrder=2;skin.renderOrder=3;
+    ghost.add(depth,skin);
   }
+  const ghostProps=props.map(source=>{
+    const mount=source.parent.clone(false),blade=source.clone();
+    blade.material=new T.MeshBasicMaterial({color:0x92f5ff,side:T.DoubleSide});
+    mount.add(blade);ghost.add(mount);return blade;
+  });
   ghost.visible=false;scene.add(ghost);
 
   // Rendering interpolates the Modelica elevation samples in world coordinates.
   // The IIHR basin spans 40 x 20 m, with its wavemaker 34.5 m ahead of
   // the carriage origin. The static lattice never snaps beneath a moving camera.
-  const surface=new T.PlaneGeometry(40,20,400,200);
+  const surface=new T.PlaneGeometry(40,20,640,120);
   surface.rotateX(-Math.PI/2);
   surface.translate(14.5,0,0);
   const data=new Uint8Array(64*64*4);
   const map=new T.DataTexture(data,64,64,T.RGBAFormat);
   map.wrapS=map.wrapT=T.RepeatWrapping;map.magFilter=map.minFilter=T.LinearFilter;map.needsUpdate=true;
-  const trainData=new Uint8Array(161*4),trainMap=new T.DataTexture(trainData,161,1);
+  const trainData=new Uint8Array(641*4),trainMap=new T.DataTexture(trainData,641,1);
   trainMap.minFilter=trainMap.magFilter=T.LinearFilter;
   const mirror=new T.PerspectiveCamera(),reflection=new T.WebGLRenderTarget(640,360,{type:reflectionType});
   const mirrorMatrix=new T.Matrix4(),sight=new T.Vector3(),target=new T.Vector3();
@@ -90,7 +119,7 @@ async function start() {
   const clipWater=[new T.Plane(new T.Vector3(0,1,0),.001)];
   const uniforms={train:{value:trainMap},mirrored:{value:reflection.texture},mirrorMatrix:{value:mirrorMatrix},field:{value:map},origin:{value:new T.Vector2()},eye:{value:camera.position},
     wave:{value:new T.Vector4()},time:{value:0},amp:{value:0},contours:{value:0},basin:{value:period},heightScale:{value:new T.Vector2(1,1)},frameMix:{value:1}};
-  const material=new T.ShaderMaterial({uniforms,side:T.DoubleSide,transparent:true,
+  const material=new T.ShaderMaterial({uniforms,side:T.DoubleSide,transparent:true,depthWrite:false,
     vertexShader:`
     ${wakeSamplingGLSL}
     uniform sampler2D train;
@@ -100,8 +129,8 @@ async function start() {
     void main(){
       vec3 p=(modelMatrix*vec4(position,1.)).xyz;
       vec2 en=vec2(p.x,-p.z);
-      vec4 h=texture2D(train,vec2(((p.x+5.5)*4.+.5)/161.,.5));
-      vec2 packet=(h.xz*65280.+h.yw*255.-32767.)/327670.;
+      vec4 h=texture2D(train,vec2(((p.x+5.5)*16.+.5)/641.,.5));
+      vec2 packet=(h.xz*65280.+h.yw*255.-32767.)/65534.;
       p.y=mix(packet.x,packet.y,frameMix)+sampleWake(en)+amp*cos(dot(wave.xy,en)-wave.z*time+wave.w);
       surfacePoint=p;gl_Position=projectionMatrix*viewMatrix*vec4(p,1.);
     }`,
@@ -130,36 +159,78 @@ async function start() {
       }
       gl_FragColor=vec4(c,contours>.5?.94:(gl_FrontFacing?alpha:.36));
       if(contours<.5){
+        #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }
     }`});
   const water=new T.Mesh(surface,material);scene.add(water);
-  const pan=new T.Vector3();
-  let azimuth,elevation,radius;
-  function recenter(){
-    pan.set(0,0,0);
-    const view=$('cameraView').value;
-    if(view==='ship'){azimuth=1.13;elevation=.37;radius=innerWidth<580?5.9:4.7;}
-    else if(view==='generator'){azimuth=2.56;elevation=.36;radius=10;}
-    else {azimuth=.24;elevation=.32;radius=23.5;}
+  const L=3.147,mid=1.625-L/2,turnNorth=-5;
+  const landmark=new T.Mesh(new T.RingGeometry(.20,.25,40),new T.MeshBasicMaterial({color:0x43eaf2,side:T.DoubleSide}));
+  landmark.rotation.x=-Math.PI/2;landmark.position.set(mid+2.35*L,.035,-(turnNorth+1.32*L));
+  landmark.visible=false;scene.add(landmark);
+  let previousTurn;
+  function recordTurn(s){
+    if(previousTurn)for(const [angle,ids] of [[Math.PI/2,['advance','transfer']],[Math.PI,['tactical']]]){
+      if(previousTurn.heading>=angle||s.heading<angle||$(ids[0]).textContent!=='—')continue;
+      const f=(angle-previousTurn.heading)/(s.heading-previousTurn.heading);
+      const at=k=>previousTurn[k]+f*(s[k]-previousTurn[k]);
+      const transfer=(at('north')-turnNorth+mid*Math.sin(angle))/L;
+      if(ids.length===2)$('advance').textContent=((at('east')+mid*(Math.cos(angle)-1))/L).toFixed(2);
+      $(ids.at(-1)).textContent=transfer.toFixed(2);
+    }
+    previousTurn=s;
   }
-  $('cameraView').onchange=recenter;
+  const pan=new T.Vector3();
+  const flyEye=new T.Vector3(),forward=new T.Vector3(),rightward=new T.Vector3(),goal=new T.Vector3(),move=new T.Vector3();
+  const keys=new Set(),savedViews=new Map();
+  let azimuth,elevation,radius,activeView;
+
+  function recenter(){
+    pan.set(0,0,0);keys.clear();
+    const view=$('cameraView').value;
+    $('cameraHelp').textContent=view==='hall'?'WASD or arrows to fly · R/F up/down · left-drag to look · right-drag to pan · V changes view':'Left-drag to orbit · right-drag to pan · scroll to zoom · V changes view';
+    if(view==='ship'){azimuth=1.13;elevation=.37;radius=innerWidth<580?5.9:4.7;}
+    else if(view==='props'){azimuth=2.83;elevation=-.24;radius=.62;}
+    else if(view==='generator'){azimuth=2.56;elevation=.36;radius=10;}
+    else {azimuth=Math.PI+.08;elevation=.22;radius=6;flyEye.set(-7.9,5.7,-1.8);}
+  }
+  activeView=$('cameraView').value;
+  $('cameraView').onchange=()=>{
+    savedViews.set(activeView,{azimuth,elevation,radius,pan:pan.clone(),eye:flyEye.clone()});
+    activeView=$('cameraView').value;recenter();
+    const saved=savedViews.get(activeView);
+    if(saved){({azimuth,elevation,radius}=saved);pan.copy(saved.pan);flyEye.copy(saved.eye);}
+    $('cameraView').blur();
+  };
   $('recenter').onclick=recenter;recenter();
   installOrbit(canvas,camera,pan,()=>radius,(dx,dy)=>{
-    azimuth-=dx*.007;elevation=Math.max(.03,Math.min(1.48,elevation+dy*.006));
-  },factor=>{radius=Math.max(.45,Math.min(45,radius*factor));},()=>{});
+    azimuth-=dx*.008;elevation=T.MathUtils.clamp(elevation+dy*.006,activeView==='hall'||activeView==='props'?-1.45:.03,1.4);
+  },factor=>{
+    if(activeView==='hall')pan.addScaledVector(camera.getWorldDirection(forward),radius*(1-factor));
+    else radius=Math.max(.35,Math.min(45,radius*factor));
+  },()=>{});
   let worker,ready=false,busy=false,state,tile,playback,uploadedLeft,uploadedRight,accum=0,last=performance.now(),failed=false;
-  let generatorStart=-100000,trial,readoutTick=-1;
+  let generatorStart=-100000,program={},trial,readoutTick=-1;
   const replayMode=()=>$('mode').value==='iihr';
-  if(new URLSearchParams(location.search).get('run')==='iihr')$('mode').value='iihr';
-  const keys=new Set();
+  const requestedRun=new URLSearchParams(location.search).get('run');
+  if(['iihr','turn'].includes(requestedRun))$('mode').value=requestedRun;
   $('generate').onclick=()=>{
     if(!ready||!state)return;
+    for(const id of ['frequency','stroke','cycles','ramp'])if(!$(id).reportValidity())return;
     generatorStart=state.time;
+    program={generatorFrequency:+$('frequency').value,generatorStroke:+$('stroke').value/1000,
+      generatorCycles:+$('cycles').value,generatorRampCycles:+$('ramp').value,generatorStop:1e9};
     $('generate').disabled=true;
   };
+  $('frequency').oninput=()=>{
+    const hz=+$('frequency').value;
+    if(hz>0)$('stroke').max=Math.floor(Math.min(250,155/hz));
+  };
+  $('stopTrain').onclick=()=>{if(state){program.generatorStop=state.time;$('stopTrain').disabled=true;}};
   function inputs(){
-    return {generatorStart,basinContact:1,shaftDemand:$('mode').value==='tow'?0:Number($('shaft').value),helm:$('mode').value==='tow'?0:Number($('helm').value),
+    if($('mode').value==='turn')return {generatorStart:-100000,basinContact:1,shaftDemand:538,helm:35,tow:0,towSpeed:1.11,waveAmplitude:0,waveDirection:0};
+
+    return {...program,generatorStart,basinContact:1,shaftDemand:$('mode').value==='tow'?0:Number($('shaft').value),helm:$('mode').value==='tow'?0:Number($('helm').value),
       tow:Number($('mode').value==='tow'),towSpeed:Number($('towSpeed').value),waveDirection:(Number($('waves').value)||0)*Math.PI/180,
       waveAmplitude:$('waves').value==='calm'?0:3.147*.01};
   }
@@ -171,16 +242,18 @@ async function start() {
   document.addEventListener('visibilitychange',()=>{rateStart=undefined;rateText='';});
   function fail(message){failed=true;ready=false;$('readout').textContent='Basin stopped · '+message;worker?.terminate();}
   function reset(){
-    const replay=replayMode();
+    const replay=replayMode(),turn=$('mode').value==='turn';
+    previousTurn=undefined;landmark.visible=turn;$('turnPanel').hidden=!turn;
+    for(const id of ['advance','transfer','tactical'])$(id).textContent='—';
     trial=undefined;readoutTick=-1;ghost.visible=false;
-    $('comparison').hidden=!replay;$('manual').hidden=replay;$('generatorControl').hidden=replay;
-    $('difference').textContent='';
-    if(replay){$('cameraView').value='ship';recenter();}
+    $('comparison').hidden=!replay;$('manual').hidden=replay||turn;$('generatorControl').hidden=replay||turn;
+    $('trackGap').textContent=$('heaveGap').textContent=$('rpmHistory').textContent='';
+    if(replay&&activeView==='hall'){activeView=$('cameraView').value='ship';recenter();}
     worker?.terminate();ready=busy=failed=false;state=tile=uploadedLeft=uploadedRight=null;accum=0;playback=createWakePlayback(3*wakeStep);
     rateStart=undefined;rateText='';
-    generatorStart=-100000;
-    $('generate').disabled=true;$('generatorStatus').textContent='8 cycles · 100 mm stroke';
-    for(let i=0;i<161;i++)trainData.set([127,255,127,255],4*i);
+    generatorStart=-100000;program={};$('stopTrain').disabled=true;
+    $('generate').disabled=true;$('generatorStatus').textContent='Ready';
+    for(let i=0;i<641;i++)trainData.set([127,255,127,255],4*i);
     trainMap.needsUpdate=true;facility.update(0,0,0);
     map.image.data.fill(0);uniforms.heightScale.value.set(0,0);map.needsUpdate=true;keys.clear();
     $('save').disabled=true;$('readout').textContent='Loading vessel and wave solver…';
@@ -189,7 +262,11 @@ async function start() {
     worker.onerror=e=>fail(e.message);
     worker.onmessage=({data})=>{
       if(data.error){fail(data.error);return;}
+      if(turn&&data.frames)for(const {state} of data.frames)recordTurn(state);
       if(data.ready){
+        if(data.trial){
+          $('gaugeTrace').setAttribute('points',data.trial.rows.map(r=>(300*r.time/data.trial.end).toFixed(2)+','+(40-r.gauge*1000).toFixed(2)).join(' '));
+        }
         trial=data.trial;playback.append([data.first]);ready=true;last=performance.now();return;
       }
       busy=false;
@@ -198,9 +275,12 @@ async function start() {
       ({state,tile}=data.frames.at(-1));
       $('save').disabled=false;
       const age=state.time-generatorStart;
-      $('generate').disabled=age<state.trainDuration;
-      $('generatorStatus').textContent=age<state.trainDuration?
-        (age<16*Math.PI/state.waveOmega?'Plungers running':'Train crossing basin'):'8 cycles · 100 mm stroke';
+      const active=generatorStart>=0 && age<state.trainDuration;
+      $('generate').disabled=active;
+      $('stopTrain').disabled=!active||age>=state.driveDuration||program.generatorStop!==1e9;
+      $('generatorStatus').textContent=!active?'Ready':age<state.driveDuration?
+        program.generatorFrequency+' Hz · plunger '+Math.round(1000*state.plungerTravel)+' mm':
+        'Waves crossing basin · '+Math.ceil(state.trainDuration-age)+' s remaining';
       const now=performance.now();
       if(rateStart===undefined){rateStart=now;rateTime=state.time;}
       if(now-rateStart>=1000){
@@ -212,12 +292,12 @@ async function start() {
       $('readout').textContent=state.surge.toFixed(2)+' m/s  ·  '+state.rpm.toFixed(0)+' rpm  ·  '+state.time.toFixed(1)+' s'+rateText+'\n'+
         'E '+state.east.toFixed(2)+' m  ·  N '+state.north.toFixed(2)+' m  ·  '+bearing+'°T';
     };
-    worker.postMessage({type:'init',trial:replay,inputs:inputs()});
+    worker.postMessage({type:'init',trial:replay,inputs:turn?{...inputs(),initialNorth:turnNorth,initialSurge:1.11,initialRpm:538}:inputs()});
   }
-  $('replay').onclick=reset;
+
   $('mode').onchange=()=>{
     const url=new URL(location.href);
-    if(replayMode())url.searchParams.set('run','iihr');else url.searchParams.delete('run');
+    if(['iihr','turn'].includes($('mode').value))url.searchParams.set('run',$('mode').value);else url.searchParams.delete('run');
     history.replaceState(null,'',url);reset();
   };$('waves').onchange=reset;$('reset').onclick=reset;
   $('towSpeed').oninput=$('shaft').oninput=$('helm').oninput=labels;
@@ -232,7 +312,16 @@ async function start() {
   layout.value=preferredKeyboardLayout();
   layout.onchange=()=>{keys.clear();saveKeyboardLayout(layout.value);layout.blur();};
   window.addEventListener('keydown',e=>{
+    if(e.altKey||e.ctrlKey||e.metaKey||e.target.matches?.('input,textarea,[contenteditable=true]'))return;
+    if(e.code==='KeyV'){
+      if(!e.repeat){const menu=$('cameraView');menu.selectedIndex=(menu.selectedIndex+1)%menu.length;menu.dispatchEvent(new Event('change'));}
+      e.preventDefault();return;
+    }
     if(e.code==='Home'){e.preventDefault();recenter();return;}
+    if(e.target.tagName==='SELECT')return;
+    if(activeView==='hall'&&['KeyW','KeyA','KeyS','KeyD','KeyR','KeyF','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)){
+      e.preventDefault();keys.add(e.code);return;
+    }
     if(!keyboardAxisKey(e.code,layout.value,'motorboat')||e.target.tagName==='SELECT'||e.ctrlKey||e.metaKey||e.altKey)return;
     e.preventDefault();keys.add(e.code);
   });
@@ -250,7 +339,7 @@ async function start() {
       accum=Math.min(.16,accum+dt);
       if(!busy && accum>=wakeStep){
         const steps=Math.min(4,Math.floor(accum/wakeStep));accum-=steps*wakeStep;
-        if(keys.size&&$('mode').value==='drive'){
+        if(keys.size&&activeView!=='hall'&&$('mode').value==='drive'){
           const held=(a,b)=>Number(keys.has(a)||keys.has(b));
           $('shaft').value=+$('shaft').value+Math.round(steps*wakeStep*140)*(held('KeyW','ArrowUp')-held('KeyS','ArrowDown'));
           $('helm').value=+$('helm').value+Math.round(steps*wakeStep*35)*(held('KeyA','ArrowLeft')-held('KeyD','ArrowRight'));labels();
@@ -265,8 +354,8 @@ async function start() {
         for(const [index,frame] of [left,right].entries()){
           const limit=frame.limit??=frame.display.reduce((peak,h)=>Math.max(peak,Math.abs(h)),.001);
           uniforms.heightScale.value.setComponent(index,limit);
-          for(let i=0;i<161;i++){
-            const q=Math.round(32767+327670*frame.state.generatorProfile[i]);
+          for(let i=0;i<641;i++){
+            const q=Math.round(32767+65534*frame.state.generatorProfile[i]);
             trainData[4*i+index*2]=q>>8;trainData[4*i+index*2+1]=q&255;
           }
           for(let i=0;i<frame.display.length;i++){
@@ -280,14 +369,19 @@ async function start() {
       const s=right.state;
       const at=k=>left.state[k]+mix*(s[k]-left.state[k]);
       ship.position.set(at('east'),at('heave'),-at('north'));
-      facility.update(ship.position.x,ship.position.z,at('plungerTravel'));
+      const wave=trial?.initial??inputs(),time=at('time');
+      // Infer the actuator displacement from the model's linear wedge transfer
+      // and the phase of the established incident wave at the east boundary.
+      const travel=trial?-wave.waveAmplitude/(.36*s.waveNumber)*Math.sin(s.waveOmega*time+s.waveNumber*34.5-wave.initialPhase):at('plungerTravel');
+      facility.update(ship.position.x,ship.position.z,travel);
       ship.rotation.set(at('roll'),at('heading'),at('pitch'),'YZX');
       rudders.forEach(r=>r.rotation.y=-at('rudder')*Math.PI/180);
       props.forEach((p,i)=>p.rotation.x=(i===0?1:-1)*at('propAngle'));
-      const time=at('time');
+
       if(trial){
         const measured=sampleTrial(trial.rows,time);
         ghost.visible=true;
+        ghostProps[0].rotation.x=measured('portAngle');ghostProps[1].rotation.x=-measured('starboardAngle');
         ghost.position.set(measured('east'),measured('heave'),-measured('north')-Number($('ghostOffset').value));
         ghost.rotation.set(measured('roll'),measured('heading'),measured('pitch'),'YZX');
         const finished=time>=trial.end-1e-7,tick=finished?Infinity:Math.floor(time*10);
@@ -296,32 +390,52 @@ async function start() {
           $('readout').textContent=(finished?'Replay complete · ':'')+time.toFixed(2)+' / '+trial.end.toFixed(2)+' s · 538 rpm · head seas';
           const gap=Math.hypot(at('east')-measured('east'),at('north')-measured('north'));
           const dz=1000*(at('heave')-measured('heave'));
-          $('difference').textContent='Track separation '+gap.toFixed(2)+' m · Heave Δ '+(dz>=0?'+':'')+dz.toFixed(0)+' mm';
+          $('trackGap').textContent='Track separation '+gap.toFixed(2)+' m';
+          $('heaveGap').textContent='Heave Δ '+(dz>=0?'+':'')+dz.toFixed(0)+' mm';
+          $('gaugeValue').textContent=(measured('gauge')*1000).toFixed(1)+' mm';
+          for(const attr of ['x1','x2'])$('gaugeCursor').setAttribute(attr,300*time/trial.end);
+          $('rpmHistory').textContent='Recorded shafts (P/S) '+Math.round(measured('portRpm'))+' / '+Math.round(measured('starboardRpm'))+' rpm';
         }
       }
-      const wave=trial?.initial??inputs();uniforms.time.value=time;uniforms.amp.value=wave.waveAmplitude;
+      uniforms.time.value=time;uniforms.amp.value=wave.waveAmplitude;
       uniforms.wave.value.set(s.waveNumber*Math.cos(wave.waveDirection),s.waveNumber*Math.sin(wave.waveDirection),s.waveOmega,wave.initialPhase??0);
     }
     uniforms.origin.value.set(ship.position.x,-ship.position.z);
     uniforms.contours.value=Number($('contours').checked);
     const view=$('cameraView').value;
-    if(view==='ship')target.set(ship.position.x,.07,ship.position.z);
-    else if(view==='generator')target.set(32,.25,0);
-    else target.set(12,.3,0);
-    if(view==='ship'&&ghost.visible)target.lerp(ghost.position,.5);
-    target.add(pan);
-    target.clamp(targetMin,targetMax);
-    camera.position.set(target.x+radius*Math.cos(azimuth)*Math.cos(elevation),target.y+radius*Math.sin(elevation),
-      target.z+radius*Math.sin(azimuth)*Math.cos(elevation));
-    // Keep the observer inside the hall when orbiting near a wall or roof.
-    camera.position.clamp(cameraMin,cameraMax);
-    if(view==='ship' && Math.abs(target.z)<9.8){
-      camera.position.x=Math.max(-5.24,Math.min(34.05,camera.position.x));
-      camera.position.z=Math.max(-9.63,Math.min(9.63,camera.position.z));
+    if(view==='hall'){
+      forward.set(-Math.cos(azimuth)*Math.cos(elevation),-Math.sin(elevation),-Math.sin(azimuth)*Math.cos(elevation));
+      rightward.set(Math.sin(azimuth),0,-Math.cos(azimuth));
+      const held=(a,b)=>Number(keys.has(a)||keys.has(b));
+      move.copy(forward).multiplyScalar(held('KeyW','ArrowUp')-held('KeyS','ArrowDown'));
+      move.addScaledVector(rightward,held('KeyD','ArrowRight')-held('KeyA','ArrowLeft'));
+      move.y+=Number(keys.has('KeyR'))-Number(keys.has('KeyF'));
+      goal.copy(flyEye).addScaledVector(move.clampLength(0,1),4*dt).add(pan);pan.set(0,0,0);
+      cameraModel.set('previous',flyEye.toArray());cameraModel.set('desired',goal.toArray());
+      cameraModel.set('boat',[ship.position.x,ship.position.y,ship.position.z,ship.rotation.y]);
+      cameraModel.set('carrier',[facility.bridge.position.x,facility.trolley.position.z,facility.stroke]);
+      flyEye.fromArray(cameraModel.get('position'));camera.position.copy(flyEye);
+      target.copy(flyEye).addScaledVector(forward,radius);
+    }else{
+      if(view==='props'){const hull=ghost.visible?ghost:ship;hull.updateMatrixWorld();hull.localToWorld(target.set(-1.30,-.11,0));}
+      else if(view==='ship')target.set(ship.position.x,.07,ship.position.z);
+      else if(view==='generator')target.set(32,.25,0);
+      else target.set(12,.3,0);
+      if(view==='ship'&&ghost.visible)target.lerp(ghost.position,.5);
+      target.add(pan);
+      if(view!=='props')target.clamp(targetMin,targetMax);
+      camera.position.set(target.x+radius*Math.cos(azimuth)*Math.cos(elevation),target.y+radius*Math.sin(elevation),
+        target.z+radius*Math.sin(azimuth)*Math.cos(elevation));
+      // Keep the observer inside the hall when orbiting near a wall or roof.
+      if(view!=='props')camera.position.clamp(cameraMin,cameraMax);
+      if(view==='ship' && Math.abs(target.z)<9.8){
+        camera.position.x=Math.max(-5.24,Math.min(34.05,camera.position.x));
+        camera.position.z=Math.max(-9.63,Math.min(9.63,camera.position.z));
+      }
+      // Clear the coping and equipment if the view is on the perimeter deck.
+      if(camera.position.x< -5.2||camera.position.x>33.85||Math.abs(camera.position.z)>9.62)
+        camera.position.y=Math.max(camera.position.y,1.95);
     }
-    // Clear the coping and equipment if the view is on the perimeter deck.
-    if(camera.position.x< -5.2||camera.position.x>33.85||Math.abs(camera.position.z)>9.62)
-      camera.position.y=Math.max(camera.position.y,1.95);
     camera.lookAt(target);camera.updateMatrixWorld();
     if(camera.position.y>0&&!uniforms.contours.value){
       mirror.copy(camera);mirror.position.y=-camera.position.y;
@@ -329,8 +443,8 @@ async function start() {
       mirror.up.setFromMatrixColumn(camera.matrixWorld,1);mirror.up.y*=-1;
       mirror.lookAt(sight);mirror.updateMatrixWorld();
       mirrorMatrix.multiplyMatrices(mirror.projectionMatrix,mirror.matrixWorldInverse);
-      water.visible=false;renderer.clippingPlanes=clipWater;renderer.setRenderTarget(reflection);
-      renderer.render(scene,mirror);renderer.setRenderTarget(null);renderer.clippingPlanes=[];water.visible=true;
+      const showGhost=ghost.visible,showMarker=landmark.visible;ghost.visible=false;landmark.visible=false;water.visible=false;renderer.clippingPlanes=clipWater;renderer.setRenderTarget(reflection);
+      renderer.render(scene,mirror);renderer.setRenderTarget(null);renderer.clippingPlanes=[];water.visible=true;ghost.visible=showGhost;landmark.visible=showMarker;
     }
     renderer.render(scene,camera);requestAnimationFrame(frame);
   }

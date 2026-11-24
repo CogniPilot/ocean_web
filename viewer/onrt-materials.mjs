@@ -21,7 +21,7 @@ export function metricSurface(T,source){
 export async function loadBasinMaterials(T,renderer){
   // Tile lengths are in metres. Magnitudes describe each finish in the hall photos.
   const finishes={
-    concrete:['concrete',2.4,.93,0,.65], liner:['enamel',1.0,.56,0,.21],
+    deck:['epoxy',1,.86,0,.35], concrete:['concrete',2.4,.93,0,.65], liner:['enamel',1.0,.56,0,.21],
     panel:['cladding',1.8,.53,.14,.50], paint:['enamel',.65,.44,.02,.18],
     steel:['metal',.72,.57,.87,.31], bronze:['metal',.16,.43,.83,.16],
     rubber:['rubber',.52,.94,0,.32], hull:['enamel',.18,.40,.01,.10],

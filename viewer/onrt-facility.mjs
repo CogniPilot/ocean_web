@@ -6,6 +6,10 @@ export async function createFacility(T,scene,finishes){
   const hall=new T.Group(),bridge=new T.Group(),trolley=new T.Group();
   scene.add(hall,bridge);bridge.add(trolley);
   const shapes={box:new T.BoxGeometry(1,1,1),tube:new T.CylinderGeometry(.5,.5,1,16)};
+  const solids=[];
+  const frameOf=parent=>parent===bridge?1:parent===trolley?2:0;
+  const solidBox=(x,y,z,l,h,w,frame=0)=>solids.push([x,y,z,l/2,h/2,w/2,1,frame,0]);
+  const solidTube=(a,b,d,frame=0)=>solids.push([...a,...b,2,frame,d/2]);
   const batches=new Map(),up=new T.Vector3(0,1,0);
   const white=0xf0f1ea,steel=0x798589,iron=0x344347,gold=0xffb724,concrete=0xd7d4c8;
   function part(parent,shape,color,position,scale,rotation=new T.Quaternion()){
@@ -14,8 +18,9 @@ export async function createFacility(T,scene,finishes){
     if(!group.has(key))group.set(key,{shape,color,matrices:[]});
     group.get(key).matrices.push(new T.Matrix4().compose(new T.Vector3(...position),rotation,new T.Vector3(...scale)));
   }
-  function box(x,y,z,l,h,w,color,parent=hall){part(parent,'box',color,[x,y,z],[l,h,w]);}
+  function box(x,y,z,l,h,w,color,parent=hall){if(Math.max(l,h,w)>.6&&color!==0xaab1b2&&color!==0xb0bab9)solidBox(x,y,z,l,h,w,frameOf(parent));part(parent,'box',color,[x,y,z],[l,h,w]);}
   function bar(a,b,diameter,color,parent=hall){
+    if(diameter>=.04)solidTube(a,b,diameter,frameOf(parent));
     const delta=new T.Vector3(b[0]-a[0],b[1]-a[1],b[2]-a[2]);
     const center=a.map((v,i)=>(v+b[i])/2),length=delta.length();
     part(parent,'tube',color,center,[diameter,length,diameter],new T.Quaternion().setFromUnitVectors(up,delta.normalize()));
@@ -26,14 +31,37 @@ export async function createFacility(T,scene,finishes){
     // The coping ends at |z|=10.20. Begin the deck there so its top
     // and inner face cannot coincide with the basin wall at grazing angles.
     box(14.5,.37,side*11.65,48.2,.30,2.90,concrete);
-    box(14.5,-1.24,side*10.10,40,3.52,.20,0xb6d9cc);
+    box(14.5,-1.24,side*10.10,40,3.52,.20,0xe9ece6);
     box(14.5,.59,side*10.82,44,.12,.16,steel);
     box(14.5,.72,side*10.82,44,.13,.07,iron);
     for(let x=-9;x<=38;x+=1.1)box(x,5.0,side*13.02,.036,8.2,.06,0xaab1b2);
-    for(let x=-5;x<35;x+=1.15){
-      bar([x,.38,side*9.99],[x,.24,side*9.87],.065,steel);
-      bar([x-.55,.012,side*9.88],[x+.55,.012,side*9.88],.10,Math.round((x+5)/1.15)%2?0x2a3839:gold);
+    // Each float is a moulded spool threaded on a continuous dark cable.
+    const spool=shapes.float??new T.LatheGeometry([[.22,-.5],[.48,-.44],[.5,-.31],[.35,-.20],
+      [.35,.20],[.5,.31],[.48,.44],[.22,.5]].map(([x,y])=>new T.Vector2(x,y)),12);
+    shapes.float=spool;
+    const floatAxis=new T.Quaternion().setFromAxisAngle(new T.Vector3(0,0,1),Math.PI/2);
+    for(const z of [9.78,9.91]){
+      bar([-5.45,.03,side*z],[34.45,.03,side*z],.021,iron);
+      for(let n=0;n<620;n++){
+        part(hall,'float',Math.floor(n/8)%2?0x222729:gold,[-5.42+n*.064,.03,side*z],
+          [.115,.058,.115],floatAxis);
+      }
     }
+    solidBox(14.5,.03,side*9.845,40,.115,.25);
+    const triangle=new T.Shape();
+    triangle.moveTo(0,0);triangle.lineTo(0,-.21);triangle.lineTo(.20,0);triangle.closePath();
+    const bracketGeometry=metricSurface(T,new T.ExtrudeGeometry(triangle,{depth:.035,bevelEnabled:false}));
+    const brackets=new T.InstancedMesh(bracketGeometry,finishes.material('steel',0x526066),35);
+    for(let i=0;i<35;i++){
+      const x=-5+i*1.15, pose=new T.Matrix4().makeRotationY(side*Math.PI/2);
+      if(i%3===0){
+        bar([x,.23,side*9.92],[x-.10,.085,side*9.80],.007,iron);
+        bar([x,.23,side*9.92],[x+.10,.085,side*9.80],.007,iron);
+      }
+      brackets.setMatrixAt(i,pose.setPosition(x,.43,side*9.995));
+      solidBox(x,.325,side*9.89,.035,.21,.21);
+    }
+    hall.add(brackets);
     for(let x=-9;x<=38;x+=4.7){
       box(x,4.8,side*12.88,.22,8.65,.28,steel);
       bar([x,8.9,side*12.9],[x,10.4,0],.23,steel);
@@ -61,6 +89,36 @@ export async function createFacility(T,scene,finishes){
   beach.rotation.z=-.28;beach.position.set(-3.92,-.40,0);hall.add(beach);
   for(let z=-9.7;z<10;z+=.30)bar([-5.48,.10,z],[-2.32,-.80,z],.045,0x858f74);
 
+  // Side access gallery from the basin photographs. All dimensions are estimates
+  // from the door and handrail proportions. Leave the carriage rail clear.
+  const walkwayZ=-12.10, innerRail=-11.43;
+  box(24.5,3.35,walkwayZ,10.0,.16,1.42,steel);
+  for(let x=19.6;x<29.6;x+=1.65){
+    bar([x,3.43,innerRail],[x,4.46,innerRail],.045,steel);
+    bar([x,2.36,-12.86],[x,3.28,innerRail],.086,steel);
+  }
+  for(const y of [3.92,4.45])bar([19.51,y,innerRail],[29.47,y,innerRail],.044,steel);
+  for(const x of [19.53,29.47]){
+    for(const y of [3.92,4.45])bar([x,y,-12.78],[x,y,innerRail],.044,steel);
+  }
+  for(const x of [21.5,28]){
+    for(const level of [.52,3.44]){
+      box(x,level+1.02,-12.99,1.05,2.04,.10,0x63757b);
+      box(x,level+1.00,-12.91,.93,1.98,.065,0xc4c7bc);
+      box(x,level+1.53,-12.865,.41,.54,.026,0x50656a);
+      box(x+.29,level+.99,-12.84,.15,.036,.044,steel);
+    }
+  }
+  for(const z of [-12.45,-11.93])bar([18.25,.55,z],[19.72,4.23,z],.055,gold);
+  for(let j=1;j<=11;j++){
+    const t=j/12,x=18.25+1.19*t,y=.55+2.89*t;
+    bar([x,y,-12.45],[x,y,-11.93],.042,gold);
+  }
+  // Parallel fluorescent tubes sit in a shallow metal reflector on each wall.
+  for(const side of [-1,1])for(let x=-4.6;x<35;x+=4.7){
+    box(x,3.25,side*12.96,1.34,.20,.105,steel);
+    for(const y of [3.205,3.29])bar([x-.60,y,side*12.88],[x+.60,y,side*12.88],.035,0xfffae7);
+  }
   // Release platform on the beach end, and the safety rail at its landward edge.
   for(const z of [-4.25,4.25]){
     box(-4.55,.22,z,2.45,.18,3.65,gold);
@@ -72,6 +130,18 @@ export async function createFacility(T,scene,finishes){
   for(const dz of [-5.8,5.8]){
     bar([-5.61,.4,dz],[-5.61,1.4,dz],.07,gold);
     bar([-5.61,1.4,dz],[-6.91,1.4,dz],.07,gold);
+  }
+  // Pool-access ladder at the work platform, including submerged rungs.
+  for(const z of [2.84,3.26]){
+    bar([-3.22,-1.23,z],[-3.22,.94,z],.043,steel);
+    bar([-3.22,.94,z],[-3.49,.94,z],.043,steel);
+    bar([-3.49,.94,z],[-3.49,.35,z],.043,steel);
+  }
+  for(let i=0;i<6;i++)bar([-3.22,.25-.27*i,2.84],[-3.22,.25-.27*i,3.26],.032,steel);
+  for(let j=0;j<6;j++){
+    const z=(j-2.5)*3.3;
+    box(38.43,3.27,z,.11,.23,1.29,steel);
+    for(const y of [3.22,3.31])bar([38.36,y,z-.56],[38.36,y,z+.56],.035,0xfffae7);
   }
   // A yellow triangular space truss with wheeled end trucks and a transverse measuring carriage.
   for(const offset of [-.76,.76]){
@@ -123,10 +193,17 @@ export async function createFacility(T,scene,finishes){
       box(34.25,1.45,z+dz,.19,.56,.19,iron);
     }
     box(34.56,1.71,z,.81,.14,3.23,steel);
+    for(const dz of [-1.12,1.12]){
+      box(35.02,1.36,z+dz,.12,1.68,.12,0x80b6ad);
+      box(34.68,2.20,z+dz,.82,.10,.10,0x80b6ad);
+      bar([35.02,1.74,z+dz],[34.33,2.14,z+dz],.048,steel);
+    }
+    box(34.33,2.24,z,.12,.12,2.36,0x80b6ad);
+    box(34.53,1.90,z,.36,.32,.62,0x728884);
   }
   const finishByColor=new Map([
-    [white,'panel'],[concrete,'concrete'],[steel,'steel'],[iron,'steel'],[0xc6c4b7,'steel'],
-    [0xb6d9cc,'liner'],[0xaacac0,'liner'],[0x2a3839,'rubber'],[0xfffae7,'lamp'],[0xfaf3d9,'lamp']
+    [white,'panel'],[concrete,'deck'],[steel,'steel'],[iron,'steel'],[0xc6c4b7,'steel'],
+    [0xe9ece6,'liner'],[0x222729,'rubber'],[0xaacac0,'liner'],[0x2a3839,'rubber'],[0xfffae7,'lamp'],[0xfaf3d9,'lamp']
   ]);
   for(const [parent,batch] of batches)for(const {shape,color,matrices} of batch.values()){
     const m=finishes.material(finishByColor.get(color)??'paint',color,shape);
@@ -147,9 +224,15 @@ export async function createFacility(T,scene,finishes){
     map:texture,normalMap:detail(floorNormal),normalScale:new T.Vector2(.2,.2),roughnessMap:detail(floorRough),roughness:.63
   }));
   bottom.rotation.set(-Math.PI/2,Math.PI/2,0,'YXZ');bottom.position.set(14.5,-3,0);hall.add(bottom);
-  return {update(x,z,stroke){
+  for(let i=0;i<6;i++)solidBox(34.18,-.11,(i-2.5)*3.3,.60,.86,3.27,3);
+  solidBox(-3.92,-.35,0,3.43,.8,19.65);
+  solidBox(0,.04,0,3.15,.38,.40,4);
+  if(solids.length>1024)throw Error('Basin camera collision capacity exceeded: '+solids.length);
+  const cameraSolids=new Float64Array(1024*9);cameraSolids.set(solids.flat());
+  return {cameraSolids,bridge,trolley,stroke:0,update(x,z,stroke){
     bridge.position.x=Math.max(-4.1,Math.min(33.1,x));
     trolley.position.z=Math.max(-9.8,Math.min(9.8,z));
+    this.stroke=stroke;
     for(const wedge of wedges)wedge.position.y=stroke;
   }};
 }

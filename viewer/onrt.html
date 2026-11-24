@@ -1,27 +1,48 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ONR Tumblehome · Ocean Web</title>
 <style>
 *{box-sizing:border-box}body{margin:0;background:#b1c7d0;color:#e8f3f4;font:15px system-ui,sans-serif}canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}aside{position:absolute;left:1rem;top:1rem;width:min(21rem,calc(100% - 2rem));background:#102933f2;padding:1rem;border-radius:.5rem;box-shadow:0 2px 16px #112f3840}h1{font:1.7rem Georgia,serif;margin:0 0 .2rem}p{margin:.25rem 0 .75rem}small,summary,a{color:#b1e5dc}summary{cursor:pointer}[hidden]{display:none!important}label{display:block;margin:.5rem 0}input[type=range]{width:100%;accent-color:#7ad7c0}output{float:right}button,select,a{font:inherit}button,select{background:#20414b;color:white;border:1px solid #648f94;border-radius:.25rem;padding:.35rem}button{cursor:pointer}.row{display:flex;gap:.35rem;flex-wrap:wrap;margin:.5rem 0}#readout,#difference{font: .8rem/1.55 ui-monospace,monospace;white-space:pre-line;margin:.4rem 0}.row{align-items:center}footer{font-size:.78rem;margin-top:.8rem}#distance{position:absolute;bottom:1rem;right:1rem;background:#102933df;border-radius:.3rem;padding:.35rem .65rem;font:12px monospace}@media(max-height:580px){aside{max-height:94vh;overflow:auto}}@media(max-width:580px){aside{left:.5rem;right:.5rem;bottom:.5rem;top:auto;width:auto;max-height:46vh;overflow:auto;padding:.65rem}#distance{top:.5rem;bottom:auto}}
-</style></head><body><canvas id="view" aria-label="ONR Tumblehome in the model basin"></canvas>
+#difference{display:flex;flex-wrap:wrap;gap:0 .9em}#difference span{white-space:nowrap}aside{max-height:calc(100dvh - 2rem);overflow:auto}@media(max-width:580px){aside{max-height:46vh}}#crtOverlay{position:fixed;inset:0;pointer-events:none;background:
+  radial-gradient(ellipse 110% 92% at center,transparent 60%,#0005),
+  repeating-linear-gradient(to bottom,#0002 0 1px,transparent 1px 3px),
+  repeating-linear-gradient(to right,#ff4e4409 0 1px,#60ff6907 1px 2px,#527aff09 2px 3px)}
+table{width:100%;font-size:.83rem;border-collapse:collapse}th,td{text-align:right;padding:.2em}td:first-child{text-align:left}#turnPanel a{font-size:.8rem}</style></head><body><canvas tabindex="-1" id="view" aria-label="ONR Tumblehome in the model basin"></canvas>
+<div id="crtOverlay" aria-hidden="true" hidden></div>
 <aside><h1>ONR Tumblehome</h1><small>Rumoca simulation · University of Iowa · IIHR model 5613 · 3.147 m LWL · 72.6 kg</small>
 <div id="readout" aria-live="off">Loading vessel and wave solver…</div>
-<label>View <select id="cameraView"><option value="hall">Basin overview</option><option value="ship">Follow model</option><option value="generator">Wavemakers</option></select></label>
-<label>Run <select id="mode"><option value="drive">Free running</option><option value="tow">Straight tow</option><option value="iihr">IIHR head-seas replay</option></select></label>
+<label>View <select id="cameraView" title="Press V to cycle views"><option value="hall">Basin overview</option><option value="ship">Follow model</option><option value="generator">Wavemakers</option><option value="props">Stern propellers</option></select></label>
+<small id="cameraHelp">Overview · WASD or arrows to fly, R/F up/down, left-drag to look, right-drag to pan, V to switch.</small>
+<label>Run <select id="mode"><option value="drive">Free running</option><option value="tow">Straight tow</option><option value="turn">IIHR 35° port turn</option><option value="iihr">IIHR head-seas replay</option></select></label>
 <div id="comparison" hidden>
 <small style="color:#6cf3ff">Cyan ghost · IIHR measurement</small><small> / Solid hull · simulation</small>
 <label>Ghost position <select id="ghostOffset"><option value="0.85">Alongside (+0.85 m north)</option><option value="0">Measured coordinates</option></select></label>
-<div id="difference"></div>
-<div class="row"><button id="replay">Replay from release</button><a href="https://t2015.nmri.go.jp/Instructions_ONRT/Case_3.12/Case3.12-000.zip">IIHR Case 3.12 data</a></div>
+<div id="difference"><span id="trackGap"></span><span id="heaveGap"></span></div><small id="rpmHistory"></small>
+<details id="gauge"><summary>Measured bow wave <span id="gaugeValue"></span></summary>
+<svg viewBox="0 0 300 80" role="img" aria-label="Recorded bow water elevation over the 28.55 second run, from minus to plus 40 millimetres"><path d="M0 40H300" stroke="#55737e"/><polyline id="gaugeTrace" fill="none" stroke="#61dae8"/><line id="gaugeCursor" y1="0" y2="80" stroke="white"/></svg>
+<small>±40 mm · 0–28.55 s · bow gauge. Basin waves and plunger stroke are reconstructed.</small></details>
+<div class="row"><a href="https://t2015.nmri.go.jp/Instructions_ONRT/Case_3.12/Case3.12-000.zip">IIHR Case 3.12 data</a> · <a href="https://w2025.nl/download/onrt-sample-files/">W2025 shafts</a></div>
 </div>
-<div class="row" id="generatorControl"><button id="generate" disabled>Send wave train</button><small id="generatorStatus">8 cycles · 100 mm stroke</small></div>
+<div id="turnPanel" hidden><small>Cyan ring · measured midships at 90°. Distances in ship lengths.</small>
+<table><thead><tr><th></th><th>IIHR</th><th>Simulation</th></tr></thead><tbody>
+<tr><td>Advance at 90°</td><td>2.35</td><td id="advance">—</td></tr>
+<tr><td>Transfer at 90°</td><td>1.32</td><td id="transfer">—</td></tr>
+<tr><td>Tactical diameter</td><td>3.19</td><td id="tactical">—</td></tr></tbody></table>
+<a href="https://simman2020.kr/contents/test_case_5.2.php">SIMMAN 5.2.3 · Table 7</a></div>
+<details id="generatorControl"><summary>Wavemaker control panel</summary>
+<label>Frequency (Hz) <input id="frequency" type="number" min=".25" max="2" step="any" value=".704"></label>
+<label>Stroke, peak to peak (mm) <input id="stroke" type="number" min="1" max="220" value="100"></label>
+<label>Cycles <input id="cycles" type="number" min="1" max="128" value="8"></label>
+<label>Ramp (cycles) <input id="ramp" type="number" min=".25" max="4" step=".25" value="2"></label>
+<div class="row"><button id="generate" disabled>Send wave train</button><button id="stopTrain" disabled>Ramp down</button></div>
+<small id="generatorStatus"></small></details>
 <details id="manual"><summary>Helm and experiment</summary>
 <label hidden id="towControl">Tow speed <output id="towLabel">1.11 m/s</output><input id="towSpeed" type="range" min=".25" max="2.25" value="1.11" step=".01"></label>
 <label>Shaft command <output id="shaftLabel">0 rpm</output><input id="shaft" type="range" min="0" max="900" value="0" step="1"></label>
 <label>Helm <output id="helmLabel">Amidships</output><input id="helm" type="range" min="-35" max="35" value="0" step="1"></label>
 <label>Incident waves <select id="waves"><option value="calm">Calm water</option><option value="180">Head seas</option><option value="135">Bow quarter</option><option value="90">Beam seas</option><option value="45">Stern quarter</option><option value="0">Following seas</option></select></label>
-<div class="row"><button id="design">538 rpm</button><button id="center">Center helm</button><button id="reset">Reset run</button></div>
+<div class="row"><button id="design">538 rpm</button><button id="center">Center helm</button></div>
 <label>Keyboard layout <select id="keyLayout"><option value="wasd">WASD + Q/E + R/F</option><option value="mode2">WASD + arrows (Mode 2)</option></select></label>
-<small>W/S adjust shaft speed. A/D steer. Drag to orbit, right-drag to pan, scroll or pinch to zoom.</small>
-</details><div class="row"><label><input type="checkbox" id="contours"> Wake contours</label><button id="recenter">Re-center view</button><button id="save" disabled>Export wave cuts</button></div>
+<small>W/S adjust shaft speed. A/D steer. Drag to orbit, right-drag to pan, V cycles views, scroll or pinch to zoom.</small>
+</details><div class="row"><label><input type="checkbox" id="contours"> Wake contours</label><button id="reset">Reset run</button><button id="recenter">Re-center view</button><label><input type="checkbox" id="crtFilter"> CRT filter</label><button id="save" disabled>Export wave cuts</button></div>
 <footer><a href="./onrt-propeller.html">3D propeller flow</a> · <a href="./">Ocean Web models</a> · <a href="https://t2015.nmri.go.jp/onrt_gc.html">Experiment particulars</a></footer></aside>
 <span id="distance">IIHR wave basin · 40 × 20 × 3 m</span>
 <script src="vendor/three.min.js"></script><script type="module" src="onrt-view.mjs"></script></body></html>
