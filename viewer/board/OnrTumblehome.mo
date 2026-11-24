@@ -23,7 +23,16 @@ model OnrTumblehome "Model 5613 at Iowa basin scale; body axes forward, port, up
   input Real towSpeed=1.11;
   input Real waveAmplitude=0, waveDirection=3.14159265 "Travel direction from east towards north [rad]";
   input Real wavelength=3.147, depth=3;
-  output Real east(start=0,fixed=true),north(start=0,fixed=true),heading(start=initialHeading,fixed=true);
+  input Real generatorStart=-100000 "Simulation time of the most recent eight-cycle wavemaker command [s]";
+  input Real generatorStroke=0.10 "Peak-to-peak vertical plunger travel [m]";
+  parameter Real generatorX=34.5, tankLength=40, wedgeWidth=.36 "Effective wedge width at the waterline [m]";
+  output Real plungerTravel, generatorProfile[161], trainDuration;
+  Real groupSpeed, wavePeriod, trainAge, trainAmplitude;
+  Real generatedLevel[6],generatedSlope[6],generatedForce[6],centerLevel,centerSlope;
+  input Real basinContact=0;
+  parameter Real initialEast=0,initialNorth=0;
+  output Real wallWrench[3] "Surge and sway force [N], yaw moment [N m]";
+  output Real east(start=initialEast,fixed=true),north(start=initialNorth,fixed=true),heading(start=initialHeading,fixed=true);
   output Real surge(start=initialSurge,fixed=true),sway(start=initialSway,fixed=true),yawRate(start=initialYawRate,fixed=true);
   output Real heave(start=initialHeave,fixed=true),pitch(start=initialPitch,fixed=true),roll(start=initialRoll,fixed=true)
     "Heave up in m; pitch bow-up and roll port-up in rad";
@@ -42,6 +51,62 @@ model OnrTumblehome "Model 5613 at Iowa basin scale; body axes forward, port, up
   Real x[6],area[6],stripForce[6];
   Real speed,speedScale,vPrime,rPrime,hullSide,hullYaw,referenceResistance,rollSlope;
   constant Real pi=3.141592653589793;
+  function basinReaction "Compliant contact at the extreme wet hull point on each basin face"
+    input Real e,n,psi,u,v,r,xs[7],beam[7],plunger;
+    output Real wrench[3];
+  protected
+    Real penetration[4],arm[4,2],normal[4,2],d[4],offset[2],point[2],velocity[2],force[2],world[2];
+    Real c=cos(psi),s=sin(psi),west,load,torque;
+  algorithm
+    // Inward normals of west, east, south and north faces.
+    normal:=[1,0;-1,0;0,1;0,-1];penetration:=zeros(4);arm:=zeros(4,2);
+    for i in 1:7 loop
+      for side in -1:2:1 loop
+        offset:={c*xs[i]-s*side*beam[i],s*xs[i]+c*side*beam[i]};
+        point:={e,n}+offset;
+        // Waterline intercept of the sloping beach and the working platforms.
+        west:=if abs(point[2])>=2.42 and abs(point[2])<=6.08 then -3.32 else -4.95;
+        d:={west-point[1],point[1]-(34.48-.60*(.54-plunger)/.86),-9.80-point[2],point[2]-9.80};
+        for j in 1:4 loop
+          if d[j]>penetration[j] then penetration[j]:=d[j];arm[j,:]:=offset; end if;
+        end for;
+      end for;
+    end for;
+    world:=zeros(2);torque:=0;
+    for j in 1:4 loop
+      if penetration[j]>0 then
+        velocity:={c*u-s*v-r*arm[j,2],s*u+c*v+r*arm[j,1]};
+        load:=max(0,22000*penetration[j]-1800*min(1,penetration[j]/.012)*(velocity*normal[j,:]));
+        force:=load*normal[j,:]-.16*load*tanh((velocity[2]*normal[j,1]-velocity[1]*normal[j,2])/.05)
+          *{-normal[j,2],normal[j,1]};
+        world:=world+force;torque:=torque+arm[j,1]*force[2]-arm[j,2]*force[1];
+      end if;
+    end for;
+    wrench:={c*world[1]+s*world[2],-s*world[1]+c*world[2],torque};
+  end basinReaction;
+  function waveTrain "Linear regular-wave packet travelling west from the six synchronous plungers"
+    input Real distance,age,k,omega,groupSpeed,period,amplitude;
+    output Real eta,slope "Elevation and derivative with respect to east position";
+  protected
+    Real arrival,envelope,rate,phase;
+  algorithm
+    arrival:=age-distance/groupSpeed;
+    eta:=0; slope:=0;
+    if distance>=0 and arrival>0 and arrival<8*period then
+      if arrival<2*period then
+        envelope:=.5*(1-cos(pi*arrival/(2*period)));
+        rate:=pi/(4*period)*sin(pi*arrival/(2*period));
+      elseif arrival>6*period then
+        envelope:=.5*(1-cos(pi*(8*period-arrival)/(2*period)));
+        rate:=-pi/(4*period)*sin(pi*(8*period-arrival)/(2*period));
+      else
+        envelope:=1;rate:=0;
+      end if;
+      phase:=k*distance-omega*age;
+      eta:=amplitude*envelope*cos(phase);
+      slope:=amplitude*(rate/groupSpeed*cos(phase)+envelope*k*sin(phase));
+    end if;
+  end waveTrain;
   function curve "Uniformly spaced samples at J=0.1:0.1:1.7; clamp outside measurement"
     input Real j;
     input Real values[17];
@@ -101,24 +166,41 @@ equation
     +speedScale^2*(-.532*vPrime^3-.629*vPrime^2*rPrime-.139*vPrime*rPrime^2-.00446*rPrime^3));
   waveNumber=2*pi/max(.1,wavelength);
   waveOmega=sqrt(g*waveNumber*tanh(waveNumber*depth));
-  waveElevation=waveAmplitude*cos(waveNumber*(east*cos(waveDirection)+north*sin(waveDirection))-waveOmega*time+initialPhase);
+  wavePeriod=2*pi/waveOmega;
+  groupSpeed=.5*waveOmega/waveNumber*(1+2*waveNumber*depth/sinh(2*waveNumber*depth));
+  trainAge=time-generatorStart;
+  trainDuration=8*wavePeriod+tankLength/groupSpeed;
+  // Linear volume-flux approximation: wedgeWidth times vertical speed
+  // supplies the depth-integrated progressive-wave flux eta*omega/k.
+  trainAmplitude=.5*generatorStroke*wedgeWidth*waveNumber;
+  plungerTravel=if trainAge>0 and trainAge<8*wavePeriod then
+    -.5*generatorStroke*sin(waveOmega*trainAge)*(.5-.5*cos(pi*min(1,min(trainAge,8*wavePeriod-trainAge)/(2*wavePeriod)))) else 0;
+  for j in 1:161 loop
+    generatorProfile[j]=waveTrain(tankLength*(161-j)/160,trainAge,waveNumber,waveOmega,groupSpeed,wavePeriod,trainAmplitude);
+  end for;
+  (centerLevel,centerSlope)=waveTrain(generatorX-east,trainAge,waveNumber,waveOmega,groupSpeed,wavePeriod,trainAmplitude);
+  waveElevation=centerLevel+waveAmplitude*cos(waveNumber*(east*cos(waveDirection)+north*sin(waveDirection))-waveOmega*time+initialPhase);
   for i in 1:6 loop
     x[i]=(stations[i+1]+stations[i])/2;
     area[i]=(stations[i+1]-stations[i])*(beamHalf[i+1]+beamHalf[i]);
     wavePhase[i]=waveNumber*((east+x[i]*cos(heading))*cos(waveDirection)
       +(north+x[i]*sin(heading))*sin(waveDirection))-waveOmega*time+initialPhase;
-    relativeLevel[i]=waveAmplitude*cos(wavePhase[i])-heave-x[i]*pitch;
+    (generatedLevel[i],generatedSlope[i])=waveTrain(generatorX-east-x[i]*cos(heading),trainAge,
+      waveNumber,waveOmega,groupSpeed,wavePeriod,trainAmplitude);
+    generatedForce[i]=-rho*g*immersedVolume[i]*generatedSlope[i];
+    relativeLevel[i]=generatedLevel[i]+waveAmplitude*cos(wavePhase[i])-heave-x[i]*pitch;
     immersedVolume[i]=max(0,bareVolume[i]*mass/(rho*sum(bareVolume))+area[i]*relativeLevel[i]);
     stripForce[i]=rho*g*area[i]*relativeLevel[i]-110*area[i]*(w+x[i]*q);
     waveForce[i]=rho*g*immersedVolume[i]*waveNumber*waveAmplitude*sin(wavePhase[i]);
   end for;
-  der(surge)=if tow>.5 then (towSpeed-surge)/.5 else
-    ((1-thrustDeduction)*cos(5*pi/180)*sum(thrust)-resistance-sum(rudderDrag)+sum(waveForce)*cos(waveDirection-heading)+mass*sway*yawRate)/(1.05*mass);
-  der(sway)=if tow>.5 then -sway/.2 else
-    (hullSide+sum(rudderSide)+sum(waveForce)*sin(waveDirection-heading)-mass*surge*yawRate)/(1.7*mass);
-  der(yawRate)=if tow>.5 then -yawRate/.2 else
-    (sum(x[i]*waveForce[i] for i in 1:6)*sin(waveDirection-heading)+hullYaw+xRudder*sum(rudderSide)
-      +.02661*L*(1-thrustDeduction)*(thrust[2]-thrust[1])*cos(5*pi/180))/(1.65*yawInertia);
+  wallWrench=if basinContact>.5 then basinReaction(east,north,heading,surge,sway,yawRate,stations,beamHalf,plungerTravel) else zeros(3);
+  der(surge)=wallWrench[1]/(1.05*mass)+(if tow>.5 then (towSpeed-surge)/.5 else
+    ((1-thrustDeduction)*cos(5*pi/180)*sum(thrust)-resistance-sum(rudderDrag)+sum(waveForce)*cos(waveDirection-heading)+sum(generatedForce)*cos(heading)+mass*sway*yawRate)/(1.05*mass));
+  der(sway)=wallWrench[2]/(1.7*mass)+(if tow>.5 then -sway/.2 else
+    (hullSide+sum(rudderSide)+sum(waveForce)*sin(waveDirection-heading)-sum(generatedForce)*sin(heading)-mass*surge*yawRate)/(1.7*mass));
+  der(yawRate)=wallWrench[3]/(1.65*yawInertia)+(if tow>.5 then -yawRate/.2 else
+    (sum(x[i]*waveForce[i] for i in 1:6)*sin(waveDirection-heading)-sum(x[i]*generatedForce[i] for i in 1:6)*sin(heading)+hullYaw+xRudder*sum(rudderSide)
+      +.02661*L*(1-thrustDeduction)*(thrust[2]-thrust[1])*cos(5*pi/180))/(1.65*yawInertia));
   der(heading)=yawRate;
   der(east)=surge*cos(heading)-sway*sin(heading);
   der(north)=surge*sin(heading)+sway*cos(heading);
@@ -126,7 +208,7 @@ equation
   der(w)=sum(stripForce)/(1.8*mass);
   der(pitch)=q;
   der(q)=sum(x[i]*stripForce[i] for i in 1:6)/(1.8*pitchInertia);
-  rollSlope=-waveNumber*waveAmplitude*sin(waveDirection-heading)*
+  rollSlope=-centerSlope*sin(heading)-waveNumber*waveAmplitude*sin(waveDirection-heading)*
     sin(waveNumber*(east*cos(waveDirection)+north*sin(waveDirection))-waveOmega*time+initialPhase);
   der(roll)=p;
   der(p)=(mass*g*gm*(rollSlope-roll)-2*.09*sqrt(rollInertia*mass*g*gm)*p

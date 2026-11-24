@@ -14,12 +14,14 @@
 <a href="https://simman2020.kr/download/propeller_IIHR2%28ONRT%29.zip">IIHR open-water data</a>
 </details></header>
 <aside><label><span id="pressureLabel">Blade pressure relative to outlet</span> <output>kPa</output></label><div class="scale" style="background:linear-gradient(90deg,#204477,#e5ebd8,#b33220)"></div><div class="ticks" id="pressureTicks"></div>
-<label><input type="checkbox" id="animate" checked> Animate flow tracers</label>
-<label>Playback speed <select id="rate"><option value=".1">0.1×</option><option value=".25" selected>0.25×</option><option value="1">1×</option></select></label>
-<div class="hint">Tracers follow the velocity in this solver snapshot.</div>
+<label><input type="checkbox" id="animate" checked> Play animation</label>
+<label>Playback speed <select id="rate"><option value=".025">0.025×</option><option value=".1" selected>0.1×</option><option value=".25">0.25×</option><option value="1">1×</option></select></label>
+<div class="hint">Velocities are in the stationary tank frame. Streamlines and wake sections show one saved blade phase.</div>
+<label><input type="checkbox" id="spin" checked> Spin propeller</label>
+<label><input type="checkbox" id="tracers" checked> Flow tracers</label>
 <label><input type="checkbox" id="paths" checked> Velocity streamlines</label>
 <label><input type="checkbox" id="cut"> Wake velocity section <output>m/s</output></label>
 <div id="section" hidden><label for="station">Shaft position <output id="x"></output></label><input type="range" id="station" min="0" max="8" value="4">
 <div class="scale" style="background:linear-gradient(90deg,#182952,#289790,#efc54a)"></div><div class="ticks" id="speedTicks"></div></div>
-<div class="hint">Drag to orbit · scroll to zoom</div></aside>
+<div class="hint">Drag to orbit · right-drag to pan · scroll to zoom<br><button id="recenter">Re-center view</button></div></aside>
 <script src="vendor/three.min.js"></script><script type="module" src="onrt-propeller.mjs"></script></body></html>

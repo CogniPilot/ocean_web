@@ -5,7 +5,7 @@ export const period = 12.8;
 export const wakeStep = 0.04;
 export const vesselStep = 0.01;
 export const stateNames = ['east','north','heading','heave','pitch','roll','surge','sway','yawRate',
-  'rpm','rudder','propAngle','resistance','thrust','torque','waveOmega','waveNumber','immersedVolume'];
+  'rpm','rudder','propAngle','resistance','thrust','torque','waveOmega','waveNumber','immersedVolume','generatorProfile','plungerTravel','trainDuration'];
 
 export async function loadBasin(inputs={}, read=fetch) {
   const geometry = await read(new URL('./assets/onrt/wake.json', import.meta.url)).then(r=>r.json());
