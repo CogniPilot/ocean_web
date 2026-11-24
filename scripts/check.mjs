@@ -16,7 +16,7 @@ for (; frames < 1200; frames++) {
   maxHeadingError = Math.max(maxHeadingError, Math.abs(headingError));
   loopClosures = estimate[13];
   const [station, count, done, ...forces] = plant.get('surveyTelemetry');
-  assert.equal(count, 12);
+  assert.equal(count, 17);
   if (!visited.has(station)) {
     assert.equal(station, visited.size + 1, 'survey skipped a waypoint');
     visited.add(station);
@@ -26,7 +26,7 @@ for (; frames < 1200; frames++) {
   }
   squaredError += pos.reduce((sum, value, i) => sum + (value - estimate[i])**2, 0);
   trackedFrames += Number(estimate[16] > 0);
-  contactPeak = Math.max(contactPeak, Math.hypot(...forces.slice(10)));
+  contactPeak = Math.max(contactPeak, Math.hypot(...forces.slice(-3)));
   maxEast = Math.max(maxEast, pos[0]);
   minNorth = Math.min(minNorth, pos[1]);
   maxNorth = Math.max(maxNorth, pos[1]);
@@ -41,7 +41,7 @@ for (; frames < 1200; frames++) {
 const rmse = Math.sqrt(squaredError / frames);
 const headingRmsDeg = Math.sqrt(headingSquared/frames)*180/Math.PI;
 console.log({complete, headingRmsDeg, maxHeadingDeg:maxHeadingError*180/Math.PI, loopClosures, seconds:plant.time, stationsReached:visited.size, rmse, trackedFrames, frames, maxEast, minNorth, maxNorth, contactPeak, atFinish});
-assert(complete && visited.size === 12, 'survey timed out');
+assert(complete && visited.size === 17, 'survey timed out');
 assert(maxEast > 16 && minNorth < -1.3 && maxNorth > 1.3, 'vehicle missed one of the listed decks');
 assert(trackedFrames > frames * .5, 'too few frames matched camera features');
 assert(headingRmsDeg<5 && maxHeadingError<Math.PI/12, 'Estimated heading diverged from vehicle attitude');
