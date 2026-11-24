@@ -19,7 +19,7 @@ import {drawCompass,drawDroneCompass} from './compass.mjs';
 import {forceDisplay,firstPersonInstruments} from './instrumentation.mjs?hud=2';
 import {mastCamera} from "./mast-camera.mjs";
 import {cameraCones} from './camera-cones.mjs';
-import {courseScene,raceAudio,firstLeg,raceTarget} from "./regatta.mjs";
+import {courseScene,raceCoursePoints,raceAudio,firstLeg,raceTarget} from "./regatta.mjs";
 import {raceRules} from './race-rules.mjs';
 import {lapLeaderboard,lapClock} from "./lap-board.mjs";
 import {animalSticks,controlGain,keyboardAxisKey,keyboardSticks,pilotSticks} from './keyboard-sticks.mjs';
@@ -1936,7 +1936,7 @@ async function run(saved=readReset(),carried){
         // Coupled development scenes keep scoring the sailboat independently.
         const [east,north]=vehicle.position;
         scoredTime=world?.time??model.time;
-        droneScorer=await loadInstance('Regatta',{...startGate,windBearing,east,north,utc:race.get('utc'),raceStart:remote.npc.habitat.raceStart??0});
+        droneScorer=await loadInstance('Regatta',{...startGate,externalCourse:1,windBearing,east,north,utc:race.get('utc'),raceStart:remote.npc.habitat.raceStart??0});
       }
       drone=vehicle;
       if(wreckSurvey&&(fullWorld||!packaged))drone.manual=false;
@@ -2531,6 +2531,7 @@ async function run(saved=readReset(),carried){
           const t=world?.time??model.time,dt=t-scoredTime;
           if(dt>=.049){
             const [east,north]=drone.position;
+            droneScorer.set('coursePoints',raceCoursePoints(race));
             droneScorer.set('east',east);droneScorer.set('north',north);droneScorer.set('utc',race.get('utc'));
             droneScorer.advance(dt);scoredTime=t;
           }
@@ -2693,6 +2694,8 @@ async function run(saved=readReset(),carried){
           waterFrame=null;
           race.set('wakeTile',height);race.set('driftEast',origin[0]);race.set('driftNorth',origin[1]);
           race.set('swellHeight',model.get('swellAmplitude'));
+          race.set('mooringWind',windField.getMany(['meanEast','meanNorth']));
+          race.set('mooringCurrent',model.getMany(['currentEast','currentNorth']));
           worker.postMessage({...waveInputs(),inspect:physicsEnabled,windEast:windField.get('meanEast'),windNorth:windField.get('meanNorth')});
           const swimmer=localSwimmerWater();
           for(let j=0;j<12;j++)sections[j]+=swimmer[j];
@@ -2708,10 +2711,13 @@ async function run(saved=readReset(),carried){
         model.advance(.01);
         if(wakeTicks%5===0){
           race.set('east',model.get('east'));race.set('north',model.get('north'));
+          const [fx,fy,mz]=model.get('committeeReaction');
+          const landing=drone?.deckReaction??[0,0,0,0,0,0];
+          race.set('landingReaction',[landing[0]+fx,landing[1]+fy,landing[2],landing[3],landing[4],landing[5]+mz]);
           race.set('racerState',[1,...model.getMany(['heading','heel','pitch','heave','ve','vn','yawRate','vertical','rollRate','pitchRate'])]);
           race.set('utc',Date.now()/1000);race.advance(.05);
         }
-        if(drone && (drone.active||!drone.manual)){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);race.set('landingReaction',drone.deckReaction);}
+        if(drone && (drone.active||!drone.manual)){drone.deck(race.get('deckState'));drone.sailDeck(model.get('landingDeck'),cat);drone.step(.005);drone.step(.005);}
         const impact=race.get('racerLoad');
         const traffic=visitors.contacts();
         if(contactModel&&traffic.some((v,i)=>i%9===0&&v>0)){
@@ -2843,7 +2849,8 @@ async function run(saved=readReset(),carried){
           const [z,roll,pitch]=race.get('launchPose');
           const traffic=new Float64Array(54),tilt=new Float64Array(12);
           traffic.set(npcTraffic.contacts);tilt.set(npcTraffic.tilts);
-          traffic.set([1,race.get('committeeEast'),race.get('committeeNorth'),race.get('windBearing')+Math.PI,0,0,0,z,3],45);
+          const deck=race.get('deckState');
+          traffic.set([1,deck[0],deck[1],deck[3],deck[6],deck[7],deck[11],z,3],45);
           tilt.set([roll,-pitch],10);
           model.set('sceneTraffic',traffic);model.set('sceneTilt',tilt);
         }

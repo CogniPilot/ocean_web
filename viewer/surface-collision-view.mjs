@@ -8,7 +8,7 @@ const hobieDeck=[[-.425,0,.40],[.975,.97,.014]];
 const sloopDeck=[[-.27,0,.154],[.37,.20,.0045]];
 
 // Vertices at the intersections of Regatta.pyramidFace's four planes.
-const tip=[0,0,1.65],radius=.85,halfBase=radius*Math.sqrt(3)/2;
+const tip=[0,0,1.65],radius=1.34,halfBase=radius*Math.sqrt(3)/2;
 const base=[[0,-radius,-.10],[halfBase,radius/2,-.10],[-halfBase,radius/2,-.10]];
 const buoyWire=base.flatMap((corner,i)=>[...corner,...base[(i+1)%3],...corner,...tip]);
 

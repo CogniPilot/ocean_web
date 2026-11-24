@@ -7,6 +7,7 @@ import {remoteDroneMesh} from './drone.mjs';
 import {vesselNpcNames} from './npc-room.mjs';
 import {nextFleetStart} from './npc-hobie-race.mjs';
 import {drawRacerFrame,racerFrameSize} from './npc-sailing-frame.mjs';
+import {raceCoursePoints} from './regatta.mjs';
 import {startGate} from './sailing-start.mjs';
 
 // Non-racing patrols remain on the common sea clock.
@@ -73,7 +74,8 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
     const side=[-course[1],course[0]],groups=new Map(),traffic=[];
     function contact(id,pose,tilt){traffic.push({id,pose,tilt});}
     const [z,roll,pitch]=race.get('launchPose');
-    contact('committee',[1,race.get('committeeEast'),race.get('committeeNorth'),upwind,0,0,0,z,3],[roll,-pitch]);
+    const deck=race.get('deckState'),coursePoints=raceCoursePoints(race);
+    contact('committee',[1,deck[0],deck[1],deck[3],deck[6],deck[7],deck[11],z,3],[roll,-pitch]);
     for(const row of nearby)contact(row.id,[1,row.x,row.y,row.yaw,row.ve,row.vn,row.yawRate??0,row.z,row.hull===3?2:row.hull===1?1:0],[row.heel??0,row.pitch??0]);
     rows.forEach((row,index)=>{
       const key='npc-'+(index+1),entry=craft.get(key);
@@ -83,8 +85,8 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
         const lane=row.lane===undefined?[0,-13,13,-26,26][index]:-26+13*row.lane;
         const remaining=raceStart-utc,approach=remaining>40?42:Math.min(32,Math.max(9,remaining*2));
         const heading=upwind+1.04;
-        const east=previous?.[0]??(startGate.gateEast+side[0]*lane-approach*Math.cos(heading));
-        const north=previous?.[1]??(startGate.gateNorth+side[1]*lane-approach*Math.sin(heading));
+        const east=previous?.[0]??((coursePoints[0]+coursePoints[6])/2+side[0]*lane-approach*Math.cos(heading));
+        const north=previous?.[1]??((coursePoints[1]+coursePoints[7])/2+side[1]*lane-approach*Math.sin(heading));
         windAt(east,north,wind);
         const yaw=previous?.[3]??heading,dx=Math.cos(yaw),dy=Math.sin(yaw);
         const seaRoll=sea?0:Math.atan((surface(east-dy,north+dx)-surface(east+dy,north-dx))*.5);
@@ -115,7 +117,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       if(step<2)continue;
       planner.time+=.05*step;
       planner.awaiting=true;
-      planner.worker.postMessage({racers,utc:utc-(time-planner.time),step,traffic,sea});
+      planner.worker.postMessage({racers,utc:utc-(time-planner.time),step,traffic,sea,coursePoints});
     }
   }
   function rig(kind){

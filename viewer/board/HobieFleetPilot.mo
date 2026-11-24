@@ -5,6 +5,7 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
   input Real incidentSea=0,seaTide=0,seaTile[32,32]=zeros(32,32);
   input Real swellSample[5]=zeros(5) "Amplitude, origin phase, east/north wave number and angular frequency";
   input Real swellSampleTime=0;
+  input Real externalCourse=0,coursePoints[4,2]=zeros(4,2);
   input Real traffic[10,9]=zeros(10,9),trafficTilt[10,2]=zeros(10,2);
   output Real pose[8] "ENU, heading, water-relative speed, EN velocity, yaw rate";
   output Real raceStatus[6] "Stage, elapsed, lap time, heat start, turns owed, degrees through the current turn";
@@ -51,15 +52,15 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
   Real markRange,buoyTraffic[3,9],finishAlong,finishAcross;
   Real goal[2],windward[2],crosswind[2],startLine[2],turnPoint[2],turnHeading;
   final parameter Real startBearing=prevailing+Modelica.Constants.pi;
-  final parameter Real courseUp[2]={cos(startBearing),sin(startBearing)};
-  final parameter Real courseSide[2]={-courseUp[2],courseUp[1]};
+  Real courseUp[2],courseSide[2];
+
   discrete Real course(start=initialHeading,fixed=true),owed(start=initialPenalty,fixed=true),arc(start=0,fixed=true);
   discrete Real turnSide(start=1,fixed=true),headingBefore(start=initialHeading,fixed=true);
   Real contact[10];
   discrete Real contactMemory[10](each start=0,each fixed=true);
   discrete Real oldMark(start=0,fixed=true);
   discrete Boolean turning(start=false,fixed=true),finishReady(start=false,fixed=true);
-  Regatta race(utc=utc,raceStart=raceStart,east=east,north=north,finishAllowed=if owed<.5 then 1 else 0,
+  Regatta race(externalCourse=externalCourse,coursePoints=coursePoints,utc=utc,raceStart=raceStart,east=east,north=north,finishAllowed=if owed<.5 then 1 else 0,
     gateEast=gateEast,gateNorth=gateNorth,lineLength=lineLength,windBearing=prevailing,tide=background,landingReaction=zeros(6),
     wakeTile=zeros(64,64),backgroundTile=zeros(32,32),driftEast=0,driftNorth=0,swellHeight=0,
     racerState={1,heading,boat.heel,boat.pitch,boat.heave,ve,vn,yawRate,boat.vertical,boat.rollRate,boat.pitchRate},
@@ -95,9 +96,10 @@ equation
   windward={cos(upwind),sin(upwind)};
   crosswind={-windward[2],windward[1]};
   // Allow each NPC its own lane, while favouring the upwind end of a biased line.
-  startLine={gateEast,gateNorth}+courseSide*min(.38*lineLength,max(-.38*lineLength,lane+.07*lineLength*(courseSide*windward)));
-  finishAlong=({east,north}-{gateEast,gateNorth})*courseUp;
-  finishAcross=({east,north}-{gateEast,gateNorth})*courseSide;
+  courseUp=race.lineUp;courseSide=-race.lineRight;
+  startLine=race.gateCenter+courseSide*min(.38*race.span,max(-.38*race.span,lane+.07*race.span*(courseSide*windward)));
+  finishAlong=({east,north}-race.gateCenter)*courseUp;
+  finishAcross=({east,north}-race.gateCenter)*courseSide;
   along=({east,north}-startLine)*courseUp;
   across=({east,north}-startLine)*courseSide;
   seconds=max(0,raceStart-utc);
@@ -107,7 +109,7 @@ equation
     elseif race.stage==0 and seconds>27 then startLine-40*courseUp-13*courseSide
     elseif race.stage==0 or race.stage==1 then
       (if along>1 then startLine-18*courseUp else startLine+14*courseUp)
-    elseif race.stage==4 then {gateEast,gateNorth}+courseUp*(if finishReady then -26 else 22)
+    elseif race.stage==4 then race.gateCenter+courseUp*(if finishReady then -26 else 22)
     else race.pilotTarget;
   pace=if race.stage==0 and seconds>27 then min(1,max(.0,sqrt((goal-{east,north})*(goal-{east,north}))/5))
     elseif race.stage==0 and along<0 then min(1,max(.05,(-along)/(max(.4,seconds+.5)*max(.45,abs(speed)))))
@@ -124,7 +126,7 @@ equation
   when sample(0,.2) then
     contactFlag=if pre(race.stage)<5 then SailingTactics.newBreach({east,north},heading,upwind,traffic,contact,pre(contactMemory),markLoad,pre(oldMark)) else 0;
     finishReady=if race.stage<>4 or finishAlong< -5 then false
-      elseif finishAlong>5 and abs(finishAcross)<lineLength*.31 then true else pre(finishReady);
+      elseif finishAlong>5 and abs(finishAcross)<race.span*.31 then true else pre(finishReady);
     contactMemory={if contact[i]>10 or (pre(contactMemory[i])>10 and
         abs(east-traffic[i,2])+abs(north-traffic[i,3])<7 and traffic[i,1]>.5) then 100 else 0 for i in 1:10};
     oldMark=if markLoad>1 or (pre(oldMark)>1 and markRange<7) then 100 else 0;

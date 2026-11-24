@@ -30,7 +30,7 @@ export function raceTarget(race,stage,east,north){
 function inflatableMark(T){
   const body=new T.Group();
   body.name='Inflatable race mark';
-  const bottom=-.10,apex=1.65,height=apex-bottom,radius=.85;
+  const bottom=-.10,apex=1.65,height=apex-bottom,radius=1.34;
   const corners=Array.from({length:3},(_,i)=>{
     const a=-Math.PI/2+i*2*Math.PI/3;
     return new T.Vector2(radius*Math.cos(a),radius*Math.sin(a));
@@ -53,7 +53,7 @@ function inflatableMark(T){
   }
   const positions=[],colors=[],faces=[];
   const steps=[0,.012,.032,.06,.095,.15,.22,.3,.38,.46,.54,.62,.7,.78,.85,.91,.96,.986,.996,1];
-  const belly=u=>.037*Math.sin(Math.PI*u);
+  const belly=u=>.065*Math.sin(Math.PI*u);
   const ringScale=u=>Math.max(.011,1-u)*(1-.12*Math.exp(-u/.025));
   for(const u of steps){
     for(const {point,bulge,seam} of rim){
@@ -104,30 +104,23 @@ function inflatableMark(T){
     panel.rotation.set(Math.PI/2-Math.atan(radius/(2*height)),0,Math.PI,'ZYX');
     body.add(panel);return panel;
   }
-  const label=document.createElement('canvas');label.width=512;label.height=512;
-  const ink=label.getContext('2d');
-  ink.clearRect(0,0,512,512);
-  for(const [y,text] of [[88,'INFLATE'],[244,'DRAIN']]){
-    ink.fillStyle='#f5e7d4';ink.beginPath();ink.arc(256,y,59,0,2*Math.PI);ink.fill();
-    ink.fillStyle='#7c3c2a';ink.font='bold 18px sans-serif';ink.textAlign='center';ink.fillText(text,256,y-36);
-  }
-  ink.fillStyle='#eee8d8';ink.fillRect(137,329,238,133);
-  ink.fillStyle='#504b43';ink.textAlign='left';ink.font='bold 21px sans-serif';ink.fillText('RACE MARK',157,359);
-  ink.fillStyle='#aaa391';
-  for(let i=0;i<4;i++)ink.fillRect(157,375+17*i,174-(i%2)*29,3);
-  const texture=new T.CanvasTexture(label);texture.colorSpace=T.SRGBColorSpace;
-  const decal=new T.MeshStandardMaterial({map:texture,roughness:.52,alphaTest:.5,side:T.FrontSide});
-  add(new T.PlaneGeometry(.55,.52),decal,onPanel(0,.86));
-  for(const z of [.86+.52*(.5-88/512),.86+.52*(.5-244/512)]){
-    const socket=onPanel(0,z);
-    const flange=add(new T.TorusGeometry(.027,.005,6,18),fittings,socket);flange.position.z=.008;
-    const plug=add(new T.CylinderGeometry(.023,.023,.015,16),rubber,socket);
-    plug.rotation.x=Math.PI/2;plug.position.z=.009;
-  }
+  // A dark circular reinforced valve patch follows the inclined vinyl panel.
+  const socket=onPanel(0,.52);
+  const patch=add(new T.CircleGeometry(.106,32),rubber,socket);
+  patch.position.z=.003;
+  const flange=add(new T.TorusGeometry(.044,.005,6,24),fittings,socket);
+  flange.position.z=.009;
+  const plug=add(new T.CylinderGeometry(.038,.038,.018,20),rubber,socket);
+  plug.rotation.x=Math.PI/2;plug.position.z=.011;
   return body;
 }
 
 // Z-up committee launch and inflatable marks. Dimensions are in metres.
+export function raceCoursePoints(race){
+  const [p,q,e,n,c,d]=race.getMany(['pinEast','pinNorth','markEast','markNorth','committeeEast','committeeNorth']);
+  return [p,q,e[0],n[0],e[1],n[1],c,d];
+}
+
 export function courseScene(T,scene,race){
   const group=new T.Group();scene.add(group);
   const mat=(color,roughness=.55)=>new T.MeshStandardMaterial({color,roughness});
@@ -190,10 +183,35 @@ export function courseScene(T,scene,race){
   }
   mark(race.get('pinEast'),race.get('pinNorth'));
   race.get('markEast').forEach((x,i)=>mark(x,race.get('markNorth')[i]));
+  const anchorPoints=race.get('anchorPosition'),paid=race.get('rode');
+  const deadweight=mat(0x454b47,.94);
+  for(let i=0;i<4;i++){
+    const [x,y,z]=anchorPoints.slice(3*i,3*i+3),w=i===3?.85:.42;
+    mesh(group,new T.CylinderGeometry(w*.32,w*.68,w*.46,4),deadweight,x,y,z+w*.12).rotation.x=Math.PI/2;
+    const eye=mesh(group,new T.TorusGeometry(w*.11,w*.025,6,12),metal,x,y,z+w*.38);
+    eye.rotation.x=Math.PI/2;
+  }
+  const ropePositions=new T.BufferAttribute(new Float32Array(4*4*3),3);
+  const ropeMesh=new T.BufferGeometry();ropeMesh.setAttribute('position',ropePositions);
+  const ropes=new T.LineSegments(ropeMesh,new T.LineBasicMaterial({color:0x665c42}));
+  ropes.name='Anchor rodes';ropes.frustumCulled=false;group.add(ropes);
   let previous;
   function update(label,time=0,sampleWind){
-    const [heave,roll,pitch]=race.get('launchPose');
-    boat.position.z=heave;boat.rotation.x=roll;boat.rotation.y=-pitch;
+    const [x,y,z,yaw,roll,pitch]=race.get('deckState');
+    boat.position.set(x,y,z);boat.rotation.set(roll,-pitch,yaw,'ZYX');
+    const ends=race.get('fairlead');
+    for(let i=0;i<4;i++){
+      const j=3*i,ax=anchorPoints[j],ay=anchorPoints[j+1],az=anchorPoints[j+2];
+      const dx=ends[j]-ax,dy=ends[j+1]-ay,h=ends[j+2]-az,run=Math.hypot(dx,dy);
+      // Draw paid-out slack resting on the bottom followed by a lifted span.
+      const bedRun=Math.min(run,Math.max(0,(paid[i]**2-run**2-h**2)/(2*Math.max(.001,paid[i]-run))));
+      const f=bedRun/Math.max(.001,run);
+      ropePositions.setXYZ(4*i,ax,ay,az+.025);
+      ropePositions.setXYZ(4*i+1,ax+f*dx,ay+f*dy,az+.025);
+      ropePositions.setXYZ(4*i+2,ax+f*dx,ay+f*dy,az+.025);
+      ropePositions.setXYZ(4*i+3,ends[j],ends[j+1],ends[j+2]);
+    }
+    ropePositions.needsUpdate=true;
     if(sampleWind){
       sampleWind(boat.position.x,boat.position.y,localWind);
       const speed=localWind.length(),tension=1-Math.exp(-speed/3);

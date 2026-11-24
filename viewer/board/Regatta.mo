@@ -33,8 +33,8 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   Real fraction;
   output Real markPose[3,3] "Heave, east-axis roll and bow-up pitch for each pyramid";
   Real buoySpeed[3,3](each start=0,each fixed=true),buoyState[3,3](each start=0,each fixed=true);
-  final parameter Real bx[3]={0,.34641,-.34641},by[3]={.4,-.2,-.2};
-  parameter Real pyramidHeight=1.75,pyramidArea=3*sqrt(3.0)*.85^2/4,pyramidDraft=.10;
+  final parameter Real bx[3]={0,.55,-.55},by[3]={.6351,-.31755,-.31755};
+  parameter Real pyramidHeight=1.75,pyramidArea=3*sqrt(3.0)*1.34^2/4,pyramidDraft=.10;
   final parameter Real pyramidMass=1025*pyramidArea*pyramidHeight/3*(1-(1-pyramidDraft/pyramidHeight)^3);
   parameter Real ballastDepth(unit="m")=.20 "Assumed vertical separation between buoyancy and ballast centers";
   parameter Real markRollDamping(unit="N.m.s")=50 "Effective rotational drag including entrained water";
@@ -44,7 +44,37 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   input Real hullStations[7],hullWidths[7],hullOffset;
   discrete output Real markWrench[3,12](each start=0,each fixed=true) "Paired contact forces and moments in ENU";
   output Real racerLoad[6] "Total ENU contact load on the racer";
-  discrete Real markOffset[3,2](each start=0,each fixed=true),markVelocity[3,2](each start=0,each fixed=true);
+  input Real mooringWind[2]=zeros(2),mooringCurrent[2]=zeros(2) "Harbor wind and surface current EN, m/s";
+  final parameter Real laidE[4]={gateEast-rightE*lineLength/2,gateEast+legLength*upE,
+    gateEast+legLength*(upE/2-sqrt(3.0)*rightE/2),gateEast+rightE*lineLength/2};
+  final parameter Real laidN[4]={gateNorth-rightN*lineLength/2,gateNorth+legLength*upN,
+    gateNorth+legLength*(upN/2-sqrt(3.0)*rightN/2),gateNorth+rightN*lineLength/2};
+  parameter Real anchorReach[4]={12,12,12,24} "Initial horizontal lead from body center to embedded anchor [m]";
+  final parameter Real bowLead=2.85,bowHeight=.80;
+  final parameter Real anchorE[4]=laidE+upE*anchorReach,anchorN[4]=laidN+upN*anchorReach;
+  final parameter Real anchorBed[4]={Shore.seabed(anchorE[i],anchorN[i]) for i in 1:4};
+  final parameter Real rode[4]={sqrt((anchorReach[i]-(if i==4 then bowLead else 0))^2+
+    ((if i==4 then bowHeight else -pyramidDraft)-anchorBed[i])^2)+(if i==4 then .45 else .25) for i in 1:4}
+    "Paid-out line measured between the seabed and fairlead with initial slack [m]";
+  Real launchOffset[2](each start=0,each fixed=true),launchVelocity[2](each start=0,each fixed=true);
+  Real yawOffset(start=0,fixed=true),yawRate(start=0,fixed=true),yaw,fore[2],port[2],bowArm[3],bowVelocity[3];
+  Real launchWind[2],launchFlow[2],windForce[2],flowForce[2];
+  Real lineForce[4,3],markAir[3,2],markFlow[3,2];
+  output Real mooringTension[4],anchorPosition[4,3],fairlead[4,3];
+  Real gateCenter[2],lineRight[2],lineUp[2],span;
+  input Real externalCourse=0,coursePoints[4,2]=zeros(4,2) "Use live pin, marks and committee positions from the owning vehicle when scoring a second racer";
+  Real markOffset[3,2](each start=0,each fixed=true),markVelocity[3,2](each start=0,each fixed=true);
+  function rodeLoad "Tension-only elastic rode with axial damping"
+    input Real lead[3],velocity[3],length,stiffness,damping;
+    output Real force[3];
+    output Real tension;
+  protected Real distance,unit[3];
+  algorithm
+    distance:=sqrt(lead*lead);
+    unit:=lead/max(.001,distance);
+    tension:=if distance>length then max(0,stiffness*(distance-length)+damping*(velocity*unit)) else 0;
+    force:=-tension*unit;
+  end rodeLoad;
   function hullAxes "World directions of forward, port and up"
     input Real yaw,roll,pitch;
     output Real axes[3,3];
@@ -59,7 +89,7 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
     output Real gap;
     output Integer face;
   protected
-    constant Real slope=.85/(2*1.75),scale=1/sqrt(1+slope^2);
+    constant Real slope=1.34/(2*1.75),scale=1/sqrt(1+slope^2);
     Real lateral,front,left,right,bottom;
   algorithm
     lateral:=slope*(p[3]-1.65);
@@ -75,7 +105,7 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
     input Real markRoll,markPitch,markVelocity[3],markRates[2];
     output Real load[12];
   protected
-    constant Real radius=.85,height=1.75,draft=.10,slope=radius/(2*height),scale=1/sqrt(1+slope^2);
+    constant Real radius=1.34,height=1.75,draft=.10,slope=radius/(2*height),scale=1/sqrt(1+slope^2);
     constant Real faces[4,3]=[0,scale,slope*scale;sqrt(3.0)/2*scale,-.5*scale,slope*scale;
       -sqrt(3.0)/2*scale,-.5*scale,slope*scale;0,0,-1];
     MultiBodyLie.Collision.Material inflatable(k=6500,d=.55,mu=.18,eps=.0003,v_eps=.06);
@@ -94,7 +124,7 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
       omega:=markRates[1]*markAxes[1,:]-{0,markRates[2],0};
       boatCenterX:=-delta*boatAxes[1,:]; boatCenterY:=-delta*boatAxes[2,:];
       // Bounding radius of the whole tilted buoy for rejecting distant sections.
-      margin:=1.86;
+      margin:=2.13;
       for body in 1:(if offset>0 then 6 else 1) loop
         best:=0;bestArm:=zeros(3);bestFace:=1;
         for j in 0:24 loop
@@ -244,10 +274,34 @@ model Regatta "Five-minute fleet starts and an equilateral triangular course"
   discrete Real startFraction,finishFraction,startedUtc,finishedUtc,lastSchedule(start=0,fixed=true);
   discrete Boolean startCross,finishCross,scheduleChanged;
 equation
-  committeeEast=gateEast+rightE*lineLength/2;
-  committeeNorth=gateNorth+rightN*lineLength/2;
+  committeeEast=if externalCourse>.5 then coursePoints[4,1] else laidE[4]+launchOffset[1];
+  committeeNorth=if externalCourse>.5 then coursePoints[4,2] else laidN[4]+launchOffset[2];
   launchPose={heave,roll,pitch};
-  deckState={committeeEast,committeeNorth,heave,windBearing+3.141592653589793,roll,pitch,0,0,heaveRate,cos(windBearing+3.141592653589793)*cos(pitch)*rollRate+sin(windBearing+3.141592653589793)*pitchRate,sin(windBearing+3.141592653589793)*cos(pitch)*rollRate-cos(windBearing+3.141592653589793)*pitchRate,0+sin(pitch)*rollRate};
+  yaw=windBearing+3.141592653589793+yawOffset;
+  fore={cos(yaw),sin(yaw)};port={-fore[2],fore[1]};
+  deckState={committeeEast,committeeNorth,heave,yaw,roll,pitch,launchVelocity[1],launchVelocity[2],
+    heaveRate,fore[1]*cos(pitch)*rollRate+fore[2]*pitchRate,fore[2]*cos(pitch)*rollRate-fore[1]*pitchRate,
+    yawRate+sin(pitch)*rollRate};
+  bowArm=transpose(hullAxes(yaw,roll,-pitch))*{bowLead,0,bowHeight};
+  bowVelocity=cat(1,launchVelocity,{heaveRate})+cross(deckState[10:12],bowArm);
+  fairlead[4,:]={committeeEast,committeeNorth,heave}+bowArm;
+  launchWind=mooringWind-launchVelocity;
+  launchFlow=mooringCurrent-launchVelocity;
+  // Projected windage and underwater drag areas along and abeam. The bow
+  // fairlead supplies the yaw moment that lets the boat lie to her anchor.
+  windForce=.6125*sqrt(launchWind*launchWind)*(2.1*(launchWind*fore)*fore+5.2*(launchWind*port)*port);
+  flowForce=512.5*sqrt(launchFlow*launchFlow)*(.26*(launchFlow*fore)*fore+1.45*(launchFlow*port)*port);
+  der(launchOffset)=launchVelocity;
+  (launchMass*1.35)*der(launchVelocity)=windForce+flowForce+lineForce[4,1:2]+landingReaction[1:2];
+  der(yawOffset)=yawRate;
+  4300*der(yawRate)=bowArm[1]*lineForce[4,2]-bowArm[2]*lineForce[4,1]+landingReaction[6]
+    -(.42*(windForce*port)+.55*(flowForce*port))-(280+1200*abs(yawRate))*yawRate;
+  for i in 1:4 loop
+    anchorPosition[i,:]={anchorE[i],anchorN[i],anchorBed[i]};
+    (lineForce[i,:],mooringTension[i])=rodeLoad(fairlead[i,:]-anchorPosition[i,:],
+      if i==4 then bowVelocity else {markVelocity[min(i,3),1],markVelocity[min(i,3),2],buoySpeed[min(i,3),1]},
+      rode[i],if i==4 then 4200 else 1300,if i==4 then 440 else 95);
+  end for;
   buoyEast={pinEast,markEast[1],markEast[2]};buoyNorth={pinNorth,markNorth[1],markNorth[2]};
   markPose=buoyState;
   racerLoad={sum(markWrench[:,k]) for k in 1:6};
@@ -255,14 +309,16 @@ equation
   // integrator stages, including both sides of each action/reaction pair.
   when sample(0,.05) then
     markWrench=markContacts(east,north,racerState,hullStations,hullWidths,hullOffset,
-      {gateEast-rightE*lineLength/2,gateEast+legLength*upE,gateEast+legLength*(upE/2-sqrt(3.0)*rightE/2)}+pre(markOffset[:,1]),
-      {gateNorth-rightN*lineLength/2,gateNorth+legLength*upN,gateNorth+legLength*(upN/2-sqrt(3.0)*rightN/2)}+pre(markOffset[:,2]),
-      buoyState,pre(markVelocity),buoySpeed);
-    markVelocity=pre(markVelocity)+(.05/(1.5*pyramidMass))*(markWrench[:,7:8]-140*pre(markOffset)-95*pre(markVelocity));
-    markOffset=pre(markOffset)+.05*markVelocity;
-
+      buoyEast,buoyNorth,buoyState,markVelocity,buoySpeed);
   end when;
   for b in 1:3 loop
+    fairlead[b,:]={buoyEast[b],buoyNorth[b],buoyState[b,1]-pyramidDraft};
+    markAir[b,:]=mooringWind-markVelocity[b,:];
+    markFlow[b,:]=mooringCurrent-markVelocity[b,:];
+    der(markOffset[b,:])=markVelocity[b,:];
+    (1.5*pyramidMass)*der(markVelocity[b,:])=markWrench[b,7:8]+lineForce[b,1:2]
+      +1.03*sqrt(markAir[b,:]*markAir[b,:])*markAir[b,:]
+      +(22+138*sqrt(markFlow[b,:]*markFlow[b,:]))*markFlow[b,:];
     der(buoyState[b,:])=buoySpeed[b,:];
     for j in 1:3 loop
       depthAt[b,j]=max(0,min(pyramidHeight,pyramidDraft+(1-fraction)*lastBuoyWater[b,j]+fraction*buoyWater[b,j]
@@ -271,15 +327,15 @@ equation
       buoyLift[b,j]=if depthAt[b,j]>0 then max(0,1025*9.80665*pyramidArea*pyramidHeight/9*
         (1-(1-depthAt[b,j]/pyramidHeight)^3)+120*((buoyWater[b,j]-lastBuoyWater[b,j])/.1-buoyV[b,j])) else 0;
     end for;
-    pyramidMass*der(buoySpeed[b,1])=sum(buoyLift[b,:])-pyramidMass*9.80665+markWrench[b,9];
+    pyramidMass*der(buoySpeed[b,1])=sum(buoyLift[b,:])-pyramidMass*9.80665+markWrench[b,9]+lineForce[b,3];
     (.40*pyramidMass)*der(buoySpeed[b,2])=cos(buoyState[b,3])*markWrench[b,10]+sin(buoyState[b,3])*markWrench[b,12]+cos(buoyState[b,2])*(by*buoyLift[b,:])-pyramidMass*9.80665*ballastDepth*sin(buoyState[b,2])-markRollDamping*buoySpeed[b,2];
     (.40*pyramidMass)*der(buoySpeed[b,3])=-markWrench[b,11]+cos(buoyState[b,3])*(bx*buoyLift[b,:])-pyramidMass*9.80665*ballastDepth*sin(buoyState[b,3])-markRollDamping*buoySpeed[b,3];
   end for;
   der(heave)=heaveRate; der(roll)=rollRate; der(pitch)=pitchRate;
   fraction=min(1,max(0,(time-stamp)/.1));
   for k in 1:4 loop
-    stationE[k]=committeeEast+upE*stationX[k]-upN*stationY[k];
-    stationN[k]=committeeNorth+upN*stationX[k]+upE*stationY[k];
+    stationE[k]=committeeEast+fore[1]*stationX[k]+port[1]*stationY[k];
+    stationN[k]=committeeNorth+fore[2]*stationX[k]+port[2]*stationY[k];
     immersion[k]=draft+priorWater[k]*(1-fraction)+water[k]*fraction-heave
       -stationX[k]*sin(pitch)-stationY[k]*sin(roll)*cos(pitch);
     stationRate[k]=heaveRate+stationX[k]*cos(pitch)*pitchRate+stationY[k]*
@@ -287,9 +343,9 @@ equation
     lift[k]=if immersion[k]>0 then max(0,1025*9.80665*waterplaneArea/4*min(.78,immersion[k])
       +1400*((water[k]-priorWater[k])/.1-stationRate[k])) else 0;
   end for;
-  launchMass*der(heaveRate)=landingReaction[3]+sum(lift)-launchMass*9.80665;
-  rollInertia*der(rollRate)=cos(windBearing+3.141592653589793)*landingReaction[4]+sin(windBearing+3.141592653589793)*landingReaction[5]+cos(roll)*cos(pitch)*(stationY*lift);
-  pitchInertia*der(pitchRate)=sin(windBearing+3.141592653589793)*landingReaction[4]-cos(windBearing+3.141592653589793)*landingReaction[5]+cos(pitch)*(stationX*lift)-sin(roll)*sin(pitch)*(stationY*lift);
+  launchMass*der(heaveRate)=landingReaction[3]+lineForce[4,3]+sum(lift)-launchMass*9.80665;
+  rollInertia*der(rollRate)=fore[1]*landingReaction[4]+fore[2]*landingReaction[5]-bowArm[3]*(lineForce[4,1:2]*port)+cos(roll)*cos(pitch)*(stationY*lift);
+  pitchInertia*der(pitchRate)=fore[2]*landingReaction[4]-fore[1]*landingReaction[5]+(bowArm[1:2]*fore)*lineForce[4,3]-bowArm[3]*(lineForce[4,1:2]*fore)+cos(pitch)*(stationX*lift)-sin(roll)*sin(pitch)*(stationY*lift);
   when sample(0,.1) then
     for k in 1:4 loop
       water[k]=tide+elevationAt(backgroundTile,stationE[k],stationN[k],64)
@@ -309,26 +365,30 @@ equation
     priorWater=if initial() then water else pre(water);
     stamp=time;
   end when;
-  pinEast=markOffset[1,1]+gateEast-rightE*lineLength/2;
-  pinNorth=markOffset[1,2]+gateNorth-rightN*lineLength/2;
-  markEast=markOffset[2:3,1]+{gateEast+legLength*upE,gateEast+legLength*(upE/2-sqrt(3.0)*rightE/2)};
-  markNorth=markOffset[2:3,2]+{gateNorth+legLength*upN,gateNorth+legLength*(upN/2-sqrt(3.0)*rightN/2)};
-  along=(east-gateEast)*upE+(north-gateNorth)*upN;
-  across=(east-gateEast)*rightE+(north-gateNorth)*rightN;
+  pinEast=if externalCourse>.5 then coursePoints[1,1] else laidE[1]+markOffset[1,1];
+  pinNorth=if externalCourse>.5 then coursePoints[1,2] else laidN[1]+markOffset[1,2];
+  markEast=if externalCourse>.5 then coursePoints[2:3,1] else laidE[2:3]+markOffset[2:3,1];
+  markNorth=if externalCourse>.5 then coursePoints[2:3,2] else laidN[2:3]+markOffset[2:3,2];
+  gateCenter=.5*{pinEast+committeeEast,pinNorth+committeeNorth};
+  span=max(.01,sqrt((committeeEast-pinEast)^2+(committeeNorth-pinNorth)^2));
+  lineRight={committeeEast-pinEast,committeeNorth-pinNorth}/span;
+  lineUp={-lineRight[2],lineRight[1]};
+  along=({east,north}-gateCenter)*lineUp;
+  across=({east,north}-gateCenter)*lineRight/span;
   axes=hullAxes(racerState[2],racerState[3],racerState[4]);
-  projectedFore=axes[1,1]*upE+axes[1,2]*upN;
-  projectedPort=axes[2,1]*upE+axes[2,2]*upN;
+  projectedFore=axes[1,1:2]*lineUp;
+  projectedPort=axes[2,1:2]*lineUp;
   frontAlong=along+(if racerState[1]>.5 then
     max({hullStations[i]*projectedFore+(hullOffset+hullWidths[i])*abs(projectedPort) for i in 1:7}) else 0);
   sternAlong=along+(if racerState[1]>.5 then
     min({hullStations[i]*projectedFore-(hullOffset+hullWidths[i])*abs(projectedPort) for i in 1:7}) else 0);
   (markApproach,markDeparture,markPosition)=roundingApproach({east,north},
     if stage==2 then {markEast[1],markNorth[1]} else {markEast[2],markNorth[2]},
-    if stage==2 then {gateEast,gateNorth} else {markEast[1],markNorth[1]},
-    if stage==2 then {markEast[2],markNorth[2]} else {gateEast,gateNorth});
+    if stage==2 then gateCenter else {markEast[1],markNorth[1]},
+    if stage==2 then {markEast[2],markNorth[2]} else gateCenter);
   pilotTarget=if stage==2 or stage==3 then (if roundingReady then markDeparture else markApproach)
-    else {gateEast,gateNorth}+{upE,upN}*(if stage==1 and earlyStart<.5 then 14
-      elseif stage==4 and along<0 and abs(across)>lineLength*.4 then 15 else -14);
+    else gateCenter+lineUp*(if stage==1 and earlyStart<.5 then 14
+      elseif stage==4 and along<0 and abs(across)>.4 then 15 else -14);
   fleetHeat=raceStart+floor((utc-raceStart)/300)*300;
   nextStart=if utc<raceStart then raceStart else fleetHeat+300;
   countdown=nextStart-utc;
@@ -341,19 +401,19 @@ equation
     startedUtc=pre(lastUtc)+min(1,max(0,startFraction))*(utc-pre(lastUtc));
     finishedUtc=pre(lastUtc)+min(1,max(0,finishFraction))*(utc-pre(lastUtc));
     startCross=not initial() and pre(startReady) and pre(lastFront)<=0 and frontAlong>0
-      and abs(pre(lastAcross)+startFraction*(across-pre(lastAcross)))<lineLength/2
+      and abs(pre(lastAcross)+startFraction*(across-pre(lastAcross)))<.5
       and startedUtc>=max(fleetHeat,raceStart);
     finishCross=not initial() and pre(lastStern)>=0 and sternAlong<0
-      and abs(pre(lastAcross)+finishFraction*(across-pre(lastAcross)))<lineLength/2;
+      and abs(pre(lastAcross)+finishFraction*(across-pre(lastAcross)))<.5;
     heat=fleetHeat;
     stage=if scheduleChanged then (if utc<raceStart then 0 else 1)
           elseif utc<raceStart then 0
           elseif fleetHeat>pre(heat) and pre(heat)>=0 and (pre(stage)<=1 or pre(stage)==5) then (if startCross then 2 else 1)
           elseif pre(stage)==1 and startCross then 2
           elseif pre(stage)==2 and passedToPort(pre(lastPosition),{east,north},{markEast[1],markNorth[1]},
-            {gateEast,gateNorth},{markEast[2],markNorth[2]},zone) then 3
+            gateCenter,{markEast[2],markNorth[2]},zone) then 3
           elseif pre(stage)==3 and passedToPort(pre(lastPosition),{east,north},{markEast[2],markNorth[2]},
-            {markEast[1],markNorth[1]},{gateEast,gateNorth},zone) then 4
+            {markEast[1],markNorth[1]},gateCenter,zone) then 4
           elseif pre(stage)==5 and finishAllowed<.5 then 4
           elseif pre(stage)==4 and finishCross and finishAllowed>.5 then 5 else pre(stage);
     startReady=frontAlong<=0;

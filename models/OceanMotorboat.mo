@@ -143,7 +143,7 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   discrete output Real starterRemaining(start=0,fixed=true) "Starter time left [s]";
   Real effectiveThrottle;
   discrete output Real peerForce[3](each start=0,each fixed=true),peerContact[4](each start=0,each fixed=true);
-  discrete output Real sceneForce[3](each start=0,each fixed=true),sceneContact[6](each start=0,each fixed=true);
+  discrete output Real sceneForce[3](each start=0,each fixed=true),sceneContact[6](each start=0,each fixed=true),committeeReaction[3](each start=0,each fixed=true);
   output Real shoreWrench[6] "Terrain force and moment in level heading axes";
 initial equation
   z=boatWater.tide;
@@ -183,7 +183,7 @@ equation
   when sample(0,.025) then
     animalWrench=WildlifeContact(animals,boatPose,{der(east),der(north),yawRate},3250,7.6,1.22,.0,.58,animalTraffic,animalJoints);
   end when;
-  focus={east,north,z}; committeeLoad=zeros(6);
+  focus={east,north,z}; committeeLoad={committeeReaction[1],committeeReaction[2],0,0,0,committeeReaction[3]};
   rotation=[cos(pitch),sin(pitch)*sin(roll),sin(pitch)*cos(roll);
     0,cos(roll),-sin(roll);
     -sin(pitch),cos(pitch)*sin(roll),cos(pitch)*cos(roll)];
@@ -221,8 +221,8 @@ equation
     sway-sin(yaw)*boatWater.profile[1,2]+cos(yaw)*boatWater.profile[1,3],vertical},spin,cruiserShellVertices,cruiserShellFaces);
   when sample(0,.02) then
     (peerForce,peerContact)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},traffic,2,{roll,pitch},trafficTilt);
-    (sceneForce,sceneContact)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},
-      cat(1,npcVessels,[1,race.committeeEast,race.committeeNorth,prevailingBearing+Modelica.Constants.pi,0,0,0,race.launchPose[1],3]),
+    (sceneForce,sceneContact,committeeReaction)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},
+      cat(1,npcVessels,[1,race.committeeEast,race.committeeNorth,race.deckState[4],race.deckState[7],race.deckState[8],race.deckState[12],race.launchPose[1],3]),
       2,{roll,pitch},cat(1,npcTilt,[race.launchPose[2],-race.launchPose[3]]));
   end when;
   when sample(0,.01) then

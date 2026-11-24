@@ -250,20 +250,20 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   function contactWrench "Horizontal compliant vessel contact at sampled hull surfaces"
     input Real pose[7],traffic[:,9],kind;
     input Real tilt[2]=zeros(2),trafficTilt[size(traffic,1),2]=zeros(size(traffic,1),2);
-    output Real wrench[3],contact[size(traffic,1)];
+    output Real wrench[3],contact[size(traffic,1)],committeeReaction[3];
   protected
     Real otherPose[7],fa[2],fb[2],ma,mb,qa,qb,pa,pb;
     Real sliceA[3],sliceB[3],x,y,u,v,dx,dy,d,r,rate,f,armX,armY,otherX,otherY,mass,otherMass,scale;
     Real localHeight[2],peerHeight[2];
   algorithm
-    wrench:=zeros(3);contact:=zeros(size(traffic,1));
+    wrench:=zeros(3);contact:=zeros(size(traffic,1));committeeReaction:=zeros(3);
     mass:=if kind>1.5 then 3250 elseif kind>.5 then 206 else 64;
     localHeight:=contactHeightRange(kind,tilt)+fill(pose[7],2);
     for p in 1:size(traffic,1) loop
       if traffic[p,1]>.5 and (pose[1]-traffic[p,2])^2+(pose[2]-traffic[p,3])^2<100 then
         peerHeight:=contactHeightRange(traffic[p,9],trafficTilt[p,:])+fill(traffic[p,8],2);
         if min(localHeight[2],peerHeight[2])>=max(localHeight[1],peerHeight[1]) then
-          otherMass:=if traffic[p,9]>2.5 then 1e8 elseif traffic[p,9]>1.5 then 3250 elseif traffic[p,9]>.5 then 206 else 64;
+          otherMass:=if traffic[p,9]>2.5 then 1150 elseif traffic[p,9]>1.5 then 3250 elseif traffic[p,9]>.5 then 206 else 64;
           scale:=max(1,mass*otherMass/((mass+otherMass)*103));
           otherPose:=traffic[p,2:8];
           if kind>.5 then
@@ -272,6 +272,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
               (fb,mb,qb,pb):=againstHull(otherPose,trafficTilt[p,:],traffic[p,9],pose,tilt,kind,scale);
               wrench:=wrench+.5*cat(1,fa-fb,{ma+qb});
               contact[p]:=max(pa,pb);
+              if traffic[p,9]>2.5 then committeeReaction:=.5*cat(1,fb-fa,{qa+mb});end if;
             else
               wrench:=wrench+cat(1,fa,{ma});
               contact[p]:=pa;
@@ -280,6 +281,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
             (fb,mb,qb,pb):=againstHull(otherPose,trafficTilt[p,:],traffic[p,9],pose,tilt,kind,scale);
             wrench:=wrench+cat(1,-fb,{qb});
             contact[p]:=pb;
+            if traffic[p,9]>2.5 then committeeReaction:=cat(1,fb,{mb});end if;
           else
             for i in 1:1 loop
               for j in 1:1 loop
@@ -418,7 +420,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   final parameter Real pontoonContactVertices[96,3]=Shore.pontoonVertices();
   final parameter Integer pontoonContactFaces[188,3]=Shore.pontoonFaces();
   input Real sceneTraffic[6,9]=zeros(6,9) "Five shared NPCs and the anchored launch";
-  discrete output Real sceneForce[3](each start=0,each fixed=true),sceneContact[6](each start=0,each fixed=true);
+  discrete output Real sceneForce[3](each start=0,each fixed=true),sceneContact[6](each start=0,each fixed=true),committeeReaction[3](each start=0,each fixed=true);
   discrete output Real peerForce[3](each start=0,each fixed=true) "World east/north force and yaw moment";
   discrete output Real peerContact[4](each start=0,each fixed=true) "Maximum normal contact force against each peer [N]";
   input Real wakeEast,wakeNorth,wakeYaw "Free-surface pressure reaction from the local wave FMU";
@@ -1370,7 +1372,7 @@ equation
   when sample(0,.02) then
     rigShoreWrench=if catamaran then rigTerrainContact({east,north,heave},heading,rotation,
       {surge,sway,vertical},spin,rigCollision) else zeros(6);
-    (sceneForce,sceneContact)=contactWrench({east,north,heading,ve,vn,yawRate,heave},sceneTraffic,if catamaran then 1 else 0,{heel,pitch},sceneTilt);
+    (sceneForce,sceneContact,committeeReaction)=contactWrench({east,north,heading,ve,vn,yawRate,heave},sceneTraffic,if catamaran then 1 else 0,{heel,pitch},sceneTilt);
     (peerForce,peerContact)=contactWrench({east,north,heading,ve,vn,yawRate,heave},traffic,if catamaran then 1 else 0,{heel,pitch},trafficTilt);
   end when;
   swellForce=hullSwellForce[1,:]+(if catamaran then hullSwellForce[2,:] else zeros(2));

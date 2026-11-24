@@ -1,5 +1,3 @@
-import {startGate} from './sailing-start.mjs';
-
 const noGo=1.04,heatSeconds=300,roundingLimit=18;
 export const nextFleetStart=(utc,countdown)=>Math.round((utc+countdown)/heatSeconds)*heatSeconds;
 const dot=([x,y],[a,b])=>x*a+y*b;
@@ -25,8 +23,10 @@ function crossing(a,b,origin,normal,across,min,max){
 
 export function hobieRace(race,index,startAt,windSpeed=11,resetLane){
   const prevailing=race.get('windBearing');
-  const upwind=prevailing+Math.PI,up=direction(upwind),crosswind=left(up);
-  const gate=[startGate.gateEast,startGate.gateNorth],halfLine=startGate.lineLength/2;
+  const upwind=prevailing+Math.PI,pin=[race.get('pinEast'),race.get('pinNorth')];
+  const committee=[race.get('committeeEast'),race.get('committeeNorth')];
+  const gate=add(pin,difference(committee,pin),.5),halfLine=Math.hypot(...difference(committee,pin))/2;
+  const crosswind=unit(difference(pin,committee)),up=left(crosswind).map(x=>-x);
   const markEast=race.get('markEast'),markNorth=race.get('markNorth');
   const marks=Array.from(markEast,(east,i)=>[east,markNorth[i]]);
   const lane=resetLane===undefined?[13,-13,22,-22,5,-5,26,-26][index%8]:-26+13*resetLane;

@@ -9,7 +9,7 @@ const sailingOutputs=[
  ...new Set([...boatFields,...'noGo tack leg windEast windNorth currentEast currentNorth foilX ballastX ballastY swellK swellBearing swellAmplitude swellPhase mainCar jibCar ve vn yawRate exposedSheetSag shroudTail sailTail sailLuff mainClewOffset stayPath downhaulTension vangTension leechSpeed mainTension rigForce foilLoad foilArm peerContact waterFraction waterStamp'.split(' ')].map(n=>'boat.'+n)),
 ];
 const environmentOutputs=[
- ...group('race','utc nextStart countdown stage elapsed lapTime markWrench markPose launchPose committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
+ ...group('race','utc nextStart countdown stage elapsed lapTime markWrench markPose launchPose deckState anchorPosition fairlead rode committeeEast committeeNorth windBearing pinEast pinNorth markEast markNorth'),
  ...group('wind','period field thunderArrival strikeBearing strikeFlash travelE travelN localEast localNorth'),
  ...group('waves','height driftE driftN period'),
  ...group('boatWater','tile tide wind'),

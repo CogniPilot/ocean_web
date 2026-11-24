@@ -4,7 +4,7 @@ import {readRacerFrame} from './npc-sailing-frame.mjs';
 const models=new Map();
 self.onmessage=async({data})=>{
   try{
-    const {racers,utc,traffic,step,sea}=data;
+    const {racers,utc,traffic,step,sea,coursePoints}=data;
     const incident=sea?{incidentSea:1,seaTide:sea.tide,seaTile:sea.tile,swellSample:sea.swell}:{incidentSea:0};
     const active=new Set(racers.map(racer=>racer.id));
     for(const id of models.keys())if(!active.has(id))models.delete(id);
@@ -23,6 +23,7 @@ self.onmessage=async({data})=>{
         attitude.set(row.tilt,2*index);
         index++;
       }
+      if(coursePoints){model.set('coursePoints',coursePoints);model.set('externalCourse',1);}
       model.set('traffic',nearby);model.set('trafficTilt',attitude);
       model.set('raceStart',racer.raceStart);
       model.set('seaRoll',racer.roll);model.set('seaPitch',racer.pitch);
