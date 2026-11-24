@@ -35,6 +35,32 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
     volume:=min(2.5*designVolume,if noEvent(immersion<0) then designVolume*(wet/draft)^2
       else designVolume+waterplane*immersion);
   end immersedVolume;
+  constant Integer sternSamples=44;
+  constant Real wakeInterval=.1;
+  function aeratedWake "Transport and spread the surface trail of separated stern flow"
+    input Real previous[sternSamples,4],position[2],surge,thrust,draft,area,sternHalfBeam,surfaceAccess;
+    output Real trail[sternSamples,4] "Water-frame position, surface coverage and half width";
+  protected
+    constant Real rho=1025,propellerArea=Modelica.Constants.pi*.21^2;
+    Real velocity,ventilation,induced,wetting,width,coverage,oldWidth;
+  algorithm
+    velocity:=max(0,surge);
+    // Maki et al., Transom-stern flow for high-speed craft (2006).
+    // Draft sets the ventilation scale. Bubble yield is a reduced-order closure.
+    ventilation:=BowWavePatch.transomVentilation(velocity,draft);
+    induced:=sqrt(.25*velocity^2+max(0,thrust)/(2*rho*propellerArea))-.5*velocity;
+    wetting:=area/(area+.08);
+    width:=sternHalfBeam*(.32+.68*ventilation);
+    coverage:=surfaceAccess*wetting*(ventilation+.18*(1-ventilation)*induced/(1+induced));
+    trail[1,:]:={position[1],position[2],coverage,width};
+    for i in 2:sternSamples loop
+      oldWidth:=previous[i-1,4];
+      // Lateral diffusion broadens the band as bubbles are lost to degassing.
+      width:=sqrt(oldWidth^2+2*.24*wakeInterval);
+      coverage:=previous[i-1,3]*exp(-wakeInterval/2.3)*oldWidth/width;
+      trail[i,:]:={previous[i-1,1],previous[i-1,2],coverage,width};
+    end for;
+  end aeratedWake;
   function hullContact "Integrate terrain contact pressure over the cruiser shell triangles"
     input Real pos[3],cy,sy,rotation[3,3],velocity[3],spin[3],vertices[:,3];
     input Integer faces[:,3];
@@ -74,6 +100,9 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   Real panelSignal;
   discrete output Real bowSources[14,6](each start=0,each fixed=true),bowSpeed[2](each start=0,each fixed=true);
   discrete Real bowFrame[4](each start=0,each fixed=true);
+  discrete output Real sternFoamTrail[sternSamples,4](each start=0,each fixed=true)
+    "Water-frame east, north, surface coverage and half width of each stern wake sample";
+  Real sternArea,sternDraft;
   input Real throttleLever(start=0) "Astern -1 through neutral to ahead 1";
   input Real helmLever(start=0) "Positive port helm";
   input Real startEncounter(start=0);
@@ -133,15 +162,23 @@ equation
       stripForce[h,j]=1025*9.80665*(stripVolume[h,j]-.5*(3250/1025)*displacementFraction[j]);
     end for;
   end for;
-  when sample(0,.1) then
+  sternArea=sum(stripVolume[:,1])/(cruiserStations[2]-cruiserStations[1]);
+  // The aft V section has approximately half the area of its enclosing rectangle.
+  sternDraft=sternArea/(halfStripBeam[1]+halfStripBeam[2]);
+  when sample(0,wakeInterval) then
     // The strips radiate from their changing displacement. Their radiation
     // reaction is represented by the heave and angular damping below.
     panelSea=panelElevations(boatWater.tile,stripEast,stripNorth,boatWater.tide);
     previousSea=if initial() then panelSea else pre(panelSea);
-    bowSpeed=if omitWake<.5 then {surge,0} else zeros(2);
+    bowSpeed=if omitWake<.5 then {surge,sway} else zeros(2);
     bowFrame={east,north,cos(yaw),sin(yaw)};
     bowSources=if omitWake<.5 then BowWavePatch.hullSources(bowSpeed,
-      BowWavePatch.localStrips(waves.sourceStrips,bowFrame),cruiserStations,halfStripBeam) else zeros(14,6);
+      BowWavePatch.localStrips(waves.sourceStrips,bowFrame),cruiserStations,halfStripBeam,
+      separatedStern=true,sharedTransomDraft=sternDraft) else zeros(14,6);
+    sternFoamTrail=if omitWake<.5 then aeratedWake(pre(sternFoamTrail),
+      {east-waves.driftE+cruiserStations[1]*cos(yaw)*cos(pitch),
+       north-waves.driftN+cruiserStations[1]*sin(yaw)*cos(pitch)},surge,thrust,sternDraft,sternArea,
+       halfStripBeam[1]+halfStripBeam[2],1-submergedDrag) else zeros(sternSamples,4);
   end when;
   when sample(0,.025) then
     animalWrench=WildlifeContact(animals,boatPose,{der(east),der(north),yawRate},3250,7.6,1.22,.0,.58,animalTraffic,animalJoints);

@@ -84,9 +84,10 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    ...(mode==='motorboat'?cruiserInertiaFields:[])].filter(name=>!outputs.includes(name));
  const controlsToBind=[...new Set([...Object.keys(initial),...inputs])];
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
-   breakingBows:hasBoat&&mode!=='sloop',warmSolver:options.warmSolver,reportProgress:Boolean(options.onProgress),
+   breakingBows:mode==='motorboat'||(hasBoat&&mode!=='sloop'),singleBow:mode==='motorboat',warmSolver:options.warmSolver,
+   reportProgress:Boolean(options.onProgress),
    optionalInputs:[...(hasBoat&&mode!=='sloop'?['jibHalyardInput']:[]),...(mode==='motorboat'?['startEncounter','encounterTargets','wiperSwitch','lowerAnchor']:[]),...(hasFlight?['rotorWakeTraffic','droneTraffic']:[]),'animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
-   optionalOutputs:['swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame',...inertiaOutputs,
+   optionalOutputs:['swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame','sternFoamTrail',...inertiaOutputs,
      ...launchContactOutputs,
      'race.earlyStart','race.finishUtc','race.heatStart',
      ...(hasBoat&&mode!=='sloop'?['boat.ballastTrapezeReach','boat.travelerEase','boat.travelerTension','boat.travelerSag','boat.travelerMounts','boat.jibSheet','boat.jibSheetPins','boat.jibSheetLoads','boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins','boat.mainBlockClearance','boat.blockStack','boat.mastBend','boat.forestayPath','boat.forestayTension','boat.jibHalyardTension','boat.mastRake','boat.mastRotation','boat.rigCollision',
@@ -165,6 +166,6 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    if(offsets.has('omitWake'))set('omitWake',Number(!enabled));
    if(surveyView.wakeSurface!==enabled)wakeRevision++;
    surveyView.wakeSurface=enabled;
-   if(!enabled)for(const name of ['waves.height','bowHeight','bowFoam','bowSpray'])state.delete(name);
+   if(!enabled)for(const name of ['waves.height','bowHeight','bowFoam','bowSpray','sternFoamTrail'])state.delete(name);
  },hasWiper:offsets.has('wiperSwitch'),hasAnchor:offsets.has('lowerAnchor'),hasEncounter:offsets.has('startEncounter')&&offsets.has('encounterTargets')&&state.has('encounterShark'),hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasAnimalJoints:offsets.has('animalJoints'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),hasRotorWake:offsets.has('rotorWakeTraffic'),hasDroneContact:offsets.has('droneTraffic'),setSurveyView(active,camera,map,dvl=false){surveyView.dvl=camera||dvl;surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

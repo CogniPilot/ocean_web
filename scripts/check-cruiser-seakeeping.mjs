@@ -6,6 +6,7 @@ import {pathToFileURL} from 'node:url';
 import {openFmuSession} from '../.deps/microduck_web/site/fmu-session.js';
 import {fileFetch} from '../.deps/microduck_web/scripts/fmu-test-support.mjs';
 import {scalarNames} from '../.deps/microduck_web/site/fmu-page-contract.js';
+import {loadInstance} from '../viewer/fmi3/instance.mjs';
 
 const base=pathToFileURL(resolve(process.argv[2]??'build/pages/motorboat')+'/');
 const readJSON=async name=>JSON.parse(await readFile(new URL(name,base),'utf8'));
@@ -55,6 +56,47 @@ async function approachIsland(){
     return {peakSupport,farthestNorth};
   }finally{fmu.free();}
 }
+
+async function wakeAtThrottle(throttle){
+  const fmu=await openFmuSession({index,base,fetch:fileFetch,parameters:{initialEast:-120,initialNorth:-80,initialHeading:0}});
+  try{
+    fmu.set_inputs(JSON.stringify([['seaState',0],['windSpeed',0],['throttleLever',throttle],['omitWake',0]]));
+    const observe=(name,shape=[])=>{
+      const binding=fmu.bind_outputs(JSON.stringify(scalarNames(name,shape)));
+      return ()=>fmu.read_bound(binding);
+    };
+    const engineSpeed=observe('engine[2]'),trail=observe('sternFoamTrail',[44,4]);
+    const bowSources=observe('bowSources',[14,6]),bowSpeed=observe('bowSpeed',[2]);
+    const field=await loadInstance('BowWavePatch',{breakingBows:1,singleBow:1},async url=>new Response(await readFile(url)));
+    for(let i=0;i<240;i++)fmu.step(.05);
+    const [speed]=engineSpeed(),plume=trail();
+    field.set('sources',bowSources());
+    field.set('relativeSpeed',bowSpeed());
+    field.advance(.01);
+    const [height,foam,spray]=field.getMany(['height','foamCoverage','sprayRelease']);
+    const coverage=plume[2],halfWidth=plume[3];
+    const forwardRise=Math.max(...height.filter((_,i)=>i%32>=7&&i%32<=15));
+    const sprayFlux=spray[5]+spray[11];
+    assert(spray[17]===0&&spray[23]===0,'A single stem has two spray shoulders');
+    assert(Math.abs(spray[1]+spray[7])<.03,'Both shoulders should be centred about the stem in a straight calm run');
+    assert(plume[43]>halfWidth&&plume[42]<coverage,'A one-second-old parcel should spread and lose coverage');
+    fmu.set_inputs(JSON.stringify([['omitWake',1]]));
+    for(let i=0;i<3;i++)fmu.step(.05);
+    assert(trail().every(value=>value===0)&&bowSources().every(value=>value===0)&&bowSpeed().every(value=>value===0),
+      'Wake-disabled mode must publish no plume or bow sources');
+    return {speed,coverage,halfWidth,forwardRise,breakingFoam:Math.max(...foam),sprayFlux};
+  }finally{fmu.free();}
+}
+
+const displacement=await wakeAtThrottle(.38);
+const fast=await wakeAtThrottle(.90);
+assert(displacement.speed>1.5&&displacement.speed<3.4);
+assert(fast.speed>6&&fast.speed>2*displacement.speed);
+assert(displacement.coverage<.12&&displacement.breakingFoam<.05&&displacement.sprayFlux<.001);
+assert(fast.coverage>.50&&fast.halfWidth>.8&&fast.breakingFoam>.25&&fast.sprayFlux>.01);
+assert(displacement.forwardRise>0&&fast.forwardRise>2*displacement.forwardRise,
+  'The high-speed bow should generate a taller physical crest');
+console.log('Displacement and fast wake regimes',{displacement,fast});
 
 const heading=1.5;
 const calm=await crossing(heading,0,0,0);

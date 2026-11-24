@@ -6,7 +6,7 @@ import {scalarNames} from './fmu-page-contract.js';
 import {loadInstance} from '../fmi3/instance.mjs';
 
 let session,observations,inputs,surveyMap;
-let bowField,bowFields,breakingBows=false;
+let bowField,bowFields,breakingBows=false,singleBow=false;
 let sampledGroups=[],stepCount=0,stepTicks=1;
 // These discrete outputs share sample events in OceanWorld. The initial
 // right limit can differ from the initialization snapshot on the first step.
@@ -28,7 +28,6 @@ async function handle(request){
   if(request.type==='open'){
     if(session)throw Error('World already initialized');
     stepTicks=request.stepTicks??1;
-    breakingBows=Boolean(request.breakingBows);
     if(stepTicks!==1&&stepTicks!==2)throw Error('Expected a 10 or 20 ms communication step');
     const base=new URL('./',import.meta.url);
     const {index:file}=await (await fetch(new URL('manifest.json',base),{cache:'no-cache'})).json();
@@ -38,6 +37,8 @@ async function handle(request){
     const onProgress=request.reportProgress?progress=>self.postMessage({progress}):undefined;
     session=await openFmuSession({index,base,parameters,instanceName:'ocean_web',onProgress});
     const variables=new Map(index.variables.map(v=>[v.name,v]));
+    singleBow=Boolean(request.singleBow&&variables.has('sternFoamTrail'));
+    breakingBows=Boolean(request.breakingBows&&(!request.singleBow||singleBow));
     const initial={};
     if(variables.has('sailingManual'))initial.sailingManual=1;
     if(variables.has('subManual'))initial.subManual=1;
@@ -65,7 +66,7 @@ async function handle(request){
       const schedules=[
         [Number.MAX_SAFE_INTEGER,['race.committeeContactVertices','race.committeeContactFaces','race.committeeFittingVertices',
           'race.fittingContactFaces','drone.droneContactParts','drone.droneContactFaces']],
-        [waveDt*100,['waves.height','waves.driftE','waves.driftN','bowSources','bowSpeed','bowFrame'],'wakeSurface'],
+        [waveDt*100,['waves.height','waves.driftE','waves.driftN','bowSources','bowSpeed','bowFrame','sternFoamTrail'],'wakeSurface'],
         [waveDt*100,['waves.sourceStrips'],'wakeSource'],
         [waveDt*100,['boat.stationGeometry','boat.beamFraction','boat.halfSpacing','boat.sectionVolume','boat.sectionWater','boat.stationX','boat.beamHalf',
           'boat.hydroStationGeometry','boat.hydroSectionVolume','hydroSurfaceProbes','sectionStamp',
@@ -128,7 +129,7 @@ async function handle(request){
     const values=bowSnapshot.subarray(sources.offset,sources.offset+sources.count);
     const velocity=bowSnapshot.subarray(speed.offset,speed.offset+speed.count);
     if(bowField||values.some(v=>v!==0)){
-      bowField??=await loadInstance('BowWavePatch',breakingBows?{breakingBows:1}:{});
+      bowField??=await loadInstance('BowWavePatch',breakingBows?{breakingBows:1,...(singleBow?{singleBow:1}:{})}:{});
       bowField.set('sources',values);bowField.set('relativeSpeed',velocity);
       bowField.advance(.01);
       const [coarse,foam,jets]=breakingBows?

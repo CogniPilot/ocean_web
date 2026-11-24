@@ -182,40 +182,36 @@ function cruiserSternFoam(uniforms){
  uniforms.sternFoamMap={value:map};uniforms.sternFoamRegion={value:region};
  const ramp=(x)=>{x=Math.min(1,Math.max(0,x));return x*x*(3-2*x);};
  function clear(){region.set(0,0,0,0);}
- function sample(tracks,time){
+ function sample(trail){
    const segments=[];
    let eastMin=Infinity,northMin=Infinity,eastMax=-Infinity,northMax=-Infinity;
-   for(const track of tracks){
-     for(let i=1;i<track.length;i++){
-       const a=track[i-1],b=track[i],dx=b[0]-a[0],dy=b[1]-a[1],length2=dx*dx+dy*dy;
-       if(length2<.02**2)continue;
-       const ageA=Math.max(0,time-a[2]),ageB=Math.max(0,time-b[2]);
-       const opacityA=a[3]*Math.exp(-.43*ageA)*(1-ramp((ageA-3.6)/1.4));
-       const opacityB=b[3]*Math.exp(-.43*ageB)*(1-ramp((ageB-3.6)/1.4));
-       if(Math.max(opacityA,opacityB)<.015)continue;
-       const widthA=.65+.16*a[3]+.23*ageA,widthB=.65+.16*b[3]+.23*ageB;
-       const width=Math.max(widthA,widthB);
-       const left=Math.min(a[0],b[0])-width,right=Math.max(a[0],b[0])+width;
-       const bottom=Math.min(a[1],b[1])-width,top=Math.max(a[1],b[1])+width;
-       eastMin=Math.min(eastMin,left);eastMax=Math.max(eastMax,right);
-       northMin=Math.min(northMin,bottom);northMax=Math.max(northMax,top);
-       segments.push({a,dx,dy,length2,opacityA,opacityB,widthA,widthB,left,right,bottom,top});
-     }
+   for(let i=4;i<(trail?.length??0);i+=4){
+     const j=i-4,east=trail[j],north=trail[j+1];
+     const opacityA=trail[j+2],opacityB=trail[i+2];
+     if(opacityA<=0||opacityB<=0||Math.max(opacityA,opacityB)<.015)continue;
+     const dx=trail[i]-east,dy=trail[i+1]-north,length2=dx*dx+dy*dy;
+     if(length2<.02**2)continue;
+     const widthA=trail[j+3],widthB=trail[i+3],width=Math.max(widthA,widthB);
+     const left=Math.min(east,trail[i])-width,right=Math.max(east,trail[i])+width;
+     const bottom=Math.min(north,trail[i+1])-width,top=Math.max(north,trail[i+1])+width;
+     eastMin=Math.min(eastMin,left);eastMax=Math.max(eastMax,right);
+     northMin=Math.min(northMin,bottom);northMax=Math.max(northMax,top);
+     segments.push({east,north,dx,dy,length2,opacityA,opacityB,widthA,widthB,left,right,bottom,top});
    }
    if(!segments.length){clear();return;}
    const width=Math.max(12,eastMax-eastMin+1),height=Math.max(12,northMax-northMin+1);
    const east=.5*(eastMin+eastMax-width),north=.5*(northMin+northMax-height);
    const stepE=width/size,stepN=height/size;
    bytes.fill(0);
-   for(const {a,dx,dy,length2,opacityA,opacityB,widthA,widthB,left,right,bottom,top} of segments){
+   for(const {east:segmentEast,north:segmentNorth,dx,dy,length2,opacityA,opacityB,widthA,widthB,left,right,bottom,top} of segments){
      const i0=Math.max(0,Math.ceil((left-east)/stepE-.5));
      const i1=Math.min(size-1,Math.floor((right-east)/stepE-.5));
      const j0=Math.max(0,Math.ceil((bottom-north)/stepN-.5));
      const j1=Math.min(size-1,Math.floor((top-north)/stepN-.5));
-     const startX=east+(i0+.5)*stepE-a[0],du=dx/length2,dv=dy/length2;
+     const startX=east+(i0+.5)*stepE-segmentEast,du=dx/length2,dv=dy/length2;
      const widthDelta=widthB-widthA,opacityDelta=opacityB-opacityA;
      for(let row=j0;row<=j1;row++){
-       const y=north+(row+.5)*stepN-a[1];
+       const y=north+(row+.5)*stepN-segmentNorth;
        let x=startX;
        for(let col=i0;col<=i1;col++,x+=stepE){
          const t=Math.min(1,Math.max(0,x*du+y*dv));
@@ -231,12 +227,11 @@ function cruiserSternFoam(uniforms){
    }
    region.set(east,north,1/width,1/height);map.needsUpdate=true;
  }
- return {sample,clear};
+ return {sample,clear,dispose:()=>map.dispose()};
 }
 // Render the narrow sailboat trails over their past wet stern sections.
-function hullFoam(scene,uniforms,cruiserHullGLSL,cruiserSurface){
+function hullFoam(scene,uniforms,cruiserHullGLSL){
  const count=52,tracks=[[],[]],geometry=new THREE.BufferGeometry();
- const cruiserFoam=cruiserSurface?cruiserSternFoam(uniforms):null;
  const along=new Float32Array(2*count*2*3);
  const foam=new Float32Array(2*count*2*3);
  const indices=[];
@@ -280,14 +275,12 @@ function hullFoam(scene,uniforms,cruiserHullGLSL,cruiserSurface){
  let stamp;
  function clear(){
    for(const track of tracks)track.length=0;
-   cruiserFoam?.clear();mesh.visible=false;stamp=undefined;
+   mesh.visible=false;stamp=undefined;
  }
- function sample(strips,time,speed,cat,cruiser){
+ function sample(strips,time,speed,cat){
    if(!strips||time===stamp)return;
    const drift=uniforms.spectrumDrift.value,dx=drift.x,dy=drift.y;
-   // A delayed browser paint can miss several 10 Hz snapshots. Preserve the
-   // cruiser's recent path between them, but break a genuine time discontinuity.
-   if(stamp!==undefined&&(time<stamp||time-stamp>(cruiser?1.2:.26)))clear();
+   if(stamp!==undefined&&(time<stamp||time-stamp>.26))clear();
    stamp=time;
    let visible=false;
    for(let h=0;h<tracks.length;h++){
@@ -299,14 +292,13 @@ function hullFoam(scene,uniforms,cruiserHullGLSL,cruiserSurface){
        // Normalize the volume of disturbed water per second to opacity.
        const speedAhead=Math.max(0,speed),flux=area*speedAhead;
        const strength=Math.min(1,flux/.11);
-       const breaking=cat&&!cruiser?strength*Math.max(0,Math.min(1,(speedAhead-4.0)/5.0)):0;
+       const breaking=cat?strength*Math.max(0,Math.min(1,(speedAhead-4.0)/5.0)):0;
        const forward=wet>1e-9?inboard/wet:0;
        const east=strips[i]+forward*(strips[i+3]-strips[i]);
        const north=strips[i+1]+forward*(strips[i+4]-strips[i+1]);
        track.unshift([east-dx,north-dy,time,strength,breaking]);
        if(track.length>count)track.pop();
      }
-     if(cruiser)continue;
      for(let j=0;j<count;j++){
        const p=track[Math.min(j,track.length-1)]??[0,0,0,0,0];
        const before=track[Math.max(0,j-1)]??p,after=track[j+1]??p;
@@ -325,7 +317,6 @@ function hullFoam(scene,uniforms,cruiserHullGLSL,cruiserSurface){
        }
      }
    }
-   if(cruiser){mesh.visible=false;cruiserFoam?.sample(tracks,time);return;}
    geometry.attributes.position.needsUpdate=geometry.attributes.foam.needsUpdate=true;
    mesh.visible=visible;
  }
@@ -617,7 +608,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  U.bowFoamSpacing={value:fineStep};
  U.bowFoamBounds={value:new THREE.Vector4(fineX,fineY,fineX+(fineColumns-1)*fineStep,fineY+(fineRows-1)*fineStep)};
  let spray;
- function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=U.bowFoamAvailable.value=0;trails.clear();}
+ function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=U.bowFoamAvailable.value=0;trails?.clear();cruiserFoam?.clear();}
  function displayedHeight(data,k,blend){
    const old=(data[k]<<8)+data[k+1],latest=(data[k+2]<<8)+data[k+3];
    return Math.round(old+blend*(latest-old));
@@ -1117,13 +1108,15 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  }`}));
  scene.add(water);
 
- const trails=hullFoam(scene,U,cruiserHullGLSL,cruiserSurface),bowSprayArea=new Float64Array(4);
- function updateHullFoam(strips,time,speed,cat,cruiser=false,jets,frame){
-   if(!strips)return;
-   trails.sample(strips,time,speed,cat||cruiser,cruiser);
-   if(cat){
+ const trails=cruiserSurface?null:hullFoam(scene,U,cruiserHullGLSL);
+ const cruiserFoam=cruiserSurface?cruiserSternFoam(U):null,bowSprayArea=new Float64Array(4);
+ function updateHullFoam(strips,time,speed,cat,cruiser=false,jets,frame,sternTrail){
+   if(cruiser)cruiserFoam?.sample(sternTrail);
+   else trails?.sample(strips,time,speed,cat);
+   if(cat||(cruiser&&jets&&frame)){
      spray??=makeSpray(THREE,scene,'Bow spray',4,sampleSurface,{bow:true});
      if(jets&&frame){spray.sampleShoulders(time,jets,frame);return;}
+     if(!strips)return;
      const area=bowSprayArea;
      const heading=Math.atan2(strips[16]-strips[1],strips[15]-strips[0]);
      const c=Math.cos(heading),s=Math.sin(heading);
@@ -1220,9 +1213,10 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  function capture(renderer,camera,submergedScenery,refreshReflection){
    camera.updateMatrixWorld();
    const oldBackground=scene.background,oldFog=scene.fog;
-   const foamVisible=trails.mesh.visible,sprayVisible=spray?.points.visible;
+   const foamMesh=trails?.mesh,foamVisible=foamMesh?.visible,sprayVisible=spray?.points.visible;
    if(spray)spray.points.visible=false;
-   water.visible=false;trails.mesh.visible=false;dome.visible=false;scene.fog=null;
+   water.visible=false;dome.visible=false;scene.fog=null;
+   if(foamMesh)foamMesh.visible=false;
    if(refreshReflection){
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
@@ -1252,7 +1246,8 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      try {renderer.render(scene,camera);} finally {camera.layers.mask=viewLayers;}
    }
    renderer.setRenderTarget(null);
-   scene.fog=oldFog;scene.background=oldBackground;water.visible=true;trails.mesh.visible=foamVisible;dome.visible=true;
+   scene.fog=oldFog;scene.background=oldBackground;water.visible=true;dome.visible=true;
+   if(foamMesh)foamMesh.visible=foamVisible;
    if(spray)spray.points.visible=sprayVisible;
  }
  function setQuality(profile,vertexSlope,multisampling,mobileWater=false){
@@ -1285,7 +1280,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    const throughWidth=Math.max(320,width),throughHeight=Math.max(200,height);
    throughRT.setSize(throughWidth,throughHeight);U.transmissionSize.value.set(throughWidth,throughHeight);
  }
- return {U,dome,water,updateWhitecaps:whitecaps.update,dispose(){whitecaps.dispose();U.foamTexture.value.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
+ return {U,dome,water,updateWhitecaps:whitecaps.update,dispose(){whitecaps.dispose();U.foamTexture.value.dispose();cruiserFoam?.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
 }
 
 // Low maritime cloud banks in world coordinates. Soft particles scatter light

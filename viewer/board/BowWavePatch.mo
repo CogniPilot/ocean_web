@@ -4,6 +4,7 @@ model BowWavePatch "Near-hull Bernoulli elevation from a slender-body source dis
   constant Real pi=Modelica.Constants.pi;
   parameter Real length=8;
   parameter Real breakingBows(min=0,max=1)=0 "Enable breaking bow shoulders, foam and spray";
+  parameter Real singleBow(min=0,max=1)=0 "Combine port and starboard source halves into one stem";
   final parameter Real foamOrigin[2]={-.20,-2.80} "Forward and port coordinates of the first foam sample [m]";
   final parameter Real foamSpacing=.10 "Distance between foam samples on both axes [m]";
   input Real relativeSpeed[2] "Water-relative hull velocity in the forward/port axes [m/s]";
@@ -26,37 +27,49 @@ protected
   end ramp;
 
   function bowEntries
-    input Real velocity[2],sources[14,6],enabled;
+    input Real velocity[2],sources[14,6],enabled,singleBow;
     output Real entry[2,6] "Water-entry position, half width, diverted head, breaking fraction, lateral speed";
   protected
-    Real flux,tip,shoulder,area,width,normal,head,wet;
+    Real flux[2],entryMoment[2,2],tip,shoulder,area,width,normal,head,wet;
     Integer j;
   algorithm
     entry:=zeros(2,6);
     if enabled>.5 and velocity[1]>.1 then
+      flux:=zeros(2);
+      entryMoment:=zeros(2,2);
       for hull in 1:2 loop
         j:=7*hull;
         tip:=max(0,sources[j,3]);
         shoulder:=max(0,sources[j-1,3]);
-        flux:=tip+shoulder;
-        if flux>1e-7 then
-          // The last two positive source strengths measure intercepted volume.
-          // Their relative strengths track the waterline as the fine bows emerge.
-          area:=flux/velocity[1];
-          width:=.48*sqrt(area);
+        flux[hull]:=tip+shoulder;
+        entryMoment[hull,:]:={tip*sources[j,5]+shoulder*sources[j-1,5],
+          tip*sources[j,2]+shoulder*sources[j-1,2]};
+      end for;
+      if singleBow>.5 then
+        flux:={sum(flux),0};
+        entryMoment:=[entryMoment[1,1]+entryMoment[2,1],entryMoment[1,2]+entryMoment[2,2];0,0];
+      end if;
+      for hull in 1:2 loop
+        if flux[hull]>1e-7 then
+          // The positive source strengths measure intercepted volume. Their
+          // moments locate the entry as the bow rises or heels.
+          area:=flux[hull]/velocity[1];
+          // The single flared stem is wider at the waterline for the same
+          // immersed area than the nearly vertical catamaran stems.
+          width:=(if singleBow>.5 then .94 else .48)*sqrt(area);
           wet:=area/(area+.005);
           normal:=.34*velocity[1];
           head:=normal^2/(2*9.80665);
-          entry[hull,:]:={(tip*sources[j,5]+shoulder*sources[j-1,5])/flux,
-            (tip*sources[j,2]+shoulder*sources[j-1,2])/flux,width,
-            wet*head/(1+head/.27),wet*ramp((normal/sqrt(9.80665*max(.045,sqrt(area)))-.67)/.66),normal};
+          entry[hull,:]:={entryMoment[hull,1]/flux[hull],entryMoment[hull,2]/flux[hull],width,
+            wet*head/(1+head/(if singleBow>.5 then .36 else .27)),
+            wet*ramp((normal/sqrt(9.80665*max(.045,sqrt(area)))-.67)/.66),normal};
         end if;
       end for;
     end if;
   end bowEntries;
 
   function shoulderSheet
-    input Real x,y,entry[2,6],leeway;
+    input Real x,y,entry[2,6],leeway,singleBow;
     input Boolean foam=false;
     output Real signal;
   protected
@@ -72,7 +85,7 @@ protected
           // In the hull frame the diverted sheet advects aft while spreading
           // sideways. The two shoulders merge into the entry at the tip.
           offset:=abs(y-center)-(entry[hull,3]+.46*run);
-          width:=(.105+.065*run)*(if foam then 1.45 else 1);
+          width:=((if singleBow>.5 then .17 else .105)+.065*run)*(if foam then 1.45 else 1);
           ridge:=max(0,1-(offset/width)^2)^2;
           pulse:=ramp((down+.13)/.42)*(1-ramp((down-.48)/1.24));
           signal:=signal+pulse*ridge*(if foam then 1.5*entry[hull,5] else entry[hull,4]);
@@ -83,7 +96,7 @@ protected
   end shoulderSheet;
 
   function sprayAtShoulder
-    input Real entry[2,6],speed,leeway;
+    input Real entry[2,6],speed,leeway,singleBow;
     output Real release[4,6];
   protected
     Real side,normal,wetArea;
@@ -95,7 +108,7 @@ protected
         j:=2*(hull-1)+wing;
         side:=3-2*wing;
         normal:=entry[hull,6];
-        wetArea:=(entry[hull,3]/.48)^2;
+        wetArea:=(entry[hull,3]/(if singleBow>.5 then .94 else .48))^2;
         release[j,:]:={entry[hull,1]-.20,entry[hull,2]-.20*leeway+side*(entry[hull,3]+.092),
           .26*speed,side*normal,.95*normal,.065*wetArea*speed*entry[hull,5]};
       end for;
@@ -142,9 +155,17 @@ public
     elevation:=elevation*(1-taper^2*(3-2*taper));
   end potentialHead;
 
+  function transomVentilation "Transition to a dry transom by the draft Froude number"
+    input Real speed,draft;
+    output Real fraction;
+  algorithm
+    fraction:=ramp(speed/sqrt(9.80665*max(.045,draft))-2);
+  end transomVentilation;
+
   function hullSources
     input Real velocity[2],strips[12,3],stations[7],beam[7];
     input Boolean separatedStern=false "Model a ventilating transom in ahead flow";
+    input Real sharedTransomDraft=-1 "Prescribe a common draft for the two halves of a monohull";
     output Real sources[14,6];
   protected
     Real area[8],draft,width,side,x,xLow,xHigh,core2,sternDraft,ventilation,recovery;
@@ -157,12 +178,12 @@ public
         index:=6*(hull-1)+i;
         area[i+1]:=strips[index,3]/(stations[i+1]-stations[i]);
       end for;
-      sternDraft:=max(.045,.5*area[2]/max(.12,beam[1]+beam[2]));
-      ventilation:=if separatedStern then min(1,max(0,velocity[1]/sqrt(9.80665*sternDraft)-2)) else 0;
+      sternDraft:=max(.045,if sharedTransomDraft>=0 then sharedTransomDraft else .5*area[2]/max(.12,beam[1]+beam[2]));
+      ventilation:=if separatedStern then transomVentilation(velocity[1],sternDraft) else 0;
       // At high draft Froude number the water separates at the transom.
       // Recover the same flux over the distance it travels while falling one
       // draft, with the two aft kernels widening into the separated wake.
-      recovery:=ventilation^2*(3-2*ventilation)*velocity[1]*sqrt(2*sternDraft/9.80665);
+      recovery:=ventilation*velocity[1]*sqrt(2*sternDraft/9.80665);
       for i in 1:7 loop
         back:=6*(hull-1)+max(1,i-1);
         front:=6*(hull-1)+min(6,i);
@@ -181,7 +202,7 @@ public
   end hullSources;
 
   function sampleGrid
-    input Real velocity[2],sources[14,6],length,entry[2,6],leeway;
+    input Real velocity[2],sources[14,6],length,entry[2,6],leeway,singleBow;
     output Real eta[n,n];
   protected
     Real dx,side;
@@ -191,12 +212,12 @@ public
     for j in 1:n loop
       side:=(if j<=n/2 then j-1 else j-1-n)*dx;
       eta[j,:]:={potentialHead((if i<=n/2 then i-1 else i-1-n)*dx,side,velocity,sources)
-        +shoulderSheet((if i<=n/2 then i-1 else i-1-n)*dx,side,entry,leeway) for i in 1:n};
+        +shoulderSheet((if i<=n/2 then i-1 else i-1-n)*dx,side,entry,leeway,singleBow) for i in 1:n};
     end for;
   end sampleGrid;
 
   function sampleFoam
-    input Real origin[2],spacing,enabled,entry[2,6],leeway;
+    input Real origin[2],spacing,enabled,entry[2,6],leeway,singleBow;
     output Real foam[foamRows,foamColumns];
   protected
     Real side;
@@ -205,7 +226,7 @@ public
     if enabled>.5 then
       for j in 1:foamRows loop
         side:=origin[2]+(j-1)*spacing;
-        foam[j,:]:={shoulderSheet(origin[1]+(i-1)*spacing,side,entry,leeway,true) for i in 1:foamColumns};
+        foam[j,:]:={shoulderSheet(origin[1]+(i-1)*spacing,side,entry,leeway,singleBow,true) for i in 1:foamColumns};
       end for;
     end if;
   end sampleFoam;
@@ -221,9 +242,9 @@ public
     end for;
   end localStrips;
 equation
-  entries=bowEntries(relativeSpeed,sources,breakingBows);
+  entries=bowEntries(relativeSpeed,sources,breakingBows,singleBow);
   leeway=max(-.3,min(.3,relativeSpeed[2]/max(.6,relativeSpeed[1])));
-  height=sampleGrid(relativeSpeed,sources,length,entries,leeway);
-  foamCoverage=sampleFoam(foamOrigin,foamSpacing,breakingBows,entries,leeway);
-  sprayRelease=sprayAtShoulder(entries,relativeSpeed[1],leeway);
+  height=sampleGrid(relativeSpeed,sources,length,entries,leeway,singleBow);
+  foamCoverage=sampleFoam(foamOrigin,foamSpacing,breakingBows,entries,leeway,singleBow);
+  sprayRelease=sprayAtShoulder(entries,relativeSpeed[1],leeway,singleBow);
 end BowWavePatch;
