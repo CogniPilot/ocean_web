@@ -12,6 +12,7 @@ parser.add_argument("case",type=Path,help="OpenFOAM case with solved Ux/Uy/Uz, f
 parser.add_argument("cad_mask",type=Path)
 parser.add_argument("wall_mask",type=Path,help="same resolution, rasterized from the actual OpenFOAM wall")
 parser.add_argument("--rotation-run",type=Path,help="Rumoca run with recorded mask phase and omega")
+parser.add_argument("--annuli",type=Path,help="Rumoca case with annular loads; requires OpenFOAM wallShearStress at the saved field time")
 args=parser.parse_args()
 meta=json.loads((args.case/"case.json").read_text())
 omega=-2*np.pi*meta["rpm"]/60
@@ -55,18 +56,41 @@ for i in range(len(centres)):
     arms=points-centres[i]
     areas.append(.5*np.cross(arms,np.roll(arms,-1,axis=0)).sum(axis=0))
 dforce=meta["rho_kg_m3"]*field("p")[:,None]*areas
+def shaft_load(name):
+    for path in (args.case/"postProcessing/shaftLoads").glob("*/"+name+".dat"):
+        history=np.atleast_2d(np.loadtxt(path))
+        matches=history[history[:,0]==end]
+        if len(matches):
+            return matches[-1]
+    raise ValueError("missing shaft load at field time")
+
 for name,pred in [("force",dforce.sum(axis=0)[0]),("moment",np.cross(centres,dforce).sum(axis=0)[0])]:
-    # forces.dat scalar columns: time, total(x,y,z), pressure(x,y,z), viscous(x,y,z).
-    for path in sorted((args.case/"postProcessing/shaftLoads").glob("*/"+name+".dat"),reverse=True):
-        a=np.atleast_2d(np.loadtxt(path))
-        row=a[a[:,0]==end]
-        if len(row):
-            ref=row[-1,4]
-            break
-    else:
-        raise ValueError("missing shaft load at field time")
+    ref=shaft_load(name)[4]
     np.testing.assert_allclose(pred,ref,rtol=2e-5)
     print(f"Axial pressure {name}: integrated {pred:.7g}, OpenFOAM {ref:.7g}")
+
+if args.annuli:
+    # OpenFOAM wallShearStress uses a normal directed into the fluid.
+    # Convert its kinematic traction to force on the solid, then bin by shaft radius.
+    viscous=-meta["rho_kg_m3"]*np.linalg.norm(areas,axis=1)[:,None]*field("wallShearStress")
+    total=dforce+viscous
+    run=json.loads((args.annuli/"rumoca-volume.json").read_text())
+    if (run["J"],run["rpm"])!=(meta["J"],meta["rpm"]):
+        raise ValueError("radial loads use different shaft conditions")
+    lattice=np.genfromtxt(args.annuli/"rumoca-annuli.csv",delimiter=",",names=True)
+    radius=np.linalg.norm(centres[:,1:],axis=1)/(.5*meta["diameter_m"])
+    bins=np.searchsorted(lattice["inner_r_over_R"],radius,side="right")-1
+    last=np.genfromtxt(args.annuli/"rumoca-loads.csv",delimiter=",",names=True)[-run["stepsPerRev"]:]
+    for name,key,component,power,sign in [("force","KT",total[:,0],4,-1),
+            ("moment","KQ",np.cross(centres,total)[:,0],5,1)]:
+        ref=shaft_load(name)[1]
+        np.testing.assert_allclose(component.sum(),ref,rtol=2e-5)
+        np.testing.assert_allclose(lattice[key].sum(),last[key].mean(),rtol=2e-6)
+        scale=sign/(meta["rho_kg_m3"]*(meta["rpm"]/60)**2*meta["diameter_m"]**power)
+        by_radius=scale*np.bincount(bins,weights=component,minlength=len(lattice))
+        print(key,"inner r/R, OpenFOAM at final iteration, Rumoca final revolution")
+        for inner,foam_value,model_value in zip(lattice["inner_r_over_R"],by_radius,lattice[key]):
+            print(f"{inner:.2f} {foam_value:+.5f} {model_value:+.5f}")
 
 def mask(path):
     with path.open("rb") as stream:

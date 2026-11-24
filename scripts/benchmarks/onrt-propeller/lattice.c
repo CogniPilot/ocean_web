@@ -60,6 +60,10 @@ int main(int argc,char **argv){
     FILE *history=open_file("rumoca-loads.csv","w");
     fprintf(history,"step,time_s,revolutions,thrust_N,torque_Nm,KT,KQ,max_mach,mask_phase,omega_rad_s\n");
     const int end=(int)ceil(revs*stepsPerRev);
+    // Integrate annular loads over the final full-speed revolution. The last
+    // bin also includes mixed cells whose centres sit outside the nominal tip.
+    enum {rings=5};
+    double ringAxial[rings]={0},ringMoment[rings]={0};
     double axial=0,moment=0,maxMach=0;
     #pragma omp parallel
     {
@@ -76,7 +80,7 @@ int main(int argc,char **argv){
             double angle=fmod(-4*turns,1.);if(angle<0)angle++;
             double phase=angle*phases;
             int pa=(int)phase%phases,pb=(pa+1)%phases;
-            #pragma omp for collapse(2) reduction(+:axial,moment) reduction(max:maxMach)
+            #pragma omp for collapse(2) reduction(+:axial,moment) reduction(max:maxMach) reduction(+:ringAxial[:rings],ringMoment[:rings])
             for(int z=0;z<nz;z++)for(int y=0;y<ny;y++){
                 for(int x=0;x<nx;x++){
                     size_t k=where(x,y,z,nx,ny);
@@ -104,7 +108,12 @@ int main(int argc,char **argv){
                     check(fmi3SetFloat64(model,input_refs,8,input,31));
                     check(fmi3GetFloat64(model,output_refs,4,out,26));
                     memcpy(next+19*k,out,sizeof(inlet));
-                    axial+=out[19];moment+=input[20]*out[21]-input[21]*out[20];
+                    const double shaftMoment=input[20]*out[21]-input[21]*out[20];
+                    axial+=out[19];moment+=shaftMoment;
+                    if(step>end-stepsPerRev && input[19]>0){
+                        const int ring=(int)fmin(rings-1,2*rings*hypot(input[20],input[21])/res);
+                        ringAxial[ring]+=out[19];ringMoment[ring]+=shaftMoment;
+                    }
                     double v2=out[22]*out[22]+out[23]*out[23]+out[24]*out[24];maxMach=fmax(maxMach,sqrt(3*v2));
                     if(step==end){
                         for(int v=0;v<3;v++)field[4*k+v]=(float)(out[22+v]*dx/dt);
@@ -126,6 +135,15 @@ int main(int argc,char **argv){
         fmi3FreeInstance(model);
     }
     fclose(history);
+    if(end>=2*stepsPerRev){
+        FILE *annuli=open_file("rumoca-annuli.csv","w");
+        fprintf(annuli,"inner_r_over_R,KT,KQ\n");
+        const double coefficient=pow(dx/D,4)/(dt*dt*n*n*stepsPerRev);
+        for(int ring=0;ring<rings;ring++)
+            fprintf(annuli,"%.2f,%.10g,%.10g\n",(double)ring/rings,
+                    -coefficient*ringAxial[ring],coefficient*dx/D*ringMoment[ring]);
+        fclose(annuli);
+    }
     FILE *f=open_file("rumoca-volume.bin","wb");
     if(fwrite(field,4,4*cells,f)!=4*cells)return 1;
     fclose(f);

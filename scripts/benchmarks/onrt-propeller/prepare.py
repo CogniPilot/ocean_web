@@ -138,6 +138,7 @@ application simpleFoam; startFrom startTime; startTime 0; stopAt endTime; endTim
 deltaT 1; writeControl timeStep; writeInterval 100; purgeWrite 2; writeFormat binary;
 runTimeModifiable false;
 functions {
+ wallStress {type wallShearStress; libs (fieldFunctionObjects); patches (propeller); writeControl writeTime;}
  wallComponents {type components; libs (fieldFunctionObjects); field U; writeControl writeTime;}
  shaftLoads {type forces; libs (forces); patches (propeller); rho rhoInf; rhoInf 998.6;
  CofR (0 0 0); writeControl timeStep; writeInterval 1;}

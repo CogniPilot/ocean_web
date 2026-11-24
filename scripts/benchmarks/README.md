@@ -193,6 +193,18 @@ This identifies excessive rotation relative to the reference solution as a
 specific target for a blade boundary-condition test. Independent velocity
 measurements would be needed to validate either wake field experimentally.
 
+At J = 1.2 the innermost 20% of the propeller radius contributed −0.0659 to
+Rumoca Kₜ and −0.0210 to OpenFOAM Kₜ. This accounts for about 43% of the
+net thrust difference between solvers. The outermost radial bin (r/R ≥ 0.8)
+accounts for about 67% of the excess lattice torque, contributing Kq = 0.0327
+versus 0.0216. The comparison sums Modelica momentum exchange over the final
+revolution and integrates OpenFOAM pressure and wall shear on the blade and
+hub at iteration 302. Each set of bins sums to its solver's reported axial
+load. Force location within these coarse cells is only accurate to grid scale.
+Generate `wallShearStress` in the running MRF solver so it uses the imposed
+wall velocity. Pass `--annuli PATH_TO_LATTICE_RUN` to `audit-setup.py` to
+repeat the radial comparison.
+
 A signed face-velocity audit of the baseline OpenFOAM run recovered −56.33923 rad/s on 1,233 wall faces. Integrating the original pressure field over the patch reproduced the axial pressure force (−4.32444 N) and moment (+0.118796 N·m) in a continuation at iteration 352. The Rumoca audit measures the physical orientation of the rotating mask from its fourth angular harmonic. The collision-kernel test independently computes the stress tensor and momentum exchange in NumPy and compares each output with the compiled FMI function. These checks cover the local operator and shaft conventions.
 
 The lattice loads are averaged over the last complete revolution of 3.5 actual turns including startup. OpenFOAM uses the last 20 iterations of 300 steady SIMPLE iterations with k–ω SST, local mesh refinement and no prism layers. One diameter behind the rotor, disk-mean axial velocity is 1.114 m/s for OpenFOAM and 1.074 m/s for the finer blade-normal run. Pointwise axial RMS difference is 0.234 m/s and mean swirl is −0.254 and −0.387 m/s respectively. Those probes compare one transient field to a steady rotating-frame result at aligned blade phase. The disk average can conceal substantial local errors.
