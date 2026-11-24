@@ -1567,7 +1567,6 @@ async function run(saved=readReset(),carried){
   }
   const subMode=$('subMode');
   subMode.onchange=()=>{
-    sub.mode=Number(subMode.value);
     keys.clear();keyboard.clear();touchControls();
   };
   let stickPreference=saved?.sticks,animalId,lastClaim=-Infinity,lastInput=-Infinity,rosterRevision=-1;
@@ -1748,14 +1747,15 @@ async function run(saved=readReset(),carried){
     const animalSensors=$('animalSensors'),motorSensors=$('motorSensors'),subSensors=$('subPanel');
     animalSensors.hidden=!swimming;motorSensors.hidden=!motor||!!animalId;
     $('subPanel').hidden=!!animalId||!sub?.active;
-    $('subModeLabel').hidden=$('subPanel').hidden||Boolean(world&&!world.hasSubMode);
+    if(sub)sub.mode=wasd()&&sub.active?3:Number(subMode.value);
+    $('subModeLabel').hidden=$('subPanel').hidden||wasd()||Boolean(world&&!world.hasSubMode);
     subMode.disabled=!sub?.manual;
     const steerKeys=wasd()?'Q/E':'A/D',verticalKeys=wasd()?'R/F':'W/S';
     const foreAftKeys=wasd()?'W/S':'↑/↓',sideKeys=wasd()?'A/D':'←/→';
     $('sailKeys').textContent=steerKeys+' steer · W eases the sheets · S hauls them in'+(cat?' · Arrows adjust travelers · C releases the main traveler.':'.');
     $('motorKeys').textContent='W/S throttle · '+steerKeys+' helm · Arrows aim searchlight · Z/X lights · C wipers';
     if(sub?.active)$('subKeys').textContent=verticalKeys+' rise/dive · '+steerKeys+' yaw · '+foreAftKeys+
-      (sub.mode===0?' forward/back':' pitch · '+sideKeys+' roll')+' · Z lamp · X sonar map · C DVL rays';
+      (sub.mode===3?' forward/back · A/D bank to strafe':sub.mode===0?' forward/back':' pitch · '+sideKeys+' roll')+' · V view · Z lamp · X sonar map · C DVL rays';
     $('animalPilot').hidden=!swimming;$('gullKeys').hidden=!gull;
     if(swimming)$('swimKeys').textContent='W/S swim effort · '+steerKeys+' turn · '+
       (wasd()?'R rise · F dive':animalKind()==='shark'?'↓ rise · ↑ dive':'↑ rise · ↓ dive')+
@@ -1806,7 +1806,7 @@ async function run(saved=readReset(),carried){
     }else if(drone?.active){
       leftLabel=attitudeControl?'Yaw / throttle':'Yaw / climb';rightLabel='Roll / pitch';
     }else if(sub?.active){
-      leftLabel='Yaw / heave';rightLabel=sub.mode===0?'Surge':'Roll / pitch';
+      leftLabel='Yaw / heave';rightLabel=sub.mode===3?'Strafe / surge':sub.mode===0?'Surge':'Roll / pitch';
     }else{
       leftLabel=motor?'Helm / throttle':'Rudder / sheet';
     }

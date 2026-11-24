@@ -82,9 +82,9 @@ package Wreck
     input Real sensor[91];
     input Real elevationRanges[100](each start=0) "Four elevation fans of 25 slant ranges, zero means no echo";
     input Real manual(start=0) "Enable manual control above 0.5";
-    input Real manualMode(start=0) "0 position, 1 auto-level, 2 body-rate acro";
+    input Real manualMode(start=0) "0 position, 1 auto-level, 2 body-rate acro, 3 assisted translation";
     input Real attitudePilot[2](each start=0) "Normalized roll and pitch stick commands";
-    input Real pilot[4](each start=0) "Body surge, reserved (unactuated sway), yaw rate and upward speed [m/s,m/s,rad/s,m/s]";
+    input Real pilot[4](each start=0) "Body surge, port speed (banked translation mode), yaw rate and upward speed [m/s,m/s,rad/s,m/s]";
     parameter Real propellerDiameter=0.17, thrustCoefficient=0.035, inceptionNumber=3.5;
     output Real propellerRPM[6], cavitation[6], appliedThrust[6];
     parameter Real propMount[6,3]=[.36,.32,0;.36,-.32,0;.065,.32,0;.065,-.32,0;-.43,.32,0;-.43,-.32,0] "Photo-estimated Piccard mounts, forward/port/up in metres";
@@ -114,7 +114,9 @@ package Wreck
     Real goalDepth,headingError,approach,forwardError,legStart[2],legVector[2],legLength,lookback;
     Real pilotEast,pilotNorth;
     Real foreLift,aftLift;
-    Boolean positionMode,acroMode,translate,dive;
+    Boolean positionMode,acroMode,assistedMode,translate,dive;
+    Real portSpeed,sideForce,verticalDemand,bankTarget,trimVolume,yawVelocity;
+    Real yawHoldError(start=0,fixed=true) "Integrated heading change since the yaw stick was centered";
     Real heldStation[3](start={-5,0,10.29},each fixed=true) "Estimated east, north and pressure depth";
     Real holdE,holdN,positionSurge,heaveRef;
     Real cmd[6], thrust[6](each stateSelect=StateSelect.always,each start=0,each fixed=true), rel[3], up[3], buoy[3], ballast[3], wet;
@@ -152,15 +154,16 @@ package Wreck
     northError=goal[2]-sensor[61];
     heading=sensor[62];
     depthEst=sensor[59]/(rho*g);
-    positionMode=manual>.5 and manualMode<.5;
-    acroMode=manual>.5 and manualMode>1.5;
+    assistedMode=manual>.5 and manualMode>2.5;
+    positionMode=manual>.5 and (manualMode<.5 or assistedMode);
+    acroMode=manual>.5 and manualMode>1.5 and not assistedMode;
     translate=abs(pilot[1])>.025;
     dive=abs(pilot[4])>.025;
     goalDepth=if positionMode then heldStation[3] elseif manual>.5 then depthEst else .29-goal[3];
     // Let the reference follow the navigation estimate during translation.
     // Centering the sticks holds the last station and pressure depth.
     for i in 1:2 loop
-      der(heldStation[i])=if not positionMode or translate or sensor[63]<.5 then (sensor[59+i]-heldStation[i])/.18 else 0;
+      der(heldStation[i])=if not positionMode or translate or (assistedMode and abs(pilot[2])>.01) or sensor[63]<.5 then (sensor[59+i]-heldStation[i])/.18 else 0;
     end for;
     der(heldStation[3])=if depthEst>.05 and (not positionMode or dive) then (depthEst-heldStation[3])/.18 else 0;
     holdE=heldStation[1]-sensor[60];
@@ -187,17 +190,32 @@ package Wreck
     approach=max(0,min(1,(cos(headingError)-.78)/.18));
     surgeRef=approach*max(0,min(.65,forwardError));
     surge=if positionMode then 18*(positionSurge-sensor[64]) elseif manual>.5 then 0 else 24*(surgeRef-sensor[64]);
-    yawCmd=if manual>.5 then 4*(pilot[3]-sensor[58]) else 5*max(-.95,min(.95,headingError))-4*sensor[58];
-    heave=if positionMode then 24*(heaveRef-verticalSpeed) elseif manual>.5 then 24*pilot[4]
+    yawVelocity=(sin(roll)*body.w_a[2]+cos(roll)*body.w_a[3])/max(.4,cos(pitch));
+    der(yawHoldError)=if assistedMode and abs(pilot[3])<.015 then
+      (if yawHoldError*yawVelocity<0 or abs(yawHoldError)<.6 then yawVelocity else 0) else -yawHoldError/.2;
+    yawCmd=if assistedMode then 7*(pilot[3]-yawVelocity)-11*yawHoldError elseif manual>.5 then 4*(pilot[3]-sensor[58]) else 5*max(-.95,min(.95,headingError))-4*sensor[58];
+    // A neutrally trimmed sub has very little sustained lift to vector. Flood
+    // both piston tanks equally in assisted translation, within their pump limits.
+    trimVolume=if assistedMode then .00072 else .00042;
+    portSpeed=cos(roll)*sensor[65]-sin(roll)*vzDvl;
+    sideForce=if abs(pilot[2])>.01 then 3*pilot[2]+drag[2]*pilot[2]*abs(pilot[2])
+      +(if sensor[63]>.5 then 9*(pilot[2]-portSpeed) else 0) else 0;
+    verticalDemand=g*(dryMass+fore.mass+aft.mass-rho*displaced*wet)
+      +24*(heaveRef-(if sensor[63]>.5 then -sin(pitch)*sensor[64]+cos(pitch)*(sin(roll)*sensor[65]+cos(roll)*vzDvl) else verticalSpeed));
+    // Positive roll tilts upward thrust to starboard. Reverse the bank for
+    // downward thrust and blend through zero as the sign of the lift changes.
+    bankTarget=if assistedMode then -max(-.60,min(.60,atan2(sideForce,max(2,abs(verticalDemand)))))
+      *verticalDemand/sqrt(verticalDemand^2+1) else 0;
+    heave=if assistedMode then verticalDemand/max(.65,cos(roll)*cos(pitch)) elseif positionMode then 24*(heaveRef-verticalSpeed) elseif manual>.5 then 24*pilot[4]
       else 12*verticalError-15*verticalSpeed;
     roll=attitude[1];
     pitch=attitude[2];
     // The rate loop uses the high-rate gyro signal. The 5 Hz packet is
     // suitable for navigation, but delayed damping can excite the thrusters.
     trimMoment=cross({0,0,0.055},buoy)+cross({0.34,0,-0.08},-fore.mass*g*up)+cross({-0.34,0,-0.08},-aft.mass*g*up);
-    rollCmd=if acroMode then 2.8*(1.05*attitudePilot[1]-body.w_a[1])-trimMoment[1]
+    rollCmd=if assistedMode then 9*(bankTarget-roll)-3.6*body.w_a[1]-trimMoment[1] elseif acroMode then 2.8*(1.05*attitudePilot[1]-body.w_a[1])-trimMoment[1]
       elseif manual>.5 and not positionMode then 5.4*(.49*attitudePilot[1]-roll)-2.6*body.w_a[1]-trimMoment[1] else -3*roll-sensor[89];
-    pitchCmd=if acroMode then 5.2*(.90*attitudePilot[2]-body.w_a[2])-trimMoment[2]
+    pitchCmd=if assistedMode then -10*pitch-4*body.w_a[2]-trimMoment[2] elseif acroMode then 5.2*(.90*attitudePilot[2]-body.w_a[2])-trimMoment[2]
       elseif manual>.5 and not positionMode then 10*(.44*attitudePilot[2]-pitch)-4*body.w_a[2]-trimMoment[2] else -4*pitch-2*sensor[90];
     // Split lift so net force and pitch torque both match their commands.
     foreLift=(-pitchCmd-propMount[5,1]*heave)/(propMount[3,1]-propMount[5,1]);
@@ -221,8 +239,8 @@ package Wreck
     end for;
     fore.pressure=ocean.gaugePressure;
     aft.pressure=ocean.gaugePressure;
-    fore.target=max(0,min(fore.capacity,0.00042-0.00010*verticalError-(if manual>.5 and not positionMode then 0 else 0.0002*pitch)));
-    aft.target=max(0,min(aft.capacity,0.00042-0.00010*verticalError+(if manual>.5 and not positionMode then 0 else 0.0002*pitch)));
+    fore.target=max(0,min(fore.capacity,trimVolume-0.00010*verticalError-(if manual>.5 and not positionMode then 0 else 0.0002*pitch)));
+    aft.target=max(0,min(aft.capacity,trimVolume-0.00010*verticalError+(if manual>.5 and not positionMode then 0 else 0.0002*pitch)));
     up=body.frame_a.R.T*{0,0,1};
     wet=max(0,min(1,(ocean.surface+hullSurfaceOffset-body.r_0[3]+0.16)/0.32));
     buoy=rho*g*displaced*wet*up;

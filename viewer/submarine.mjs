@@ -46,6 +46,7 @@ export function dopplerDisplay(T,vehicle){
 
 export function submarinePilot(axis,mode=0){
   const {pitch,roll,yaw,throttle}=animalSticks(axis);
+  if(mode===3)return {pilot:[pitch,-.35*roll,yaw,throttle],attitude:[0,0]};
   return {pilot:[mode===0?pitch:0,0,yaw,throttle],
     attitude:mode===0?[0,0]:[roll,pitch]};
 }
