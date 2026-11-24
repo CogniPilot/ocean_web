@@ -128,9 +128,12 @@ async function start() {
     const s=inputs();$('towControl').hidden=!s.tow;$('towLabel').value=s.towSpeed.toFixed(2)+' m/s';$('shaftLabel').value=Math.round(s.shaftDemand)+' rpm';
     $('helmLabel').value=s.helm===0?'Amidships':Math.abs(s.helm)+'° '+(s.helm>0?'port':'starboard');
   }
+  let rateStart,rateTime,rateText='';
+  document.addEventListener('visibilitychange',()=>{rateStart=undefined;rateText='';});
   function fail(message){failed=true;ready=false;$('readout').textContent='Basin stopped · '+message;worker?.terminate();}
   function reset(){
     worker?.terminate();ready=busy=failed=false;state=tile=uploadedLeft=uploadedRight=null;accum=0;playback=createWakePlayback(3*wakeStep);
+    rateStart=undefined;rateText='';
     map.image.data.fill(0);uniforms.heightScale.value.set(0,0);map.needsUpdate=true;keys.clear();
     $('save').disabled=true;$('readout').textContent='Loading vessel and wave solver…';
     for(const id of ['shaft','helm','design','center'])$(id).disabled=$('mode').value==='tow';
@@ -144,8 +147,14 @@ async function start() {
       playback.append(data.frames);
       ({state,tile}=data.frames.at(-1));
       $('save').disabled=false;
+      const now=performance.now();
+      if(rateStart===undefined){rateStart=now;rateTime=state.time;}
+      if(now-rateStart>=1000){
+        rateText='  ·  '+((state.time-rateTime)*1000/(now-rateStart)).toFixed(2)+'× realtime';
+        rateStart=now;rateTime=state.time;
+      }
       const bearing=(Math.round(90-state.heading*180/Math.PI)%360+360)%360;
-      $('readout').textContent=state.surge.toFixed(2)+' m/s  ·  '+state.rpm.toFixed(0)+' rpm  ·  '+state.time.toFixed(1)+' s\n'+
+      $('readout').textContent=state.surge.toFixed(2)+' m/s  ·  '+state.rpm.toFixed(0)+' rpm  ·  '+state.time.toFixed(1)+' s'+rateText+'\n'+
         'E '+state.east.toFixed(2)+' m  ·  N '+state.north.toFixed(2)+' m  ·  '+bearing+'°T';
     };
     worker.postMessage({type:'init',inputs:inputs()});
