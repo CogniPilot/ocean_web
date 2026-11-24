@@ -23,8 +23,13 @@ globalThis.Worker=class {
     return nextTurn();
   }
 };
-const opening=openWorld('sailing');
+const progress=[];
+const opening=openWorld('sailing',.45,0,1,{onProgress:report=>progress.push(report)});
 assert.equal(worker.requests[0].initial.seaState,.45);
+assert.equal(worker.requests[0].reportProgress,true);
+const download={phase:'download',received:5,total:10};
+worker.onmessage({data:{progress:download}});
+assert.deepEqual(progress,[download]);
 const seaIndex=worker.requests[0].inputs.indexOf('seaState');
 await worker.reply();
 const world=await opening;

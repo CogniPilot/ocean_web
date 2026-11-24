@@ -100,7 +100,7 @@ export function underwaterLamp(T,renderer,occluders,hullGlowLobes=[]){
         #include <colorspace_fragment>
       }`});
   pass.add(new T.Mesh(new T.PlaneGeometry(2,2),material));
-  return (scene,eye,quality,lights,frame=-1,thumbnail=false,glowingHulls=[])=>{
+  const draw=(scene,eye,quality,lights,frame=-1,thumbnail=false,glowingHulls=[])=>{
     u.frame.value=frame;
     u.lampCount.value=Math.min(maxLamps,lights.length);
     u.glowCount.value=glowingHulls.length;
@@ -138,4 +138,9 @@ export function underwaterLamp(T,renderer,occluders,hullGlowLobes=[]){
     renderer.setRenderTarget(source);renderer.render(scene,eye);
     renderer.setRenderTarget(destination);renderer.render(pass,screen);
   };
+  draw.preload=async()=>{
+    await renderer.compileAsync(occluders,lightCamera);
+    await renderer.compileAsync(pass,screen);
+  };
+  return draw;
 }

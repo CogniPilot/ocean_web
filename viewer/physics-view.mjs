@@ -234,14 +234,22 @@ export function physicsView(T,canvas,status){
       }
     }
   }
-  function drawCruiserStrips(strips){
+  const stripFrame=new T.Matrix4(),stripPosition=new T.Vector3(),stripRotation=new T.Quaternion();
+  const stripEuler=new T.Euler(),unitScale=new T.Vector3(1,1,1);
+  function drawCruiserStrips(strips,heights,group,pose){
     const [east,north,z,force,volume]=strips;
     if(!east)return;
+    if(pose){
+      stripPosition.fromArray(pose);
+      stripRotation.setFromEuler(stripEuler.set(pose[3],pose[4],pose[5],'ZYX'));
+      stripFrame.compose(stripPosition,stripRotation,unitScale).invert().premultiply(group.matrixWorld);
+    }else stripFrame.identity();
     for(let i=0;i<east.length;i++){
       const color=volume[i]>0?colors.wet:colors.dry;
-      a.set(east[i],north[i],z[i]);b.copy(a);b.z+=Math.min(1.4,Math.max(-1.4,force[i]/1800));
+      a.set(east[i],north[i],z[i]).applyMatrix4(stripFrame);b.copy(a);b.z+=Math.min(1.4,Math.max(-1.4,force[i]/1800));
       ink.strokeStyle=color;ink.lineWidth=2;ink.beginPath();segment(a,b);ink.stroke();
       dot(a,null,color,3);label(b,null,Math.round(volume[i]*1000)+' L',color);
+      if(heights){a.z=heights[i];dot(a,null,'#f4f8ff',2.3);}
     }
   }
 
@@ -478,7 +486,7 @@ export function physicsView(T,canvas,status){
     }
     if(options.hulls){
       if(hull?.stations)drawHull(hull,group);
-      if(body.strips)drawCruiserStrips(body.strips);
+      if(body.strips)drawCruiserStrips(body.strips,body.stripWater,group,body.stripPose);
     }
     if(body.probes&&(options.hulls||pontoonTraces)){
       drawProbes(body.probes);

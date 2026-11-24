@@ -18,10 +18,11 @@ import {splitCamera} from "./waterline.mjs";
 import {drawCompass,drawDroneCompass} from './compass.mjs';
 import {forceDisplay,firstPersonInstruments} from './instrumentation.mjs?hud=2';
 import {mastCamera} from "./mast-camera.mjs";
+import {cameraCones} from './camera-cones.mjs';
 import {courseScene,raceAudio,firstLeg,raceTarget} from "./regatta.mjs";
 import {raceRules} from './race-rules.mjs';
 import {lapLeaderboard,lapClock} from "./lap-board.mjs";
-import {animalSticks,keyboardSticks,pilotSticks} from './keyboard-sticks.mjs';
+import {animalSticks,controlGain,keyboardAxisKey,keyboardSticks,pilotSticks} from './keyboard-sticks.mjs';
 import {surfaceSpray} from './water-spray.mjs';
 import {wildlifeWater} from './wildlife-wake.mjs';
 import {cabinCruiser,hullLamps,hullGlowLobes,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight} from './motorboat.mjs';
@@ -121,7 +122,7 @@ async function chooseVehicle(){
 }
 const resetStorage='ocean-world-reset';
 const crtStorage='ocean-crt-filter';
-const settingsFields='wind seaState sky storm quality simulationSpeed compassWind crtFilter roomName physicsView physicsRig physicsHulls physicsWater physicsAir waveLayer collisionShapes inertiaShapes showDroneCovariance vang outhaul autoTrim showBallastMarker ballX ballY autoDeck jibTackAssist mainCar jibCar jibSheet searchLamp keelLamp lampYaw lampTilt subMode flightMode sonarMap showDvlRays cruiserSonarRange echoCamera wiperSwitch jibHalyard mastPort musicVolume effectsVolume spawnKind'.split(' ');
+const settingsFields='wind seaState sky storm quality simulationSpeed compassWind crtFilter keyLayout roomName physicsView physicsRig physicsHulls physicsWater physicsAir waveLayer collisionShapes inertiaShapes cameraCones showDroneCovariance vang outhaul autoTrim showBallastMarker ballX ballY autoDeck jibTackAssist mainCar jibCar jibSheet searchLamp keelLamp lampYaw lampTilt subMode flightMode sonarMap showDvlRays cruiserSonarRange echoCamera wiperSwitch jibHalyard mastPort musicVolume effectsVolume spawnKind'.split(' ');
 const toggleSettings=['showCompass','showForces','cruiserChartFit','cutMotors','helm','subLamp'];
 const settingPanels=()=>document.querySelectorAll('.control-pane,#racePanel,#fleetRoster,#cruiserSonarPanel,#cruiserCameras,#subSensors,#fishFinder');
 function readReset(){
@@ -152,13 +153,22 @@ async function run(saved=readReset(),carried){
     crtOverlay.hidden=!crtFilter.checked;
     try{localStorage.setItem(crtStorage,crtFilter.checked?'on':'off');}catch{}
   });
+  const keyLayout=$('keyLayout');
+  if(!saved?.fields.keyLayout){try{if(localStorage.getItem('ocean-key-layout')==='wasd')keyLayout.value='wasd';}catch{}}
+  const wasd=()=>keyLayout.value==='wasd';
   let url=new URL(location.href);
   const packaged=document.body.dataset.defaultRuntime==='world';
   if(packaged&&!['runtime','boat','control','demo'].some(name=>url.searchParams.has(name))){
     url=vehicleLink(url,await chooseVehicle());
     history.replaceState(history.state,'',url);
   }
-  const startupScreen=$('startupScreen'),startupStatus=$('startupStatus');
+  const startupScreen=$('startupScreen'),startupStatus=$('startupStatus'),startupProgress=$('startupProgress');
+  function reportStartup(status,progress){
+    if(signal.aborted)return;
+    if(startupStatus.textContent!==status)startupStatus.textContent=status;
+    if(progress>startupProgress.value)startupProgress.value=progress;
+  }
+  reportStartup('Loading model and scene',.05);
   const startupControls=[...document.body.children].filter(node=>node!==startupScreen&&node.tagName!=='SCRIPT');
   for(const node of startupControls)node.inert=true;
   let starting=true;
@@ -204,10 +214,16 @@ async function run(saved=readReset(),carried){
   const start=sailingStart(cat),weatherBearing=saved?.bearing??windBearing,initialWind=$('wind').valueAsNumber;
   if(saved?.spawn)Object.assign(start,saved.spawn);
   const inputs={...start,launchHeight:cat ? .20 : .069,launchSeaState:Number($('seaState').value),windEast:initialWind*Math.cos(weatherBearing),windNorth:initialWind*Math.sin(weatherBearing),currentEast:.2,currentNorth:.04,waveHeight:0,waveRoll:0,wavePitch:0,[cat?'downhaulInput':'vangInput']:.5,manualHelm:1,rudderInput:0,trimInput:0};
+  function reportModelProgress({phase,received,total}){
+    if(phase==='download')reportStartup('Downloading physics model',.12+.38*Math.min(1,received/total));
+    else if(phase==='construct')reportStartup('Starting physics model',.53);
+    else if(phase==='initialize')reportStartup('Initializing physics model',.60);
+    else if(phase==='warmup')reportStartup('Warming up physics',.66);
+  }
   const simulationReady=Promise.all([
     mode==='motorboat'&&cruiserRuntime.world?cruiserRuntime.world:
       mode?import('./world-view.mjs').then(module=>module.openWorld(mode,Number($('seaState').value),omitWake,mobile&&mode==='sailing'?2:1,{
-        start,weatherBearing,wind:initialWind,motorStart:saved?.spawn,warmSolver:true,
+        start,weatherBearing,wind:initialWind,motorStart:saved?.spawn,warmSolver:true,onProgress:reportModelProgress,
         signal:mode==='motorboat'?cruiserRuntime.lifetime.signal:signal
       })):loadInstance(vessel,inputs),
     hasBoat?loadVehicleShell(cat?'hobie-hulls':'sloop-hull'):null,
@@ -222,6 +238,7 @@ async function run(saved=readReset(),carried){
   cleanup(()=>{island.userData.terrainTextures.dispose();island.userData.bed.texture.dispose();});
   island.traverse(showInLowWaterCapture);
   const [simulation,,subAssets]=await simulationReady;
+  reportStartup('Preparing graphics',.72);
   const world=mode?simulation:null;
   if(mode==='motorboat')cruiserRuntime.world=world;
   const backgroundCruiserWorld=mode==='motorboat'?null:cruiserRuntime?.world;
@@ -1222,16 +1239,16 @@ async function run(saved=readReset(),carried){
     for(const id of ['mainCar','jibCar','jibSheet'])$(id).oninput=deck;
     autoDeck.oninput=()=>{if(!autoDeck.checked)takeOverDeck();deck();};
     deck();
-    moveTraveler=(code,fullRelease=false,repeating=false)=>{
+    moveTraveler=(code,fullRelease=false,gain=1)=>{
       if(autoDeck.checked){
         takeOverDeck();
         autoDeck.checked=false;
       }
-      const step=5;
+      const step=5*gain;
       if(code==='ArrowUp'||code==='ArrowDown'){
         const easing=code==='ArrowUp';
         if(fullRelease)main.value=main.max;
-        else main.value=main.valueAsNumber+(easing?(repeating?30:step):-step);
+        else main.value=main.valueAsNumber+(easing?step:-step);
       }else{
         jib.value=jib.valueAsNumber+(code==='ArrowRight'?step:-step);
       }
@@ -1343,16 +1360,14 @@ async function run(saved=readReset(),carried){
   $('keelLamp').addEventListener('change',()=>{$('cameraKeelLamp').checked=$('keelLamp').checked;});
   const aimKeys={ArrowLeft:['lampYaw',4],ArrowRight:['lampYaw',-4],ArrowUp:['lampTilt',3],ArrowDown:['lampTilt',-3]};
   on(window,'keydown',e=>{
-    if(e.altKey||e.ctrlKey||e.metaKey||e.shiftKey||e.target.isContentEditable||e.target.tagName==='TEXTAREA'||
+    if(e.altKey||e.metaKey||e.target.isContentEditable||e.target.tagName==='TEXTAREA'||
         (e.target.tagName==='INPUT'&&!['checkbox','range','button'].includes(e.target.type)))return;
     const formControl=['INPUT','SELECT','BUTTON','SUMMARY'].includes(e.target.tagName);
     if(motor&&!animalId&&!formControl&&Object.hasOwn(aimKeys,e.code)){
       const [id,delta]=aimKeys[e.code],slider=$(id);
-      slider.value=slider.valueAsNumber+delta;e.preventDefault();return;
+      slider.value=slider.valueAsNumber+delta*controlGain({fast:e.shiftKey,fine:e.ctrlKey});
+      slider.dispatchEvent(new Event('input',{bubbles:true}));e.preventDefault();
     }
-    if(!['KeyZ','KeyX'].includes(e.code)||e.repeat)return;
-    if(motor&&!animalId){$(e.code==='KeyZ'?'searchLamp':'keelLamp').click();e.preventDefault();}
-    else if(sub?.active&&e.code==='KeyZ'){toggleLamp();e.preventDefault();}
   });
   const sensorEye=sub && new T.PerspectiveCamera(64,320/238,.045,objectDrawRange);
   const sensorTarget=sub && new T.WebGLRenderTarget(320,238);
@@ -1364,6 +1379,12 @@ async function run(saved=readReset(),carried){
     eye.position.set(.592,0,.10).applyQuaternion(q).add(sub.mesh.position);
     eye.up.set(0,0,1).applyQuaternion(q);
     eye.lookAt(fpvForward.set(1,0,0).applyQuaternion(q).add(eye.position));
+  }
+  function placeDroneCamera(eye){
+    const {position,quaternion}=drone.group;
+    eye.position.set(.20,0,.035).applyQuaternion(quaternion).add(position);
+    eye.up.set(0,0,1).applyQuaternion(quaternion);
+    eye.lookAt(fpvForward.set(1,0,0).applyQuaternion(quaternion).add(eye.position));
   }
   function placeCruiserCamera(eye,id){
     const [position,look]=cruiserViews[id];
@@ -1385,6 +1406,32 @@ async function run(saved=readReset(),carried){
   const feeds=motor?[...$('cruiserCameras').querySelectorAll('canvas')].map(canvas=>{
     const ctx=canvas.getContext('2d');return {canvas,ctx,image:ctx.createImageData(feedWidth,feedHeight)};
   }):[];
+  const coneToggle=$('cameraCones');
+  let cones,coneEye;
+  cleanup(()=>cones?.dispose());
+  function drawCameraCones(view){
+    if(animalId)return;
+    cones??=cameraCones(T);
+    coneEye??=new T.PerspectiveCamera(52,1);
+    cones.clear();
+    if(motor){
+      const colors=[0x75eefa,0xffb568,0xff90ad,0xa4ed8d];
+      feeds.forEach(({canvas},i)=>{
+        const id=canvas.dataset.camera;
+        if(id===view)return;
+        placeCruiserCamera(motorEye,id);
+        cones.perspective(id,motorEye,5,colors[i]);
+      });
+    }else if(sub?.active&&view!=='onboard'){
+      placeSensor(sensorEye);cones.perspective('Piccard optical camera',sensorEye,7,0x75eefa);
+    }else if(drone?.active&&view!=='fpv'){
+      coneEye.aspect=camera.aspect;placeDroneCamera(coneEye);
+      cones.perspective('RDD2 FPV camera',coneEye,6,0x75eefa);
+    }else if(hasMastCameras&&!sub?.active&&!drone?.active){
+      boat.cameraPorts.forEach((port,i)=>cones.mast('Mast lens '+(i+1),boat.group,port,i*Math.PI/2,3));
+    }
+    cones.draw(renderer,camera);
+  }
   let feedIndex=0,lastFeed=-Infinity;
   function drawCruiserFeeds(now){
     if(!motor||animalId||!$('cruiserCameras').open||now-lastFeed<55)return;
@@ -1440,14 +1487,18 @@ async function run(saved=readReset(),carried){
     for(let y=0;y<238;y++)sensorImage.data.set(sensorPixels.subarray(y*stride,(y+1)*stride),(237-y)*stride);
     sensorCanvas.putImageData(sensorImage,0,0);
   }
-  const analog=new Map(),keyboard=keyboardSticks(),stickIndicators=[];
+  const analog=new Map(),keyboard=keyboardSticks(),stickIndicators=[],pressedMotion=new Map();
+  const fastControl=()=>keys.has('ShiftLeft')||keys.has('ShiftRight');
+  const fineControl=()=>keys.has('ControlLeft')||keys.has('ControlRight');
+  const motionGain=()=>controlGain({fast:fastControl(),fine:fineControl()});
+  const clampAxis=value=>Math.max(-1,Math.min(1,value));
   const shaftLever=$('shaftLever');
   let shaftCommand=0,heldLever;
   function updateShaft(){
     if(!motor)return;
     const forward=(keys.has('KeyW')?keyboard.get('KeyW'):0)+(analog.get('KeyW')??0);
     const reverse=(keys.has('KeyS')?keyboard.get('KeyS'):0)+(analog.get('KeyS')??0);
-    const command=animalId||document.hidden?0:Math.max(-1,Math.min(1,heldLever??(forward-reverse)));
+    const command=animalId||document.hidden?0:clampAxis(heldLever??motionGain()*(forward-reverse));
     if(command!==shaftCommand){
       shaftCommand=command;
       shaftLever.value=String(Math.round(100*command));
@@ -1627,11 +1678,17 @@ async function run(saved=readReset(),carried){
     showSpawnResult('added',$('spawnKind').selectedOptions[0].text+' added');
   };
   $('animalFeed').onclick=()=>{if(ownsAnimal())remote.npc.feed(animalId);$('view').focus();};
-  $('gullCall').onclick=()=>{const view=$('cameraDepth').value;if(view.startsWith('gull'))remote.npc.gullCall(view==='gull'?0:Number(view.slice(5))-1);$('view').focus();};
+  $('gullCall').onclick=()=>{
+    const view=$('cameraDepth').value;
+    if(flyingGull()&&ownsAnimal())remote.npc.gullCall(gullIndex(animalId));
+    else if(view.startsWith('gull'))remote.npc.gullCall(view==='gull'?0:Number(view.slice(5))-1);
+    $('view').focus();
+  };
   let lastFishPing=-Infinity;
   const fishDisplay=fishFinder($('animalSonar'));
   $('animalBreach').onclick=()=>{if(ownsAnimal())remote.npc.breach(animalId);$('view').focus();};
-  const axis=(a,b)=>Math.max(-1,Math.min(1,keyboard.get(a)-keyboard.get(b)+(analog.get(a)||0)-(analog.get(b)||0)));
+  const axis=(a,b,gain=motionGain())=>clampAxis(gain*(keyboard.get(a)-keyboard.get(b)+(analog.get(a)||0)-(analog.get(b)||0)));
+  const controlKind=()=>animalId?animalKind():sub?.active?'sub':drone?.active?'drone':motor?'motorboat':'boat';
   const panelSize=new ResizeObserver(([entry])=>document.body.style.setProperty('--panel-height',entry.target.offsetHeight+'px'));
   panelSize.observe(panel.parentElement);
   cleanup(()=>panelSize.disconnect());
@@ -1644,11 +1701,16 @@ async function run(saved=readReset(),carried){
     $('subPanel').hidden=!!animalId||!sub?.active;
     $('subModeLabel').hidden=$('subPanel').hidden||Boolean(world&&!world.hasSubMode);
     subMode.disabled=!sub?.manual;
-    if(sub?.active)$('subKeys').textContent=sub.mode===0?'W/S rise/dive · A/D yaw · ↑/↓ forward/back · ←/→ strafe':
-      'W/S heave thrust · A/D yaw · ↑/↓ pitch · ←/→ roll'+(sub.mode===2?' · Release to stop rotating':'');
+    const steerKeys=wasd()?'Q/E':'A/D',verticalKeys=wasd()?'R/F':'W/S';
+    const foreAftKeys=wasd()?'W/S':'↑/↓',sideKeys=wasd()?'A/D':'←/→';
+    $('sailKeys').textContent=steerKeys+' steer · W eases the sheets · S hauls them in'+(cat?' · Arrows adjust travelers · C releases the main traveler.':'.');
+    $('motorKeys').textContent='W/S throttle · '+steerKeys+' helm · Arrows aim searchlight · Z/X lights · C wipers';
+    if(sub?.active)$('subKeys').textContent=verticalKeys+' rise/dive · '+steerKeys+' yaw · '+foreAftKeys+
+      (sub.mode===0?' forward/back · '+sideKeys+' strafe':' pitch · '+sideKeys+' roll')+' · Z lamp · X sonar map · C DVL rays';
     $('animalPilot').hidden=!swimming;$('gullKeys').hidden=!gull;
-    if(swimming)$('swimKeys').textContent='W/S swim effort · A/D turn · '+
-      (animalKind()==='shark'?'↓ rise · ↑ dive':'↑ rise · ↓ dive')+' · ←/→ roll · Space to breach';
+    if(swimming)$('swimKeys').textContent='W/S swim effort · '+steerKeys+' turn · '+
+      (wasd()?'R rise · F dive':animalKind()==='shark'?'↓ rise · ↑ dive':'↑ rise · ↓ dive')+
+      ' · '+sideKeys+' roll · '+(wasd()?'X':'F or X')+' feed · C breach';
     $('helm').hidden=Boolean(animalId||motor);$('motorPanel').hidden=!motor||!!animalId;
     document.querySelectorAll('[data-boat]').forEach(el=>el.hidden=!boatActive);
     physicsVisibility();
@@ -1668,8 +1730,9 @@ async function run(saved=readReset(),carried){
     $('flightModeLabel').hidden=!drone?.active;
     $('flightMode').disabled=!drone?.manual;
     if(drone?.active){
-      $('flightKeys').textContent='↑/↓ pitch · ←/→ roll'+' · A/D yaw · W/S '+(flightControl.value==='0'?'climb/descend · Shift for fast horizontal flight':'throttle')+
-        ' · Space arm/disarm'+(flightControl.value==='2'?' · Release roll/pitch to stop rotating':'');
+      $('flightKeys').textContent=foreAftKeys+(flightControl.value==='0'?' forward/back · '+sideKeys+' strafe':' pitch · '+sideKeys+' roll')+
+        ' · '+steerKeys+' yaw · '+verticalKeys+(flightControl.value==='0'?' climb/descend':' throttle')+
+        ' · C or Space arm/disarm'+(flightControl.value==='2'?' · Release roll/pitch to stop rotating':'');
     }
 
 
@@ -1935,13 +1998,13 @@ async function run(saved=readReset(),carried){
     cameraMenu.value=useSkipper?skipperOption.value:'deck';
   }else if(Object.hasOwn(wildlifeOrbits,requestedView))cameraMenu.value=requestedView;
 
-  const fineHelm=()=>keys.has('ShiftLeft')||keys.has('ShiftRight') ? .25 : 1;
   function helm(){
     updateShaft();
     for(const draw of stickIndicators)draw();
-    drone?.input(axis,keys.has('ShiftLeft')||keys.has('ShiftRight'));
+    const fast=fastControl()&&!fineControl();
+    drone?.input((a,b)=>axis(a,b,fast&&a.startsWith('Arrow')?1:motionGain()),fast);
     const atHelm=!animalId&&!drone?.active&&!sub?.active,stick=pilotSticks(axis);
-    model?.set('rudderInput',atHelm?stick.yaw*fineHelm():0);model?.set('trimInput',atHelm?stick.throttle*fineHelm():0);
+    model?.set('rudderInput',atHelm?stick.yaw:0);model?.set('trimInput',atHelm?stick.throttle:0);
   }
   const mapDialog=$('harborMap');
   let localChart,lastChart=-Infinity;
@@ -2010,29 +2073,69 @@ async function run(saved=readReset(),carried){
     if(e.defaultPrevented||e.repeat||e.altKey||e.ctrlKey||e.metaKey||chatPanel.contains(e.target)||
       e.target.isContentEditable||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
     if(e.key==='Enter'&&chatScope&&e.target.tagName!=='BUTTON')openChat();
-    else if(e.code==='KeyC'){if(!cycleCamera())return;}
+    else if(e.code==='KeyV'){if(!cycleCamera())return;}
     else if(e.code==='KeyM')toggleMap();
-    else if(e.code==='KeyR')resetSimulation();
     else if(e.key==='Escape'&&mapDialog.open)mapDialog.close();
     else return;
     e.preventDefault();
   });
   on(window,'keydown',e=>{
-    const fullRelease=e.shiftKey&&e.code==='ArrowUp';
     const formControl=['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName);
     if(!moveTraveler||chatPanel.contains(e.target)||targetSelect.value!=='boat'||!manual||
-      e.altKey||e.ctrlKey||e.metaKey||(e.shiftKey&&!fullRelease)||e.target.isContentEditable||
-      (formControl&&!(fullRelease&&e.target.type==='range'))||!e.code.startsWith('Arrow'))return;
+      e.altKey||e.metaKey||e.target.isContentEditable||formControl||!e.code.startsWith('Arrow'))return;
     e.preventDefault();
-    if(!fullRelease||!e.repeat)moveTraveler(e.code,fullRelease,e.repeat);
+    moveTraveler(e.code,false,controlGain({fast:e.shiftKey,fine:e.ctrlKey}));
   });
-  on(window,'keydown',e=>{if(!e.defaultPrevented&&!chatPanel.contains(e.target)&&e.code!=='KeyM'&&manualSelected()&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)){if(animalId){if(e.code==='KeyF'&&!flyingGull()){if(!e.repeat)$('animalFeed').click();return;}if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat){if(flyingGull())remote.npc.gullCall(gullIndex(animalId));else $('animalBreach').click();}return;}if(e.code.startsWith('Arrow'))e.preventDefault();}else if(drone?.active){
-      if(e.code==='Space'&&e.target.tagName!=='BUTTON'){e.preventDefault();if(!e.repeat)$('cutMotors').click();return;}
-      if(e.code.startsWith('Arrow'))e.preventDefault();
-    }else if(sub?.active&&e.code.startsWith('Arrow'))e.preventDefault();
-    keys.add(e.code);keyboard.press(e.code,performance.now());helm();}});
-  on(window,'keyup',e=>{keys.delete(e.code);keyboard.release(e.code,performance.now());helm();});
-  function releaseControls(){keys.clear();keyboard.clear();analog.clear();heldLever=undefined;helm();}
+  const modifierKey=code=>code.startsWith('Shift')||code.startsWith('Control');
+  function auxiliaryControl(code){
+    if(animalId){
+      if(!ownsAnimal())return;
+      if(flyingGull()){
+        if(code==='KeyC'||code==='Space')return 'gullCall';
+      }else{
+        if(code==='KeyX'||code==='KeyF'&&!wasd())return 'animalFeed';
+        if(code==='KeyC'||code==='Space')return 'animalBreach';
+      }
+    }else if(drone?.active){
+      if(code==='KeyC'||code==='Space')return 'cutMotors';
+    }else if(sub?.active){
+      return {KeyZ:'subLamp',KeyX:'sonarMap',KeyC:'showDvlRays'}[code];
+    }else if(motor){
+      if(code==='KeyC'&&!world.hasWiper)return;
+      return {KeyZ:'searchLamp',KeyX:'keelLamp',KeyC:'wiperSwitch'}[code];
+    }else if(cat&&manual&&code==='KeyC')return 'easeTraveler';
+  }
+  on(window,'keydown',e=>{
+    if(e.defaultPrevented||e.altKey||e.metaKey||chatPanel.contains(e.target)||e.target.isContentEditable||
+      ['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
+    if(modifierKey(e.code)){
+      keys.add(e.code);helm();return;
+    }
+    const auxiliary=e.ctrlKey||e.code==='Space'&&e.target.tagName==='BUTTON'?undefined:auxiliaryControl(e.code);
+    if(auxiliary){
+      e.preventDefault();
+      if(!e.repeat)$(auxiliary).click();
+      return;
+    }
+    if(!manualSelected())return;
+    const code=keyboardAxisKey(e.code,keyLayout.value,controlKind());
+    if(!code)return;
+    e.preventDefault();
+    pressedMotion.set(e.code,code);keys.add(code);
+    keyboard.press(code,performance.now());helm();
+  });
+  on(window,'keyup',e=>{
+    if(modifierKey(e.code)){keys.delete(e.code);helm();return;}
+    const code=pressedMotion.get(e.code);
+    if(!code)return;
+    pressedMotion.delete(e.code);keys.delete(code);keyboard.release(code,performance.now());helm();
+  });
+  function releaseControls(){pressedMotion.clear();keys.clear();keyboard.clear();analog.clear();heldLever=undefined;helm();}
+  keyLayout.onchange=()=>{
+    releaseControls();touchControls();
+    try{localStorage.setItem('ocean-key-layout',keyLayout.value);}catch{}
+    focusGame();
+  };
   on(window,'blur',releaseControls);
 
   $('helm').onclick=()=>{
@@ -2279,6 +2382,28 @@ async function run(saved=readReset(),carried){
   }else if(joinRoomOnLoad)joinForStartup();
   else updatePlayback();
   remote.setResetHandler(resetSimulation);
+  if(motor){
+    const lightTarget=new T.WebGLRenderTarget(4,4,{type:T.HalfFloatType});
+    const previousFog=scene.fog;
+    const bearing=T.MathUtils.degToRad($('lampYaw').valueAsNumber);
+    const tilt=-T.MathUtils.degToRad($('lampTilt').valueAsNumber);
+    try{
+      reportStartup('Preparing cruiser lighting',.74);
+      await motor.preloadLighting(bearing,tilt,async(completed,total)=>{
+        scene.fog=underwaterFog;
+        await renderer.compileAsync(scene,camera);
+        renderer.setRenderTarget(lightTarget);
+        try{
+          await renderer.compileAsync(scene,camera);
+          if(!profile.skipCaptures){scene.fog=null;await renderer.compileAsync(scene,camera);}
+        }
+        finally{renderer.setRenderTarget(null);}
+        reportStartup('Preparing cruiser lighting',.74+.06*completed/total);
+      });
+      renderer.initTexture(motor.searchlight.light.map);
+      await lampPass.preload();
+    }finally{scene.fog=previousFog;lightTarget.dispose();}
+  }
   let physicsTimer,courseTarget,drawDeadline,appliedRaceStart=0;
   let firstWarmFrame,lastWarmFrame;
   const warmIntervals=[];
@@ -2299,8 +2424,14 @@ async function run(saved=readReset(),carried){
     const rosterReady=remote.npc.synchronized&&remote.visible>0&&(!npcTrafficLoad||npcTraffic);
     const joining=roomRequestedAt!==undefined&&now-roomRequestedAt<6500&&
       (roomOpenedAt===undefined||remote.connected&&now-roomOpenedAt<(remote.hasPeers?3200:1800)&&!rosterReady);
-    const status=joining?(remote.hasPeers?'Synchronizing multiplayer':'Joining multiplayer'):'Preparing graphics';
-    if(startupStatus.textContent!==status)startupStatus.textContent=status;
+    if(joining){
+      const wait=Math.min(1,(now-roomRequestedAt)/6500);
+      reportStartup(remote.hasPeers?'Synchronizing multiplayer':'Joining multiplayer',.89+.10*wait);
+    }else if(!warm){
+      reportStartup('Preparing graphics',.79+.10*Math.min(1,(now-firstWarmFrame)/220));
+    }else if(worker&&!waterFrame){
+      reportStartup('Preparing water',.96);
+    }else reportStartup('Ready',1);
     if(!warm||joining||worker&&!waterFrame)return;
 
     prev=physicsWall=now;acc=0;
@@ -2405,7 +2536,7 @@ async function run(saved=readReset(),carried){
       if(!starting&&!world&&running&&!document.hidden)acc+=frameSeconds;
       if(waterError)throw waterError;
       if(world){
-        if(motor)world.set('helmLever',animalId?0:pilotSticks(axis).yaw*fineHelm());
+        if(motor)world.set('helmLever',animalId?0:pilotSticks(axis).yaw);
         if(world.hasSeaClock){
           const phase=remote.seaTime(world.time,now);
           world.set('seaClockOffset',phase-world.time);
@@ -2759,9 +2890,10 @@ async function run(saved=readReset(),carried){
             (state[2]-ocean.U.tide.value).toFixed(1)+' m altitude · '+(state[20]??state[4]).toFixed(1)+' m/s airspeed');
           $('readout').textContent=motion?status+' · '+motion:status;
           const gullKeys=$('gullKeys');
-          const hint=afloat?(mobile?'Left stick forward to paddle · Left forward + right back to take off':
-            'W paddle · A/D turn · Hold W + ↓ to take off · Space call'):
-            '↓ pull up · ↑ push down · ←/→ bank · A/D turn · W flap · S glide · Space call';
+          const hint=afloat?(mobile?'Left stick forward to paddle · Left forward + right back to take off':wasd()?
+            'W paddle · Q/E turn · Hold W + R to take off · C call':'W paddle · A/D turn · Hold W + ↓ to take off · C call'):
+            wasd()?'R pull up · F push down · A/D bank · Q/E turn · W flap · S glide · C call':
+              '↓ pull up · ↑ push down · ←/→ bank · A/D turn · W flap · S glide · C call';
           if(gullKeys.textContent!==hint)gullKeys.textContent=hint;
           const left=$('sticks').firstElementChild;
           if(left){
@@ -2775,7 +2907,8 @@ async function run(saved=readReset(),carried){
         $('animalBreach').disabled=!own||breaching;
         if(a&&state){
           const w=a.kind==='whale';
-          $('animalFeed').textContent=w?'Engulf fish (F)':'Bite (F)';
+          const feedKey=wasd()?' (X)':' (F or X)';
+          $('animalFeed').textContent=(w?'Engulf fish':'Bite')+feedKey;
           $('animalFeed').disabled=!own||(a.feedAt!=null&&state[0]-a.feedAt<(w?3.2:1.2));
           $('fishCaught').textContent=(a.caught??0)+' fish caught';
           if(now-lastFishPing>=200){
@@ -2889,11 +3022,9 @@ async function run(saved=readReset(),carried){
         drone.draw();
         if(world)flightDisplay.apply(drone.group,t,now,running);
         if(drone.active){
-          const {position,quaternion}=drone.group;
+          const {position}=drone.group;
           if($('cameraDepth').value==='fpv'){
-            camera.position.set(.20,0,.035).applyQuaternion(quaternion).add(position);
-            camera.up.set(0,0,1).applyQuaternion(quaternion);
-            camera.lookAt(fpvForward.set(1,0,0).applyQuaternion(quaternion).add(camera.position));
+            placeDroneCamera(camera);
           }else{
             camera.position.set(distance*.6*Math.cos(angle),distance*.6*Math.sin(angle),distance*.6*Math.sin(tilt)).add(position);
             camera.lookAt(position);
@@ -3008,6 +3139,7 @@ async function run(saved=readReset(),carried){
         ocean.U.under.value=Number(submerged);ocean.dome.visible=!submerged;
         if(submerged)renderBelow(scene,camera);else renderer.render(scene,camera);
       }
+      if(coneToggle.checked)drawCameraCones(view);
       if(collisionToggle.checked)drawCollisions();
       if(inertiaToggle.checked)drawInertia();
       if(physicsEnabled){
@@ -3103,8 +3235,10 @@ async function run(saved=readReset(),carried){
             const strips=world?.get('waves.sourceStrips')??lastWaveFrame?.strips;
             if(strips)body.probes={strips,heights:inspectionHull.heights,count:inspectionHull.separation>0?12:6};
           }
-          if(body.strips?.[0]&&body.strips[1]&&world.get('panelSea'))
-            body.probes={east:body.strips[0],north:body.strips[1],heights:world.get('panelSea')};
+          if(body.strips?.[0]){
+            body.stripWater=world.get('panelSea');
+            body.stripPose=world.get('cruiserStripPose');
+          }
           inspector.draw(camera,body,{hulls:showHulls,rig:showRig,water:waveGrids.checked,waveLayer:waveLayer.value},sailing?inspectionHull:null);
         }else{
           physicsCanvas.getContext('2d').clearRect(0,0,physicsCanvas.width,physicsCanvas.height);

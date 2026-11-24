@@ -1,7 +1,26 @@
+const transmitterKeys=new Set(['KeyW','KeyS','KeyA','KeyD','ArrowLeft','ArrowRight','ArrowUp','ArrowDown']);
+const movementKeys={KeyW:'ArrowUp',KeyS:'ArrowDown',KeyA:'ArrowLeft',KeyD:'ArrowRight',
+  KeyQ:'KeyA',KeyE:'KeyD',KeyR:'KeyW',KeyF:'KeyS'};
+const surfaceKeys={KeyW:'KeyW',KeyS:'KeyS',KeyQ:'KeyA',KeyE:'KeyD'};
+
+export function keyboardAxisKey(code,layout,kind){
+  if(layout!=='wasd')return transmitterKeys.has(code)?code:undefined;
+  if(kind==='boat'||kind==='motorboat')return surfaceKeys[code];
+  if(kind==='whale'||kind==='shark'||kind==='gull'){
+    if(code==='KeyW'||code==='KeyS')return code;
+    if(code==='KeyR'||code==='KeyF'){
+      const rising=code==='KeyR';
+      return rising===(kind==='whale')?'ArrowUp':'ArrowDown';
+    }
+  }
+  return movementKeys[code];
+}
+
+export function controlGain({fast,fine}){return fine ? .25 : fast ? 2 : 1;}
+
 // Wall-clock input feel is independent of keyboard repeat and physics packet rate.
 export function keyboardSticks(){
   const held=new Set(),levels=new Map();
-  const controls=new Set(['KeyW','KeyS','KeyA','KeyD','ArrowLeft','ArrowRight','ArrowUp','ArrowDown']);
   let stamp;
   function advance(now){
     const dt=stamp===undefined?0:Math.max(0,now-stamp)/1000;
@@ -13,7 +32,7 @@ export function keyboardSticks(){
   }
   return {advance,
     press(key,now){
-      if(!controls.has(key)||held.has(key))return;
+      if(!transmitterKeys.has(key)||held.has(key))return;
       advance(now);held.add(key);levels.set(key,Math.max(.08,levels.get(key)??0));
     },
     release(key,now){advance(now);held.delete(key);},

@@ -168,11 +168,13 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 @media(pointer:coarse){#roomChat button,#chatMessage{min-height:36px}#chatMessage{font-size:16px}}
 #startupScreen{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:20px;background:radial-gradient(ellipse at 50% 65%,#123c48,#081f2c 75%);text-align:center}
 #startupScreen h2{margin:0;font:normal clamp(26px,6vw,38px) Georgia,serif}
-#startupScreen progress{display:block;width:min(100%,220px);height:5px;margin:18px auto 0;accent-color:#91d8ca}
+#startupScreen .startup-brand{display:grid;justify-items:center;gap:14px;margin:14px 0 22px;color:#b7e8de}
+#startupScreen .startup-brand img{display:block;width:128px;height:128px}
+#startupScreen progress{display:block;width:min(72vw,248px);height:8px;margin:18px auto 0;accent-color:#91d8ca}
 #startupScreen button{margin-top:16px}
 </style></head><body><section id="startupScreen" aria-labelledby="startupTitle">
-  <div><h2 id="startupTitle">Preparing simulator</h2><p id="startupStatus" role="status">Loading model and scene</p>
-    <progress id="startupProgress" aria-label="Loading simulator"></progress>
+  <div><h2 id="startupTitle">Ocean Web</h2><div class="startup-brand"><img src="https://cognipilot.com/brand/assets/rumoca/rumoca-logo-color-dark.svg?v=ac5137ca86f2" alt="" width="128" height="128" referrerpolicy="no-referrer"><span>Powered by Rumoca</span></div><p id="startupStatus" role="status">Loading model and scene</p>
+    <progress id="startupProgress" max="1" value="0" aria-label="Loading simulator"></progress>
     <button id="startupRetry" type="button" hidden>Reload simulator</button>
   </div>
 </section>
@@ -222,7 +224,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <label class="control-select" id="flightModeLabel" hidden><span>Flight mode</span><select id="flightMode"><option value="0">Position hold</option><option value="1">Auto level</option><option value="2">Acro</option></select></label>
 </div><div class="control-row">
 <button id="helm" title="Sail the regatta course automatically">Engage race autopilot</button>
-<button type="button" id="easeTraveler" aria-keyshortcuts="Shift+ArrowUp" title="Release the main traveler line fully (Shift+↑)" hidden>Ease traveler</button>
+<button type="button" id="easeTraveler" aria-keyshortcuts="C" title="Release the main traveler line fully (C)" hidden>Ease traveler</button>
 <button id="cutMotors" hidden aria-pressed="false">Cut motors</button>
 <button type="button" id="gullCall" hidden>Caw</button>
 <button type="button" id="goBelow" hidden>Go below</button>
@@ -255,7 +257,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-slider"><div class="control-label"><label for="jibSheet">Jib sheet</label><output id="jibSheetValue" for="jibSheet">Auto</output></div>
 <input id="jibSheet" type="range" min="0" max="100" value="35" aria-describedby="jibSheetScale"><div class="control-scale" id="jibSheetScale"><span>Hauled in</span><span>Eased</span></div><small id="jibSheetLoad"></small></div>
 </div>
-<p>↑ eases the main traveler line, ↓ hauls it in, and Shift+↑ releases it fully. ← moves the jib travelers inboard and → moves them outboard.</p>
+<p>↑ eases the main traveler line, ↓ hauls it in, and C releases it fully. ← moves the jib travelers inboard and → moves them outboard.</p>
 </div></details>
 </div></details>
 <details class="control-pane" id="trampoline" hidden><summary>Crew &amp; ballast</summary>
@@ -290,7 +292,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-slider"><div class="control-label"><label for="lampTilt">Searchlight elevation</label><output id="tiltDegrees">−12°</output></div>
 <input id="lampTilt" type="range" min="-65" max="15" value="-12" aria-describedby="lampTiltScale"><div class="control-scale" id="lampTiltScale"><span>Down</span><span>Up</span></div></div>
 </div>
-<p>Hold W or S for throttle. A and D steer, and the arrows aim the searchlight.</p>
+<p id="motorKeys">W/S throttle · A/D helm · Arrows aim searchlight · Z/X lights · C wipers</p>
 </div></details>
 <details class="control-pane"><summary>Environment</summary>
 <div class="control-fields">
@@ -312,6 +314,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button type="button" aria-pressed="false" id="showCompass">Compass</button>
 <button type="button" data-boat id="mastCapture" aria-controls="mastPanel" aria-expanded="false">Mast cameras</button>
 <label class="control-check"><input type="checkbox" id="crtFilter" checked><span>CRT filter</span></label>
+<label class="control-check"><input type="checkbox" id="cameraCones"><span>Camera view cones</span></label>
 </div>
 <div class="control-row">
 <label class="control-check"><input type="checkbox" id="physicsView"><span>Physics view</span></label>
@@ -384,10 +387,11 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 </div></details>
 <details class="control-pane"><summary>Keyboard shortcuts</summary>
 <div class="control-fields">
+<label class="control-select"><span>Keyboard layout</span><select id="keyLayout"><option value="mode2">WASD + arrows (Mode 2)</option><option value="wasd">WASD + Q/E + R/F</option></select></label>
 <p id="gullKeys" hidden>↑/↓ pitch · ←/→ bank · A/D turn · W flap · S glide · Space call</p>
 <p id="flightKeys" hidden>RDD2 · ↑/↓ pitch · ←/→ roll · W/S climb/descend · A/D yaw · Space arm/disarm · hold Shift for fast horizontal flight · release direction to hover</p>
-<p data-boat>A and D steer. Hold S to haul in both sheets or W to ease them. Hold Shift to make finer steering and sheet adjustments. Drag to orbit, right-drag to pan, and scroll or pinch to zoom.</p>
-<p>Press C to cycle camera views, M for the map, R to restart the simulator, or Enter for room chat.</p>
+<p id="sailKeys" data-boat>A/D steer · W eases the sheets · S hauls them in.</p>
+<p>Hold Shift for faster control or Ctrl for finer control. V cycles cameras, M opens the map, and Enter opens room chat.</p>
 </div></details>
 </div>
 </div>

@@ -35,7 +35,8 @@ async function handle(request){
     const index=await (await fetch(new URL(file,base))).json();
     const parameters={...request.parameters};
     if(request.surveyView && index.variables.some(v=>v.name==='surveyAtStartup'))parameters.surveyAtStartup=0;
-    session=await openFmuSession({index,base,parameters,instanceName:'ocean_web'});
+    const onProgress=request.reportProgress?progress=>self.postMessage({progress}):undefined;
+    session=await openFmuSession({index,base,parameters,instanceName:'ocean_web',onProgress});
     const variables=new Map(index.variables.map(v=>[v.name,v]));
     const initial={};
     if(variables.has('sailingManual'))initial.sailingManual=1;
@@ -49,6 +50,7 @@ async function handle(request){
     if(request.warmSolver){
       // Exercise the solver before publishing a world. Reset before issuing
       // bindings so the first snapshot still comes from FMI initialization.
+      onProgress?.({phase:'warmup'});
       const deadline=performance.now()+1200;
       for(let ticks=0;ticks<50&&performance.now()<deadline;ticks+=stepTicks)
         session.step(.01*stepTicks);
@@ -74,7 +76,9 @@ async function handle(request){
         if(!Number.isSafeInteger(interval)||interval<1)continue;
         const selected=names.filter(name=>candidates.includes(name));
         if(!selected.length)continue;
-        const fields=expand(selected,variables);
+        const cruiserStrips=selected.includes('stripEast')&&variables.has('boatPose');
+        const fields=expand(cruiserStrips?[...selected,'boatPose']:selected,variables);
+        if(cruiserStrips)fields.layout.at(-1).name='cruiserStripPose';
         sampledGroups.push({interval,subscription,layout:fields.layout,binding:session.bind_outputs(JSON.stringify(fields.elements))});
         if(selected.includes('bowSources')){
           const sources=fields.layout.find(entry=>entry.name==='bowSources');

@@ -819,6 +819,29 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     for(const led of underwaterLamps)led.visible=false;
     for(const indicator of helmIndicators.values())indicator.light.material.emissiveIntensity=0;
   }
+  function positionSearchlight(bearing,tilt){
+    swivel.rotation.set(0,tilt,bearing,'ZYX');
+    swivel.updateMatrix();beam.updateMatrix();
+    beam.material.uniforms.beamToHull.value.multiplyMatrices(swivel.matrix,beam.matrix);
+    beam.material.uniforms.lensInHull.value.copy(light.position).applyMatrix4(swivel.matrix);
+  }
+  async function preloadLighting(bearing,tilt,compile){
+    positionSearchlight(bearing,tilt);
+    updateSearchDepth();
+    const fixtures=[cabinLamp,light,beam,lens,emitters,...underwaterLamps];
+    const visibility=fixtures.map(fixture=>fixture.visible);
+    try{
+      for(let state=0;state<8;state++){
+        cabinLamp.visible=Boolean(state&1);
+        light.visible=beam.visible=lens.visible=Boolean(state&2);
+        emitters.visible=Boolean(state&4);
+        for(const led of underwaterLamps)led.visible=emitters.visible;
+        await compile(state+1,8);
+      }
+    }finally{
+      fixtures.forEach((fixture,index)=>{fixture.visible=visibility[index];});
+    }
+  }
   let previousTime,shaftRPM=0;
   function update(t,rpm,steer,settings,seaTime=t){
     if(electricalPower)radar.rotation.z=(seaTime%2.5)*(2*Math.PI/2.5);
@@ -827,10 +850,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     if(electricalPower&&panel&&t-lastPanel>=.2){panel(rpm);lastPanel=t;}
     emitters.visible=electricalPower&&Boolean(settings[1]);
     for(const led of underwaterLamps)led.visible=emitters.visible;
-    swivel.rotation.set(0,settings[3],settings[2],'ZYX');
-    swivel.updateMatrix();beam.updateMatrix();
-    beam.material.uniforms.beamToHull.value.multiplyMatrices(swivel.matrix,beam.matrix);
-    beam.material.uniforms.lensInHull.value.copy(light.position).applyMatrix4(swivel.matrix);
+    positionSearchlight(settings[2],settings[3]);
     light.visible=beam.visible=lens.visible=electricalPower&&Boolean(settings[0]);
     if(light.visible)updateSearchDepth();
   }
@@ -842,6 +862,6 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     for(const m of materials){m.map?.dispose();m.dispose();}
   }
   const lamps=[{swivel,light,beam,lens,under:underwaterLamps[1]},{under:underwaterLamps[8]}];
-  return {group,update,updateDamage,cabinObjects,deckObjects,setCabinLight,setRadio,setElectricalPower,setWiper,setHelmSwitch,setAnchor,lamps,searchlight:{swivel,light},underwaterLamps,dispose,
+  return {group,update,updateDamage,cabinObjects,deckObjects,setCabinLight,setRadio,setElectricalPower,setWiper,setHelmSwitch,setAnchor,lamps,searchlight:{swivel,light},underwaterLamps,preloadLighting,dispose,
     get cabinWaterLevel(){return cabinWaterLevel;},get shaftRPM(){return shaftRPM;}};
 }
