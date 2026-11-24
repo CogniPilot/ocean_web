@@ -456,14 +456,14 @@ function whitecapField(T,U){
        // drift while the dispersive crest moves away at phase speed.
        vec2 drift=surfaceCurrent+(.025*wind10+.46*orbital.x)*downwind+.46*orbital.y*across;
        vec2 back=foamPatchUV(world-elapsed*drift-previousCenter);
-       float residual=0.,active=source;
+       float residual=0.,freshSource=source;
        if(hasHistory>.5&&all(greaterThan(back,vec2(0.)))&&all(lessThan(back,vec2(1.)))){
          // Follow the dominant short-wave phase for the brief active stage.
          // Decay continuously as the crest loses its compression.
          vec2 crestBack=foamPatchUV(world-elapsed*(surfaceCurrent+2.4*downwind)-previousCenter);
          float previous=texture2D(history,crestBack).r;
          float response=1.-exp(-elapsed/(source>previous?.07:.26));
-         active=mix(previous,source,response);
+         freshSource=mix(previous,source,response);
          // Residual bubbles disperse preferentially downwind as the lip moves on.
          vec2 metresPerUV=foamPatchNearWidth+2.*foamPatchCurvature*abs(back-.5);
          vec2 spread=downwind*sqrt(.35*elapsed)/metresPerUV;
@@ -473,18 +473,18 @@ function whitecapField(T,U){
          float lifetime=mix(1.8,3.8,smoothstep(7.,15.,wind10));
          residual=foam*exp(-elapsed/lifetime);
        }
-       residual=1.-(1.-residual)*exp(-1.75*elapsed*active);
+       residual=1.-(1.-residual)*exp(-1.75*elapsed*freshSource);
        // Unbiased rounding preserves the decay of thin foam in an 8-bit map.
        float rounding=fract(52.9829189*fract(dot(gl_FragCoord.xy,vec2(.06711056,.00583715))
                              +.61803399*floor(tm*28.)));
        residual=floor(255.*residual+rounding)/255.;
-       active=floor(255.*active+rounding)/255.;
+       freshSource=floor(255.*freshSource+rounding)/255.;
        // Cox & Munk's measured slope variance rises with wind speed.
        float cellSize=max(fwidth(world.x),fwidth(world.y));
        float chopGain=mix(.7,1.65,smoothstep(3.5,13.,waveWind));
        float roughness=chopGain*sqrt(clamp((waveWind-2.)/11.,0.,1.2))*(1.-.5*smoothstep(.85,2.4,cellSize));
        gradient=(gradient.x*downwind+gradient.y*across)*roughness;
-       gl_FragColor=vec4(active,residual,clamp(128./255.+.8*gradient,0.,1.));
+       gl_FragColor=vec4(freshSource,residual,clamp(128./255.+.8*gradient,0.,1.));
      }
    `});
  scene.add(new T.Mesh(quad,material));
