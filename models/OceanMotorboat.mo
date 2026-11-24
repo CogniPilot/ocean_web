@@ -38,20 +38,18 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   constant Integer sternSamples=44;
   constant Real wakeInterval=.1;
   function aeratedWake "Transport and spread the surface trail of separated stern flow"
-    input Real previous[sternSamples,4],position[2],surge,thrust,draft,area,sternHalfBeam,surfaceAccess;
+    input Real previous[sternSamples,4],position[2],surge,diskInduction,draft,area,sternHalfBeam,surfaceAccess;
     output Real trail[sternSamples,4] "Water-frame position, surface coverage and half width";
   protected
-    constant Real rho=1025,propellerArea=Modelica.Constants.pi*.21^2;
-    Real velocity,ventilation,induced,wetting,width,coverage,oldWidth;
+    Real velocity,ventilation,wetting,width,coverage,oldWidth;
   algorithm
     velocity:=max(0,surge);
     // Maki et al., Transom-stern flow for high-speed craft (2006).
     // Draft sets the ventilation scale. Bubble yield is a reduced-order closure.
     ventilation:=BowWavePatch.transomVentilation(velocity,draft);
-    induced:=sqrt(.25*velocity^2+max(0,thrust)/(2*rho*propellerArea))-.5*velocity;
     wetting:=area/(area+.08);
     width:=sternHalfBeam*(.32+.68*ventilation);
-    coverage:=surfaceAccess*wetting*(ventilation+.18*(1-ventilation)*induced/(1+induced));
+    coverage:=surfaceAccess*wetting*(ventilation+.18*(1-ventilation)*diskInduction/(1+diskInduction));
     trail[1,:]:={position[1],position[2],coverage,width};
     for i in 2:sternSamples loop
       oldWidth:=previous[i-1,4];
@@ -144,7 +142,19 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   parameter Real engineCrankTime=1 "Starter engagement time [s]";
   discrete Real engineIdleTime(start=engineOffAfter,fixed=true);
   discrete output Real starterRemaining(start=0,fixed=true) "Starter time left [s]";
+  discrete Real governedThrottle(start=0,fixed=true) "Throttle accepted by the starter and speed governor";
   Real effectiveThrottle;
+  parameter Real shaftRpmAhead=1750,shaftRpmAstern=1100 "Governed shaft speed limits [rev/min]";
+  Real waterRelativeBody[3](each unit="m/s"),driveForce[3](each unit="N"),driveMoment[3](each unit="N.m");
+  Real driveWaterline(unit="m");
+  CruiserPropulsion propulsion(
+    shaftRevolutions=if starterRemaining>1e-8 then 0 else shaftRPM/60,
+    helm=helmLever,upInBody=rotation[3,:],
+    propellerInflow=waterRelativeBody+cross(spin,propulsion.propellerCenter),
+    rudderInflow=waterRelativeBody+cross(spin,propulsion.rudderCenter),
+    propellerDepth=driveWaterline-z-rotation[3,:]*propulsion.propellerCenter,
+    rudderDepth=driveWaterline-z-rotation[3,:]*propulsion.rudderCenter);
+  output Real driveGeometry[11] "Wheel diameter [m], P/D, center [m], shaft slope [rad], rudder stock [m], chord and span [m]";
   discrete output Real peerForce[3](each start=0,each fixed=true),peerContact[4](each start=0,each fixed=true);
   discrete output Real sceneForce[3](each start=0,each fixed=true),sceneContact[6](each start=0,each fixed=true),committeeReaction[3](each start=0,each fixed=true);
   output Real shoreWrench[6] "Terrain force and moment in level heading axes";
@@ -180,7 +190,7 @@ equation
       separatedStern=true,sharedTransomDraft=sternDraft) else zeros(14,6);
     sternFoamTrail=if omitWake<.5 then aeratedWake(pre(sternFoamTrail),
       {east-waves.driftE+cruiserStations[1]*cos(yaw)*cos(pitch),
-       north-waves.driftN+cruiserStations[1]*sin(yaw)*cos(pitch)},surge,thrust,sternDraft,sternArea,
+       north-waves.driftN+cruiserStations[1]*sin(yaw)*cos(pitch)},surge,propulsion.diskInduction,sternDraft,sternArea,
        halfStripBeam[1]+halfStripBeam[2],1-submergedDrag) else zeros(sternSamples,4);
   end when;
   when sample(0,.025) then
@@ -191,6 +201,16 @@ equation
     0,cos(roll),-sin(roll);
     -sin(pitch),cos(pitch)*sin(roll),cos(pitch)*cos(roll)];
   spin={rollRate*cos(pitch),pitchRate,yawRate-rollRate*sin(pitch)};
+  waterRelativeBody=transpose(rotation)*{surge,sway,vertical};
+  // Use the same two aft sea samples and analytic swell as hull flotation.
+  driveWaterline=.5*((1-waterFraction)*(previousSea[1,1]+previousSea[2,1])
+    +waterFraction*(panelSea[1,1]+panelSea[2,1])+encounter.waveSurge[1]+encounter.waveSurge[2])
+    +swell[1]*sin(swell[2]+(east+cos(yaw)*stripX[1])*swell[3]+(north+sin(yaw)*stripX[1])*swell[4]);
+  driveForce=rotation*(propulsion.propellerForce+propulsion.rudderForce);
+  driveMoment=rotation*(cross(propulsion.propellerCenter,propulsion.propellerForce)
+    +cross(propulsion.rudderCenter,propulsion.rudderForce)+propulsion.shaftReaction);
+  driveGeometry=cat(1,{propulsion.propellerDiameter,propulsion.referencePitchRatio},propulsion.propellerCenter,
+    {propulsion.shaftInclination},propulsion.rudderStock,{propulsion.rudderChord,propulsion.rudderSpan});
   yawRotation=[cos(yaw),-sin(yaw),0;sin(yaw),cos(yaw),0;0,0,1];
   bowRollerArm=yawRotation*rotation*{3.25,0,.83};
   bowRoller=focus+bowRollerArm;
@@ -234,25 +254,27 @@ equation
     starterRemaining=if abs(throttleLever)>.008 and pre(engineIdleTime)>=engineOffAfter
       then engineCrankTime else max(0,pre(starterRemaining)-.01);
     engineIdleTime=if abs(throttleLever)>.008 then 0 else min(engineOffAfter,pre(engineIdleTime)+.01);
+    // Shaft torque only changes after the starter controller has sampled the lever.
+    governedThrottle=if starterRemaining>1e-8 then 0 else throttleLever;
   end when;
-  effectiveThrottle=if starterRemaining>1e-8 or encounter.waterMass>1650 then 0 else throttleLever;
-  der(shaftRPM)=(if effectiveThrottle>=0 then 1850*effectiveThrottle-shaftRPM else 1100*effectiveThrottle-shaftRPM)/.85;
-  thrust=if starterRemaining>1e-8 then 0 else .0025*shaftRPM*abs(shaftRPM);
-  der(surge)=(thrust+(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1]+droneLandingLoad[1])*cos(yaw)+(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2]+droneLandingLoad[2])*sin(yaw)+shoreWrench[1]
+  effectiveThrottle=if encounter.waterMass>1650 then 0 else governedThrottle;
+  der(shaftRPM)=((if effectiveThrottle>=0 then shaftRpmAhead else shaftRpmAstern)*effectiveThrottle-shaftRPM)/.85;
+  thrust=propulsion.propellerThrust;
+  der(surge)=sway*yawRate+(driveForce[1]+(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1]+droneLandingLoad[1])*cos(yaw)+(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2]+droneLandingLoad[2])*sin(yaw)+shoreWrench[1]
     -118*surge*abs(surge)-180*surge)/wetMass;
-  der(yawRate)=(.085*helmLever*surge+.025*helmLever*shaftRPM/1850-yawRate)/.9+(animalWrench[6]+shoreWrench[6]+peerForce[3]+sceneForce[3]+damageMoment[3]+anchorMoment[3]+landingMoment[3])/(14000+3.6*encounter.waterMass);
+  der(yawRate)=-yawRate/.9+(driveMoment[3]+animalWrench[6]+shoreWrench[6]+peerForce[3]+sceneForce[3]+damageMoment[3]+anchorMoment[3]+landingMoment[3])/(14000+3.6*encounter.waterMass);
   der(yaw)=yawRate;
-  der(sway)=(-sin(yaw)*(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1]+droneLandingLoad[1])+cos(yaw)*(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2]+droneLandingLoad[2])+shoreWrench[2])/wetMass-(1.5+.45*abs(sway))*sway;
+  der(sway)=-surge*yawRate+(driveForce[2]-sin(yaw)*(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1]+droneLandingLoad[1])+cos(yaw)*(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2]+droneLandingLoad[2])+shoreWrench[2])/wetMass-(1.5+.45*abs(sway))*sway;
   der(east)=surge*cos(yaw)-sway*sin(yaw)+boatWater.profile[1,2];
   der(north)=surge*sin(yaw)+sway*cos(yaw)+boatWater.profile[1,3];
-  der(vertical)=(sum(stripForce)+shoreWrench[3]+encounter.collisionForce[3]+anchorForce[3]+droneLandingLoad[3]-9.80665*encounter.waterMass
+  der(vertical)=(sum(stripForce)+driveForce[3]+shoreWrench[3]+encounter.collisionForce[3]+anchorForce[3]+droneLandingLoad[3]-9.80665*encounter.waterMass
     -16500*vertical)/(wetMass+addedHeaveMass);der(z)=vertical;
   // Restoring moments about the centre of flotation. Roll stiffness accounts
   // for the raised centre of gravity; turning and thrust also trim the hull.
   der(rollRate)=(.68*.55*sum(stripForce[1,j]-stripForce[2,j] for j in 1:6)
-    +shoreWrench[4]+damageMoment[1]+anchorMoment[1]+landingMoment[1]+encounter.rollMoment-(7400+18000*submergedDrag)*rollRate-1950*surge*yawRate)/(rollInertia+.65*encounter.waterMass);der(roll)=rollRate;
+    +driveMoment[1]+shoreWrench[4]+damageMoment[1]+anchorMoment[1]+landingMoment[1]+encounter.rollMoment-(7400+18000*submergedDrag)*rollRate-1950*surge*yawRate)/(rollInertia+.65*encounter.waterMass);der(roll)=rollRate;
   der(pitchRate)=(-sum((stripX[j]-floatX)*(stripForce[1,j]+stripForce[2,j]) for j in 1:6)
-    +shoreWrench[5]+damageMoment[2]+anchorMoment[2]+landingMoment[2]+encounter.pitchMoment-(47000+52000*submergedDrag)*pitchRate-.65*thrust)/(pitchInertia+3.5*encounter.waterMass);der(pitch)=pitchRate;
+    +driveMoment[2]+shoreWrench[5]+damageMoment[2]+anchorMoment[2]+landingMoment[2]+encounter.pitchMoment-(47000+52000*submergedDrag)*pitchRate)/(pitchInertia+3.5*encounter.waterMass);der(pitch)=pitchRate;
   boatPose={east,north,z,roll,pitch,yaw};
-  engine={shaftRPM,surge,thrust,.52*helmLever};
+  engine={shaftRPM,surge,thrust,propulsion.rudderAngle};
 end OceanMotorboat;

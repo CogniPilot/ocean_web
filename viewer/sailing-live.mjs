@@ -355,8 +355,8 @@ async function run(saved=readReset(),carried){
     ...cruiserUnderwaterViews
   };
 
-  const motor=mode==='motorboat'?cabinCruiser(T,$('cruiserSonarCanvas'),$('cruiserChartCanvas')):null;
-  const backgroundCruiser=backgroundCruiserWorld?cabinCruiser(T):null;
+  const motor=mode==='motorboat'?cabinCruiser(T,$('cruiserSonarCanvas'),$('cruiserChartCanvas'),world.get('driveGeometry')):null;
+  const backgroundCruiser=backgroundCruiserWorld?cabinCruiser(T,undefined,undefined,backgroundCruiserWorld.get('driveGeometry')):null;
   if(backgroundCruiser)scene.add(backgroundCruiser.group);
   let remoteEncounterCruiser;
   cleanup(()=>{motor?.dispose();backgroundCruiser?.dispose();remoteEncounterCruiser?.dispose();});

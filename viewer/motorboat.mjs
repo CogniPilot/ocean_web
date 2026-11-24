@@ -132,7 +132,100 @@ function installSearchlightDepth(T){
       }else directLight.color*=spotColor.rgb;
     }`);
 }
-export function cabinCruiser(T,sonarCanvas,chartCanvas){
+const defaultDriveGeometry=[.46,.95,-3.11,0,-.76,Math.atan(.36/1.8),-3.36,0,-.61,.34,.43];
+function foilLoft(T,sections,point){
+  const samples=24,positions=[],indices=[];
+  for(let section=0;section<sections;section++){
+    for(let index=0;index<samples;index++){
+      const angle=2*Math.PI*index/samples;
+      const u=.5*(1-Math.cos(angle));
+      const thickness=5*(.2969*Math.sqrt(u)-.126*u-.3516*u*u+.2843*u**3-.1036*u**4);
+      positions.push(...point(section,u,Math.sign(Math.sin(angle))*thickness));
+    }
+  }
+  for(let section=0;section<sections-1;section++)for(let index=0;index<samples;index++){
+    const a=section*samples+index,b=section*samples+(index+1)%samples;
+    indices.push(a,b,a+samples,b,b+samples,a+samples);
+  }
+  for(let i=1;i<samples-1;i++){
+    const tip=(sections-1)*samples;
+    indices.push(0,i+1,i,tip,tip+i,tip+i+1);
+  }
+  const geometry=new T.BufferGeometry();
+  geometry.setAttribute('position',new T.Float32BufferAttribute(positions,3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+function cruiserDrive(T,group,geometry=defaultDriveGeometry){
+  const [diameter,pitchRatio,px,py,pz,incline,rx,ry,rz,chord,span]=geometry;
+  const wheelCenter=new T.Vector3(px,py,pz),axis=new T.Vector3(Math.cos(incline),0,Math.sin(incline));
+  const bronze=new T.MeshStandardMaterial({color:0x917248,metalness:.68,roughness:.36,side:T.DoubleSide});
+  const steel=new T.MeshStandardMaterial({color:0x838b84,metalness:.72,roughness:.30});
+  function mesh(parent,part,material){
+    const item=new T.Mesh(part,material);
+    parent.add(item);
+    return item;
+  }
+  function cylinder(parent,start,end,radius,material){
+    const offset=end.clone().sub(start);
+    const item=mesh(parent,new T.CylinderGeometry(radius,radius,offset.length(),16),material);
+    item.position.copy(start).lerp(end,.5);
+    item.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),offset.normalize());
+    return item;
+  }
+  const mount=new T.Group();
+  mount.position.copy(wheelCenter);
+  mount.quaternion.setFromUnitVectors(new T.Vector3(1,0,0),axis);
+  mount.userData.physicsJoint={axis:[1,0,0],label:'Propeller shaft'};
+  group.add(mount);
+  cylinder(group,wheelCenter.clone().addScaledVector(axis,.03),wheelCenter.clone().addScaledVector(axis,1.82),.022,steel);
+  const bearing=wheelCenter.clone().addScaledVector(axis,.23);
+  cylinder(group,bearing.clone().addScaledVector(axis,-.08),bearing.clone().addScaledVector(axis,.08),.043,bronze);
+  // The swept shaft strut spans the hull attachment and the shaft bearing.
+  const strut=mesh(group,foilLoft(T,2,(row,u,t)=>{
+    const root=row===0,anchor=bearing.clone().add(new T.Vector3(root?.22:0,0,root?.31:0));
+    const length=root?.29:.15;
+    return [anchor.x+length*(.45-u),anchor.y+.17*length*t,anchor.z];
+  }),bronze);
+  strut.name='Shaft support strut';
+
+  const propeller=new T.Group();
+  propeller.name='Bronze propeller';
+  mount.add(propeller);
+  const hub=mesh(propeller,new T.CylinderGeometry(.030,.036,.1,20),bronze);
+  hub.rotation.z=Math.PI/2;
+  const radius=diameter/2;
+  const fractions=[.12,.33,.55,.76,.92,1],chords=[.24,.56,.76,.77,.54,.07],skew=[0,.02,.10,.22,.31,.36];
+  // Match the B3-50 expanded area ratio in the developed blade plane.
+  const chordIntegral=fractions.slice(1).reduce((sum,r,i)=>
+    sum+.5*(chords[i]+chords[i+1])*(r-fractions[i]),0);
+  const chordScale=.50*Math.PI/(3*chordIntegral);
+  const blade=foilLoft(T,fractions.length,(row,u,t)=>{
+    const r=radius*fractions[row],width=radius*chords[row]*chordScale;
+    const pitch=Math.atan(pitchRatio*diameter/(2*Math.PI*r));
+    // With positive shaft rotation the rounded leading edge travels into +theta.
+    const chordwise=(.43-u)*width,normal=width*(.11*t+.06*u*(1-u));
+    const angle=skew[row]+(Math.cos(pitch)*chordwise-Math.sin(pitch)*normal)/r;
+    return [Math.sin(pitch)*chordwise+Math.cos(pitch)*normal-.042*fractions[row]**2,r*Math.cos(angle),r*Math.sin(angle)];
+  });
+  for(let i=0;i<3;i++)mesh(propeller,blade,bronze).rotation.x=2*Math.PI*i/3;
+
+  const rudder=new T.Group();
+  rudder.name='Steering rudder';
+  rudder.position.set(rx,ry,rz);
+  rudder.userData.physicsJoint={axis:[0,0,1],label:'Rudder hinge'};
+  group.add(rudder);
+  cylinder(rudder,new T.Vector3(0,0,.05),new T.Vector3(0,0,.39),.025,steel);
+  const levels=[-.5,-.455,.455,.5];
+  mesh(rudder,foilLoft(T,levels.length,(row,u,t)=>{
+    const width=chord*(row===0||row===3?.85:1);
+    return [chord*.25-width*u,.13*width*t,levels[row]*span];
+  }),bronze);
+  return {propeller,rudder};
+}
+
+export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
   // Keep local light counts fixed so toggle changes are uniform updates.
   // Remote cruisers add lights only when they actually illuminate the scene.
   const fixedLightCount=Boolean(sonarCanvas);
@@ -413,9 +506,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
     pad(-1.61,side*1.355,.62,.147,.012,.032,trim);
   }
   for(const s of [-1,1]){pad(.67,s*.91,2.14,.083,.027,.038,s>0?0x9a2926:0x277e50);}
-  rod([-1.30,0,-.4],[-3.10,0,-.76],.043,brass);
-  rod([-2.71,0,-.42],[-3.02,0,-.74],.037,brass);
-  const propeller=new T.Group();propeller.position.set(-3.11,0,-.76);propeller.userData.physicsJoint={axis:[1,0,0],label:'Propeller shaft'};group.add(propeller);
+  const {propeller,rudder}=cruiserDrive(T,group,driveGeometry);
   const fixed=(geometry,color,parent=group,basic=false)=>{
     const material=basic?new T.MeshBasicMaterial({color}):new T.MeshStandardMaterial({color,roughness:.44});
     const m=new T.Mesh(geometry,material);parent.add(m);return m;
@@ -728,11 +819,6 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas){
       spray.material.opacity=Math.min(.82,.25+rate*8);
     }
   }
-  for(let i=0;i<3;i++){
-    const blade=fixed(new T.SphereGeometry(1,10,8),brass,propeller),a=2*Math.PI*i/3;
-    blade.position.set(0,.14*Math.cos(a),.14*Math.sin(a));blade.scale.set(.040,.169,.078);blade.rotation.set(a,.26,.20,'XYZ');
-  }
-  const rudder=fixed(new T.BoxGeometry(.34,.056,.43),brass);rudder.position.set(-3.45,0,-.61);rudder.userData.physicsJoint={axis:[0,0,1],label:'Rudder hinge'};
   // Round, flush-mounted downlights. The lens face, opaque-scene light and
   // optical scattering use the same position and boat-frame negative Z axis.
   const bezel=new T.CylinderGeometry(.081,.081,.025,16);bezel.rotateX(Math.PI/2);

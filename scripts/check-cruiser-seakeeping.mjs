@@ -78,7 +78,7 @@ async function wakeAtThrottle(throttle){
     const forwardRise=Math.max(...height.filter((_,i)=>i%32>=7&&i%32<=15));
     const sprayFlux=spray[5]+spray[11];
     assert(spray[17]===0&&spray[23]===0,'A single stem has two spray shoulders');
-    assert(Math.abs(spray[1]+spray[7])<.03,'Both shoulders should be centred about the stem in a straight calm run');
+    assert(spray[1]>0&&spray[7]<0&&spray[3]>0&&spray[9]<0,'The shoulders must throw spray outward on both sides');
     assert(plume[43]>halfWidth&&plume[42]<coverage,'A one-second-old parcel should spread and lose coverage');
     fmu.set_inputs(JSON.stringify([['omitWake',1]]));
     for(let i=0;i<3;i++)fmu.step(.05);
@@ -100,7 +100,7 @@ console.log('Displacement and fast wake regimes',{displacement,fast});
 
 const heading=1.5;
 const calm=await crossing(heading,0,0,0);
-assert(calm.roll<.001&&calm.pitch<.001&&calm.heave<.01&&calm.wakePeak<.03&&calm.speed===0);
+assert(calm.roll<.001&&calm.pitch<.001&&calm.heave<.01&&calm.wakePeak<.03&&Math.abs(calm.speed)<1e-6);
 console.log('Calm peak-to-peak',calm);
 for(const throttle of [0,.7]){
   const beam=await crossing(heading+Math.PI/2,.45,throttle);

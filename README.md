@@ -106,10 +106,11 @@ after a short pause in neutral. The searchlight and
 underwater lights start off. Toggle them with **Z** and **X** or the
 corresponding controls.
 
-The cruiser samples the incident sea for buoyancy and renders the displacement
-wake separately. Keel and chine contact points follow the hull and react to
-the island terrain. The water shader excludes the cockpit interior as the
-hull moves.
+The cruiser samples the incident sea for buoyancy. Its Modelica wake combines
+displacement waves, breaking bow shoulders, and an aerated stern trail. The
+shaft and rudder use local water-relative flow. Keel and chine contact points
+follow the hull and react to the island terrain. The water shader excludes the
+cockpit interior as the hull moves. [Propulsion model and benchmark](CRUISER-PROPULSION.md)
 
 The bow transducer samples 231 beams down to 60° below horizontal, with
 shallower beams at longer ranges. It intersects the wreck, shoreline and
