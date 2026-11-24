@@ -9,6 +9,7 @@ aside{position:fixed;right:18px;top:20px;background:#071f2be8;border-left:3px so
 #harborMapLegend{display:flex;flex-wrap:wrap;gap:5px 14px;font-size:12px}#harborMapLegend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--point);margin-right:4px}
 #harborMapRoster{display:block;margin-top:7px;font:12px/1.45 ui-monospace,monospace}
 #physicsCanvas{pointer-events:none}#physicsLayers{display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center}
+#neuralUpscaledView{pointer-events:none}
 #crtOverlay{position:fixed;inset:0;pointer-events:none;background:
   radial-gradient(ellipse 110% 92% at center,transparent 60%,#0005),
   repeating-linear-gradient(to bottom,#0002 0 1px,transparent 1px 3px),
@@ -179,6 +180,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
   </div>
 </section>
 <canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas>
+<canvas id="neuralUpscaledView" aria-hidden="true" hidden></canvas>
 <div id="crtOverlay" aria-hidden="true"></div>
 <canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-label="Cabin radio" aria-pressed="false">Radio <span id="cabinRadioState" aria-hidden="true">Off</span></button><output id="cabinRadioStatus" aria-live="polite"></output></div><details id="roomChat" hidden>
 <summary id="roomChatTitle">Room chat</summary>
@@ -338,6 +340,10 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-grid">
 <label class="control-select"><span>Graphics quality</span><select id="quality"><option value="fast">Fast (simplified water)</option><option value="low">Low (wakes off)</option><option value="balanced">Medium</option><option value="high">High</option></select></label>
 <label class="control-select"><span>Offline simulation speed</span><select id="simulationSpeed"><option value="1">1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+</div>
+<div class="control-row">
+<label class="control-check"><input type="checkbox" id="neuralUpscaling" aria-describedby="neuralUpscalingStatus"><span>AI upscaling (WebGPU)</span></label>
+<output id="neuralUpscalingStatus" role="status"></output>
 </div>
 <div class="control-row">
 <button type="button" id="measureFrames" disabled>Test frame rate (15 s)</button>

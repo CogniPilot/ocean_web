@@ -30,6 +30,7 @@ import {fishFinder} from './fish-finder.mjs';
 import {harborTraffic} from './harbor-traffic.mjs';
 import {gullIndex,vesselNpcNames} from './npc-room.mjs';
 import {fleet,loadFleetTurn} from "./fleet.mjs";
+import {neuralUpscaling} from './neural-upscaler.mjs';
 const T=window.THREE,$=id=>document.getElementById(id);
 const renderInterval=1000/30,knotsPerMetrePerSecond=3600/1852;
 const objectDrawRange=5500,longSwell='1.5';
@@ -185,7 +186,7 @@ async function run(saved=readReset(),carried){
   const requestedQuality=url.searchParams.get('quality');
   selector.value=saved?.fields.quality??(Object.hasOwn(profiles,requestedQuality)?requestedQuality:
     Object.hasOwn(profiles,preferred)?preferred:mobile?'low':'high');
-  let profile=profiles[selector.value],omitWake=Number(Boolean(profile.omitWake)),pixelScale;
+  let profile=profiles[selector.value],omitWake=Number(Boolean(profile.omitWake)),pixelScale,upscaling;
   const adaptiveWater=()=>mobile&&(selector.value==='balanced'||selector.value==='high');
   const speedSelect=$('simulationSpeed'),multiplayerButton=$('multiplayer');
   const requestedSpeed=saved?.fields.simulationSpeed??url.searchParams.get('speed');
@@ -917,7 +918,7 @@ async function run(saved=readReset(),carried){
     remote.setWakeReception(Boolean(world?.hasPeerWake && !omitWake));
     if(omitWake && world?.hasPeerWake)world.set('peerWake',new Float64Array(4*38));
     pixelScale=Math.min(devicePixelRatio,profile.ratio);
-    renderer.setPixelRatio(pixelScale);ocean.setQuality(profile,Boolean(omitWake),renderer.capabilities.isWebGL2,adaptiveWater());
+    ocean.setQuality(profile,Boolean(omitWake),renderer.capabilities.isWebGL2,adaptiveWater());
   }
   applyQuality();
   selector.onchange=()=>{
@@ -2173,11 +2174,19 @@ async function run(saved=readReset(),carried){
   $('wind').oninput=()=>{applyWind();remote.changeWeather('wind',Number($('wind').value));};
   function resize(){
     lastReflection=-Infinity;
+    const renderRatio=upscaling?.ratio(pixelScale)??pixelScale;
+    if(renderer.getPixelRatio()!==renderRatio)renderer.setPixelRatio(renderRatio);
     renderer.setSize(innerWidth,innerHeight,false);
     if(adaptiveWater())ocean.resizeCaptures(pixelScale/profile.ratio);
     camera.aspect=innerWidth/innerHeight;
     camera.updateProjectionMatrix();
   }
+  upscaling=neuralUpscaling($('view'),$('neuralUpscaledView'),$('neuralUpscaling'),$('neuralUpscalingStatus'),{
+    signal,resize:()=>{
+      resize();
+      if(frameTest)finishTest('Test interrupted by an upscaling change.');
+    }
+  });
   resize();on(window,'resize',resize);
   const hullDisplay=displayPose(),flightDisplay=displayPose(),motorDisplay=motor?displayPose():null;
   prev=performance.now();
@@ -2316,7 +2325,9 @@ async function run(saved=readReset(),carried){
       finishTest(`${rate.toFixed(2)}× simulation headroom · ${mobile?2:profile.target}× target${rates} · ${(gaps.length/elapsed).toFixed(1)} FPS · p95 ${p95.toFixed(1)} ms`);
       return;
     }
-    finishTest(`${(gaps.length/elapsed).toFixed(1)} FPS · 95th percentile ${p95.toFixed(1)} ms · ${((t-test.simStart)/elapsed).toFixed(2)}× real time · ${test.quality} · ${renderer.domElement.width}×${renderer.domElement.height} final pixels`);
+    const final=upscaling.canvas;
+    const upscale=final!==renderer.domElement?` · AI from ${renderer.domElement.width}×${renderer.domElement.height}`:'';
+    finishTest(`${(gaps.length/elapsed).toFixed(1)} FPS · 95th percentile ${p95.toFixed(1)} ms · ${((t-test.simStart)/elapsed).toFixed(2)}× real time · ${test.quality} · ${final.width}×${final.height} final pixels${upscale}`);
   }
   speedSelect.onchange=()=>{
     url.searchParams.set('speed',speedSelect.value);history.replaceState(history.state,'',url);
@@ -2524,7 +2535,7 @@ async function run(saved=readReset(),carried){
       if(!starting&&minRatio<profile.ratio&&now-lastQualityCheck>(adaptive?1000:1500)){
         const change=adaptive?(frameCost>42?-.15:frameCost<35?.05:0):(frameCost>39?-.1:frameCost<23?.05:0);
         const next=Math.max(Math.min(devicePixelRatio,minRatio),Math.min(devicePixelRatio,profile.ratio,pixelScale+change));
-        if(Math.abs(next-pixelScale)>.01){pixelScale=next;renderer.setPixelRatio(pixelScale);resize();}
+        if(Math.abs(next-pixelScale)>.01){pixelScale=next;resize();}
         lastQualityCheck=now;
       }
       const frameSeconds=Math.max(0,Math.min(.22,(now-prev)/1000));prev=now;
@@ -3142,6 +3153,7 @@ async function run(saved=readReset(),carried){
       if(coneToggle.checked)drawCameraCones(view);
       if(collisionToggle.checked)drawCollisions();
       if(inertiaToggle.checked)drawInertia();
+      upscaling.present();
       if(physicsEnabled){
         const inspected=subject??(sub?.active?sub.mesh:drone?.active?drone.group:
           animalId?visitors.cameraSubject(animalId):motor?.group??boat?.group);
