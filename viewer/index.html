@@ -9,6 +9,10 @@ aside{position:fixed;right:18px;top:20px;background:#071f2be8;border-left:3px so
 #harborMapLegend{display:flex;flex-wrap:wrap;gap:5px 14px;font-size:12px}#harborMapLegend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--point);margin-right:4px}
 #harborMapRoster{display:block;margin-top:7px;font:12px/1.45 ui-monospace,monospace}
 #physicsCanvas{pointer-events:none}#physicsLayers{display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center}
+#crtOverlay{position:fixed;inset:0;pointer-events:none;background:
+  radial-gradient(ellipse 110% 92% at center,transparent 60%,#0005),
+  repeating-linear-gradient(to bottom,#0002 0 1px,transparent 1px 3px),
+  repeating-linear-gradient(to right,#ff4e4409 0 1px,#60ff6907 1px 2px,#527aff09 2px 3px)}
 #physicsLayers label{white-space:nowrap}#physicsStatus{display:block}
 #cabinControls{display:flex;gap:6px;align-items:center;flex-wrap:wrap;pointer-events:auto;margin-top:7px}
 #cabinControls button{min-height:44px;touch-action:manipulation;cursor:pointer}
@@ -171,7 +175,10 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
     <progress id="startupProgress" aria-label="Loading simulator"></progress>
     <button id="startupRetry" type="button" hidden>Reload simulator</button>
   </div>
-</section><canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas><canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-label="Cabin radio" aria-pressed="false">Radio <span id="cabinRadioState" aria-hidden="true">Off</span></button><output id="cabinRadioStatus" aria-live="polite"></output></div><details id="roomChat" hidden>
+</section>
+<canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas>
+<div id="crtOverlay" aria-hidden="true"></div>
+<canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-label="Cabin radio" aria-pressed="false">Radio <span id="cabinRadioState" aria-hidden="true">Off</span></button><output id="cabinRadioStatus" aria-live="polite"></output></div><details id="roomChat" hidden>
 <summary id="roomChatTitle">Room chat</summary>
 <ol id="chatLog" role="log" aria-label="Messages" aria-live="polite"></ol>
 <form id="chatSend" class="chat-compose">
@@ -304,6 +311,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button type="button" aria-pressed="false" id="showForces">Forces</button>
 <button type="button" aria-pressed="false" id="showCompass">Compass</button>
 <button type="button" data-boat id="mastCapture" aria-controls="mastPanel" aria-expanded="false">Mast cameras</button>
+<label class="control-check"><input type="checkbox" id="crtFilter" checked><span>CRT filter</span></label>
 </div>
 <div class="control-row">
 <label class="control-check"><input type="checkbox" id="physicsView"><span>Physics view</span></label>

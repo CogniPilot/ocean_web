@@ -120,7 +120,8 @@ async function chooseVehicle(){
   return new Promise(resolve=>dialog.addEventListener('close',()=>resolve(dialog.returnValue),{once:true}));
 }
 const resetStorage='ocean-world-reset';
-const settingsFields='wind seaState sky storm quality simulationSpeed compassWind roomName physicsView physicsRig physicsHulls physicsWater physicsAir waveLayer collisionShapes inertiaShapes showDroneCovariance vang outhaul autoTrim showBallastMarker ballX ballY autoDeck jibTackAssist mainCar jibCar jibSheet searchLamp keelLamp lampYaw lampTilt subMode flightMode sonarMap showDvlRays cruiserSonarRange echoCamera wiperSwitch jibHalyard mastPort musicVolume effectsVolume spawnKind'.split(' ');
+const crtStorage='ocean-crt-filter';
+const settingsFields='wind seaState sky storm quality simulationSpeed compassWind crtFilter roomName physicsView physicsRig physicsHulls physicsWater physicsAir waveLayer collisionShapes inertiaShapes showDroneCovariance vang outhaul autoTrim showBallastMarker ballX ballY autoDeck jibTackAssist mainCar jibCar jibSheet searchLamp keelLamp lampYaw lampTilt subMode flightMode sonarMap showDvlRays cruiserSonarRange echoCamera wiperSwitch jibHalyard mastPort musicVolume effectsVolume spawnKind'.split(' ');
 const toggleSettings=['showCompass','showForces','cruiserChartFit','cutMotors','helm','subLamp'];
 const settingPanels=()=>document.querySelectorAll('.control-pane,#racePanel,#fleetRoster,#cruiserSonarPanel,#cruiserCameras,#subSensors,#fishFinder');
 function readReset(){
@@ -142,6 +143,15 @@ async function run(saved=readReset(),carried){
     if(typeof value==='boolean')field.checked=value;
     else if(typeof value==='string')field.value=value;
   }
+  const crtFilter=$('crtFilter'),crtOverlay=$('crtOverlay');
+  if(typeof saved?.fields.crtFilter!=='boolean'){
+    try{crtFilter.checked=localStorage.getItem(crtStorage)!=='off';}catch{}
+  }
+  crtOverlay.hidden=!crtFilter.checked;
+  on(crtFilter,'change',()=>{
+    crtOverlay.hidden=!crtFilter.checked;
+    try{localStorage.setItem(crtStorage,crtFilter.checked?'on':'off');}catch{}
+  });
   let url=new URL(location.href);
   const packaged=document.body.dataset.defaultRuntime==='world';
   if(packaged&&!['runtime','boat','control','demo'].some(name=>url.searchParams.has(name))){
