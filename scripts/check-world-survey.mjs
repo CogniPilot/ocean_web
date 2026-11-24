@@ -5,6 +5,7 @@ import {resolve} from 'node:path';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {openFmuSession} from '../.deps/microduck_web/site/fmu-session.js';
+import {piccardClearance} from './piccard-clearance.mjs';
 import {fileFetch} from '../.deps/microduck_web/scripts/fmu-test-support.mjs';
 
 const base = process.env.OCEAN_WORLD_RUNTIME
@@ -30,26 +31,17 @@ try {
   let measure,minimum=Infinity,backwardDistance=0,forwardDistance=0;
   if(geometry){
     const require=createRequire(import.meta.url),T=require('../viewer/vendor/three.min.js');
-    const boxes=require('../viewer/wreck.js')(T,{}).children.map(mesh=>({
-      center:mesh.position,inverse:mesh.quaternion.clone().invert(),half:mesh.scale.clone().multiplyScalar(.5)
-    }));
-    // Same six guard spheres as Wreck.structureContact, measured against visible wreck plates.
-    const guards=[[.49,0,.08,.19],[-.45,0,.08,.19],[.36,.31,-.03,.14],[.36,-.31,-.03,.14],
-      [-.38,.31,-.03,.14],[-.38,-.31,-.03,.14]];
+    const wreck=require('../viewer/wreck.js')(T,{});
+    const asset=await readFile(new URL('../viewer/assets/survey-pressure-housing.glb',import.meta.url));
+    const gltf=JSON.parse(asset.subarray(20,20+asset.readUInt32LE(12)));
+    const {mounts,axes}=JSON.parse(gltf.nodes.find(n=>n.name==='PiccardFrame').extras.thrusterLayout);
+    const clearance=piccardClearance(T,wreck,mounts,axes);
     const point=new T.Vector3(),relative=new T.Vector3(),attitude=new T.Quaternion(),previous=new T.Vector3(-5,0,-10);
     measure=(x,y,z,[w,qx,qy,qz])=>{
       attitude.set(qx,qy,qz,w);
       const distance=relative.set(x,y,z).sub(previous).dot(point.set(1,0,0).applyQuaternion(attitude));
       forwardDistance+=Math.max(0,distance);backwardDistance+=Math.max(0,-distance);previous.set(x,y,z);
-      for(const g of guards){
-        point.fromArray(g).applyQuaternion(attitude).add(previous);
-        for(const b of boxes){
-          relative.copy(point).sub(b.center).applyQuaternion(b.inverse);
-          const a=Math.abs(relative.x)-b.half.x,c=Math.abs(relative.y)-b.half.y,d=Math.abs(relative.z)-b.half.z;
-          const gap=Math.hypot(Math.max(0,a),Math.max(0,c),Math.max(0,d))+Math.min(0,Math.max(a,c,d))-g[3];
-          minimum=Math.min(minimum,gap);
-        }
-      }
+      minimum=clearance(previous,attitude,Math.min(.5,minimum));
     };
     for(let i=1;i<=4;i++)outputs.push('sub.orientation['+i+']');
   }
@@ -114,8 +106,8 @@ try {
     assert(horizontalRms < 2.5 && altitudeRms < .5, 'Aircraft lost the moving survey station');
   }
   if(geometry){
-    console.log({minimumClearance:minimum,forwardDistance,backwardDistance});
-    assert(minimum>0,'Guard sphere touched wreck or seabed');
+    console.log({minimumSeparatingMargin:minimum,forwardDistance,backwardDistance});
+    assert(minimum>0,'Piccard geometry touched wreck or seabed');
     assert(backwardDistance<.04*forwardDistance,'Sustained reverse survey travel');
   }
   assert(finished, 'The survey timed out');

@@ -1,13 +1,4 @@
-// Body-frame metres from Wreck.structureContact. The root of the Piccard
-// visual uses the plant position and body-to-world quaternion.
-const piccardSpheres = [
-  [[.49,0,.08],.19],
-  [[-.45,0,.08],.19],
-  [[.36,.31,-.03],.14],
-  [[.36,-.31,-.03],.14],
-  [[-.38,.31,-.03],.14],
-  [[-.38,-.31,-.03],.14]
-];
+import {piccardParts,piccardWireframe,viewport} from './piccard-geometry.mjs';
 
 const center=[0,0,0],halfBox=[.5,.5,.5];
 const wreckColor='rgba(255,183,91,.65)',bedColor='#a8bdea',sphereColor='#8df2fa';
@@ -25,11 +16,18 @@ export function subCollisionShapes(T,wreck){
     return frame;
   });
 
+  const wires=new WeakMap();
   return {draw(painter,group){
     for(let i=0;i<plates.length;i++)
       painter.box(plates[i],center,halfBox,i===0?bedColor:wreckColor);
     if(!group)return;
     group.updateWorldMatrix(true,false);
-    for(const [point,radius] of piccardSpheres)painter.sphere(group,point,radius,sphereColor);
+    if(!wires.has(group)){
+      const carrier=group.getObjectByName('PiccardFrame');
+      const {mounts,axes}=JSON.parse(carrier.userData.thrusterLayout);
+      wires.set(group,piccardWireframe(piccardParts(mounts,axes)));
+    }
+    painter.lines(group,wires.get(group),sphereColor);
+    painter.sphere(group,viewport.center,viewport.radius,sphereColor);
   }};
 }

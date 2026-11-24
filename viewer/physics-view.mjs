@@ -46,6 +46,19 @@ export function sampleAirflow(model,position,ambient,{rotors,sailPeers,sailNpcs,
     rotor:Boolean(rotors),thrust:rotors?model.get('localRotorThrust'):null};
 }
 
+export function sampleCurrent(model,position,environment){
+  const spacing=.9,points=new Float64Array(125*3);
+  let index=0;
+  for(let z=-2;z<=2;z++)for(let y=-2;y<=2;y++)for(let x=-2;x<=2;x++){
+    points.set([position[0]+spacing*x,position[1]+spacing*y,position[2]+spacing*z],index);
+    index+=3;
+  }
+  model.set('points',points);
+  ['tide','wind','bearing','tidalEast'].forEach((name,i)=>model.set(name,environment[i]));
+  const velocity=model.get('velocity');
+  return {points,position,velocity,spacing,dimensions:[5,5,5],ambient:[0,0,0],water:true,surface:environment[0]};
+}
+
 export function alignPontoonSamples(points,stations,separation,transform,aligned){
   const sections=stations.length/6;
   for(let side=0;side<2;side++){
@@ -448,7 +461,7 @@ export function physicsView(T,canvas,status){
     }
   }
 
-  function drawAirflow({points,position,velocity,ambient,dimensions,spacing,previous,blend,anchor}){
+  function drawFlow({points,position,velocity,ambient,dimensions,spacing,previous,blend,anchor,water,surface}){
     const [length,width,height]=dimensions;
     airflowOffset.fromArray(anchor).sub(a.fromArray(position));
     const pointAt=(target,i)=>target.fromArray(points,i).add(airflowOffset);
@@ -461,15 +474,16 @@ export function physicsView(T,canvas,status){
       if(!z)segment(a,pointAt(b,corner(x,y,1)));
     }
     ink.strokeStyle='rgba(121, 200, 238, .48)';ink.lineWidth=1;ink.stroke();
-    let fastest=4;
+    let fastest=water?.35:4;
     const vectorAt=i=>previous?b.fromArray(previous.velocity,i).lerp(priorFlow.fromArray(velocity,i),blend):b.fromArray(velocity,i);
     for(let i=0;i<velocity.length;i+=3)fastest=Math.max(fastest,vectorAt(i).length());
     const scale=.76*spacing/fastest;
-    const colors=['#94deff','#a6d9e9','#bbd4d3','#d2ceba','#e9c9a1','#ffc281'];
+    const colors=water?['#91def3','#79dfe2','#6ddac4','#8ed59d','#bcd684','#f3dd7e']:['#94deff','#a6d9e9','#bbd4d3','#d2ceba','#e9c9a1','#ffc281'];
     const arrows=colors.map(()=>[]);
     const dots=colors.map(()=>[]);
     for(let i=0;i<points.length;i+=3){
       pointAt(a,i);
+      if(water&&(a.z>surface||a.z< -13.7))continue;
       vectorAt(i);
       const difference=Math.hypot(b.x-ambient[0],b.y-ambient[1],b.z-ambient[2]);
       const band=Math.round((colors.length-1)*Math.min(1,difference/(fastest*.65)));
@@ -542,8 +556,13 @@ export function physicsView(T,canvas,status){
       drawProbes(body.probes);
       captions.push('White dots · Buoyancy surface samples');
     }
+    if(body.current){
+      drawFlow(body.current);
+      const speed=Math.hypot(...body.current.velocity.slice(3*62,3*63));
+      captions.push('3D mean water current · '+speed.toFixed(2)+' m/s at sub · Cyan slow · Yellow fast');
+    }else if(body.currentMessage)captions.push(body.currentMessage);
     if(body.airflow){
-      drawAirflow(body.airflow);
+      drawFlow(body.airflow);
       const {rotor,thrust}=body.airflow;
       captions.push((rotor?'3D rotor wake · Estimated rotor thrust '+thrust.toFixed(1)+' N':'3D sail wake')+
         ' · Blue ambient · Amber disturbed');

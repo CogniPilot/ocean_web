@@ -111,6 +111,7 @@ export function submarine(T,scene,world,signal){
         const survey=world.get('sub.surveyTelemetry'),estimate=world.get('estimate');
         const rows=map.group.visible?world.get('keyframes'):undefined;
         receive({time,position:world.get('sub.position'),q:world.get('sub.orientation'),rpm:world.get('sub.propellerRPM'),
+          currentEnvironment:['tide','wind','bearing','tidalEast'].map(name=>world.get('sub.ocean.'+name)),
           cavitation:world.get('sub.cavitation'),flow:world.get('sub.current'),estimate,ping:world.get('ping'),dvl:world.get('sensor'),
           mapRows:rows!==displayedMap?rows:undefined,
           waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,thrust:survey.slice(3,9),buoyancy:survey.slice(9,12),contact:survey.slice(12,15)});

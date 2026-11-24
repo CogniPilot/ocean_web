@@ -8,7 +8,7 @@ package Wreck
     input Real seaClockOffset=0 "Seconds added to local time for incident sea phase";
     input Real seaState=-1 "Negative selects the legacy fetch-based sea";
     input Real pos[3];
-    parameter Real profile[:,3]=[0,0.26,0.07; 8,0.19,0.04; 16,0.08,0.02] "Depth below mean sea level [m], east and north residual current [m/s]";
+    parameter Real profile[:,3]=Current.profile "Depth below mean sea level [m], east and north residual current [m/s]";
     parameter Real tidePhase=0.5, currentPhase=1.2, tidalSpeed=0.12;
     input Real windSpeed "10 m wind speed, m/s";
     input Real windDirection "Direction toward which wind blows, radians from east";
@@ -16,7 +16,7 @@ package Wreck
     Real wind(stateSelect=StateSelect.always,start=11,fixed=true), bearing(stateSelect=StateSelect.always,start=0.45,fixed=true);
     discrete Real tile[SpectralSea.N,SpectralSea.N],probe[5];
     discrete output Real surfaceSlope[2];
-    Real surface, tide, velocity[3], gaugePressure, meanFlow[2], shelter;
+    Real surface, tide, velocity[3], gaugePressure, meanFlow[2], shelter,meanCurrent[3],tidalEast;
   equation
     der(wind)=(windSpeed-wind)/20;
     der(bearing)=atan2(sin(windDirection-bearing),cos(windDirection-bearing))/18;
@@ -26,14 +26,14 @@ package Wreck
         if seaState<0 then wind else windSpeed,if seaState<0 then bearing else windDirection,
         fetch,waterDepth,tide,pos,seaState);
     end when;
+    tidalEast=tidalSpeed*sin(2*pi*(time+seaClockOffset)/44714+currentPhase);
     for j in 1:2 loop
       meanFlow[j]=Modelica.Math.Vectors.interpolate(profile[:,1],profile[:,j+1],min(max(-pos[3],profile[1,1]),profile[size(profile,1),1]));
     end for;
+    shelter=Current.shelterAt(pos);
+    meanCurrent=Current.meanVelocity(pos[3],tide,wind,bearing,tidalEast,meanFlow,shelter);
     surface=tide+probe[1];
-    shelter=1-0.78*(0.5+0.5*tanh(pos[1]-1))*(0.5+0.5*tanh(28-pos[1]))*(0.5+0.5*tanh(4-abs(pos[2])))*(0.5+0.5*tanh(-6-pos[3]));
-    velocity=shelter*({meanFlow[1]+tidalSpeed*sin(2*pi*(time+seaClockOffset)/44714+currentPhase),meanFlow[2],0}
-      +0.014*wind*exp(min(0,pos[3]-tide)/2.2)*{cos(bearing),sin(bearing),0})
-      + probe[2:4];
+    velocity=meanCurrent+probe[2:4];
     gaugePressure=rho*g*max(0,tide-pos[3]+probe[5]);
   end Ocean;
 

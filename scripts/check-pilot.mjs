@@ -12,7 +12,7 @@ function drive(pilot,seconds){
     surfaceGap=Math.max(surfaceGap,f.pos[2]-plant.get('ocean.surface'));
     peakRPM=Math.max(peakRPM,...plant.get('propellerRPM').map(Math.abs));
     peakCavitation=Math.max(peakCavitation,...plant.get('cavitation'));
-    echoes=Math.max(echoes,f.elev.filter(r=>r>0).length);
+    echoes=Math.max(echoes,f.sensor.slice(8,57).filter(r=>r>0).length);
   }
 }
 drive([0,0,0,-1.65],10);drive([0,0,0,1.65],46);

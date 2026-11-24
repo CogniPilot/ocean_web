@@ -1,5 +1,5 @@
 import {harborMap} from './harbor-map.mjs';
-import {physicsView,sampleAirflow,hullInspectionFields,refinedHullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
+import {physicsView,sampleAirflow,sampleCurrent,hullInspectionFields,refinedHullInspectionFields,cruiserInspectionFields,battenInspectionFields} from './physics-view.mjs';
 import {collisionOverlay,drawAnimalCollision,drawVesselContacts,hullWires,pontoonWires,compoundHullWires} from './collision-view.mjs';
 import {cruiserInertia,inertiaOverlay,sailingInertia,subInertia} from './inertia-view.mjs';
 import {surfaceCollisionShapes} from './surface-collision-view.mjs';
@@ -123,7 +123,7 @@ async function chooseVehicle(){
 }
 const resetStorage='ocean-world-reset';
 const crtStorage='ocean-crt-filter';
-const settingsFields='wind seaState sky storm quality simulationSpeed compassWind crtFilter keyLayout roomName physicsView physicsRig physicsHulls physicsWater physicsAir waveLayer collisionShapes inertiaShapes cameraCones showDroneCovariance vang outhaul autoTrim showBallastMarker ballX ballY autoDeck jibTackAssist mainCar jibCar jibSheet searchLamp keelLamp lampYaw lampTilt subMode flightMode sonarMap showDvlRays cruiserSonarRange echoCamera wiperSwitch jibHalyard mastPort musicVolume effectsVolume spawnKind'.split(' ');
+const settingsFields='wind seaState sky storm quality simulationSpeed compassWind crtFilter keyLayout roomName physicsView physicsRig physicsHulls physicsWater physicsAir physicsCurrent waveLayer collisionShapes inertiaShapes cameraCones showDroneCovariance vang outhaul autoTrim showBallastMarker ballX ballY autoDeck jibTackAssist mainCar jibCar jibSheet searchLamp keelLamp lampYaw lampTilt subMode flightMode sonarMap showDvlRays cruiserSonarRange echoCamera wiperSwitch jibHalyard mastPort musicVolume effectsVolume spawnKind'.split(' ');
 const toggleSettings=['showCompass','showForces','cruiserChartFit','cutMotors','helm','subLamp'];
 const settingPanels=()=>document.querySelectorAll('.control-pane,#racePanel,#fleetRoster,#cruiserSonarPanel,#cruiserCameras,#subSensors,#fishFinder');
 function readReset(){
@@ -326,6 +326,9 @@ async function run(saved=readReset(),carried){
   };
   const waveGrids=$('physicsWater'),waveLayer=$('waveLayer'),airflowToggle=$('physicsAir');
   airflowToggle.checked=saved?.fields.physicsAir??(url.searchParams.get('airflow')==='1');
+  const currentToggle=$('physicsCurrent');
+  currentToggle.checked=saved?.fields.physicsCurrent??(url.searchParams.get('current')==='1');
+  let currentLoad,currentModel,currentFailed=false,currentSample,priorCurrent,currentAt=-Infinity;
   const airflowInterval=125;
   let airflowModel,airflowLoad,airflowFailure,airflowFrame,previousAirflow,airflowAt=-Infinity;
   waveGrids.onchange=()=>$('waveLayerControl').hidden=!waveGrids.checked;
@@ -3244,6 +3247,20 @@ async function run(saved=readReset(),carried){
         if(inspected){
           const body={group:inspected,kind,rig,thrust:kind==='sub'?subFrame?.thrust:null,
             strips:showHulls&&kind==='motorboat'&&motor?cruiserInspectionFields.map(name=>world.get(name)):null};
+          if(currentToggle.checked&&kind==='sub'&&inspected===sub?.mesh){
+            if(!currentLoad)currentLoad=loadInstance('CurrentProbe',{}).then(m=>{currentModel=m;})
+              .catch(error=>{currentFailed=true;console.warn('Water current probes',error);});
+            const environment=subFrame?.currentEnvironment;
+            if(currentModel&&environment?.every(Number.isFinite)){
+              const anchor=inspected.position.toArray();
+              if(!currentSample||now-currentAt>=airflowInterval){
+                priorCurrent=currentSample;
+                currentSample=sampleCurrent(currentModel,anchor,environment);
+                currentAt=now;
+              }
+              body.current={...currentSample,previous:priorCurrent,anchor,blend:Math.min(1,(now-currentAt)/airflowInterval)};
+            }else body.currentMessage=currentFailed?'Water current samples unavailable':currentModel?'Waiting for submarine current inputs':'Loading water current samples';
+          }
           if(airflowToggle.checked&&(sailing||kind==='drone'&&inspected===drone?.group)){
             if(!airflowLoad)airflowLoad=loadInstance('AirflowProbe',{}).then(instance=>{airflowModel=instance;})
               .catch(error=>{airflowFailure=error;console.warn('Airflow probes',error);});

@@ -89,6 +89,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    optionalInputs:[...(hasBoat&&mode!=='sloop'?['jibHalyardInput']:[]),...(mode==='motorboat'?['startEncounter','encounterTargets','wiperSwitch','lowerAnchor','droneLandingLoad']:[]),...(hasFlight?['rotorWakeTraffic','droneTraffic','vesselDecks']:[]),'animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
    optionalOutputs:['swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame','sternFoamTrail',...inertiaOutputs,
      ...launchContactOutputs,
+     ...(hasSub?group('sub.ocean','tide wind bearing tidalEast'):[]),
      'race.earlyStart','race.finishUtc','race.heatStart',
      ...(hasBoat&&mode!=='sloop'?['boat.ballastTrapezeReach','boat.travelerEase','boat.travelerTension','boat.travelerSag','boat.travelerMounts','boat.jibSheet','boat.jibSheetPins','boat.jibSheetLoads','boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins','boat.mainBlockClearance','boat.blockStack','boat.mastBend','boat.forestayPath','boat.forestayTension','boat.jibHalyardTension','boat.mastRake','boat.mastRotation','boat.rigCollision',
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),

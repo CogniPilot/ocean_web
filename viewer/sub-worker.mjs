@@ -44,11 +44,11 @@ self.onmessage=async({data})=>{
       if(tick%20===0)acquire(plant,nav,data.active);
       plant.advance(.01);tick++;
     }
-    const [survey,position,q,rpm,cavitation,flow]=plant.getMany(
-      ['surveyTelemetry','position','orientation','propellerRPM','cavitation','current']);
+    const [survey,position,q,rpm,cavitation,flow,...currentEnvironment]=plant.getMany(
+      ['surveyTelemetry','position','orientation','propellerRPM','cavitation','current','ocean.tide','ocean.wind','ocean.bearing','ocean.tidalEast']);
     self.postMessage({waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,
       thrust:survey.slice(3,9),buoyancy:survey.slice(9,12),contact:survey.slice(12,15),mapRows,
-      time:tick*.01,position,q,rpm,cavitation,flow,
+      time:tick*.01,position,q,rpm,cavitation,flow,currentEnvironment,
       ...(previousEstimate!==estimate?{estimate,dvl}:{}),
       ...(data.showSensorImage && sentImage!==image?{image,features,ping}:{})},mapRows?[mapRows.buffer]:[]);
     sentImage=data.showSensorImage?image:undefined;
