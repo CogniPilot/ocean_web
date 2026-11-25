@@ -243,7 +243,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       el.disabled=Boolean(room&&!npc.host);
       el.title=el.disabled?'The room host controls the weather':'';
     }
-    chat?.connected(room?roomName:null,participants.size);
+    chat?.connected(room?roomName:null,participants.size,room?connectionIssue:'');
     crew.hidden=!room;
     if(!room)crew.open=false;
     const list=crew.querySelector('ul');

@@ -452,7 +452,7 @@ async function run(saved=readReset(),carried){
       peers,marks,windFrom:ocean.U.bearing.value+Math.PI}));
   }
   const chatPanel=$('roomChat'),chatTitle=$('roomChatTitle'),chatButton=$('openChat'),chatLog=$('chatLog'),chatInput=$('chatMessage');
-  let chatScope=null,chatPeers=0,unread=0;
+  let chatScope=null,chatPeers=0,chatConnectionIssue='',unread=0;
   const chatWaiting="Waiting for someone to join this room.";
   function chatBadge(){
     const count=unread?' ('+unread+')':'';
@@ -479,8 +479,9 @@ async function run(saved=readReset(),carried){
     }
   };
   const chat={
-    connected(room,peerCount){
-      if(chatScope===room&&chatPeers===peerCount)return;
+    connected(room,peerCount,issue=''){
+      if(chatScope===room&&chatPeers===peerCount&&chatConnectionIssue===issue)return;
+      chatConnectionIssue=issue;
       if(chatScope!==room){
         chatScope=room;
         if(model)resetPenalties();
@@ -493,7 +494,7 @@ async function run(saved=readReset(),carried){
       }
       chatPeers=peerCount;
       $('chatInvite').hidden=$('chatRoomQr').hidden=!room||peerCount>0;
-      $('chatStatus').value=room&&!peerCount?chatWaiting:'';
+      $('chatStatus').value=room&&!peerCount?(chatConnectionIssue||chatWaiting):'';
     },
     receive:chatMessage
   };
@@ -2201,11 +2202,11 @@ async function run(saved=readReset(),carried){
     if(await remote.sendChat(message)){
       if(chatScope===room){
         chatMessage(remote.playerName()+' (you)',message);
-        $('chatStatus').value=remote.peerCount?'':chatWaiting;
+        $('chatStatus').value=remote.peerCount?'':(chatConnectionIssue||chatWaiting);
       }
     }else if(chatScope===room){
       if(!chatInput.value)chatInput.value=draft;
-      $('chatStatus').value=remote.peerCount?'Message could not be sent.':chatWaiting;
+      $('chatStatus').value=remote.peerCount?'Message could not be sent.':(chatConnectionIssue||chatWaiting);
     }
   };
   on(window,'keydown',e=>{
