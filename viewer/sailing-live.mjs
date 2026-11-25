@@ -1236,7 +1236,7 @@ async function run(saved=readReset(),carried){
     viewport.focus({preventScroll:true});
   }
   $('recenterView').onclick=recenterView;
-  let moveTraveler;
+  let moveBallast,moveTraveler;
   if(cat){
     const marker=$('showBallastMarker');
     try{marker.checked=saved?.fields.showBallastMarker??(localStorage.getItem('ocean-ballast-marker')!=='off');}catch{}
@@ -1269,6 +1269,19 @@ async function run(saved=readReset(),carried){
     };
     for(const id of ['autoTrim','ballX','ballY'])$(id).oninput=trim;
     trim();
+    moveBallast=(code,gain)=>{
+      const foreAft=$('ballX'),athwartships=$('ballY');
+      if($('autoTrim').checked){
+        const [x,y]=model.getMany(['ballastX','ballastY']);
+        foreAft.value=Math.round(-100*x);
+        athwartships.value=Math.round(-100*y);
+        $('autoTrim').checked=false;
+      }
+      const slider=code==='ArrowUp'||code==='ArrowDown'?foreAft:athwartships;
+      const direction=code==='ArrowUp'||code==='ArrowLeft'?-1:1;
+      slider.value=slider.valueAsNumber+direction*5*gain;
+      trim();
+    };
     function deck(){
       const auto=$('autoDeck').checked;model.set('deckManual',Number(!auto));
       for(const [id,input] of [['mainCar','mainCarInput'],['jibCar','jibCarInput'],['jibSheet','jibTrimInput']]){
@@ -1287,22 +1300,20 @@ async function run(saved=readReset(),carried){
     for(const id of ['mainCar','jibCar','jibSheet'])$(id).oninput=deck;
     autoDeck.oninput=()=>{if(!autoDeck.checked)takeOverDeck();deck();};
     deck();
-    moveTraveler=(code,fullRelease=false,gain=1)=>{
+    moveTraveler=(code,gain=1)=>{
       if(autoDeck.checked){
         takeOverDeck();
         autoDeck.checked=false;
       }
-      const step=5*gain;
-      if(code==='ArrowUp'||code==='ArrowDown'){
-        const easing=code==='ArrowUp';
-        if(fullRelease)main.value=main.max;
-        else main.value=main.valueAsNumber+(easing?step:-step);
-      }else{
-        jib.value=jib.valueAsNumber+(code==='ArrowRight'?step:-step);
+      if(code==='KeyC')main.value=main.max;
+      else{
+        const slider=code==='KeyR'||code==='KeyF'?main:jib;
+        const direction=code==='KeyR'||code==='KeyE'?1:-1;
+        slider.value=slider.valueAsNumber+direction*5*gain;
       }
       deck();
     };
-    $('easeTraveler').onclick=()=>moveTraveler('ArrowUp',true);
+    $('easeTraveler').onclick=()=>moveTraveler('KeyC');
   }
   function applySea(){
     const sea=$('seaState');
@@ -1752,7 +1763,7 @@ async function run(saved=readReset(),carried){
     subMode.disabled=!sub?.manual;
     const verticalKeys=wasd()?'R/F':'W/S';
     const foreAftKeys=wasd()?'W/S':'↑/↓',sideKeys=wasd()?'Q/E':'←/→';
-    $('sailKeys').textContent='A/D steer · W eases the sheets · S hauls them in'+(cat?' · Arrows adjust travelers · C releases the main traveler.':'.');
+    $('sailKeys').textContent='A/D steer · W eases the sheets · S hauls them in'+(cat?' · ↑/↓ ballast forward/aft · ←/→ ballast port/starboard · R/F main traveler · Q/E jib travelers · C releases the main traveler.':'.');
     $('motorKeys').textContent='W/S throttle · A/D helm · Arrows aim searchlight · Z/X lights · C anchor';
     if(sub?.active)$('subKeys').textContent=verticalKeys+' rise/dive · A/D yaw · '+foreAftKeys+
       (sub.mode===3?' forward/back · '+sideKeys+' bank to strafe':sub.mode===0?' forward/back':' pitch · '+sideKeys+' roll')+' · V view · Z lamp · X sonar map · C DVL rays';
@@ -2131,11 +2142,13 @@ async function run(saved=readReset(),carried){
     e.preventDefault();
   });
   on(window,'keydown',e=>{
-    const formControl=['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName);
-    if(!moveTraveler||chatPanel.contains(e.target)||targetSelect.value!=='boat'||!manual||
-      e.altKey||e.metaKey||e.target.isContentEditable||formControl||!e.code.startsWith('Arrow'))return;
+    if(e.defaultPrevented||!cat||targetSelect.value!=='boat'||chatPanel.contains(e.target)||
+      e.altKey||e.metaKey||e.target.isContentEditable||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
+    const gain=controlGain({fast:e.shiftKey,fine:e.ctrlKey});
+    if(e.code.startsWith('Arrow'))moveBallast(e.code,gain);
+    else if(['KeyR','KeyF','KeyQ','KeyE'].includes(e.code))moveTraveler(e.code,gain);
+    else return;
     e.preventDefault();
-    moveTraveler(e.code,false,controlGain({fast:e.shiftKey,fine:e.ctrlKey}));
   });
   const modifierKey=code=>code.startsWith('Shift')||code.startsWith('Control');
   function auxiliaryControl(code){
