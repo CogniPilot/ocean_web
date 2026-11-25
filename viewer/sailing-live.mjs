@@ -1752,7 +1752,35 @@ async function run(saved=readReset(),carried){
   panelSize.observe(panel.parentElement);
   cleanup(()=>panelSize.disconnect());
   const manualSelected=()=>animalId?ownsAnimal():sub?.active?sub.manual:drone?.active?drone.manual:manual;
+  let trimRepeat;
+  function stopTrimRepeat(){
+    clearTimeout(trimRepeat);
+    trimRepeat=undefined;
+  }
+  cleanup(stopTrimRepeat);
+  function touchTrimPanel(){
+    const menu=$('hobieTouchTrim').content.firstElementChild.cloneNode(true);
+    const adjust=(button,held=false)=>{
+      const code=button.dataset.key;
+      if(code.startsWith('Arrow'))moveBallast(code,held?4:1);
+      else moveTraveler(code);
+    };
+    for(const button of menu.querySelectorAll('button')){
+      button.onpointerdown=e=>{
+        if(e.button!==0||trimRepeat!==undefined)return;
+        button.setPointerCapture(e.pointerId);
+        adjust(button);
+        const repeat=()=>{adjust(button,true);trimRepeat=setTimeout(repeat,100);};
+        trimRepeat=setTimeout(repeat,430);
+      };
+      button.onlostpointercapture=stopTrimRepeat;
+      button.onclick=e=>{if(e.detail===0)adjust(button);};
+    }
+    menu.ontoggle=()=>{if(!menu.open)stopTrimRepeat();};
+    return menu;
+  }
   function touchControls(){
+    stopTrimRepeat();
     analog.clear();
     const pad=$('sticks'),gull=flyingGull(),swimming=!!animalId&&!gull,boatActive=hasBoat&&!animalId&&!sub?.active&&!drone?.active;
     const animalSensors=$('animalSensors'),motorSensors=$('motorSensors'),subSensors=$('subPanel');
@@ -1806,6 +1834,8 @@ async function run(saved=readReset(),carried){
     stickIndicators.length=0;
     const show=stickPreference??(mobile||Boolean(drone?.active));
     $('showSticks').setAttribute('aria-pressed',String(show));
+    const hobie=cat&&boatActive;
+    pad.classList.toggle('hobie',hobie);
     pad.replaceChildren();pad.hidden=!show || !manualSelected();
     helm();
     if(pad.hidden)return;
@@ -1821,27 +1851,38 @@ async function run(saved=readReset(),carried){
     }else{
       leftLabel=motor?'Helm / throttle':'Rudder / sheet';
     }
-    const layout=[[leftLabel,'KeyD','KeyW']];
+    const layout=hobie?[['Rudder','KeyD',null],['↑ Ease · ↓ Haul',null,'KeyW']]:[[leftLabel,'KeyD','KeyW']];
     if(rightLabel)layout.push([rightLabel,'ArrowRight','ArrowUp']);
     for(const [label,horizontal,vertical] of layout){
       const stick=document.createElement('div'),knob=document.createElement('span'),caption=document.createElement('small');
       stick.className='stick';knob.className='knob';caption.textContent=label;stick.setAttribute('aria-label',label);
+      if(hobie){
+        stick.classList.add(horizontal?'rudder':'sheet');
+        if(vertical){
+          stick.setAttribute('aria-label','Mainsheet: drag up to ease or down to haul in');
+          pad.append(touchTrimPanel());
+        }
+      }
       stick.append(knob,caption);pad.append(stick);
       const opposite={KeyD:'KeyA',KeyW:'KeyS',ArrowUp:'ArrowDown',ArrowRight:'ArrowLeft'};
       stickIndicators.push(()=>{
         const x=horizontal?axis(horizontal,opposite[horizontal]):0,y=motor&&!animalId?shaftCommand:vertical?axis(vertical,opposite[vertical]):0;
         knob.style.transform='translate('+x*25+'px,'+(-y*25)+'px)';
       });
-      let finger=null;
+      let finger=null,sheetStartY;
       function move(e){
         const rect=stick.getBoundingClientRect(),half=rect.width/2;
         let x=horizontal?(e.clientX-rect.left-half)/(half*.73):0,y=vertical?(rect.top+half-e.clientY)/(half*.73):0;
+        if(hobie&&vertical){
+          const dy=sheetStartY-e.clientY;
+          y=Math.sign(dy)*Math.max(0,Math.abs(dy)-5)/(half*.73);
+        }
         const scale=Math.max(1,Math.hypot(x,y));x/=scale;y/=scale;
         if(horizontal)analog.set(horizontal,x);
         if(vertical)analog.set(vertical,y);
         helm();
       }
-      stick.onpointerdown=e=>{if(finger!==null)return;e.preventDefault();finger=e.pointerId;stick.setPointerCapture(finger);move(e);};
+      stick.onpointerdown=e=>{if(finger!==null)return;e.preventDefault();finger=e.pointerId;sheetStartY=e.clientY;stick.setPointerCapture(finger);move(e);};
       stick.onpointermove=e=>{if(e.pointerId===finger)move(e);};
       stick.onlostpointercapture=e=>{if(e.pointerId!==finger)return;finger=null;analog.delete(horizontal);analog.delete(vertical);knob.style.transform='';helm();};
     }
@@ -2145,7 +2186,7 @@ async function run(saved=readReset(),carried){
     if(e.defaultPrevented||!cat||targetSelect.value!=='boat'||chatPanel.contains(e.target)||
       e.altKey||e.metaKey||e.target.isContentEditable||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;
     const gain=controlGain({fast:e.shiftKey,fine:e.ctrlKey});
-    if(e.code.startsWith('Arrow'))moveBallast(e.code,gain);
+    if(e.code.startsWith('Arrow'))moveBallast(e.code,e.repeat?2*gain:gain);
     else if(['KeyR','KeyF','KeyQ','KeyE'].includes(e.code))moveTraveler(e.code,gain);
     else return;
     e.preventDefault();
@@ -2197,7 +2238,7 @@ async function run(saved=readReset(),carried){
     if([...pressedMotion.values()].includes(code))return;
     keys.delete(code);keyboard.release(code,performance.now());helm();
   });
-  function releaseControls(){pressedMotion.clear();keys.clear();keyboard.clear();analog.clear();heldLever=undefined;helm();}
+  function releaseControls(){stopTrimRepeat();pressedMotion.clear();keys.clear();keyboard.clear();analog.clear();heldLever=undefined;helm();}
   keyLayout.onchange=()=>{
     releaseControls();touchControls();
     saveKeyboardLayout(keyLayout.value);

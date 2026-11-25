@@ -172,6 +172,20 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 #startupScreen .startup-brand img{display:block;width:128px;height:128px}
 #startupScreen progress{display:block;width:min(72vw,248px);height:8px;margin:18px auto 0;accent-color:#91d8ca}
 #startupScreen button{margin-top:16px}
+
+#sticks.hobie{align-items:center}
+#sticks.hobie .stick::before{content:"";position:absolute;border-radius:4px;background:#a4d7d381;pointer-events:none}
+#sticks.hobie .rudder::before{width:72%;height:3px}
+#sticks.hobie .sheet::before{width:3px;height:72%}
+#sticks.hobie .knob{z-index:1}
+.touch-trim{position:relative;color:#effdf9;pointer-events:auto}
+.touch-trim summary,.touch-trim button{min-height:44px;touch-action:manipulation}
+.touch-trim summary{display:grid;place-items:center;padding:0 10px;border:1px solid #82b7b6;border-radius:6px;background:#103540;cursor:pointer;font-size:14px}
+.touch-trim .trim-grid{position:absolute;z-index:2;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);width:min(292px,calc(100vw - 24px));max-height:calc(100dvh - var(--panel-height,66px) - 100px);overflow:auto;overscroll-behavior:contain;padding:6px;border:1px solid #659995;border-radius:8px;background:#0b2a36}
+.trim-grid fieldset{border:0;margin:0;padding:3px;display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.trim-grid legend{font-size:13px;color:#a4e4d9}
+.trim-grid button{font:inherit;font-size:14px;user-select:none;-webkit-user-select:none}
+@media(min-width:580px) and (max-height:540px){.touch-trim .trim-grid{bottom:calc(100% + 3px);max-height:calc(100dvh - var(--panel-height,66px) - 95px);width:350px;display:grid;grid-template-columns:1fr 1fr}}
 </style></head><body><section id="startupScreen" aria-labelledby="startupTitle">
   <div><h2 id="startupTitle">Ocean Web</h2><div class="startup-brand"><img src="https://cognipilot.com/brand/assets/rumoca/rumoca-logo-color-dark.svg?v=ac5137ca86f2" alt="" width="128" height="128" referrerpolicy="no-referrer"><span>Powered by Rumoca</span></div><p id="startupStatus" role="status">Loading model and scene</p>
     <progress id="startupProgress" max="1" value="0" aria-label="Loading simulator"></progress>
@@ -210,7 +224,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button id="sound" type="button" aria-label="Sound" title="Turn sound effects on" aria-pressed="false"><span aria-hidden="true">🔇</span></button>
 <button type="button" id="harborMapButton" aria-haspopup="dialog" aria-keyshortcuts="M">Map</button>
 <button id="play">Pause</button>
-<button type="button" id="resetSimulation" aria-keyshortcuts="R" title="Restart the current simulation (R)">Reset</button>
+<button type="button" id="resetSimulation" title="Restart the current simulation">Reset</button>
 <button id="settings" aria-expanded="false" aria-controls="setup">Settings</button>
 <button id="openChat" type="button" aria-controls="roomChat" aria-keyshortcuts="Enter" hidden>Chat</button>
 <button id="collapsePanel" aria-label="Hide controls" aria-controls="vehiclePanel" aria-expanded="true">Controls</button>
@@ -399,6 +413,14 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 </div>
 </div>
 </footer><div id="sticks" hidden></div>
+<template id="hobieTouchTrim">
+<details class="touch-trim"><summary>Crew &amp; trim</summary>
+<div class="trim-grid">
+<fieldset><legend>Ballast fore–aft</legend><button type="button" data-key="ArrowUp">Forward</button><button type="button" data-key="ArrowDown">Aft</button></fieldset>
+<fieldset><legend>Ballast across deck</legend><button type="button" data-key="ArrowLeft">Port</button><button type="button" data-key="ArrowRight">Starboard</button></fieldset>
+<fieldset><legend>Main traveler</legend><button type="button" data-key="KeyF">Haul in</button><button type="button" data-key="KeyR">Ease</button></fieldset>
+<fieldset><legend>Jib travelers</legend><button type="button" data-key="KeyQ">Inboard</button><button type="button" data-key="KeyE">Outboard</button></fieldset>
+</div></details></template>
 <dialog id="vehiclePicker" aria-labelledby="vehiclePickerTitle"><h2 id="vehiclePickerTitle">Choose a model</h2><form method="dialog"><button value="hobie">Hobie 16</button><button value="onrt">ONR Tumblehome · model basin</button><button value="motorboat">Inboard cabin cruiser</button><button value="sloop">Pilothouse sloop</button><button value="drone">RDD2 drone</button><button value="sub">Piccard Sub</button><button value="whale">Humpback whale</button><button value="shark">Great white shark</button><button value="gull">Herring gull</button></form></dialog>
 <script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="vehicle.js?viewport=2"></script><script src="wreck.js"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="island-landscape.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
 <canvas id="harborMapCanvas" width="680" height="420" aria-label="North-up chart showing the race course, island, players and NPCs"></canvas>
