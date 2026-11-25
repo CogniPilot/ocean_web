@@ -897,10 +897,11 @@ equation
     elseif ballastManual>.5 then max(-ballastTrapezeReach,min(ballastTrapezeReach,ballastCmdY)) else
     max(-ballastTrapezeReach,min(ballastTrapezeReach,
       (.56*buildingWind+(ballastTrapezeReach-.56)*trapezeDemand)*crewSide+1.15*crewHeel));
-  der(ballastX)=if rightingSide<>0 or ballastManual>.5 then max(-.35,min(.35,(targetX-ballastX)/.65))
+  der(ballastX)=if rightingSide<>0 then max(-.35,min(.35,(targetX-ballastX)/.65))
+    elseif ballastManual>.5 then max(-.90,min(.90,(targetX-ballastX)/.22))
     else max(-.28-.24*min(1,bowShortage/.10),min(.28,(targetX-ballastX)/1.0));
   der(ballastY)=if rightingSide<>0 then max(-1.2,min(1.2,(targetY-ballastY)/.36))
-    elseif ballastManual>.5 then max(-.48,min(.48,(targetY-ballastY)/.55))
+    elseif ballastManual>.5 then max(-1.8,min(1.8,(targetY-ballastY)/.22))
     else max(-.14-.54*crewPace,min(.14+.54*crewPace,(targetY-ballastY)/(2.4-1.85*crewPace)));
   der(ballastZ)=if catamaran then max(-1.6,min(1.6,(targetZ-ballastZ)/.40)) else 0;
   // The nominal inertias already include seated crew at ballastNeutralZ.

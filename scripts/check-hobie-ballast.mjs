@@ -20,6 +20,17 @@ async function reach(speed,bearing){
 const light=await reach(4,70);
 assert(Math.abs(light.get('ballastY'))<.10,'Light-wind auto trim stays near the centreline');
 
+// Cross from one rail to the other in manual trim, with no wind or capsize recovery.
+const crew=await loadInstance('Hobie16',{launchHeight:.09,launchSpeed:0,windEast:0,windNorth:0,
+  manualHelm:1,ballastManual:1,ballastCmdY:-2.1},read);
+for(let i=0;i<250;i++)crew.advance(.02);
+assert(crew.get('ballastY')<-2.09);
+crew.set('ballastCmdY',2.1);
+crew.advance(.02);
+assert(crew.get('ballastY')<-2,'A manual command moves the crew continuously');
+for(let i=1;i<140;i++)crew.advance(.02);
+assert(crew.get('ballastY')>2,'Manual crew crosses to within 10 cm of the opposite rail in 2.8 s');
+
 const automatic=[];
 for(const side of [-1,1]){
   const boat=await reach(15,55*side);
