@@ -10,5 +10,35 @@
     "components": 1,
     "volume_cm3": 24.851523466237367,
     "area_cm2": 181.72403455321052
+  },
+  "snappedCartesian": {
+    "faces": 7064,
+    "components": 1,
+    "area_cm2": 164.98626930200936,
+    "volume_cm3": 24.183428831727475
+  },
+  "thinWallCartesian": {
+    "faces": 8298,
+    "components": 1,
+    "area_cm2": 192.3547108786424,
+    "volume_cm3": 26.105898144094162
+  },
+  "levelSetCut": {
+    "faces": 29872,
+    "components": 15,
+    "area_cm2": 154.8353820679537,
+    "volume_cm3": 21.829013154327846
+  },
+  "prism": {
+    "faces": 12000,
+    "components": 1,
+    "area_cm2": 150.80467044436622,
+    "volume_cm3": 23.658030081049066
+  },
+  "cadSeeded": {
+    "faces": 131598,
+    "components": 1,
+    "area_cm2": 150.76974851748068,
+    "volume_cm3": 23.587272815195607
   }
 }

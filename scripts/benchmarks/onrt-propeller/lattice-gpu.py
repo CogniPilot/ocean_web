@@ -18,7 +18,13 @@ parser.add_argument("output", type=Path)
 parser.add_argument("--periods", type=int, default=48)
 parser.add_argument("--frames", type=int, default=8)
 parser.add_argument("--periodic", action="store_true", help="Find a repeating full-speed lattice state at one shaft phase")
+parser.add_argument("--advance-ratio", type=float, default=.8)
+timing = parser.add_mutually_exclusive_group()
+timing.add_argument("--steps-per-turn", type=int, help="use the same physical time step across different lattice resolutions")
+timing.add_argument("--time-refinement", type=int, default=1, help="subdivide the nominal time step while preserving physical shaft speed")
 args = parser.parse_args()
+if not np.isfinite(args.advance_ratio) or args.advance_ratio <= 0 or args.time_refinement < 1:
+    parser.error("advance ratio and time refinement must be positive")
 devices = [d for p in cl.get_platforms() for d in p.get_devices(device_type=cl.device_type.GPU) if d.double_fp_config]
 if not devices:
     raise RuntimeError("A double-precision OpenCL GPU is required")
@@ -77,8 +83,11 @@ res,width,phases=shape
 nx,ny,nz=9*res,4*res,4*res
 cells=nx*ny*nz
 if cells%128: raise ValueError("GPU workgroups require a multiple of 128 cells")
-D,rpm,J,rho=.1066,538.,.8,998.6
-rev=math.ceil(math.pi*res/.075)
+D,rpm,J,rho=.1066,538.,args.advance_ratio,998.6
+nominal_steps = math.ceil(math.pi*res/.075)
+if args.steps_per_turn is not None and args.steps_per_turn < nominal_steps:
+    parser.error(f"this grid requires at least {nominal_steps} steps per turn")
+rev = args.steps_per_turn or args.time_refinement * nominal_steps
 n=rpm/60
 dt=1/(rev*n)
 dx=D/res

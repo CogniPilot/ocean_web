@@ -51,10 +51,18 @@ input{accent-color:#7ad7c0}input[type=range]{width:100%;margin-inline:0}output,#
 <aside aria-label="Propeller flow controls"><h1>Port propeller in open water</h1>
 <div id="metrics" role="status">Loading flow solution…</div>
 <label for="solver">Solver <select id="solver"><option value="compare">Side by side</option><option value="rumoca">Rumoca</option><option value="openfoam">OpenFOAM</option></select></label>
-<label>Recording <select id="recording"><option value="startup">From rest</option><option value="final-turn">Final shaft revolution</option><option value="steady">Steady operating point</option><option value="reference">Steady OpenFOAM reference</option><option value="geometry">Inspect repaired geometry</option><option value="mesh-comparison">Earlier meshes · steady CFD</option></select></label>
+<label>Recording <select id="recording"><option value="startup">From rest</option><option value="final-turn">Final shaft revolution</option><option value="steady">Steady operating point</option><option value="reference">Steady OpenFOAM reference</option><option value="geometry">Propeller mesh study</option><option value="mesh-comparison">Earlier meshes · steady CFD</option></select></label>
+<label id="studyMeshControl" hidden>Mesh <select id="studyMesh">
+<option value="cadSeeded">CAD-seeded tetrahedra · fitted wall</option>
+<option value="snappedCartesian">Snapped Cartesian · fine</option>
+<option value="thinWallCartesian">Thin-wall Cartesian · fine</option>
+<option value="levelSetCut">Level-set cut cells · fine</option>
+<option value="prism">Fitted prism layers · wall</option>
+<option value="wall">Earlier thin-wall mesh</option>
+</select></label>
 <label><input type="checkbox" id="animate" checked> Play animation</label>
 <a class="flow-link" href="./onrt.html">Return to Iowa basin <span aria-hidden="true">→</span></a>
-<a id="meshLink" href="?recording=geometry">Inspect repaired propeller geometry</a>
+<a id="meshLink" href="?recording=geometry">Compare propeller meshes</a>
 <label><input type="checkbox" id="showMesh"> Show solver mesh</label>
 <div id="meshOptions" hidden><label>Mesh view <select id="meshMode"><option value="section">Section through shaft</option><option value="volume">Full volume</option></select></label><small id="meshHint">Native cell edges. The transient OpenFOAM mesh rotates with the shaft.</small></div>
 <small id="meshStatus" role="status"></small>
