@@ -3,13 +3,13 @@ export function joinFleetRoom(transport,config,name,callbacks){
   let bus;
   try{bus=new BroadcastChannel('ocean-web/'+config.appId+'/'+name);}catch{}
   const self=transport.selfId,local=new Map(),online=new Map(),actions=new Map();
-  let closed=false,recovery,discovery;
+  let closed=false,recovery,recoverAt=Infinity,discovery;
   const network=transport.joinRoom(config,name,{
     onJoinError(error){if(!closed)callbacks?.onJoinError?.(error);}
   });
   const room={
     makeAction(name,{latest=false}={}){
-      const pending=new Set();
+      const pending=new Map();
       const remote=network.makeAction(name);
       const action={
         async send(data,{target}={}){
@@ -25,10 +25,11 @@ export function joinFleetRoom(transport,config,name,callbacks){
           // Avoid queuing stale positions or letting a slow peer stall the rest.
           const targets=target?[target]:online.keys();
           await Promise.all([...targets].map(async id=>{
-            if(local.has(id)||pending.has(id))return;
-            pending.add(id);
+            const link=online.get(id);
+            if(local.has(id)||!link||pending.get(id)===link)return;
+            pending.set(id,link);
             try{await remote.send(data,{target:id});}
-            finally{pending.delete(id);}
+            finally{if(pending.get(id)===link)pending.delete(id);}
           }));
         }
       };
@@ -38,13 +39,17 @@ export function joinFleetRoom(transport,config,name,callbacks){
     },
     recover(delay=800){
       if(closed||navigator.onLine===false)return;
+      const wait=delay+Math.random()*800,deadline=performance.now()+wait;
+      if(recoverAt<=deadline)return;
+      recoverAt=deadline;
       clearTimeout(recovery);
       recovery=setTimeout(()=>{
+        recoverAt=Infinity;
         if(closed||navigator.onLine===false)return;
         transport.refreshRelaySubscriptions?.();
         room.onRecover?.();
         network.reannounce();
-      },delay+Math.random()*800);
+      },wait);
     },
     leave(){
       if(closed)return;
@@ -56,24 +61,26 @@ export function joinFleetRoom(transport,config,name,callbacks){
       return network.leave();
     }
   };
-  // Restore discovery if every peer is gone, including after a missed join.
+  // A healthy link to one sailor says nothing about discovery of the next.
   function retryDiscovery(delay=6500){
     clearTimeout(discovery);
-    if(closed||local.size||online.size)return;
+    if(closed)return;
     discovery=setTimeout(()=>{
-      room.recover(0);
-      retryDiscovery(Math.min(30000,delay*2));
+      if(navigator.onLine!==false){
+        if(online.size)network.reannounce();
+        else room.recover(0);
+      }
+      retryDiscovery(online.size?60000:Math.min(30000,delay*2));
     },delay);
   }
   network.onPeerJoin=id=>{
     if(closed||online.has(id))return;
-    online.set(id,network.getPeers()[id]);
-    clearTimeout(discovery);
+    online.set(id,{connection:network.getPeers()[id]});
     if(!local.has(id))room.onPeerJoin?.(id);
   };
   network.onPeerLeave=id=>{
     if(closed||!online.has(id))return;
-    const connection=online.get(id);
+    const {connection}=online.get(id);
     online.delete(id);
     connection?.close();
     if(!local.has(id))room.onPeerLeave?.(id);
@@ -96,7 +103,6 @@ export function joinFleetRoom(transport,config,name,callbacks){
       if(msg.type==='hello'||msg.type==='here'||msg.type==='data'){
         const joined=!local.has(id)&&!online.has(id);
         local.set(id,performance.now());
-        clearTimeout(discovery);
         if(joined)room.onPeerJoin?.(id);
         if(msg.type==='data')actions.get(msg.action)?.onMessage?.(msg.data,{peerId:id});
       }

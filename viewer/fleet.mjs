@@ -313,18 +313,16 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     connectionIssue=turn.unavailable?'TURN relay unavailable · Waiting for peers':'';
     const config={appId:'pelagic-sailing-v1',relayConfig:{urls:relays}};
     if(turn.servers)config.turnConfig=turn.servers;
-    let active,handshakeRetried=false;
+    let active;
     active=room=joinFleetRoom(transport,config,roomName,{
       onJoinError({error,peerId}){
         if(!active||room!==active||participants.has(peerId)||!error.includes('after exchanging SDP'))return;
+        const firstFailure=!failedPeers.has(peerId);
         failedPeers.set(peerId,performance.now()+60000);
         connectionIssue=turn.unavailable?'Peer found · TURN relay unavailable':
-          turn.servers?'Peer found · WebRTC connection failed':'Peer found · Direct connection failed';
+          turn.servers?'Peer found · WebRTC connection failed':'Peer found · Direct link failed · No TURN relay configured';
         report();
-        if(!handshakeRetried){
-          handshakeRetried=true;
-          active.recover(12000);
-        }
+        if(firstFailure)active.recover(12000);
       }
     });
     room.onRecover=()=>{
@@ -476,7 +474,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(room!==active)return;
       failedPeers.delete(id);
       if(!failedPeers.size)connectionIssue='';
-      handshakeRetried=false;lastSend=-Infinity;
+      lastSend=-Infinity;
       participants.add(id);npc.join(id);
       const peer=peers.get(id);
       if(peer){peer.leftAt=undefined;peer.lastRotorDraw=undefined;peer.awaitingPose=true;}
