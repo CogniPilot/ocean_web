@@ -24,6 +24,7 @@ jobs:
       - run: npm install --prefix .deps/ocean-component --no-save @bytecodealliance/jco-transpile@0.23.0
       - run: scripts/package-pages.sh build/pages --world
         env:
+          OCEAN_LOBBY_ENDPOINT: ${{ vars.OCEAN_LOBBY_ENDPOINT }}
           OCEAN_TURN_ENDPOINT: ${{ vars.OCEAN_TURN_ENDPOINT }}
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

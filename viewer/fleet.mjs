@@ -304,7 +304,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       peers.delete(id);}
   }
   function leave(){resetChannel=null;lastReset=pendingReset=undefined;finishes.clear();finishChannel=null;if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();currentPosePeers.clear();failedPeers.clear();report();}
-  function join(transport,name=roomName,turn={}){
+  function join(transport,name=roomName,turn={},channel=name){
     if(room)return;
     finishes.clear();
     if(name!==roomName)retainedOffset=0;
@@ -314,7 +314,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     const config={appId:'pelagic-sailing-v1',relayConfig:{urls:relays}};
     if(turn.servers)config.turnConfig=turn.servers;
     let active;
-    active=room=joinFleetRoom(transport,config,roomName,{
+    active=room=joinFleetRoom(transport,config,channel,{
       onJoinError({error,peerId}){
         if(!active||room!==active||participants.has(peerId)||!error.includes('after exchanging SDP'))return;
         const firstFailure=!failedPeers.has(peerId);

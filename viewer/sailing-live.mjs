@@ -29,6 +29,7 @@ import {cabinCruiser,cruiserUnderwaterViews,hullLamps,hullGlowLobes,cruiserBeamG
 import {fishFinder} from './fish-finder.mjs';
 import {harborTraffic} from './harbor-traffic.mjs';
 import {gullIndex,vesselNpcNames} from './npc-room.mjs';
+import {reserveFleetSeat} from './fleet-seat.mjs';
 import {fleet,loadFleetTurn} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
 const renderInterval=1000/30,knotsPerMetrePerSecond=3600/1852;
@@ -109,7 +110,9 @@ function vehicleLink(url,choice){
   else if(choice==='hobie')link.searchParams.set('boat','Hobie16');
   return link;
 }
-function joinRoomLink(url,room){
+function joinRoomLink(url,room,fleet=1){
+  if(fleet>1)url.searchParams.set('fleet',fleet);
+  else url.searchParams.delete('fleet');
   url.searchParams.set('room',room);
   url.searchParams.set('join','1');
   return url;
@@ -802,13 +805,30 @@ async function run(saved=readReset(),carried){
   }
   camera.layers.enable(1);camera.layers.enable(3);
   let npcTraffic=carried?.npcTraffic,npcTrafficLoad,npcRows,npcRaceUtc,npcDisplayUtc,npcCamCount=0;
+  const lobbyEndpoint=document.querySelector('meta[name="ocean-lobby-endpoint"]')?.content;
+  let preferredFleet=Number(url.searchParams.get('fleet'));
+  if(!Number.isSafeInteger(preferredFleet)||preferredFleet<1||preferredFleet>1000000)preferredFleet=1;
+  let seat=carried?.seat;
+  function leaveFleet(){
+    remote.leave();
+    seat?.leave();seat=null;
+  }
+  function watchSeat(current){
+    current.onExpired=()=>{
+      if(seat!==current)return;
+      seat=null;
+      remote.leave();
+      if(!signal.aborted&&multiplayerButton.getAttribute('aria-pressed')==='true')void multiplayer(true);
+    };
+  }
+  if(seat)watchSeat(seat);
   function roomInviteUrl(){
     // Loopback addresses point back to the scanning phone. Plain HTTP LAN
     // origins also lack the Web Crypto used by the signaling transport.
     const loopback=['localhost','[::1]'].includes(location.hostname)||location.hostname.startsWith('127.');
     const base=location.protocol==='https:'&&!loopback
       ?new URL(location.pathname,location.origin):'https://cognipilot.github.io/ocean_web/';
-    return joinRoomLink(vehicleLink(base,selectedRole==='boat'?(cat?'hobie':'sloop'):selectedRole),roomName);
+    return joinRoomLink(vehicleLink(base,selectedRole==='boat'?(cat?'hobie':'sloop'):selectedRole),roomName,preferredFleet);
   }
   const secureRoomLink=$('secureRoomLink'),roomQrDialog=$('roomQrDialog');
   $('chatRoomQr').onclick=$('showRoomQr').onclick=async()=>{
@@ -820,7 +840,7 @@ async function run(saved=readReset(),carried){
       code.addData(link.href);
       code.make();
       $('roomQrImage').src=code.createDataURL(8,32);
-      $('roomQrName').textContent=link.searchParams.get('room')+' · '+link.host;
+      $('roomQrName').textContent=roomName+(seat?' · Fleet '+seat.fleet:'')+' · '+link.host;
       if(!roomQrDialog.open)roomQrDialog.showModal();
     }catch(error){
       if(!signal.aborted)$('online').textContent='Could not display the room QR code.';
@@ -834,7 +854,7 @@ async function run(saved=readReset(),carried){
     multiplayerButton.setAttribute('aria-pressed',String(on));
     updatePlayback();
     $('invite').hidden=true;secureRoomLink.hidden=true;
-    if(!on){remote.leave();return;}
+    if(!on){leaveFleet();return;}
     if(!globalThis.crypto?.subtle||typeof RTCPeerConnection!=='function'){
       multiplayerButton.setAttribute('aria-pressed','false');
       updatePlayback();
@@ -845,31 +865,41 @@ async function run(saved=readReset(),carried){
       }else $('online').textContent='This browser requires WebRTC and Web Crypto to join a room.';
       return;
     }
-    $('online').textContent='Joining…';
+    $('online').textContent=lobbyEndpoint?'Finding a seat…':'Joining…';
     try{
       const endpoint=document.querySelector('meta[name="ocean-turn-endpoint"]')?.content;
       const [transport,turn]=await Promise.all([import('./vendor/trystero.mjs'),loadFleetTurn(endpoint)]);
       if(signal.aborted||attempt!==joinAttempt)return;
-      remote.join(transport,roomName,turn);
+      const reservation=lobbyEndpoint?await reserveFleetSeat(lobbyEndpoint,roomName,preferredFleet):null;
+      if(signal.aborted||attempt!==joinAttempt){reservation?.leave();return;}
+      if(reservation){
+        seat=reservation;
+        watchSeat(seat);
+        preferredFleet=seat.fleet;
+        history.replaceState(history.state,'',joinRoomLink(url,roomName,preferredFleet));
+        if(seat.servers.length){turn.servers=seat.servers;turn.unavailable=false;}
+      }
+      const label=seat?roomName+' · Fleet '+seat.fleet:roomName;
+      remote.join(transport,label,turn,seat?.channel);
       restoreNpcRoster();
       $('invite').hidden=false;
     }catch(error){
       if(signal.aborted||attempt!==joinAttempt)return;
-      remote.leave();
+      leaveFleet();
       multiplayerButton.setAttribute('aria-pressed','false');
       updatePlayback();
-      $('online').textContent='Unable to join';
+      $('online').textContent=lobbyEndpoint?'Could not join the fleet. Tap Multiplayer to retry.':'Unable to join';
       console.error(error);
     }
   }
   roomField.onchange=()=>{
     const next=normalizeRoom(roomField.value);roomField.value=next;
     if(next===roomName)return;
-    roomName=next;
+    roomName=next;preferredFleet=1;
     if(!secureRoomLink.hidden)secureRoomLink.href=roomInviteUrl().href;
     for(const id of ['invite','chatInvite'])$(id).textContent='Copy room link';
     if($('multiplayer').getAttribute('aria-pressed')==='true'){
-      remote.leave();
+      leaveFleet();
       history.replaceState(history.state,'',joinRoomLink(url,roomName));
       multiplayer(true);
     }
@@ -877,19 +907,20 @@ async function run(saved=readReset(),carried){
   roomField.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();roomField.blur();}});
   $('multiplayer').onclick=()=>{
     const on=$('multiplayer').getAttribute('aria-pressed')!=='true';
-    if(on)joinRoomLink(url,roomName);
+    if(on)joinRoomLink(url,roomName,preferredFleet);
     else{
       url.searchParams.delete('room');
-      url.searchParams.delete('join');
+      url.searchParams.delete('join');url.searchParams.delete('fleet');preferredFleet=1;
     }
     history.replaceState(history.state,'',url);
     multiplayer(on);
   };
   on(window,'pagehide',event=>{
-    if(!event.persisted){lifetime.abort();remote.leave();}
+    if(!event.persisted){lifetime.abort();leaveFleet();}
   });
-  on(window,'pageshow',event=>{if(event.persisted)remote.recover();});
-  on(window,'online',remote.recover);
+  on(window,'pageshow',event=>{if(event.persisted){seat?.check();remote.recover();}});
+  on(window,'online',()=>{seat?.check();remote.recover();});
+  on(document,'visibilitychange',()=>{if(!document.hidden)seat?.check();});
   for(const id of ['invite','chatInvite'])$(id).onclick=async event=>{
     const button=event.currentTarget,link=roomInviteUrl();
     try{await navigator.clipboard.writeText(link.href);button.textContent='Copied';}
@@ -1935,7 +1966,7 @@ async function run(saved=readReset(),carried){
     if(choice==='onrt'){location.assign('./onrt.html');return;}
     if(signal.aborted)return;
     const link=vehicleLink(url,choice),online=$('multiplayer').getAttribute('aria-pressed')==='true';
-    if(online)joinRoomLink(link,roomName);
+    if(online)joinRoomLink(link,roomName,preferredFleet);
     else link.searchParams.delete('join');
     const state=rememberSettings();
     // Camera defaults follow the newly selected model.
@@ -1962,7 +1993,7 @@ async function run(saved=readReset(),carried){
           degrees*$('lampYaw').value,-degrees*$('lampTilt').value];
       }
     }
-    const carry={remote,npcTraffic,online,phase,cruiserRuntime:preserveCruiser?cruiserRuntime:null,chatOpen:chatPanel.open,
+    const carry={remote,npcTraffic,online,phase,seat,cruiserRuntime:preserveCruiser?cruiserRuntime:null,chatOpen:chatPanel.open,
       chatMessages:[...chatLog.children].map(row=>row.cloneNode(true))};
     remote.detachView();
     lifetime.abort();
