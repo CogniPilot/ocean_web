@@ -159,7 +159,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 #chatLog strong{margin-inline-end:.5em;color:#a4e4d9}
 #chatMessage{min-width:0;flex:1;border:1px solid #659995;background:#103540;color:#effdf9;border-radius:5px;padding:8px;font:inherit}
 #chatStatus:not(:empty){display:block;padding:0 8px 6px}
-#chatInvite{margin:0 8px 8px}
+#chatInvite,#chatRoomQr{margin:0 4px 8px}
 @media(max-width:960px){
   #harborMap{right:6px;bottom:calc(var(--panel-height,66px) + 14px);width:min(75vw,325px);max-height:36dvh}
   #harborMapCanvas{max-height:22dvh}
@@ -186,6 +186,12 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 .trim-grid legend{font-size:13px;color:#a4e4d9}
 .trim-grid button{font:inherit;font-size:14px;user-select:none;-webkit-user-select:none}
 @media(min-width:580px) and (max-height:540px){.touch-trim .trim-grid{bottom:calc(100% + 3px);max-height:calc(100dvh - var(--panel-height,66px) - 95px);width:350px;display:grid;grid-template-columns:1fr 1fr}}
+#roomQrDialog{width:min(340px,92vw);max-height:92dvh;overflow:auto;margin:auto;padding:20px;border:1px solid #659995;border-radius:9px;background:#0b2935;color:#effdf9;text-align:center}
+#roomQrDialog::backdrop{background:#02151bd9}
+#roomQrDialog h2{margin:0 0 12px;font:normal 24px Georgia,serif}
+#roomQrImage{display:block;margin:auto;width:min(100%,55dvh);height:auto;image-rendering:pixelated}
+#roomQrName{margin:10px 0;overflow-wrap:anywhere}
+#roomQrDialog button{min-height:44px;min-width:80px}
 </style></head><body><section id="startupScreen" aria-labelledby="startupTitle">
   <div><h2 id="startupTitle">Ocean Web</h2><div class="startup-brand"><img src="https://cognipilot.com/brand/assets/rumoca/rumoca-logo-color-dark.svg?v=ac5137ca86f2" alt="" width="128" height="128" referrerpolicy="no-referrer"><span>Powered by Rumoca</span></div><p id="startupStatus" role="status">Loading model and scene</p>
     <progress id="startupProgress" max="1" value="0" aria-label="Loading simulator"></progress>
@@ -203,6 +209,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 </form>
 <output id="chatStatus" aria-live="polite"></output>
 <button id="chatInvite" type="button" hidden>Copy room link</button>
+<button id="chatRoomQr" type="button" aria-haspopup="dialog" aria-controls="roomQrDialog" hidden>Show room QR</button>
 </details>
 </header>
 <section id="motorSensors" aria-label="Cruiser sensors" hidden><details id="cruiserSonarPanel" data-view="sonar"><summary>Argos 350 · 3D imaging sonar</summary>
@@ -385,8 +392,10 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <label class="control-select"><span>Room name</span><input type="text" id="roomName" value="regatta" maxlength="64" size="10" spellcheck="false" autocomplete="off"></label>
 <button id="multiplayer" type="button" aria-pressed="false">Multiplayer</button>
 <button id="invite" type="button" hidden>Copy room link</button>
+<button id="showRoomQr" type="button" aria-haspopup="dialog" aria-controls="roomQrDialog">Show room QR</button>
 </div>
 <output id="online" aria-label="Multiplayer connection">Offline</output>
+<a id="secureRoomLink" hidden>Open this room over HTTPS</a>
 <div id="roomHostControls" class="control-row" hidden>
 <label class="control-select"><span>New host</span><select id="hostTarget"><option value="">Select a player</option></select></label>
 <button id="transferHost" type="button" disabled>Transfer host</button>
@@ -421,6 +430,9 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <fieldset><legend>Main traveler</legend><button type="button" data-key="KeyF">Haul in</button><button type="button" data-key="KeyR">Ease</button></fieldset>
 <fieldset><legend>Jib travelers</legend><button type="button" data-key="KeyQ">Inboard</button><button type="button" data-key="KeyE">Outboard</button></fieldset>
 </div></details></template>
+<dialog id="roomQrDialog" aria-labelledby="roomQrTitle" aria-describedby="roomQrName">
+<h2 id="roomQrTitle">Scan to join</h2><img id="roomQrImage" alt="QR code for the multiplayer room">
+<p id="roomQrName"></p><form method="dialog"><button autofocus>Close</button></form></dialog>
 <dialog id="vehiclePicker" aria-labelledby="vehiclePickerTitle"><h2 id="vehiclePickerTitle">Choose a model</h2><form method="dialog"><button value="hobie">Hobie 16</button><button value="onrt">ONR Tumblehome · model basin</button><button value="motorboat">Inboard cabin cruiser</button><button value="sloop">Pilothouse sloop</button><button value="drone">RDD2 drone</button><button value="sub">Piccard Sub</button><button value="whale">Humpback whale</button><button value="shark">Great white shark</button><button value="gull">Herring gull</button></form></dialog>
 <script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="vehicle.js?viewport=2"></script><script src="wreck.js"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="island-landscape.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
 <canvas id="harborMapCanvas" width="680" height="420" aria-label="North-up chart showing the race course, island, players and NPCs"></canvas>

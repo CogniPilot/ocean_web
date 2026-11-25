@@ -7,7 +7,7 @@ cp viewer/{index.html,world-view.mjs,sailing-start.mjs,instrumentation.mjs,compa
 cp viewer/onrt{,-propeller}.html viewer/onrt-{view,orbit,facility,materials,trial,worker,basin,playback,wake-display,propeller,volume,mesh,recording,shaft-loads}.mjs "$out/"
 cp viewer/board/{boat,trampoline,sail-battens,sail-telltale}.mjs "$out/board/"
 cp viewer/piccard-geometry.mjs "$out/"
-cp viewer/vendor/{three.min.js,gltf-loader.mjs,THREE-LICENSE,trystero.mjs} "$out/vendor/"
+cp viewer/vendor/{three.min.js,gltf-loader.mjs,THREE-LICENSE,trystero.mjs,qrcode-2.0.4.mjs,QRCODE-LICENSE} "$out/vendor/"
 cp -Rf viewer/{assets,licenses} "$out/"
 cp viewer/board/{LICENSE,THIRD-PARTY-NOTICES.txt} "$out/board/"
 sed 's|](../../LICENSE)|](../LICENSE)|g' viewer/board/UPSTREAM-NOTICES.md > "$out/board/UPSTREAM-NOTICES.md"

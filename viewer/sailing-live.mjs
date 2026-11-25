@@ -492,7 +492,7 @@ async function run(saved=readReset(),carried){
         unread=0;chatBadge();
       }
       chatPeers=peerCount;
-      $('chatInvite').hidden=!room||peerCount>0;
+      $('chatInvite').hidden=$('chatRoomQr').hidden=!room||peerCount>0;
       $('chatStatus').value=room&&!peerCount?chatWaiting:'';
     },
     receive:chatMessage
@@ -801,13 +801,49 @@ async function run(saved=readReset(),carried){
   }
   camera.layers.enable(1);camera.layers.enable(3);
   let npcTraffic=carried?.npcTraffic,npcTrafficLoad,npcRows,npcRaceUtc,npcDisplayUtc,npcCamCount=0;
+  function roomInviteUrl(){
+    // Loopback addresses point back to the scanning phone. Plain HTTP LAN
+    // origins also lack the Web Crypto used by the signaling transport.
+    const loopback=['localhost','[::1]'].includes(location.hostname)||location.hostname.startsWith('127.');
+    const base=location.protocol==='https:'&&!loopback
+      ?new URL(location.pathname,location.origin):'https://cognipilot.github.io/ocean_web/';
+    return joinRoomLink(vehicleLink(base,selectedRole==='boat'?(cat?'hobie':'sloop'):selectedRole),roomName);
+  }
+  const secureRoomLink=$('secureRoomLink'),roomQrDialog=$('roomQrDialog');
+  $('chatRoomQr').onclick=$('showRoomQr').onclick=async()=>{
+    const link=roomInviteUrl();
+    try{
+      const {qrcode}=await import('./vendor/qrcode-2.0.4.mjs');
+      if(signal.aborted)return;
+      const code=qrcode(0,'M');
+      code.addData(link.href);
+      code.make();
+      $('roomQrImage').src=code.createDataURL(8,32);
+      $('roomQrName').textContent=link.searchParams.get('room')+' · '+link.host;
+      if(!roomQrDialog.open)roomQrDialog.showModal();
+    }catch(error){
+      if(!signal.aborted)$('online').textContent='Could not display the room QR code.';
+      console.error(error);
+    }
+  };
+  cleanup(()=>{if(roomQrDialog.open)roomQrDialog.close();});
   let joinAttempt=0;
   async function multiplayer(on){
     const attempt=++joinAttempt;
     multiplayerButton.setAttribute('aria-pressed',String(on));
     updatePlayback();
-    $('invite').hidden=true;
+    $('invite').hidden=true;secureRoomLink.hidden=true;
     if(!on){remote.leave();return;}
+    if(!globalThis.crypto?.subtle||typeof RTCPeerConnection!=='function'){
+      multiplayerButton.setAttribute('aria-pressed','false');
+      updatePlayback();
+      if(!globalThis.crypto?.subtle&&!isSecureContext){
+        $('online').textContent='Open the HTTPS room to use multiplayer on this device.';
+        secureRoomLink.href=roomInviteUrl().href;
+        secureRoomLink.hidden=false;
+      }else $('online').textContent='This browser requires WebRTC and Web Crypto to join a room.';
+      return;
+    }
     $('online').textContent='Joining…';
     try{
       const endpoint=document.querySelector('meta[name="ocean-turn-endpoint"]')?.content;
@@ -829,6 +865,7 @@ async function run(saved=readReset(),carried){
     const next=normalizeRoom(roomField.value);roomField.value=next;
     if(next===roomName)return;
     roomName=next;
+    if(!secureRoomLink.hidden)secureRoomLink.href=roomInviteUrl().href;
     for(const id of ['invite','chatInvite'])$(id).textContent='Copy room link';
     if($('multiplayer').getAttribute('aria-pressed')==='true'){
       remote.leave();
@@ -853,7 +890,7 @@ async function run(saved=readReset(),carried){
   on(window,'pageshow',event=>{if(event.persisted)remote.recover();});
   on(window,'online',remote.recover);
   for(const id of ['invite','chatInvite'])$(id).onclick=async event=>{
-    const button=event.currentTarget,link=joinRoomLink(vehicleLink(location.href),roomName);
+    const button=event.currentTarget,link=roomInviteUrl();
     try{await navigator.clipboard.writeText(link.href);button.textContent='Copied';}
     catch{prompt('Multiplayer room link',link.href);}
   };
