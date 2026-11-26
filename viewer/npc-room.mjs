@@ -66,7 +66,7 @@ export function npcRoom(){
       h.sounds.every(s=>Array.isArray(s)&&s.length===7&&['gull','spout','impact'].includes(s[2])&&s.every((v,i)=>i===2||Number.isFinite(v)));
   }
   let animals=new Map(),controls=new Map(),revision=0;
-  const validFrame=f=>Array.isArray(f)&&[65,70,202,203,205,207,319].includes(f.length)&&f.every(Number.isFinite);
+  const validFrame=f=>Array.isArray(f)&&[65,70,202,203,205,207,319,321].includes(f.length)&&f.every(Number.isFinite);
   const validKind=kind=>kind==='whale'||kind==='shark'||individualSwimmer(kind);
   const validPolicy = weights => Array.isArray(weights) && weights.length === 8 && weights.every(row => finiteRow(row,15));
   function setDiverMode(animal,auto,learned=false){
@@ -164,7 +164,7 @@ export function npcRoom(){
             const {schoolSnapshot,...rest}=fishHabitat;fishHabitat=rest;
           }else m.schoolStamp=frameTime;
         }
-        const frameSize=m.shapeFrames?319:m.swimReserve?207:m.sharkBank?205:203;
+        const frameSize=m.pairedFins?321:m.shapeFrames?319:m.swimReserve?207:m.sharkBank?205:203;
         const frame=last?.frame?.length>frameSize?last.frame.slice(0,frameSize):last?.frame;
         const roster=items.filter(a=>(a.kind!=='manta'||m.manta)&&(a.kind!=='diver'||m.diver)).map(a=>{
           const limit=a.kind==='manta'?(m.mantaJoints?29:23):a.kind!=='diver'?frameSize:m.diverAxial?divePacket.length:m.diverVest?divePacket.axial:m.diverLateral?divePacket.vest:m.diverJoints?divePacket.lateral:
@@ -176,7 +176,7 @@ export function npcRoom(){
           }
           return a.frame?.length>limit?{...a,frame:a.frame.slice(0,limit)}:a;
         });
-        delivery.push(send({type:'harbor',version:2,hostTransfer:true,extendedGulls:true,gullWater:true,gullSwimMode:true,gullFlightDynamics:true,gullPaddleDynamics:true,gullTailDynamics:true,sharkBank:true,swimReserve:true,shapeFrames:true,expandedFish:true,diverAxial:true,diverVest:true,diverLateral:true,diverJoints:true,diveMeter:true,diveComputer:true,diver:true,manta:true,mantaJoints:true,schooling:true,joined,frame,items:roster,habitat:fishHabitat},id));
+        delivery.push(send({type:'harbor',version:2,hostTransfer:true,extendedGulls:true,gullWater:true,gullSwimMode:true,gullFlightDynamics:true,gullPaddleDynamics:true,gullTailDynamics:true,sharkBank:true,swimReserve:true,shapeFrames:true,pairedFins:true,expandedFish:true,diverAxial:true,diverVest:true,diverLateral:true,diverJoints:true,diveMeter:true,diveComputer:true,diver:true,manta:true,mantaJoints:true,schooling:true,joined,frame,items:roster,habitat:fishHabitat},id));
       }else{
         if(last?.frame)send([joined,...last.frame.slice(0,70)],id);
         send({type:'animals',items:items.filter(a=>!individualSwimmer(a.kind)).map(a=>({...a,frame:a.frame?.slice(0,70)}))},id);
@@ -207,7 +207,7 @@ export function npcRoom(){
     if(owner===self)sync();
   }
   function send(data,target){return channel?.send(data,target?{target}:undefined).catch(()=>{});}
-  function hello(target){send([joined],target);send({type:'hello',version:2,hostTransfer:true,host:appointed,hostRevision,extendedGulls:true,gullWater:true,gullSwimMode:true,gullFlightDynamics:true,gullPaddleDynamics:true,gullTailDynamics:true,sharkBank:true,swimReserve:true,shapeFrames:true,expandedFish:true,diverAxial:true,diverVest:true,diverLateral:true,diverJoints:true,diveMeter:true,diveComputer:true,diver:true,manta:true,mantaJoints:true,schooling:true,joined},target);}
+  function hello(target){send([joined],target);send({type:'hello',version:2,hostTransfer:true,host:appointed,hostRevision,extendedGulls:true,gullWater:true,gullSwimMode:true,gullFlightDynamics:true,gullPaddleDynamics:true,gullTailDynamics:true,sharkBank:true,swimReserve:true,shapeFrames:true,pairedFins:true,expandedFish:true,diverAxial:true,diverVest:true,diverLateral:true,diverJoints:true,diveMeter:true,diveComputer:true,diver:true,manta:true,mantaJoints:true,schooling:true,joined},target);}
   return {
     vesselFrames,vesselForestays,vesselMastRotations,
     publishVessels(frames){
@@ -227,7 +227,7 @@ export function npcRoom(){
         let m=members.get(peerId);
         if((data.type==='hello'||data.type==='harbor')&&data.version===2&&Number.isSafeInteger(data.joined)&&data.joined>0){
           if(!m){m={joined:data.joined,samples:[]};members.set(peerId,m);elect();hello(peerId);}
-          m.version=2;m.schooling=data.schooling===true;m.manta=data.manta===true;m.mantaJoints=data.mantaJoints===true;m.diver=data.diver===true;m.diveComputer=data.diveComputer===true;m.diveMeter=data.diveMeter===true;m.diverJoints=data.diverJoints===true;m.diverLateral=data.diverLateral===true;m.diverAxial=data.diverAxial===true;m.diverVest=data.diverVest===true;m.hostTransfer=data.hostTransfer===true;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.gullSwimMode=data.gullSwimMode===true;m.gullFlightDynamics=data.gullFlightDynamics===true;m.gullPaddleDynamics=data.gullPaddleDynamics===true;m.gullTailDynamics=data.gullTailDynamics===true;m.sharkBank=data.sharkBank===true;m.swimReserve=data.swimReserve===true;m.shapeFrames=data.shapeFrames===true;m.expandedFish=data.expandedFish===true;
+          m.version=2;m.schooling=data.schooling===true;m.manta=data.manta===true;m.mantaJoints=data.mantaJoints===true;m.diver=data.diver===true;m.diveComputer=data.diveComputer===true;m.diveMeter=data.diveMeter===true;m.diverJoints=data.diverJoints===true;m.diverLateral=data.diverLateral===true;m.diverAxial=data.diverAxial===true;m.diverVest=data.diverVest===true;m.hostTransfer=data.hostTransfer===true;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.gullSwimMode=data.gullSwimMode===true;m.gullFlightDynamics=data.gullFlightDynamics===true;m.gullPaddleDynamics=data.gullPaddleDynamics===true;m.gullTailDynamics=data.gullTailDynamics===true;m.sharkBank=data.sharkBank===true;m.swimReserve=data.swimReserve===true;m.shapeFrames=data.shapeFrames===true;m.pairedFins=data.pairedFins===true;m.expandedFish=data.expandedFish===true;
           if(data.type==='hello'){receiveHost(data,peerId,m);sync(peerId);return;}
         }
         if(!Array.isArray(data)){

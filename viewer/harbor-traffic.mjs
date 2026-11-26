@@ -46,7 +46,8 @@ export class SwimmerTrack {
         this.speed+=.15*(measured-this.speed);
       }
     }
-    if(this.individual&&this.row.length!==frame.length)this.row=new Float64Array(frame.length);
+    const size=this.individual?frame.length:Math.max(319,frame.length);
+    if(this.row.length!==size)this.row=new Float64Array(size);
     this.samples.push({frame,gape,arrival:now});
     if(this.samples.length>16)this.samples.shift();
   }
@@ -179,7 +180,7 @@ async function marineAnimal(T,name,length,caustics,tideUniform){
     articulate=state=>{
       const flex=state[202]??0,bend=state[70]??0;
       trunk(flex);peduncle(bend-flex);tail((state[72]??0)-bend);
-      port(state[201]??0);starboard(state[201]??0);
+      port(state[319]??state[201]??0);starboard(state[320]??state[201]??0);
     };
   }
   const collisionRig=new Map();
@@ -285,9 +286,10 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     const isWhale=a.kind==='whale',pose=isWhale?(frame?.slice(17,21)??[2,-18,-3,0]):(frame?.slice(9,13)??[9,-12,-4,0]);
     const clock=frame?.[0]??0;
 
-    let turn=0,pitch=0,effort=0,age=-1,roll=0;
+    let turn=0,pitch=0,effort=0,age=-1,roll=0,sprint=false;
     if(a.seat){
-      const {axes,bank,breach}=room.command(a.id);
+      const command=room.command(a.id);
+      const {axes,bank,breach}=command;sprint=command.sprint;
       roll=bank*1.4;
       turn=axes[0];pitch=axes[1]*.88;effort=(axes[2]+1)*.5;
       if(breach&&(a.breachAt==null||clock-a.breachAt>(isWhale?25:10)))a.breachAt=clock;
@@ -295,6 +297,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     }else a.breachAt=undefined;
     const [e,n]=pose;
     return {
+      ...(isWhale?{}:{sharkDirect:a.seat&&age<0&&!sprint?2:0}),
       [isWhale?'whalePilot':'sharkPilot']:[Number(Boolean(a.seat)),pitch,effort,age],
       [isWhale?'whalePrey':'sharkPrey']:!a.seat&&frame?feeding.prey(a,frame,clock):[0,0,0,0,0],
       [isWhale?'whaleTurn':'sharkTurn']:turn,
@@ -411,7 +414,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     if(!worker)takeControl();
     const observed=perceived;
     const mainHarbor=[...room.animals.values()].some(a=>!individualSwimmer(a.kind));
-    const inputs={...pilotInputs(room.animals.get('whale'),frame),...pilotInputs(room.animals.get('shark'),frame),
+    const inputs={sharkDirect:0,...pilotInputs(room.animals.get('whale'),frame),...pilotInputs(room.animals.get('shark'),frame),
       observerIds:[wildlifeActorId('whale'),wildlifeActorId('shark')],
       ...wildlifeObservations(observed,new Set(),frame?.slice(9,12),false,frame?.slice(17,20))};
     const actors=mainHarbor?[{id:'harbor',inputs}]:[];

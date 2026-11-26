@@ -19,6 +19,7 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   input Real whaleBank=0,whaleDirect=0,whaleActuators[5]=zeros(5);
   input Real sharkBank=0,sharkDirect=0,sharkActuators[4]=zeros(4)
     "Direct enable; peduncle torque, caudal incidence, port and starboard pectoral incidence (-1..1)";
+  input Real sharkPolicyWeights[10]=zeros(10) "Coefficients of the learned cruise actor (sharkDirect=2)";
   parameter Real initialSwimReserve[2]={1,1};
   output Real swimReserve[2] "Available muscle burst reserves for whale and shark";
   Real whaleReserve(start=initialSwimReserve[1],fixed=true);
@@ -31,7 +32,8 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   parameter Real initialFish[10]={1.65,0,0,0,0,0,0,0,0,0};
   output Real sharkTrunkFlex "Anterior trunk flexion in radians";
   parameter Real initialSharkBank[2]={0,0};
-  GreatWhite whiteShark(startState=initialFish,startBank=initialSharkBank,directDrive=sharkDirect,actuators=sharkActuators);
+  GreatWhite whiteShark(startState=initialFish,startBank=initialSharkBank,directDrive=sharkDirect,actuators=sharkActuators,
+    swimWeights=sharkPolicyWeights,swimCommand={sharkPilot[3],sharkTurn,sharkPilot[2],sharkBank});
   output Real fish[10],sharkTailForce,sharkTailPower,sharkFin;
   output Real sharkBankState[2] "Roll and roll rate";
   output Real sharkContact[2] "Terrain normal load (N) and minimum signed gap (m)";

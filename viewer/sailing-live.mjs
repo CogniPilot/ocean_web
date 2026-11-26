@@ -2287,6 +2287,7 @@ async function run(saved=readReset(),carried){
       (diver?(mobile?'Right stick pitches with fins · Center slider inflates / vents BCD':'R/F pitch with fins · ↑ inflate BCD / ↓ vent')+' · Combine with swim, turn or roll':
         wasd()?'R rise · F dive':animalKind()==='shark'?'↓ rise · ↑ dive':'↑ rise · ↓ dive')+
       ' · '+sideKeys+' roll'+(diver?' · Shift + W faster · V switch view':(animalKind()==='manta'?' · W cruise 3.5 m/s · Shift + W sprint 7 m/s':' · '+(wasd()?'X':'F or X')+' feed')+' · C breach');
+    if(swimming&&animalKind()==='shark')$('swimKeys').textContent+=mobile?' · Sprint for burst effort':' · Shift + W sprint';
     if(learned)$('swimKeys').textContent=mobile?'Left stick forward/back and turn · Right stick pitch/roll · BCD slider · 2× doubles movement rates':
       '↑ / ↓ or W / S forward / back · ← / → or A / D turn · R / F pitch · Q / E roll · Shift doubles rates · = / − adjust BCD';
     $('helm').hidden=Boolean(animalId||motor||sub?.seatedOnLift);$('motorPanel').hidden=!motor||!!animalId;
@@ -2329,11 +2330,12 @@ async function run(saved=readReset(),carried){
     pad.classList.toggle('hobie',hobie);
     pad.replaceChildren();pad.hidden=!show || !manualSelected();
     helm();
-    if(!learned)touchFastSwim=false;
+    const sharkSprint=swimming&&animalKind()==='shark';
+    if(!learned&&!sharkSprint)touchFastSwim=false;
     if(pad.hidden)return;
-    if(learned){
+    if(learned||sharkSprint){
       const fast=document.createElement('button');fast.type='button';fast.className='swim-fast';
-      fast.textContent='2×';fast.setAttribute('aria-label','Double swim and turn rates');fast.setAttribute('aria-pressed',String(touchFastSwim));
+      fast.textContent=sharkSprint?'Sprint':'2×';fast.setAttribute('aria-label',sharkSprint?'Sprint swim':'Double swim and turn rates');fast.setAttribute('aria-pressed',String(touchFastSwim));
       fast.onclick=()=>{touchFastSwim=!touchFastSwim;fast.setAttribute('aria-pressed',String(touchFastSwim));};
       pad.append(fast);
     }
@@ -3902,7 +3904,7 @@ async function run(saved=readReset(),carried){
         if(startLearned&&own&&animalId==='diver'){startLearned=false;remote.npc.diverMode(animalId,false,true);}
         if(!seat&&now-lastClaim>=900){remote.npc.select(animalId,animalId==='diver'?saved?.diverSpawn??initial.diverSpawn:undefined);lastClaim=now;}
         if(own&&!a?.auto&&now-lastInput>=(flyingGull()?(remote.npc.host?30:60):100)){
-          const sprintSwimmer=['manta','diver'].includes(animalKind());
+          const sprintSwimmer=['manta','diver','shark'].includes(animalKind());
           const swimAxis=sprintSwimmer?(a,b)=>axis(a,b,fineControl() ? .25 : 1):axis;
           const stick=animalSticks(swimAxis,animalKind());
           remote.npc.steer(animalId,[stick.yaw,stick.pitch,stick.throttle],stick.roll,sprintSwimmer&&(fastControl()||touchFastSwim)&&!fineControl(),animalKind()==='diver'?axis('VestInflate','VestVent',1):0);lastInput=now;
@@ -3978,7 +3980,7 @@ async function run(saved=readReset(),carried){
             fishDisplay(visitors.ping(a),remote.npc.habitat.restock,remote.npc.latest?.frame[0]??0);
             lastFishPing=now;
           }
-          let status=own?'Manual swim':a.seat?'Piloted by another player':'Autopilot';
+          let status=own?(w?'Manual swim':(fastControl()||touchFastSwim)&&!fineControl()?'Sprint swim':'Learned swim'):a.seat?'Piloted by another player':'Autopilot';
           if(breaching){
             const elapsed=state[0]-a.breachAt;
             status=elapsed<(w?15.8:5)?(w?'Breach · Building speed':'Breach · Target 15 m/s'):elapsed<(w?22:7)?'Breach · Climbing':'Breach · Recovering';

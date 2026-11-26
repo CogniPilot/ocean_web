@@ -5,6 +5,14 @@ import {loadInstance} from './fmi3/instance.mjs';
 import {sampleLoads} from './wildlife-loads.mjs';
 
 const models=new Map();
+let sharkPolicy;
+async function loadSharkPolicy(){
+  const response=await fetch(new URL('./assets/shark-policy.json',import.meta.url),{cache:'no-cache'});
+  if(!response.ok)throw Error('Could not load the shark swim policy');
+  const {weights}=await response.json();
+  if(!Array.isArray(weights)||weights.length!==10||!weights.every(Number.isFinite))throw Error('Invalid shark policy weights');
+  return weights;
+}
 const individualModels={manta:'MantaRay',diver:'ScubaDiver'};
 const optionalDiverInputs=new Set(['contactRelativeVelocity','contactMomentArm','contactLink','contactWitness','patrolOrigin','meshCollision','meshSelfContact','vestValve','lateralPilot','verticalPilot','torchEquipped']);
 const outputs=['state','whale','breathAge','swimmerState','wetSections','impact','fish','guidanceMemory','whaleSources','sharkSources','sharkFin','sharkTrunkFlex','sharkBankState','swimReserve','whaleShapeFrames'];
@@ -26,6 +34,10 @@ async function advance({actors,environment,steps}){
     }
     if(!individualModels[actor.kind]){
       for(const [name,value] of Object.entries(environment))if(model.has(name))model.set(name,value);
+    }
+    if(actor.inputs.sharkDirect===2&&!model.sharkPolicyLoaded){
+      sharkPolicy??=await loadSharkPolicy();
+      model.set('sharkPolicyWeights',sharkPolicy);model.sharkPolicyLoaded=true;
     }
     const legacyObservers=actor.inputs.observerIds&&!model.has('observerIds');
     for(const [name,value] of Object.entries(actor.inputs)){
@@ -82,8 +94,9 @@ async function advance({actors,environment,steps}){
       continue;
     }
     const [state,animal,age,...rest]=model.getMany(outputs);
+    const finAngles=actor.inputs.sharkDirect===2?model.getMany(['whiteShark.portAngle','whiteShark.starboardAngle']):[rest[7],rest[7]];
     // The host samples the live sea at the resulting whale position.
-    frames.push({id:actor.id,loads:actor.inspect?.map(([id,kind])=>[id,sampleLoads(model,kind)]),attempt:model.get('feedingAttempt'),frame:[...state,...animal,age,0,...rest.flat()]});
+    frames.push({id:actor.id,loads:actor.inspect?.map(([id,kind])=>[id,sampleLoads(model,kind)]),attempt:model.get('feedingAttempt'),frame:[...state,...animal,age,0,...rest.flat(),...finAngles]});
   }
   return frames;
 }

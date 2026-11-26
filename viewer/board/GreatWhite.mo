@@ -36,6 +36,9 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
   input Real east,north,z,heading,surface,current[2],desiredSpeed,desiredPitch,desiredHeading,drive,bankCommand,sprint,burst;
   input Real breachRecruitment "Additional caudal excursion during a commanded launch";
   input Real directDrive=0,actuators[4]=zeros(4) "Direct enable; normalized peduncle torque, caudal incidence, port and starboard incidence";
+  input Real swimCommand[4]=zeros(4) "Effort, turn, pitch and bank targets";
+  input Real swimWeights[10]=zeros(10);
+  output Real trackingReward "Cruising command tracking minus mechanical effort";
   output Real x[10](start=startState,each fixed=true)
     "Ground surge, heave, pitch, pitch rate, stroke phase, peduncle yaw, peduncle rate, caudal incidence, yaw rate, ground sway";
   output Real bank[2](start=startBank,each fixed=true) "Roll and roll rate, positive starboard down";
@@ -138,15 +141,15 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
   end groundContact;
   function pectorals
     input Boolean direct;
-    input Real along,normal,incidence,area,wet,bankLift,portAngle,starboardAngle,rollRate,yawRate;
+    input Real along,normal,incidence,area,wet,portWet,starboardWet,bankLift,portAngle,starboardAngle,rollRate,yawRate;
     output Real loads[6] "Axial and normal force, roll and yaw moment, port and starboard normal force";
   protected
     constant Real arm=.91;
     Real portX,portZ,starboardX,starboardZ,fx,fz,roll,yaw;
   algorithm
     if direct then
-      (portX,portZ):=Humpback.foil(along-arm*yawRate,normal+arm*rollRate,portAngle,area,wet);
-      (starboardX,starboardZ):=Humpback.foil(along+arm*yawRate,normal-arm*rollRate,starboardAngle,area,wet);
+      (portX,portZ):=Humpback.foil(along-arm*yawRate,normal+arm*rollRate,portAngle,area,portWet);
+      (starboardX,starboardZ):=Humpback.foil(along+arm*yawRate,normal-arm*rollRate,starboardAngle,area,starboardWet);
       fx:=portX+starboardX;fz:=portZ+starboardZ;
       roll:=arm*(portZ-starboardZ);yaw:=arm*(starboardX-portX);
     else
@@ -166,11 +169,24 @@ protected
   Real immersed[7],buoyMoment,stationHalfHeight[7],tailDepth,caudalHalfHeight;
   Real bowSide,sternSide,bowFlow,sternFlow;
   Real cp,sp,cr,sr,forward,vertical,finBank,bankTorque,yawWaterInertia;
-  Boolean direct;
+  Boolean direct,learned;
+  Real action[4],speedError,pitchSignal,rollSignal,tailSignal,featherSignal;
+  Real finDepth,portWet,starboardWet;
   Real trunkRatio,totalYaw,totalHinge,determinant,yawLoad,hingeLoad;
   Real gaitSprint,gaitBurst,portAngle,starboardAngle;
 equation
-  direct=directDrive>.5;
+  direct=directDrive>.5;learned=directDrive>1.5;
+  speedError=(1.25+2.75*swimCommand[1]-along)/2;
+  // Oscillatory muscle activation with state feedback. The actor controls four
+  // bounded actuators; forward motion comes from the caudal water reaction.
+  tailSignal=(.65+swimWeights[1]+(.22+swimWeights[2])*speedError)*cos(x[5])
+    -(.35+swimWeights[3])*x[6]-.025*x[7];
+  featherSignal=(.52+swimWeights[4])*inflow-(.50+swimWeights[5])*swimCommand[2]+.40*x[9];
+  pitchSignal=(1.35+swimWeights[6])*(swimCommand[3]-x[3])-.4*x[4]+.10+swimWeights[7];
+  rollSignal=(1.0+swimWeights[8])*(swimCommand[4]-bank[1])-.30*bank[2];
+  action=if learned then {tanh(tailSignal),tanh(featherSignal),tanh(pitchSignal+rollSignal),tanh(pitchSignal-rollSignal)} else actuators;
+  trackingReward=1-speedError^2-3*(x[9]-.48*swimCommand[2])^2
+    -2.5*(x[3]-swimCommand[3])^2-1.2*(bank[1]-swimCommand[4])^2-.035*max(0,shaftPower)/peakPower;
   gaitSprint=if direct then 0 else sprint;gaitBurst=if direct then 0 else burst;
   cp=cos(x[3]);sp=sin(x[3]);cr=cos(bank[1]);sr=sin(bank[1]);
   u=x[1]-current[1]*cos(heading)-current[2]*sin(heading);
@@ -191,14 +207,14 @@ equation
   effort=max(0,min(1,.11*desiredSpeed+.26*(desiredSpeed+7*gaitBurst-along)));
   // The ordinary stroke range is based on tagged ascents (Semmens et al., 2019).
   // The 15 m/s game launch recruits a faster, finite-reserve stroke.
-  frequency=if direct then 0 else .39+(1.60+.51*gaitBurst+breachFrequencyGain*breachRecruitment+.13*gaitSprint*(1-gaitBurst))*effort;rate=6.2831853*frequency;der(x[5])=rate;
+  frequency=if learned then max(.45,min(2.2,.95+swimWeights[9]+(.55+swimWeights[10])*swimCommand[1])) else if direct then 0 else .39+(1.60+.51*gaitBurst+breachFrequencyGain*breachRecruitment+.13*gaitSprint*(1-gaitBurst))*effort;rate=6.2831853*frequency;der(x[5])=rate;
   amplitude=.26+(.46+.20*gaitSprint+.47*gaitBurst+.16*breachRecruitment)*effort;target=amplitude*sin(x[5]);
   torqueLimit=peakTorque*(1+1.4*gaitSprint+8*gaitBurst+4*breachRecruitment+.6*gaitSprint*(1-gaitBurst));
   powerLimit=peakPower*(1+2*gaitSprint+14*gaitBurst+9*breachRecruitment+3*(sustainedPowerGain-1)*gaitSprint*(1-gaitBurst));
   // Reduce outward muscle recruitment at the edge of the tail stroke.
   // The compliant hinge and its damping continue to act in both modes.
-  rawTorque=if direct then peakTorque*max(-1,min(1,actuators[1]))*
-    min(1,max(0,(1.15-(if actuators[1]>=0 then x[6] else -x[6]))/.20)) else
+  rawTorque=if direct then peakTorque*max(-1,min(1,action[1]))*
+    min(1,max(0,(1.15-(if action[1]>=0 then x[6] else -x[6]))/.20)) else
     drive*(1+1.5*gaitSprint+5*gaitBurst+3*breachRecruitment)*(14500*(target-x[6])+1500*(amplitude*rate*cos(x[5])-x[7]));
   limitedTorque=max(-torqueLimit,min(torqueLimit,rawTorque));
   torque=limitedTorque*min(1,powerLimit/max(1,(rawTorque+featherControl*(limitedTorque-rawTorque))*x[7]));
@@ -218,7 +234,7 @@ equation
   leadRate=x[7]-lead*rate^2*x[6];
   leadInflow=if lead>0 then atan2(v-1.95*x[9]-caudalArm*cos(leadAngle)*leadRate,
     max(.35,along+caudalArm*sin(leadAngle)*leadRate)) else inflow;
-  feather=if direct then 1.22*max(-1,min(1,actuators[2])) else max(-1.22-.14*featherControl,min(1.22+.14*featherControl,.50*leadInflow+featherControl*.45*
+  feather=if direct then 1.22*max(-1,min(1,action[2])) else max(-1.22-.14*featherControl,min(1.22+.14*featherControl,.50*leadInflow+featherControl*.45*
     (leadInflow-min(.50,max(-.50,leadInflow)))-.60*turn+.70*x[9]));
   der(x[8])=min(18+80*featherControl,
     max(-18-80*featherControl,(feather-x[8])*(35+205*featherControl)));
@@ -228,13 +244,19 @@ equation
   hingeLoad=peduncleTorque-caudalArm*(cos(x[6])*tailY-sin(x[6])*tailX)-580*x[6]-95*x[7]
     +.5*lockedInertia[6]*x[9]^2-.5*lockedInertia[8]*x[7]^2;
   der(x[7])=(totalYaw*hingeLoad-lockedInertia[4]*yawLoad)/determinant;
-  portAngle=.85*max(-1,min(1,actuators[3]));starboardAngle=.85*max(-1,min(1,actuators[4]));
+  portAngle=.85*max(-1,min(1,action[3]));starboardAngle=.85*max(-1,min(1,action[4]));
   finAngle=if direct then .5*(portAngle+starboardAngle) else max(-.85,min(.85,atan2(normal,max(.60,along))+.96*(desiredPitch-x[3])-.42*x[4]));
   // Retract part of the pectoral span in straight, fast swimming. Restore
   // the exposed span as pitch and bank demand increase.
   finExposure=1-.46*featherControl*max(0,min(1,(along-4)/5))*
     max(0,1-2*abs(finAngle)-1.5*abs(bankCommand-bank[1]));
-  pectoralLoad=pectorals(direct,along,normal-.55*x[4],finAngle,pectoralArea*finExposure,finWet,
+  // Port/starboard centers move in opposite vertical directions in a bank.
+  // Project flow onto the fin normal and include pitch velocity at the forward lever.
+  finDepth=surface-z-.65*sp+.18*cp*cr;
+  portWet=Humpback.wet(finDepth-.91*sr*cp,.27);
+  starboardWet=Humpback.wet(finDepth+.91*sr*cp,.27);
+  pectoralLoad=pectorals(direct,along,if direct then cr*(normal+.65*x[4])-sr*v else normal-.55*x[4],
+    finAngle,pectoralArea*finExposure,finWet,portWet,starboardWet,
     bankTorque,portAngle,starboardAngle,bank[2],x[9]);
   finX=pectoralLoad[1];finZ=pectoralLoad[2];
   // In a streamlined stroke, the torso presents a smaller effective drag

@@ -86,3 +86,28 @@ for(let i=0;i<800;i++){
 const displacement=beating.get('state')[9]-passive.get('state')[9];
 assert(displacement>4 && impulse>1000 && beating.get('fish')[0]>1);
 console.log('Eight-second external tail stroke, east displacement vs passive (m) and thrust impulse (N·s)',displacement,impulse);
+
+// Each fin samples its own immersion at the surface. Swapping the bank must
+// swap the fin that carries the load.
+for(const sign of [-1,1]){
+  const initialState=[...start.initialState];initialState[11]=0;
+  const fin=await direct([0,0,.32,.32],{initialState,initialSharkBank:[sign*.65,0]});
+  const loads=fin.get('whiteShark.pectoralLoad');
+  assert(sign*(loads[5]-loads[4])>1000);
+}
+
+const {weights}=JSON.parse(await readFile(new URL('../viewer/assets/shark-policy.json',import.meta.url)));
+async function cruise(turn,pitch,roll,effort){
+  const model=await loadInstance('HarborTraffic',{initialState:[0,-28,6,0,2,-25,2,6,0,-900,-200,-7,0,0,0,0,0],initialFish:[2.4,0,0,0,0,0,0,0,0,0],
+    sharkDirect:2,sharkPolicyWeights:weights,sharkPilot:[1,pitch,effort,-1],sharkBank:roll,sharkTurn:turn},read);
+  advance(model,500);
+  const [fish,bank,state]=model.getMany(['fish','sharkBankState','state']);
+  return {speed:fish[0],pitch:fish[2],bank:bank[0],heading:state[12]};
+}
+for(const sign of [-1,1]){
+  assert(sign*(await cruise(sign,0,0,.55)).heading>.2);
+  assert(sign*(await cruise(0,sign*.6,0,.55)).pitch>.15);
+  assert(sign*(await cruise(0,0,sign*.85,.55)).bank>.4);
+}
+assert((await cruise(0,0,0,1)).speed>(await cruise(0,0,0,0)).speed+.5);
+console.log('Learned shark yaw, pitch, bank, effort and partial fin immersion passed');
