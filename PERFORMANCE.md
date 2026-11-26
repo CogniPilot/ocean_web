@@ -1540,3 +1540,47 @@ buoyancy, rudder and sheet payout against 20 ms calls. Across three desktop
 pairs, median warmed simulation throughput went from 2.15× to 2.22×. Maximum
 horizontal error per coordinate was below 24 nanometres in this replay.
 The frame test reports worker busy time alongside the displayed real-time rate.
+
+### Constraining the sailing worker
+
+A second test exercised the renderer and sailing-worker changes together.
+The control used the main viewer and world worker at `3645b6c`. The candidate
+included 40 ms communication steps for eligible queued Low samples, queue
+refill on worker completion, and deferred reads of disabled load and rig
+inspection outputs. Each run used the same `OceanSailing.fmu.c702c2121402669f.json`
+manifest, default start, orbit camera, 1× playback and 393 × 852 touch viewport.
+
+To recreate a slow physics worker independently of drawing, Chromium and
+SwiftShader were pinned to CPUs 0–7. After each fresh launch a browser trace
+marker identified the operating-system thread for the dedicated sailing
+worker. That thread was moved to CPU 14, given Linux nice +5, and run
+alongside one nice-0 busy loop on that CPU. The built-in frame test ran for
+15 seconds. Worker CPU time came from the thread's Linux `schedstat`, and
+simulation rate was measured over the same wall-clock interval. The worker
+received 24.47–24.52% of one core across the four runs.
+
+| Run order | Simulation / wall time | Display FPS | p95 frame interval |
+| --- | ---: | ---: | ---: |
+| Main | 0.705× | 10.0 | 133.4 ms |
+| Candidate | 0.843× | 9.7 | 116.8 ms |
+| Candidate | 0.831× | 10.8 | 100.1 ms |
+| Main | 0.808× | 10.9 | 100.1 ms |
+
+Both candidate tests reported the physics worker busy for 99% of the elapsed
+time. That HUD measurement includes waiting to be scheduled during service.
+The first main run reproduced the reported 0.7× rate under deliberate CPU
+contention. The repeat main run reached 0.81× with the same CPU share.
+
+An additional pair used hardware WebGL on a desktop RTX 3090 (ANGLE/Vulkan),
+Chromium pinned to four CPU cores, the same touch viewport, and 4× DevTools
+CPU throttling on the page. Both runs reached 1.00× real time at a 294 × 639
+drawing buffer. Main drew 29.9 FPS with p95 50.0 ms, and the candidate drew
+30.0 FPS with p95 33.5 ms. This pair used the 40 ms worker and rendering
+changes before inspection-output deferral. Throttling the page alone did
+not reproduce the slow simulation.
+
+With SwiftShader and the entire browser restricted to two cores, the same
+earlier candidate drew 2.2 FPS at 0.96× twice, versus 3.0–3.1 FPS at
+0.97–0.99× on main. Restricting the renderer and physics together produced
+very slow display updates on both builds. Sustained measurements on actual
+phone hardware are still needed to characterize the reported slowdown.
