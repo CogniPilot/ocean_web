@@ -242,6 +242,16 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 #vehiclePicker button:disabled{opacity:.55}
 #fleetBrowser{margin:0 0 16px}
 #vehiclePicker select,#launchFleet{width:100%;min-height:44px}
+#vehicleChoices{display:none}
+@media (max-width:650px),(pointer:coarse){
+  #vehiclePicker label[for="vehicleType"],#vehicleType{display:none}
+  #vehicleChoices{display:block;min-width:0;margin:0 0 8px;border:0;padding:0}
+  #vehicleChoices legend{margin-bottom:5px;padding:0}
+  #vehicleChoices div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
+  #vehicleChoices label{display:flex;align-items:center;gap:6px;min-height:44px;padding:4px 7px;border:1px solid #659995;border-radius:5px;cursor:pointer}
+  #vehicleChoices input{margin:0;accent-color:#9adbd2}
+  #vehicleChoices label:has(:checked){background:#24545e;border-color:#a4e4d9}
+}
 #fleetDirectoryStatus,#fleetLaunchStatus{display:block;margin-top:5px}
 #launchFleet{margin-top:14px;background:#9adbd2;color:#102b35;font-weight:650}
 </style><link rel="stylesheet" href="harbor-hud.css?v=47b0c91b988ee2da"><link rel="stylesheet" href="harbor-aux.css"><script type="importmap">{"imports":{"./harbor-hud.mjs":"./harbor-hud.mjs?v=019f3590171ef166"}}</script></head><body><section id="startupScreen" aria-labelledby="startupTitle">
@@ -543,14 +553,16 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <label for="vehicleType">Vehicle type</label>
 <select id="vehicleType">
 <option value="hobie">Hobie 16</option>
+<option value="diver">Scuba diver</option>
 <option value="motorboat">Inboard cabin cruiser</option>
 <option value="sloop">Pilothouse sloop</option>
 <option value="drone">RDD2 drone</option>
 <option value="sub">Piccard Sub</option>
 <option value="whale">Humpback whale</option>
-<option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option>
+<option value="shark">Great white shark</option><option value="manta">Manta ray</option>
 <option value="gull">Herring gull</option>
 </select>
+<fieldset id="vehicleChoices"><legend>Vehicle type</legend><div></div></fieldset>
 <div id="entrySpawnFields" hidden><label for="entrySpawn">Spawn point</label>
 <div class="entry-spawn-row"><select id="entrySpawn"></select><button type="button" id="entryMapOpen" aria-haspopup="dialog" aria-controls="entryMap">Choose on map</button></div></div>
 <button id="launchFleet" type="submit">Start simulation</button>

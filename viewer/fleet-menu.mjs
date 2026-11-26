@@ -9,6 +9,21 @@ export async function chooseVehicle(url,endpoint){
   const $=id=>document.getElementById(id);
   const dialog=$('vehiclePicker'),form=dialog.querySelector('form'),vehicles=$('vehicleType');
   const world=$('worldType'),oceanVehicles=[...vehicles.options],tumblehome=new Option('ONR Tumblehome','onrt');
+  const choices=$('vehicleChoices'),vehicleList=choices.querySelector('div');
+  function showVehicleChoices(){
+    vehicleList.replaceChildren(...Array.from(vehicles.options,option=>{
+      const label=document.createElement('label'),radio=document.createElement('input');
+      radio.type='radio';radio.name='landingVehicle';radio.value=option.value;
+      radio.checked=option.selected;
+      label.append(radio,option.label);
+      return label;
+    }));
+  }
+  showVehicleChoices();
+  choices.onchange=event=>{
+    vehicles.value=event.target.value;
+    vehicles.dispatchEvent(new Event('change'));
+  };
   const spawn=$('entrySpawn'),mapButton=$('entryMapOpen'),mapDialog=$('entryMap');
   const canvas=$('entryMapCanvas'),mapChoice=$('entryMapChoice');
   const mapLifetime=new AbortController();
@@ -81,7 +96,7 @@ export async function chooseVehicle(url,endpoint){
     const chooseSpawn=world.value==='ocean'&&mapped.length>0;
     $('entrySpawnFields').hidden=!chooseSpawn;
     spawn.disabled=mapButton.disabled=busy||!chooseSpawn;
-    vehicles.disabled=busy;
+    vehicles.disabled=choices.disabled=busy;
     world.disabled=browser.disabled=$('pickSolo').disabled=busy;
     $('pickFleet').disabled=busy||world.value==='basin';
   }
@@ -136,9 +151,12 @@ export async function chooseVehicle(url,endpoint){
     }else{
       vehicles.replaceChildren(...oceanVehicles);vehicles.value=oceanVehicle;
     }
-    $('basinInfo').hidden=world.value!=='basin';mode(multi);
+    showVehicleChoices();$('basinInfo').hidden=world.value!=='basin';mode(multi);
   };
-  vehicles.onchange=()=>{listSpawns();update();};
+  vehicles.onchange=()=>{
+    for(const radio of vehicleList.querySelectorAll('input'))radio.checked=radio.value===vehicles.value;
+    listSpawns();update();
+  };
   list.onclick=event=>{
     const radio=event.target.closest('tr')?.querySelector('input');
     if(radio&&!radio.disabled&&!browser.disabled&&!event.target.closest('label'))radio.click();
