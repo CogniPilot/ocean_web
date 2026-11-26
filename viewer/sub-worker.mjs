@@ -92,6 +92,7 @@ self.onmessage=async({data})=>{
       ['surveyTelemetry','position','orientation','propellerRPM','cavitation','current','ocean.tide','ocean.wind','ocean.bearing','ocean.tidalEast']);
     self.postMessage({waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,surveySite:survey[15]??0,
       thrust:survey.slice(3,9),buoyancy:survey.slice(9,12),contact:survey.slice(12,15),contactMoment:data.inspectLoads?plant.get('contactMoment'):undefined,wetTorque:data.inspectLoads?plant.get('wetTorque'):undefined,mapRows,
+      ...(data.policyObservation?{policyVelocity:plant.get('velocity'),policyYawRate:plant.get('yawRate')}:{}),
       flood:plant.has('floodState')?plant.get('floodState'):undefined,
       battery:plant.has('batteryTelemetry')?plant.get('batteryTelemetry'):undefined,
       time:tick*.01,pitchLimit,position,q,rpm,cavitation,flow,currentEnvironment,hoistCommand:data.hoist?.[0],

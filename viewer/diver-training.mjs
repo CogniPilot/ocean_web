@@ -1,8 +1,8 @@
-import {trainingDevices,releaseTrainingDevice} from './training-physics.mjs';
+import {trainingDevices,trainingDeviceFor,releaseTrainingDevice} from './training-physics.mjs';
 import {trainingReplay} from './training-replay.mjs';
 import {trainingChart} from './training-chart.mjs';
 
-export function diverTraining(T,signal,releaseControls,swimmer){
+export function diverTraining(T,signal){
   const el=id=>document.getElementById(id);
   const dialog=el('diverTraining'),backend=el('trainingBackend'),run=el('trainingRun'),lanes=el('trainingLanes');
   const physics=el('trainingPhysics'),manual=el('trainingCount');
@@ -34,13 +34,21 @@ export function diverTraining(T,signal,releaseControls,swimmer){
     replay.stop();replayFrame=requestAnimationFrame(playRecorded);
   },{signal});
   const observer=new ResizeObserver(()=>{reward.draw();error.draw();});observer.observe(charts);
-  let session,worker,deviceSession,view,lastRows,checkpoint,completed=0;
+  let session,worker,deviceSession,view,lastRows,checkpoint,swimmer,sessionWeights,completed=0;
+  const weights=()=>swimmer?.weights()??sessionWeights;
+  const model=el('diverTrainingTask');
   function stop(apply=false){
     if(!worker)return;
     worker.terminate();worker=null;releaseTrainingDevice(deviceSession);deviceSession=null;run.textContent='Start training';
-    for(const select of [backend,physics,lanes,manual,init])select.disabled=false;
+    for(const select of [model,backend,physics,lanes,manual,init])select.disabled=false;
     if(!apply)return;
-    if(!checkpoint||!completed){status.textContent='Stopped before the first update. Your swimmer kept its policy.';return;}
+    if(!checkpoint||!completed){status.textContent='Stopped before the first policy update.';return;}
+    if(!swimmer){
+      sessionWeights=checkpoint.weights;
+      status.textContent='Session policy saved · best round '+checkpoint.round;
+      init.querySelector('[value=current]').disabled=false;init.value='current';
+      return;
+    }
     const applied=swimmer.apply(checkpoint.weights);
     status.textContent=applied?'Applied the best validated weights to your swimmer · round '+checkpoint.round:
       'Swimmer is no longer under your control. Save weights to keep this checkpoint.';
@@ -63,7 +71,7 @@ export function diverTraining(T,signal,releaseControls,swimmer){
     const selected=backend.value;
     let runStatus='';
     const next=new Worker(new URL('./diver-training-worker.mjs',import.meta.url),{type:'module'});
-    worker=next;for(const input of [backend,physics,lanes,manual,init])input.disabled=true;
+    worker=next;for(const input of [model,backend,physics,lanes,manual,init])input.disabled=true;
     run.textContent='Stop training';status.textContent='Loading diver models…';
     next.onerror=e=>{if(worker===next)fail(e.message||'Training worker failed to start.');};
     next.onmessage=({data})=>{
@@ -100,19 +108,23 @@ export function diverTraining(T,signal,releaseControls,swimmer){
       }
     };
     next.postMessage({type:'start',backend:selected,physics:physics.value,lanes:lanes.value==='manual'?manual.valueAsNumber:lanes.value==='auto'?'auto':Number(lanes.value),initialization:init.value,
-      weights:init.value==='current'?swimmer.weights():undefined});
+      weights:init.value==='current'?weights():undefined});
   }
-  el('openDiverTraining').addEventListener('click',async()=>{
+  async function open(controlledSwimmer){
     if(dialog.open)return;
-    releaseControls();dialog.showModal();session=new AbortController();const active=session;
-    const current=Boolean(swimmer.weights());init.querySelector('[value=current]').disabled=!current;
+    if(session)close();
+    swimmer=controlledSwimmer;
+    dialog.showModal();session=new AbortController();const active=session;
+    const current=Boolean(weights()),option=init.querySelector('[value=current]');
+    option.textContent=swimmer?.weights()?'My swimmer':'Session policy';option.disabled=!current;
     if(current)init.value='current';else if(init.value==='current')init.value='pretrained';
     if(!navigator.gpu)backend.value='cpu';
     trainingDevices().then(devices=>{
       if(active.signal.aborted||worker)return;
-      const option=physics.querySelector('[value=cuda]');option.disabled=!devices.plants?.includes('ScubaDiver')||devices.maxCount<1;
-      deviceMaximum=devices.maxCount??0;physics.value=option.disabled?'cpu':'cuda';countLimit();
-      if(devices.error)status.textContent='CUDA unavailable · '+devices.error;
+      const device=trainingDeviceFor(devices,'ScubaDiver'),option=physics.querySelector('[value=cuda]');
+      option.disabled=!device;deviceMaximum=device?.maxCount??0;physics.value=device?'cuda':'cpu';countLimit();
+      const error=devices.errors?.ScubaDiver??devices.error;
+      if(error)status.textContent='CUDA unavailable · '+error;
     });
     status.textContent='Ready';el('trainingSceneLabel').textContent='Open ocean';el('trainingViewStatus').textContent='Loading diver model…';const canvas=el('trainingGhosts');
     const surface=canvas.cloneNode(false);canvas.replaceWith(surface);focusOptions();
@@ -124,7 +136,7 @@ export function diverTraining(T,signal,releaseControls,swimmer){
       if(active.signal.aborted)return;
       view=prepared;view.focus(Number(focus.value));view.overlay(overlay.checked);if(lastRows)view.frames(lastRows);
     }catch(e){if(!active.signal.aborted)status.textContent='Swimmer view unavailable · '+e.message;}
-  },{signal});
+  }
   lanes.addEventListener('change',()=>{manual.hidden=lanes.value!=='manual';},{signal});
   focus.addEventListener('change',()=>view?.focus(Number(focus.value)),{signal});
   overlay.addEventListener('change',()=>view?.overlay(overlay.checked),{signal});
@@ -138,6 +150,8 @@ export function diverTraining(T,signal,releaseControls,swimmer){
   },{signal});
   el('trainingClose').addEventListener('click',()=>dialog.close(),{signal});
   for(const key of ['keydown','keyup'])dialog.addEventListener(key,e=>e.stopPropagation(),{signal});
-  dialog.addEventListener('close',close,{signal});
+  dialog.addEventListener('close',()=>{if(!dialog.open)close();},{signal});
+  window.addEventListener('pagehide',()=>{if(dialog.open)dialog.close();close();},{signal});
   signal.addEventListener('abort',()=>{observer.disconnect();stop();if(dialog.open)dialog.close();close();},{once:true});
+  return open;
 }

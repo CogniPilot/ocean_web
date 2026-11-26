@@ -109,3 +109,31 @@ body > header:has(#roomChat[open]:not([hidden])) {z-index:4}
 #entryMap :focus-visible {outline:2px solid #f5cc89;outline-offset:2px}
 @media(max-height:470px){#entryMapCanvas{height:clamp(98px,32dvh,150px)}}
 @media(prefers-reduced-motion:no-preference){#entryMap[open]{animation:harbor-panel-enter 145ms ease-out}}
+
+#modelTraining{box-sizing:border-box;width:min(640px,calc(100vw - 18px));max-height:94dvh;padding:0;overflow:auto;border:1px solid #659995;border-radius:10px;background:#0b2935;color:#e6f4f6}
+#modelTraining::backdrop{background:#02151bd9}
+#modelTraining .trainingHead{padding:14px 18px;border-bottom:1px solid #385d68}
+#modelTrainingForm,.model-progress,#modelTrainingPlots{padding:14px 18px}
+#modelTraining .model-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+#modelTraining .model-fields label{display:grid;gap:4px;font-size:13px;color:#c3dedf}
+#modelTraining :is(button,select,input){min-height:42px}
+#modelTraining .model-fields :is(select,input){box-sizing:border-box;width:100%;min-width:0}
+#modelTrainingObjective{margin:12px 0;line-height:1.45}
+#modelTraining .model-actions{display:flex;gap:6px;flex-wrap:wrap}
+#modelTrainingRun{background:#24545e;border-color:#a4e4d9}
+.model-progress{display:grid;gap:4px;background:#08232e;font:13px/1.5 ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.model-progress output:empty{display:none}
+.model-progress progress{width:100%;height:7px;accent-color:#76ddcf}
+#modelTrainingPlots{display:grid;gap:12px}
+#modelTrainingPlots figure{margin:0;min-width:0}
+#modelTrainingPlots figcaption{margin-bottom:4px;font-size:14px}
+#modelTrainingPlots figcaption label{margin-left:8px;font-size:13px}
+#modelTrainingPlots figcaption span:first-child{color:#76ddcf}
+#modelTrainingPlots figcaption span:last-child{color:#f9bd7c}
+#modelTrainingPlots canvas{position:static;display:block;width:100%;height:140px;background:#092530}
+#modelTrainingPlots #modelTrainingReward{height:90px}
+#modelTrainingAvailability{font-size:12px;color:#a4cdcb;margin:0 0 12px}
+#modelTrainingAvailability:empty{display:none}
+#modelTraining :is(button,select,input):disabled{opacity:.55;cursor:default}
+#modelTraining .trainingHead{position:sticky;top:0;z-index:1;background:#0b2935}
+#modelTrainingApplied{display:block;margin-top:8px}

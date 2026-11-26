@@ -31,14 +31,14 @@ using Clock = std::chrono::steady_clock;
 using Error = std::runtime_error;
 static Json json(cJSON *value) { return Json(value, cJSON_Delete); }
 static void require(bool ok, const std::string &message) { if (!ok) throw Error(message); }
-static size_t deviceStackBytes() {
-    const char *value = std::getenv("RUMOCA_CUDA_STACK_BYTES");
-    if (!value) return 24576;
+static size_t memorySetting(const char *name, size_t fallback) {
+    const char *value = std::getenv(name);
+    if (!value) return fallback;
     size_t bytes{};
     const char *end = value + std::strlen(value);
     const auto parsed = std::from_chars(value, end, bytes);
     require(parsed.ec == std::errc{} && parsed.ptr == end && bytes > 0,
-            "RUMOCA_CUDA_STACK_BYTES must be a positive byte count");
+            std::string(name) + " must be a positive byte count");
     return bytes;
 }
 static void driver(CUresult result, const char *op) {
@@ -95,7 +95,7 @@ class Batch {
     const size_t instanceBytes = host_instance_size();
     const size_t heapPerLane = host_event_heap_budget();
     size_t heapBytes{};
-    const uint64_t stride = 4ULL << 20;
+    const uint64_t stride = memorySetting("RUMOCA_CUDA_ARENA_BYTES", 4ULL << 20);
     int count{};
     double time{};
     uint64_t dispatches{};
@@ -217,13 +217,15 @@ class Batch {
     }
 public:
     Batch(const Metadata &meta, const char *path) : meta(meta) {
+        require(stride % 256 == 0 && stride <= std::numeric_limits<size_t>::max() - instanceBytes - sizeof(int) - heapPerLane,
+                "CUDA lane arena must be a multiple of 256 bytes and fit in device memory");
         std::unique_ptr<void,decltype(&host_free)> check(host_begin(meta.token.c_str()),host_free);
         require(bool(check),"Metadata token does not match the compiled host FMI");
         GPU(cuInit(0)); CUdevice dev; GPU(cuDeviceGet(&dev,0));
         GPU(cuDeviceGetName(device,sizeof device,dev));
         GPU(cuDeviceGetAttribute(&gridLimit,CU_DEVICE_ATTRIBUTE_MAX_GRID_DIM_X,dev));
         GPU(cuCtxCreate_v2(&context,0,dev));
-        GPU(cuCtxSetLimit(CU_LIMIT_STACK_SIZE,deviceStackBytes()));
+        GPU(cuCtxSetLimit(CU_LIMIT_STACK_SIZE,memorySetting("RUMOCA_CUDA_STACK_BYTES", 24576)));
         // CUDA device malloc is independent of both driver allocations and our lane arenas.
         // Set it before loading the compiled model, while the runtime limit is mutable.
         refreshCapacity();

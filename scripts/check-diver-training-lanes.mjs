@@ -57,3 +57,14 @@ assert.throws(()=>lanes[63].policy.targets(),/closed/);
 const reused=await factory(lanes[3].inputs);
 assert.deepEqual(reused.get('state'),poses[3]);reused.close();
 console.log('64 independent diver and policy lanes, signed commands, reference trajectory, disposal and reset passed.',{loadMs:loaded-start,heapMiB,steps:256,stepMs:stepped-loaded});
+
+// Older Emscripten plants fill in the options object with the reactor exports.
+// Each lane needs its own options object and memory, while reusing the WASM bytes.
+const manta=await prepareInstance('MantaRay',read,true);
+const left=await manta({initialState:[-4,0,-6,1,0,0,0,0,0,0,0,0,0,.34,0,60]});
+const right=await manta({initialState:[9,0,-6,1,0,0,0,0,0,0,0,0,0,.34,0,60]});
+assert.equal(left.get('state')[0],-4);
+right.advance(.01);left.advance(.01);
+assert(Math.abs(left.get('state')[0]+4)<.1&&Math.abs(right.get('state')[0]-9)<.1);
+left.close();right.close();
+console.log('Independent Emscripten training lanes passed.');

@@ -8,7 +8,7 @@ import {loadInstance} from '../fmi3/instance.mjs';
 let updateMappedCurrent;
 let session,observations,inputs,surveyMap,updateScanContact,transferPose,hoistOffset,hoistQOffset,pendingContactPose;
 let bowField,bowFields,breakingBows=false,singleBow=false,bowLength=8;
-let sampledGroups=[],stepCount=0,stepTicks=1;
+let sampledGroups=[],stepCount=0,stepTicks=1,mobileSailing=false;
 // These discrete outputs share sample events in OceanWorld. The initial
 // right limit can differ from the initialization snapshot on the first step.
 function sampleEpoch(step,interval){
@@ -34,6 +34,7 @@ async function handle(request){
     const base=new URL('./',import.meta.url);
     const {index:file}=await (await fetch(new URL('manifest.json',base),{cache:'no-cache'})).json();
     const index=await (await fetch(new URL(file,base))).json();
+    mobileSailing=stepTicks===2&&index.modelName==='OceanSailing';
     const parameters={...request.parameters};
     if(request.surveyView && index.variables.some(v=>v.name==='surveyAtStartup'))parameters.surveyAtStartup=0;
     const onProgress=request.reportProgress?progress=>self.postMessage({progress}):undefined;
@@ -106,6 +107,8 @@ async function handle(request){
         [waveDt*100,['boat.stationGeometry','boat.beamFraction','boat.halfSpacing','boat.sectionVolume','boat.sectionWater','boat.stationX','boat.beamHalf',
           'boat.hydroStationGeometry','boat.hydroSectionVolume','hydroSurfaceProbes','sectionStamp',
           'stripEast','stripNorth','stripZ','stripForce','stripVolume','panelSea',...battenFields],'physics'],
+        [1,['boat.rigCollision'],'physics'],
+        [1,['boat.rigForce','boat.foilLoad','boat.foilArm'],'loads'],
         [5,['boat.origin','boat.rigMoment','sub.contactMoment','sub.wetTorque','propulsion.propellerCenter','propulsion.rudderCenter','propulsion.propellerForce','propulsion.rudderForce','propulsion.shaftReaction'],'loads'],
         [20,['boatWater.tile']],[20,['sensor'],'dvl'],[20,['ping'],'camera'],[windDt*100,['wind.field']]
       ];
@@ -152,7 +155,11 @@ async function handle(request){
       updateMappedCurrent?.();
       if(updateScanContact)updateScanContact(pendingContactPose);
       pendingContactPose=undefined;
-      const ticks=updateScanContact?1:stepTicks;
+      // When the mobile helm has queued multiple ticks on Low, amortize the
+      // FMI call while still landing on each 100 ms water update boundary.
+      const coalesce=mobileSailing && request.surveyView?.wakeSurface===false &&
+        request.steps-i>=4 && (stepCount+i)%10<=6;
+      const ticks=updateScanContact?1:coalesce?4:stepTicks;
       session.step(.01*ticks);
       i+=ticks;
     }

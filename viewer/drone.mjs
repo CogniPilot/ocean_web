@@ -5,6 +5,10 @@ import {loadInstance} from './fmi3/instance.mjs';
 function loadAirframe(){
   return new GLTFLoader().loadAsync(new URL('./assets/drone.glb',import.meta.url).href);
 }
+import {createPlayablePolicy} from './live-policy-actor.mjs';
+import {getAppliedPolicy} from './live-training-tasks.mjs';
+import {droneTask} from './vehicle-training-tasks.mjs';
+
 function assembleAirframe(T,model,mounts){
   const group=new T.Group(),props=[];
   model.rotation.x=Math.PI/2; // glTF +Y up to the vehicle's forward-left-up frame.
@@ -53,12 +57,15 @@ export async function surveyDrone(T,scene,world){
   const instrumentsFields=['attitude',...(hasNavigation?['estimatedPosition','estimatedVelocity']:['gps','gpsVelocity'])];
   const compassFields=[...instrumentsFields,'estimatedWindENU','windEstimateValid'];
   const covarianceFields=['positionCovariance','velocityCovariance','windCovariance'];
-  let active=false,manual=true;
+  let active=false,manual=true,flightMode=0;
+  const flyPolicy=createPlayablePolicy(droneTask);
   function input(axis,fast=false){
     const stick=pilotSticks(axis),gain=fast?2:1;
-    flight.set('forward',active&&manual?gain*stick.pitch:0);
-    flight.set('left',active&&manual?-gain*stick.roll:0);
-    flight.set('climb',active&&manual?stick.throttle:0);
+    const forward=active&&manual?gain*stick.pitch:0,left=active&&manual?-gain*stick.roll:0,climb=active&&manual?stick.throttle:0;
+    const policy=active&&manual&&flightMode===0&&hasNavigation?getAppliedPolicy('drone'):null;
+    if(!flyPolicy(flight,{forward:2*forward,left:2*left,up:climb},policy)){
+      flight.set('forward',forward);flight.set('left',left);flight.set('climb',climb);
+    }
     flight.set('turn',active&&manual?stick.yaw:0);
   }
   function instruments(compass=false){
@@ -101,7 +108,7 @@ export async function surveyDrone(T,scene,world){
     get throttle(){return flight.get('throttle');},get rotorAngles(){return flight.get('rotorAngle');},
     get rotorSpeeds(){return hasRotorSpeeds?flight.get('rotorSpeed'):null;},
     get estimatedPosition(){return flight.get(instrumentsFields[1]);},
-    set flightMode(value){flight.set('flightMode',value);},get active(){return active;},get position(){return flight.get('position');},
+    set flightMode(value){flightMode=value;flight.set('flightMode',value);},get active(){return active;},get position(){return flight.get('position');},
     get drag(){return flight.get('dragBody');},
     get manual(){return manual;},set manual(value){manual=value;flight.set('pilot',Number(value));input(()=>0);},
     select(value){active=value;input(()=>0);},

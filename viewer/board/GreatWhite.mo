@@ -44,15 +44,17 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
   output Real bank[2](start=startBank,each fixed=true) "Roll and roll rate, positive starboard down";
   function segmentInertia
     "Parallel-axis assembly in the whole-animal COM frame, plus the coupled yaw/peduncle mass matrix"
-    input Real data[6,10],pivots[6,3],massScale,lengthScale,bend,trunkRatio,feather,port,starboard;
+    input Real data[6,10],pivots[6,3],massScale,lengthScale,bend,trunkRatio,recruit,feather,port,starboard;
     output Real H[5] "Roll, pitch, yaw, yaw/peduncle cross inertia and peduncle inertia, kg m2";
   protected
     Real c[6,3],tangent[6,3],origin[6,3],originRate[6,3],mean[3],meanRate[3];
-    Real angles[6],gears[6],scaleMass[6],diag[6,3],R[3,3],Rparent[3,3],xyz[3],d[3],v[3];
+    Real angles[6],gears[6],scaleMass[6],diag[6,3],R[3,3],Rparent[3,3],xyz[3],d[3],v[3],trunk,gear;
     Real tensor[3,3],I[3,3],a,cs,sn;
   algorithm
-    angles:={0,trunkRatio*bend,bend,feather,port,starboard};
-    gears:={0,trunkRatio,1,0,0,0};
+    trunk:=trunkRatio*bend+.65*recruit*(bend-tanh(3*bend)/3);
+    gear:=trunkRatio+.65*recruit*tanh(3*bend)^2;
+    angles:={0,trunk,bend,feather,port,starboard};
+    gears:={0,gear,1,0,0,0};
     origin:=lengthScale*pivots;c:=zeros(6,3);tangent:=zeros(6,3);scaleMass:=zeros(6);diag:=zeros(6,3);
     originRate:=zeros(6,3);mean:=zeros(3);meanRate:=zeros(3);
     for i in 1:6 loop
@@ -86,13 +88,13 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
     end for;
   end segmentInertia;
   function articulatedInertia
-    input Real data[6,10],pivots[6,3],massScale,lengthScale,bend,trunkRatio,feather,port,starboard;
+    input Real data[6,10],pivots[6,3],massScale,lengthScale,bend,trunkRatio,recruit,feather,port,starboard;
     output Real H[8];
   protected
     Real base[5],next[5];
   algorithm
-    base:=segmentInertia(data,pivots,massScale,lengthScale,bend,trunkRatio,feather,port,starboard);
-    next:=segmentInertia(data,pivots,massScale,lengthScale,bend+.001,trunkRatio,feather,port,starboard);
+    base:=segmentInertia(data,pivots,massScale,lengthScale,bend,trunkRatio,recruit,feather,port,starboard);
+    next:=segmentInertia(data,pivots,massScale,lengthScale,bend+.001,trunkRatio,recruit,feather,port,starboard);
     H:=cat(1,base,(next[3:5]-base[3:5])/.001);
   end articulatedInertia;
   function groundContact
@@ -172,18 +174,22 @@ protected
   Boolean direct,learned;
   Real action[4],speedError,pitchSignal,rollSignal,tailSignal,featherSignal;
   Real finDepth,portWet,starboardWet;
+  Real recruit,steer,gear,sternX,sternY,sternDX,sternDY,sternAxial,sternNormal,sternFx,sternFy,tailArmX,tailArmY,tailDX,tailDY,tailAlong;
   Real trunkRatio,totalYaw,totalHinge,determinant,yawLoad,hingeLoad;
   Real gaitSprint,gaitBurst,portAngle,starboardAngle;
 equation
   direct=directDrive>.5;learned=directDrive>1.5;
+  // Positive yaw curls the posterior body to port (negative posterior tangent).
+  steer=min(1,abs(directDrive-1))*max(-1,min(1,swimCommand[2]));
+  recruit=max(min(1,max(0,directDrive-1)),abs(steer));
   speedError=(1.25+2.75*swimCommand[1]-along)/2;
   // Oscillatory muscle activation with state feedback. The actor controls four
   // bounded actuators; forward motion comes from the caudal water reaction.
-  tailSignal=(.65+swimWeights[1]+(.22+swimWeights[2])*speedError)*cos(x[5])
-    -(.35+swimWeights[3])*x[6]-.025*x[7];
-  featherSignal=(.52+swimWeights[4])*inflow-(.50+swimWeights[5])*swimCommand[2]+.40*x[9];
+  tailSignal=(.65+swimWeights[1]+(.22+swimWeights[2])*speedError+.75*abs(steer))*cos(x[5])
+    -(.35+swimWeights[3]+.75*abs(steer))*x[6]-.035*x[7]-(.68+.25*swimWeights[5])*steer;
+  featherSignal=(.52+swimWeights[4])*inflow-(1.10+swimWeights[5])*swimCommand[2]+.40*x[9];
   pitchSignal=(1.35+swimWeights[6])*(swimCommand[3]-x[3])-.4*x[4]+.10+swimWeights[7];
-  rollSignal=(1.0+swimWeights[8])*(swimCommand[4]-bank[1])-.30*bank[2];
+  rollSignal=(1.0+swimWeights[8])*(swimCommand[4]-.32*steer-bank[1])-.30*bank[2];
   action=if learned then {tanh(tailSignal),tanh(featherSignal),tanh(pitchSignal+rollSignal),tanh(pitchSignal-rollSignal)} else actuators;
   trackingReward=1-speedError^2-3*(x[9]-.48*swimCommand[2])^2
     -2.5*(x[3]-swimCommand[3])^2-1.2*(bank[1]-swimCommand[4])^2-.035*max(0,shaftPower)/peakPower;
@@ -208,7 +214,7 @@ equation
   // The ordinary stroke range is based on tagged ascents (Semmens et al., 2019).
   // The 15 m/s game launch recruits a faster, finite-reserve stroke.
   frequency=if learned then max(.45,min(2.2,.95+swimWeights[9]+(.55+swimWeights[10])*swimCommand[1])) else if direct then 0 else .39+(1.60+.51*gaitBurst+breachFrequencyGain*breachRecruitment+.13*gaitSprint*(1-gaitBurst))*effort;rate=6.2831853*frequency;der(x[5])=rate;
-  amplitude=.26+(.46+.20*gaitSprint+.47*gaitBurst+.16*breachRecruitment)*effort;target=amplitude*sin(x[5]);
+  amplitude=.26+(.46+.20*gaitSprint+.47*gaitBurst+.16*breachRecruitment)*effort;target=amplitude*sin(x[5])-.75*steer;
   torqueLimit=peakTorque*(1+1.4*gaitSprint+8*gaitBurst+4*breachRecruitment+.6*gaitSprint*(1-gaitBurst));
   powerLimit=peakPower*(1+2*gaitSprint+14*gaitBurst+9*breachRecruitment+3*(sustainedPowerGain-1)*gaitSprint*(1-gaitBurst));
   // Reduce outward muscle recruitment at the edge of the tail stroke.
@@ -223,8 +229,15 @@ equation
   // A stronger stroke recruits more of the peduncle ahead of the caudal fin.
   // The same lever maps fin motion and water reaction back to the hinge.
   caudalArm=hingeArm+.21*gaitSprint+.20*breachRecruitment+.11*gaitSprint*(1-gaitBurst);
-  lateral=v-1.95*x[9]-caudalArm*cos(x[6])*x[7];
-  inflow=atan2(lateral,max(.35,along+caudalArm*sin(x[6])*x[7]));
+  // Move the caudal centre of pressure with the bent trunk. The same
+  // displacement Jacobian projects its fluid load onto the bending mode.
+  tailArmX=-1.95+recruit*caudalArm*(1-cos(x[6]))+1.35*recruit*(1-cos(trunkFlex));
+  tailArmY=-caudalArm*sin(x[6])-1.35*recruit*sin(trunkFlex);
+  tailDX=caudalArm*sin(x[6])+1.35*recruit*sin(trunkFlex)*gear;
+  tailDY=-caudalArm*cos(x[6])-1.35*recruit*cos(trunkFlex)*gear;
+  lateral=v+tailArmX*x[9]+tailDY*x[7];
+  tailAlong=along-recruit*tailArmY*x[9]+tailDX*x[7];
+  inflow=atan2(lateral,max(.35,tailAlong));
   // At high effort the actively feathered caudal foil follows the local inflow
   // more closely, retaining a useful angle of attack during the loaded part of the beat.
   featherControl=gaitSprint+gaitBurst-gaitSprint*gaitBurst;
@@ -238,10 +251,11 @@ equation
     (leadInflow-min(.50,max(-.50,leadInflow)))-.60*turn+.70*x[9]));
   der(x[8])=min(18+80*featherControl,
     max(-18-80*featherControl,(feather-x[8])*(35+205*featherControl)));
-  (tailX,tailY)=Humpback.foil(along+caudalArm*sin(x[6])*x[7],lateral,x[8],tailArea,tailWet);
+  (tailX,tailY)=Humpback.foil(tailAlong,lateral,x[8],tailArea,tailWet);
   tailThrust=tailX;
   der(x[6])=x[7];
-  hingeLoad=peduncleTorque-caudalArm*(cos(x[6])*tailY-sin(x[6])*tailX)-580*x[6]-95*x[7]
+  hingeLoad=peduncleTorque+tailDX*tailX+tailDY*tailY+sternDX*sternFx+sternDY*sternFy-580*x[6]-95*x[7]
+    -recruit*30000*(max(0,x[6]-.87)-max(0,-.87-x[6]))
     +.5*lockedInertia[6]*x[9]^2-.5*lockedInertia[8]*x[7]^2;
   der(x[7])=(totalYaw*hingeLoad-lockedInertia[4]*yawLoad)/determinant;
   portAngle=.85*max(-1,min(1,action[3]));starboardAngle=.85*max(-1,min(1,action[4]));
@@ -265,18 +279,28 @@ equation
   bodyNormal=-wet*(225*normal*abs(along)+250*normal*abs(normal));
   // Two strips sample crossflow ahead and astern of the centre of mass. Their
   // separated reactions resist yaw even when the net lateral velocity is zero.
-  bowFlow=v+1.18*x[9];sternFlow=v-1.30*x[9];
+  bowFlow=v+1.18*x[9];
+  // A crossflow strip aft of the centre of mass follows the rear trunk.
+  // Its cant changes both the direction of resistance and its moment arm.
+  sternX=-1.30+1.30*recruit*(1-cos(trunkFlex));
+  sternY=-1.30*recruit*sin(trunkFlex);
+  sternDX=1.30*recruit*sin(trunkFlex)*gear;
+  sternDY=-1.30*recruit*cos(trunkFlex)*gear;
+  sternAxial=along-sternY*x[9]+sternDX*x[7];sternNormal=v+sternX*x[9]+sternDY*x[7];
+  sternFlow=sternNormal*cos(recruit*trunkFlex)-sternAxial*sin(recruit*trunkFlex);
   bowSide=-wet*(120*abs(along)+215*abs(bowFlow))*bowFlow;
   sternSide=-wet*(150*abs(along)+215*abs(sternFlow))*sternFlow;
-  sideForce=bowSide+sternSide;
+  sternFx=-sin(recruit*trunkFlex)*sternSide;sternFy=cos(recruit*trunkFlex)*sternSide;
+  sideForce=bowSide+sternFy;
   // Anterior bending decreases as dynamic pressure stiffens the trunk. The
   // remaining peduncle deflection and compliant caudal foil keep the tail beat.
   trunkRatio=.29/(1+(abs(along)/1.18)^6);
-  trunkFlex=trunkRatio*x[6];
-  forward=tailX+finX+drag;vertical=cr*finZ+bodyNormal;
+  trunkFlex=trunkRatio*x[6]+.65*recruit*(x[6]-tanh(3*x[6])/3);
+  gear=trunkRatio+.65*recruit*tanh(3*x[6])^2;
+  forward=tailX+finX+drag+sternFx;vertical=cr*finZ+bodyNormal;
   // Use the same contact clock as the humpback so a face change on the wreck
   // cannot force arbitrarily small adaptive integration steps.
-  lockedInertia=articulatedInertia(segments,pivots,mass/870,length/4.8,x[6],trunkRatio,x[8],if direct then portAngle else finAngle,if direct then starboardAngle else finAngle);
+  lockedInertia=articulatedInertia(segments,pivots,mass/870,length/4.8,x[6],trunkRatio,recruit,x[8],if direct then portAngle else finAngle,if direct then starboardAngle else finAngle);
   when sample(0,.005) then
     ground=groundContact({east,north,z},heading,x,length,bank);
   end when;
@@ -289,7 +313,7 @@ equation
   totalYaw=lockedInertia[3]+yawWaterInertia;
   totalHinge=lockedInertia[5]+wet*hingeWaterInertia;
   determinant=max(1,totalYaw*totalHinge-lockedInertia[4]^2);
-  yawLoad=boatLoad[3]+ground[5]+pectoralLoad[4]-1.95*tailY+1.18*bowSide-1.30*sternSide
+  yawLoad=boatLoad[3]+ground[5]+pectoralLoad[4]+tailArmX*tailY-recruit*tailArmY*tailX+1.18*bowSide+sternX*sternFy-sternY*sternFx
     -wet*(520+200*abs(along))*x[9]-lockedInertia[6]*x[9]*x[7]-lockedInertia[7]*x[7]^2;
   der(x[9])=(totalHinge*yawLoad-lockedInertia[4]*hingeLoad)/determinant;
   der(x[10])=(boatLoad[2]+ground[2]+tailY+sideForce-sr*finZ)/(mass+350)-x[9]*x[1];

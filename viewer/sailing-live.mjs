@@ -1,3 +1,6 @@
+import {createPlayablePolicy} from './live-policy-actor.mjs';
+import {getAppliedPolicy} from './live-training-tasks.mjs';
+import {motorboatTask} from './vehicle-training-tasks.mjs';
 import {harborHud} from './harbor-hud.mjs';
 import {fixedSpawnPoints,entryPose} from './spawn-sites.mjs';
 import {liftPose,portLiftWireframes,liftMechanism,liftX,hingeY} from './stern-lift.mjs';
@@ -135,7 +138,9 @@ function joinRoomLink(url,room,fleet=1){
   url.searchParams.set('join','1');
   return url;
 }
+import {sailTrainingHelm} from './sail-training-helm.mjs';
 import {diverTraining} from './diver-training.mjs';
+import {modelTraining} from './model-training.mjs';
 import {loadVectors} from './load-vectors.mjs';
 
 const resetStorage='ocean-world-reset';
@@ -180,6 +185,10 @@ async function run(saved=readReset(),carried){
   const packaged=document.body.dataset.defaultRuntime==='world'&&!splitPiccard;
   const lobbyEndpoint=document.querySelector('meta[name="ocean-lobby-endpoint"]')?.content;
   let landingSeat,entryPoint,chooseEntryHoist=false;
+  let controlledSwimmer;
+  const openDiver=diverTraining(T,signal);
+  const trainer=modelTraining(signal,()=>openDiver(controlledSwimmer?.()));
+  on($('entryModelTraining'),'click',()=>trainer.open($('vehicleType').value));
   const invalidInvite=url.searchParams.get('join')==='1'&&!validRoomName(url.searchParams.get('room')??'');
   if(invalidInvite||url.searchParams.has('menu')||(packaged&&!['runtime','boat','control','demo'].some(name=>url.searchParams.has(name)))){
     const choice=await chooseVehicle(url,lobbyEndpoint);
@@ -288,7 +297,10 @@ async function run(saved=readReset(),carried){
   speedSelect.closest('label').hidden=!world&&!splitDive;
   const worldReadyAt=performance.now();
   let prev=worldReadyAt,physicsWall=worldReadyAt,acc=0;
-  const model=world?world.boat:simulation;
+  const rawBoat=world?world.boat:simulation;
+  const learnedHelm=hasBoat&&rawBoat?sailTrainingHelm(rawBoat,cat,$('policyCourseField'),$('policyCourse'),
+    error=>{console.error(error);$('readout').textContent='Sailing policy stopped · '+error.message;}):null;
+  const model=learnedHelm?.model??rawBoat;
   let contactModel,contactLoad;
   const worker=world?null:new Worker(new URL('./wave-worker.mjs',import.meta.url),{type:'module'});
   let waterFrame,lastWaveFrame,waterError,splitTimer;
@@ -1138,7 +1150,8 @@ async function run(saved=readReset(),carried){
     const desktopRatio=selector.value==='high'?1.5:selector.value==='fast'?profile.ratio:1;
     renderRatio=mobile?profile.ratio:desktopRatio;
     pixelScale=Math.min(devicePixelRatio,renderRatio);
-    ocean.setQuality(profile,Boolean(omitWake),renderer.capabilities.isWebGL2,adaptiveWater());
+    const mobileWater=adaptiveWater()||(mobile&&cat&&selectedRole==='boat'&&selector.value==='low');
+    ocean.setQuality(profile,Boolean(omitWake),renderer.capabilities.isWebGL2,mobileWater);
   }
   applyQuality();
   selector.onchange=()=>{
@@ -1735,13 +1748,25 @@ async function run(saved=readReset(),carried){
   showCovariance.onchange=covarianceVisibility;
   $('sonarMap').onchange=()=>{if(sub)sub.mapVisible=$('sonarMap').checked;};
   const trainingDialog=$('diverTraining');
-  diverTraining(T,signal,()=>{keys.clear();keyboard.clear();analog.clear();}, {
-    weights:()=>remote.npc.animals.get(animalId)?.swimWeights,
-    apply(weights){
-      if(!ownsAnimal()||animalKind()!=='diver')return false;
-      remote.npc.diverMode(animalId,false,true,weights);
-      return true;
-    }
+  on($('openModelTraining'),'click',()=>{
+    keys.clear();keyboard.clear();analog.clear();
+    const target=$('controlTarget').value;
+    trainer.open(animalId?animalKind():target==='boat'?(cat?'hobie':'sloop'):target);
+  });
+  controlledSwimmer=()=>{
+    if(!ownsAnimal()||animalKind()!=='diver')return;
+    const id=animalId;
+    return {
+      weights:()=>remote.npc.animals.get(id)?.swimWeights,
+      apply(weights){
+        if(animalId!==id||!ownsAnimal()||animalKind()!=='diver')return false;
+        remote.npc.diverMode(id,false,true,weights);
+        return true;
+      }
+    };
+  };
+  on($('openDiverTraining'),'click',()=>{
+    keys.clear();keyboard.clear();analog.clear();trainer.open('diver');
   });
   const showForces=$('showForces');
   if(saved?.toggles?.showForces===true && saved?.fields?.showForces===undefined)showForces.checked=true;
@@ -1989,6 +2014,7 @@ async function run(saved=readReset(),carried){
   const clampAxis=value=>Math.max(-1,Math.min(1,value));
   const shaftLever=$('shaftLever');
   let shaftCommand=0,heldLever;
+  const cruiserPolicy=motor&&createPlayablePolicy(motorboatTask);
   function updateShaft(){
     if(!motor)return;
     const forward=(keys.has('KeyW')?keyboard.get('KeyW'):0)+(analog.get('KeyW')??0);
@@ -3139,6 +3165,7 @@ async function run(saved=readReset(),carried){
         wavePresentation.sample(wakeTicks,now);
       }
       wakeTicks++;
+      learnedHelm?.step(!animalId&&!sub?.active&&!drone?.active);
       model.advance(.01);
       if(wakeTicks%5===0){
         race.set('east',model.get('east'));race.set('north',model.get('north'));
@@ -3165,6 +3192,7 @@ async function run(saved=readReset(),carried){
     const elapsed=Math.max(0,(now-physicsWall)/1000);
     physicsWall=now;
     if(starting||!running||document.hidden)return;
+    learnedHelm?.step(!animalId&&!sub?.active&&!drone?.active);
     if(frameTest?.headroom){
       // Count the offline harbor as well as the vehicle. Limit the lead
       // so contact inputs and animal poses stay close to the world clock.
@@ -3272,7 +3300,8 @@ async function run(saved=readReset(),carried){
       finishTest('Headroom test ended when the wildlife roster changed.');return;
     }
     if(test.start===undefined){
-      test.start=test.last=now;test.simStart=t;test.harborStart=remote.npc.clock;return;
+      test.start=test.last=now;test.simStart=t;test.harborStart=remote.npc.clock;
+      test.workerStart=world?.workerMilliseconds;return;
     }
     test.gaps.push(now-test.last);test.last=now;
     const elapsed=(now-test.start)/1000;
@@ -3289,8 +3318,10 @@ async function run(saved=readReset(),carried){
       return;
     }
     const final=renderer.domElement;
+    const workerTime=world?world.workerMilliseconds-test.workerStart:0;
+    const workerLoad=workerTime>0?' · physics worker '+Math.round(workerTime/(elapsed*10))+'% busy':'';
     const p99=gaps[Math.ceil(.99*gaps.length)-1],worst=gaps[gaps.length-1];
-    finishTest(`${(gaps.length/elapsed).toFixed(1)} FPS · p95 ${p95.toFixed(1)} ms · p99 ${p99.toFixed(1)} ms · longest ${worst.toFixed(1)} ms · ${((t-test.simStart)/elapsed).toFixed(2)}× real time · ${test.quality} · ${final.width}×${final.height} final pixels`);
+    finishTest(`${(gaps.length/elapsed).toFixed(1)} FPS · p95 ${p95.toFixed(1)} ms · p99 ${p99.toFixed(1)} ms · longest ${worst.toFixed(1)} ms · ${((t-test.simStart)/elapsed).toFixed(2)}× real time · ${test.quality} · ${final.width}×${final.height} final pixels${workerLoad}`);
   }
   speedSelect.onchange=()=>{
     url.searchParams.set('speed',speedSelect.value);history.replaceState(history.state,'',url);
@@ -3592,7 +3623,13 @@ async function run(saved=readReset(),carried){
         world.set('peerSubs',peerSubs);
       }
       if(world){
-        if(motor)world.set('helmLever',animalId?0:pilotSticks(axis).yaw);
+        if(motor){
+          const helm=animalId?0:pilotSticks(axis).yaw;
+          const policy=!animalId&&!document.hidden&&targetSelect.value==='motorboat'&&Number.isFinite(world.get('yawRate'))?getAppliedPolicy('motorboat'):null;
+          if(!cruiserPolicy(world,{speed:shaftCommand*(shaftCommand>=0?5:2),turn:.25*helm},policy)){
+            world.set('helmLever',helm);world.set('throttleLever',shaftCommand);
+          }
+        }
         if(world.hasSeaClock){
           const phase=remote.seaTime(world.time,now);
           world.set('seaClockOffset',phase-world.time);
@@ -4274,7 +4311,7 @@ async function run(saved=readReset(),carried){
       reef.update(camera.position,opticalTime);
       cave.update(camera.position);
       updateWreckSites(camera.position,eyeSurface,collisionToggle.checked);
-      const drawOcean=!trainingDialog.open;
+      const drawOcean=!trainingDialog.open&&!trainer.dialog.open;
       if(drawOcean&&eyeHeight>=-surfaceBand)ocean.updateWhitecaps(renderer,now,eyeX,eyeY,
         model?.get('currentEast')??.2,model?.get('currentNorth')??.04);
       if(drawOcean)caustics.update(opticalTime,!omitWake);
@@ -4525,8 +4562,13 @@ async function run(saved=readReset(),carried){
   }
   if(world){
     world.setAfterAdvance(t=>{
-      if(starting||!running||document.hidden||(!frameTest?.headroom&&playbackRate<=1))return;
+      if(starting||!running||document.hidden)return;
       const now=performance.now();
+      if(!frameTest?.headroom&&playbackRate<=1){
+        // Refill a lagging mobile solver as soon as its previous result arrives.
+        // At normal pace the render and timer callbacks still drive the clock.
+        if(!mobile||mode!=='sailing'||selector.value!=='low'||acc+(now-physicsWall)*.001*playbackRate<.04)return;
+      }
       if(frameTest?.headroom)visitors.advanceHost(t,now);
       advanceWorld(now);
     });

@@ -1,4 +1,5 @@
 import {diverWreckStart} from './harbor-sites.mjs';
+import {getAppliedPolicy} from './live-training-tasks.mjs';
 import {sharkSegments} from './shark-inertia.mjs';
 import {diverObstacles} from './diver-contact.mjs';
 import {diverContactRig} from './scuba-diver.mjs';
@@ -532,6 +533,15 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       actors.push(actor);
     }
     for(const actor of actors){
+      const ids=actor.id==='harbor'?['shark','whale']:[actor.id];
+      for(const id of ids){
+        const animal=room.animals.get(id);
+        if(!animal||animal.seat!==room.self||!['shark','whale','manta'].includes(animal.kind))continue;
+        const command=room.command(id);
+        if(command?.breach||command?.sprint||animal.breachAt!=null)continue;
+        const policy=getAppliedPolicy(animal.kind);
+        if(policy)(actor.policies??={})[animal.kind]=policy;
+      }
       if(individualSwimmer(actor.kind))continue;
       const previous=actor.id==='harbor'?frame:room.animals.get(actor.id)?.frame;
       // Each HarborTraffic FMU contains both swimmers. Clone seeds and host handoff packets

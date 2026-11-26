@@ -1,3 +1,4 @@
+import {getAppliedPolicy} from './live-training-tasks.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
 import {sampleTrial,bowGaugeComparison} from './onrt-trial.mjs';
 import {installOrbit} from './onrt-orbit.mjs';
@@ -411,7 +412,7 @@ async function start() {
           $('shaft').value=+$('shaft').value+Math.round(steps*wakeStep*140)*(held('KeyW','ArrowUp')-held('KeyS','ArrowDown'));
           $('helm').value=+$('helm').value+Math.round(steps*wakeStep*35)*(held('KeyA','ArrowLeft')-held('KeyD','ArrowRight'));labels();
         }
-        busy=true;worker.postMessage({type:'step',steps,inputs:inputs()});
+        busy=true;worker.postMessage({type:'step',steps,inputs:inputs(),policy:$('mode').value==='drive'?getAppliedPolicy('onrt'):null});
       }
     }
     const sample=playback.sample(dt,trial?.end);

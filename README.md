@@ -64,6 +64,12 @@ world.postMessage({
 world.postMessage({id: 2, type: 'advance', steps: 21, values: Float64Array.of(0.7)});
 ```
 
+## Live policy training
+
+Open **Model training** on the landing screen or in **Controls**. Select a model, set the instance count, and choose the physics and policy-update devices independently. CPU physics runs the shipped Rumoca FMU in the browser. WebGPU can run the optimizer in a compatible browser. GPU physics requires the CUDA training service to serve the matching plant. Live paths show each rollout in metres and the reward chart compares the candidate with the best validated policy. **Use in simulation** applies the selected checkpoint to that model on this browser. **Restore default policy** returns control to its normal controller. [CUDA service setup](tools/fmi-cuda-batch/README.md)
+
+For sailing, the policy observes true and apparent wind speed and signed wind angles, course error, boat motion, heel and sheet payout. The Hobie 16 can steer, trim the mainsheet and jib sheet, adjust both travelers, downhaul, outhaul and jib halyard, and move the crew fore/aft and across the boat. The sloop can steer, trim its shared sheet winch and adjust the vang. After applying a checkpoint, open **Settings → Sail trim → Policy point of sail** and choose a target on either tack. The initial setting holds the signed wind angle from when the policy took the helm.
+
 ## Live build status
 
 The **Room name** field defaults to `regatta`. Open **Settings → Multiplayer**, enter a name, and turn on **Multiplayer** to join that room. Editing the name while connected moves you to the new room. **Copy room link** and **Show room QR** invite another player to that room. On a phone, scan the code with the camera. Local HTTP previews share the public HTTPS room so the phone can use Web Crypto. Press **Enter** or tap **Chat** to open room chat. Press **Enter** to send or **Escape** to return to sailing. The **Players & NPCs** roster identifies the host. In the Multiplayer pane, the host can **Transfer host** to another player or **Restart countdown** to schedule the next fleet start five minutes out. Current NPCs and recorded lap times carry over during transfer. The sailing compass opens with wind speed, speed over ground, true heading and the bearing and distance to the next gate or mark. **Settings → View & diagnostics → Forces** shows loads at their hull or rig attachment points. The committee flag and island palms respond to the wind field at their locations.

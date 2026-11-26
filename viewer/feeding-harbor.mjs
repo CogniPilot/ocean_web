@@ -1,5 +1,8 @@
 import {waterStreaks} from './water-spray.mjs';
 import {harborSchools} from './fish-schools.mjs';
+import {createPlayablePolicy} from './live-policy-actor.mjs';
+import {getAppliedPolicy} from './live-training-tasks.mjs';
+import {gullTask} from './wildlife-training-tasks.mjs';
 import {birdMesh,GullTrack} from './gull.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
 
@@ -84,7 +87,10 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment,sampleSurfa
       const id='gull-'+(i+1);
       if(room.seat(id)){
         const {axes:[turn,climb,flap],bank}=room.command(id);
-        m.set('pilot',[1,climb,Math.max(-1,Math.min(1,turn-bank)),flap]);
+        const bankTarget=Math.max(-1,Math.min(1,turn-bank));
+        const checkpoint=room.seat(id)===room.self&&row[2]>seaLevel+1.5?getAppliedPolicy('gull'):null;
+        slot.flyPolicy??=createPlayablePolicy(gullTask);
+        if(!slot.flyPolicy(m,{climb,bank:bankTarget,speed:13+2*flap},checkpoint))m.set('pilot',[1,climb,bankTarget,flap]);
       }else{
         const escape=gullEscape(actors,id,row,seaLevel,slot,steps*.01);
         m.set('pilot',escape);

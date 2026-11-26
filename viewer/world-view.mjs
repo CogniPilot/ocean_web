@@ -95,7 +95,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    breakingBows:mode==='motorboat'||(hasBoat&&mode!=='sloop'),singleBow:mode==='motorboat',bowLength:mode==='motorboat'?cruiserBowLength:8,warmSolver:options.warmSolver,
    reportProgress:Boolean(options.onProgress),
    optionalInputs:[...(hasSub?['peerCruisers','peerLiftStates','subFlood']:[]),...(mode==='motorboat'?['peerSubs']:[]),...(hasBoat&&mode!=='sloop'?['jibHalyardInput']:[]),...(mode==='motorboat'?['startEncounter','encounterTargets','wiperSwitch','lowerAnchor','droneLandingLoad','sternLiftGoal','sternLiftOccupied']:[]),...(hasFlight?['rotorWakeTraffic','droneTraffic','vesselDecks']:[]),'animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','imagingSonar','omitWake','subMode','subAttitudePilot','subHoist','subHoistUp','subHoistQuaternion','subHoistAngularVelocity'],
-   optionalOutputs:[...(hasBoat?group('boat','origin rigMoment'):[]),...(hasSub?group('sub','contactMoment wetTorque'):[]),...(mode==='motorboat'?group('propulsion','propellerCenter rudderCenter propellerForce rudderForce shaftReaction'):[]),...(mode==='motorboat'?['sternLiftState','sternLiftPose','sternLiftBottomPose','sternLiftWrench','sternHoistCable','sternHoistSeated']:[]),'swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame','sternFoamTrail',...inertiaOutputs,
+   optionalOutputs:[...(hasBoat?group('boat','origin rigMoment'):[]),...(hasSub?group('sub','contactMoment wetTorque velocity yawRate'):[]),...(mode==='motorboat'?group('propulsion','propellerCenter rudderCenter propellerForce rudderForce shaftReaction'):[]),...(mode==='motorboat'?['sternLiftState','sternLiftPose','sternLiftBottomPose','sternLiftWrench','sternHoistCable','sternHoistSeated']:[]),'swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame','sternFoamTrail',...inertiaOutputs,
      ...launchContactOutputs,
      ...(hasSub?['subFloodState','sub.batteryTelemetry','sub.pilotPitchLimit',...group('sub.ocean','tide wind bearing tidalEast')]:[]),
      'race.earlyStart','race.finishUtc','race.heatStart',
@@ -103,7 +103,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.sailWind','boat.stationX','boat.beamHalf','boat.halfSpacing','boat.deckZ','boat.pontoonContactVertices','boat.pontoonContactFaces','boat.platformContactCorners']:[]),
      ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes','sectionStamp',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
-     ...(mode==='motorboat'?[...cruiserInspectionFields,'driveGeometry','panelSea','cruiserContactVertices','cruiserContactFaces','cabinContactVertices','cabinContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','anchorHolding','anchor.horizontalSpeed','landingDeck','engineIdleTime','engineOffAfter']:[]),...(hasFlight?[...flightNavigationOutputs,...flightWakeOutputs,...droneContactOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount','drone.vesselDeckWrenches']:[])]});
+     ...(mode==='motorboat'?[...cruiserInspectionFields,'driveGeometry','panelSea','cruiserContactVertices','cruiserContactFaces','cabinContactVertices','cabinContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','anchorHolding','anchor.horizontalSpeed','landingDeck','engineIdleTime','engineOffAfter','yawRate']:[]),...(hasFlight?[...flightNavigationOutputs,...flightWakeOutputs,...droneContactOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount','drone.vesselDeckWrenches']:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
@@ -130,7 +130,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  // Keep the worker supplied while the main thread draws. Both requests run
  // serially on the same FMU. Step counts here are centiseconds, even when
  // the FMU takes two ticks per communication point.
- let batchSize=5,wallMsPerTick=10;
+ let batchSize=5,wallMsPerTick=10,workerMilliseconds=0;
  let outstanding=0,queued=0,afterAdvance,appliedHoistCommand=0;
  const hoistOffset=offsets.get('subHoist');
  function advance(steps,headroom=false,rate=1){
@@ -159,6 +159,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
        // A second queued request also waits for the first one and browser
        // presentation. Only the worker service time predicts the next batch.
        const serviceMs=f.serviceMs??(performance.now()-started);
+       workerMilliseconds+=serviceMs;
        wallMsPerTick=.8*wallMsPerTick+.2*serviceMs/steps;
        receive(f,revision);
        afterAdvance?.(time);
@@ -178,7 +179,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const flight=view('drone',(n,v)=>{const i=axes.indexOf(n);if(i>=0)controls[offsets.get('flightPilot')+i]=v;
    else if(n==='stationEast'||n==='stationNorth')controls[offsets.get('station')+Number(n==='stationNorth')]=v;
    else set(n==='pilot'?'flightManual':n,v);});
- return {advance,get appliedHoistCommand(){return appliedHoistCommand;},get scheduledSteps(){return outstanding+queued;},setAfterAdvance(callback){afterAdvance=callback;},setLoadInspection(enabled){surveyView.loads=enabled;},setPhysicsRequested(enabled){surveyView.physics=enabled;},setWakeSourceRequested(enabled){
+ return {advance,get workerMilliseconds(){return workerMilliseconds;},get appliedHoistCommand(){return appliedHoistCommand;},get scheduledSteps(){return outstanding+queued;},setAfterAdvance(callback){afterAdvance=callback;},setLoadInspection(enabled){surveyView.loads=enabled;},setPhysicsRequested(enabled){surveyView.physics=enabled;},setWakeSourceRequested(enabled){
    surveyView.wakeSource=enabled;
    if(!enabled)state.delete('waves.sourceStrips');
   },setWakeEnabled(enabled){

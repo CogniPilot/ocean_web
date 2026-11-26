@@ -3,12 +3,16 @@ import {mkdir,readFile,readdir,writeFile,copyFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {resolve,join} from 'node:path';
 const dir=resolve(process.argv[2]??'build/diver-swim-kernel'),out=resolve(process.argv[3]??'viewer/assets/diver-policy');
-const training=process.argv[4]==='DiverLiveUpdate';
-const name=training?'DiverLiveUpdate':'DiverSwimPolicy';
-const basename=training?'live-update':'swim-policy';
+const controllers={
+  DiverSwimPolicy:['viewer/board/DiverSwimPolicy.mo','swim-policy'],
+  DiverLiveUpdate:['tools/diver-policy-vjp/DiverLiveUpdate.mo','live-update'],
+  LiveActor:['tools/diver-policy-vjp/LiveActor.mo','live-actor']
+};
+const name=process.argv[4]??'DiverSwimPolicy';
+const [source,basename]=controllers[name];
 await mkdir(dir,{recursive:true});await mkdir(out,{recursive:true});
 const run=(proc,args)=>execFileSync(proc,args,{stdio:'inherit'});
-run(process.env.RUMOCA??'rumoca',['compile',training?'tools/diver-policy-vjp/DiverLiveUpdate.mo':'viewer/board/DiverSwimPolicy.mo','-m',name,'--target','fmi3','-o',dir]);
+run(process.env.RUMOCA??'rumoca',['compile',source,'-m',name,'--target','fmi3','-o',dir]);
 const root=join(dir,name),src=join(root,'sources');
 const xml=await readFile(join(root,'modelDescription.xml'),'utf8'),token=xml.match(/instantiationToken="([^"]+)"/)[1];
 const vars={};

@@ -7,12 +7,39 @@ async function request(path,body){
   if(!reply.ok)throw Error((await reply.json().catch(()=>({}))).error??'Local GPU physics service unavailable');
   return reply.json();
 }
+function plantMetadata(name){
+  return fetch(new URL('./fmi3/'+encodeURIComponent(name)+'.json',import.meta.url),{cache:'no-cache'}).then(response=>{
+    if(!response.ok)throw Error('Cannot load '+name+' FMI metadata');
+    return response.json();
+  });
+}
+export function trainingDeviceFor(capabilities,name){
+  if(!capabilities?.plants?.includes(name))return undefined;
+  return capabilities.byPlant?.[name]??(capabilities.plants.length===1?capabilities:undefined);
+}
 export async function trainingDevices(){
+  const devices={plants:[],byPlant:{},errors:{},activePlants:[]};
   try{
-    const r=await fetch('/api/training/capabilities');
-    if(r.headers.get('content-type')?.includes('application/json'))return await r.json();
+    const response=await fetch('/api/training/capabilities',{cache:'no-store'});
+    if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))return devices;
+    const info=await response.json();
+    Object.assign(devices.errors,info.errors);
+    devices.activePlants=info.activePlants??[];
+    for(const result of await Promise.all((info.plants??[]).map(async name=>{
+      const device=trainingDeviceFor(info,name);
+      try{
+        if(!device||!Number.isSafeInteger(device.maxCount)||device.maxCount<1)throw Error('CUDA capacity unavailable');
+        if(device.token&&(await plantMetadata(name)).token!==device.token)throw Error('GPU physics and viewer must use the same FMU version.');
+        return {name,device};
+      }catch(error){return {name,error:error.message};}
+    }))){
+      if(result.error){devices.errors[result.name]=result.error;continue;}
+      devices.plants.push(result.name);
+      devices.byPlant[result.name]=result.device;
+    }
+    if(devices.plants.length===1)return {...devices.byPlant[devices.plants[0]],...devices};
   }catch{}
-  return {plants:[]};
+  return devices;
 }
 export function releaseTrainingDevice(id){
   if(id)void fetch('/api/training/sessions/'+encodeURIComponent(id),{method:'DELETE',keepalive:true}).catch(()=>{});
@@ -34,11 +61,11 @@ export async function trainingPhysics(backend,name,onSession){
     id=null;endpoint=null;
   }
   async function acquire(){
-    const session=await request('sessions',{plant:name});
+    const session=await request('sessions',{plant:name,token:metadata.token});
     id=session.id;endpoint='sessions/'+encodeURIComponent(id);onSession?.(id);
     return session;
   }
-  const metadata=await fetch(new URL('./fmi3/'+name+'.json',import.meta.url)).then(r=>r.json());
+  const metadata=await plantMetadata(name);
   const service=await acquire();
   let dispatches=0,batchDispatches=0;
   function lane(values){

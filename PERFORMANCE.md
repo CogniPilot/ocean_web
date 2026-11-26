@@ -1509,3 +1509,34 @@ the earlier ring-contact build, the row-bounds build and this build. All
 three produce the same six-second following-sea velocity of 6.1573 m/s
 against the test threshold of 6.45 m/s, with identical recorded speed,
 phase, force and ballast for all three headings/sea cases.
+
+## Touch-device Hobie on Low
+
+The Low touch renderer uses the Hobie's compact 5,740-triangle water mesh, with
+25 cm cells around both hulls. The previous Low grid drew 15,488 triangles.
+Refraction uses the mobile depth-tested filter. The optical whitecap atlas
+covers the same patch with 192 × 192 texels instead of 320 × 320. Both planar
+captures still use the presented boat pose on every above-water frame.
+
+Four fresh Chromium launches ran the built-in 15-second frame test after
+five seconds of sailing at the default Hobie start. The 393 × 852 touch
+viewport used DPR 3 and SwiftShader on a desktop, with the same sailing FMU
+in each run. The final drawing buffer was 196 × 426 throughout.
+
+| Run order | FPS | p95 frame interval | Simulation / wall time |
+| --- | ---: | ---: | ---: |
+| Previous Low | 13.1 | 83.4 ms | 1.00× |
+| Updated Low | 15.2 | 66.8 ms | 1.00× |
+| Updated Low | 15.6 | 66.8 ms | 1.00× |
+| Previous Low | 12.2 | 100.0 ms | 1.00× |
+
+This comparison measures desktop software rendering. Physical handset
+frame pacing and sustained simulation throughput remain unmeasured.
+
+On the mobile Hobie, the worker can combine two queued 20 ms FMI calls when
+wakes are disabled. It splits at each 100 ms water sampling boundary. A
+20-second replay used swell, changing rudder and trim, and compared hull pose,
+buoyancy, rudder and sheet payout against 20 ms calls. Across three desktop
+pairs, median warmed simulation throughput went from 2.15× to 2.22×. Maximum
+horizontal error per coordinate was below 24 nanometres in this replay.
+The frame test reports worker busy time alongside the displayed real-time rate.

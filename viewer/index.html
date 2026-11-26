@@ -317,7 +317,8 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 </div><div class="control-row">
 <span id="subAccessories" hidden><button type="button" id="subLamp" aria-pressed="true" aria-keyshortcuts="Z">Survey lamp (Z)</button></span>
 <button type="button" id="diverTorch" hidden aria-pressed="false" aria-keyshortcuts="X">Equip flashlight</button>
-<button type="button" id="openDiverTraining" aria-haspopup="dialog" hidden>Live training</button>
+<button type="button" id="openModelTraining" aria-haspopup="dialog" aria-controls="modelTraining">Model training</button>
+<button type="button" id="openDiverTraining" aria-haspopup="dialog" hidden>Diver swim training</button>
 <button id="showSticks" aria-controls="sticks" aria-pressed="false">On-screen controls</button>
 <button type="button" id="recenterView" aria-keyshortcuts="Home" title="Restore the selected camera’s default view (Home)">Recenter view</button>
 <button id="helm" title="Sail the regatta course automatically">Engage race autopilot</button>
@@ -327,6 +328,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button type="button" id="goBelow" hidden>Go below</button>
 </div><section class="control-row" id="animalPilot" hidden><button type="button" id="animalFeed">Feed (F)</button> <button id="animalBreach" type="button">Breach</button> <span id="swimKeys"></span></section>
 <details class="control-pane" data-boat><summary>Sail trim</summary>
+<label id="policyCourseField" hidden>Policy point of sail <select id="policyCourse"><option value="hold">Hold initial wind angle</option><option value="45">Port close-hauled · 45°</option><option value="90">Port beam reach · 90°</option><option value="135">Port broad reach · 135°</option><option value="175">Port run · 175°</option><option value="-45">Starboard close-hauled · 45°</option><option value="-90">Starboard beam reach · 90°</option><option value="-135">Starboard broad reach · 135°</option><option value="-175">Starboard run · 175°</option></select></label>
 <div class="control-fields">
 <div class="control-grid">
 <div class="control-slider" id="vangControl"><div class="control-label"><label for="vang"><span id="luffControlName">Vang</span></label><output id="vangSet" for="vang">50%</output></div>
@@ -522,8 +524,36 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <fieldset><legend>Main traveler</legend><button type="button" data-key="KeyF">Haul in</button><button type="button" data-key="KeyR">Ease</button></fieldset>
 <fieldset><legend>Jib travelers</legend><button type="button" data-key="KeyQ">Inboard</button><button type="button" data-key="KeyE">Outboard</button></fieldset>
 </div></details></template>
+<dialog id="modelTraining" aria-labelledby="modelTrainingTitle">
+  <div class="trainingHead"><h2 id="modelTrainingTitle">Model training</h2><button type="button" id="modelTrainingClose" autofocus>Close</button></div>
+  <form id="modelTrainingForm">
+    <div class="model-fields">
+      <label>Model<select id="modelTrainingTask"></select></label>
+      <label>Start from<select id="modelTrainingInit"><option value="scratch">Scratch</option><option value="pretrained">Pre-trained policy</option><option value="current">Saved policy</option></select></label>
+      <label>Physics<select id="modelTrainingPhysics"><option value="cpu">CPU (WASM)</option><option value="cuda" disabled>GPU (CUDA)</option></select></label>
+      <label>Policy updates<select id="modelTrainingBackend"><option value="cpu">CPU</option><option value="gpu" disabled>GPU (WebGPU)</option></select></label>
+      <label>Count<select id="modelTrainingLanes"><option value="auto">Auto</option><option selected>1</option><option>4</option><option>16</option><option>32</option><option>64</option><option value="manual">Manual…</option></select></label>
+      <label id="modelTrainingCountLabel" hidden>Instance count<input id="modelTrainingCount" type="number" min="1" max="256" step="1" value="4" required></label>
+    </div>
+    <p id="modelTrainingObjective"></p><p id="modelTrainingAvailability"></p>
+    <div class="model-actions"><button id="modelTrainingRun" type="submit">Start training</button>
+      <button type="button" id="modelTrainingLoad">Load checkpoint…</button><input type="file" id="modelTrainingFile" aria-label="Checkpoint file" accept=".json,application/json" hidden>
+      <button type="button" id="modelTrainingSave" disabled>Save checkpoint</button>
+      <button type="button" id="modelTrainingApply" disabled>Use in simulation</button><button type="button" id="modelTrainingRestore" hidden>Restore default policy</button></div>
+    <output id="modelTrainingApplied" hidden></output>
+  </form>
+  <section aria-label="Training progress" class="model-progress">
+    <output id="modelTrainingStatus" role="status">Ready</output>
+    <output id="modelTrainingStep" aria-live="off"></output><progress id="modelTrainingProgress" aria-label="Rollout progress" hidden></progress>
+    <output id="modelTrainingMetrics" aria-live="off"></output>
+  </section>
+  <div id="modelTrainingPlots" hidden><figure><figcaption>Displacement from rollout start <label>View <select id="modelTrainingFocus"><option value="-1">All instances</option></select></label></figcaption>
+    <canvas id="modelTrainingPaths" aria-label="East and north displacement in metres from each instance’s first sample"></canvas></figure>
+    <figure id="modelTrainingChart" hidden><figcaption>Validation reward <span>Current</span> / <span>Best</span></figcaption><canvas id="modelTrainingReward" aria-label="Current and best validation reward by round"></canvas></figure>
+  </div>
+</dialog>
 <dialog id="diverTraining" aria-labelledby="diverTrainingTitle">
-  <div class="trainingHead"><h2 id="diverTrainingTitle">Diver training</h2><button type="button" id="trainingClose">Close</button></div>
+  <div class="trainingHead"><h2 id="diverTrainingTitle">Diver training</h2><label>Model <select id="diverTrainingTask"></select></label><button type="button" id="trainingClose">Close</button></div>
   <div id="trainingViewport"><canvas id="trainingGhosts" aria-label="Diver training grid. Drag to orbit or scroll to zoom."></canvas>
     <span id="trainingViewStatus" role="status"></span><span id="trainingSceneLabel">Open ocean</span></div>
   <div id="trainingTools"><label>View <select id="trainingFocus"><option value="-1">All swimmers</option></select></label>
@@ -566,6 +596,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div id="entrySpawnFields" hidden><label for="entrySpawn">Spawn point</label>
 <div class="entry-spawn-row"><select id="entrySpawn"></select><button type="button" id="entryMapOpen" aria-haspopup="dialog" aria-controls="entryMap">Choose on map</button></div></div>
 <button id="launchFleet" type="submit">Start simulation</button>
+<button id="entryModelTraining" type="button" aria-haspopup="dialog" aria-controls="modelTraining">Model training</button>
 </form><output id="fleetLaunchStatus" aria-live="polite"></output>
 </dialog>
 <dialog id="entryMap" aria-labelledby="entryMapTitle"><div class="entry-map-header"><h2 id="entryMapTitle">Choose a spawn point</h2><button type="button" id="entryMapBack" autofocus>Back</button></div>

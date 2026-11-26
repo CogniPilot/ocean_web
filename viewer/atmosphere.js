@@ -1417,14 +1417,17 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  }
  function setQuality(profile,vertexSlope,multisampling,mobileWater=false){
    const compactMobile=mobileWater&&profile.compactOnMobile;
-   const compact=compactMobile||(hobieSurface&&!profile.omitWake);
+   const lowMobileHobie=mobileWater&&hobieSurface&&profile.omitWake;
+   const compact=compactMobile||lowMobileHobie||(hobieSurface&&!profile.omitWake);
    const meshKey=compact?'compact':profile.mesh;
    if(waterMeshKey!==meshKey){
      water.geometry.dispose();
      water.geometry=compact?compactWaterMesh():waterMesh(profile.mesh);
      waterMeshKey=meshKey;
    }
-   whitecaps.setResolution(vertexSlope||mobileWater||profile.skipCaptures?320:512);
+   // Match the optical foam map to the small drawing buffer on a Low touch-device Hobie.
+   const foamResolution=vertexSlope||mobileWater||profile.skipCaptures?320:512;
+   whitecaps.setResolution(lowMobileHobie?192:foamResolution);
    simpleCapture=vertexSlope;
    water.material.defines=vertexSlope||compactMobile?{VERTEX_SLOPE:1}:{};
    if(vertexSlope)water.material.defines.DISABLE_BOW_FIELD=1;

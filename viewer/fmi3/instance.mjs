@@ -20,11 +20,11 @@ export async function prepareInstance(name,read=fetch,shareBinary=false){
     const reply=await read(new URL(asset(name+'.wasm')));
     if(!reply.ok)throw Error('Cannot load '+name+' WebAssembly');
     options.wasmBinary=new Uint8Array(await reply.arrayBuffer());
-    const first=await create(options);
+    const first=await create({...options});
     if(first._select_instance)return inputs=>bindInstance(name,metadata,first,inputs,true);
     // Previously generated reactors own one instance per WASM memory.
     let available=first;
-    return async inputs=>{const initial=available;available=null;return bindInstance(name,metadata,initial??await create(options),inputs);};
+    return async inputs=>{const initial=available;available=null;return bindInstance(name,metadata,initial??await create({...options}),inputs);};
   }
   return async inputs=>bindInstance(name,metadata,await create({...options}),inputs);
 }

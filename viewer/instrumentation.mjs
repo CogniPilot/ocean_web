@@ -49,7 +49,7 @@ export function forceDisplay(T,scene,sub,yacht,cat,model,observe){
     if(stamp===undefined)arrow.start.copy(arrow.end);
   }
   return (enabled,b,f,showSub,time,blend,previous)=>{
-    boatForces.visible=Boolean(enabled&&!showSub&&b);
+    boatForces.visible=Boolean(enabled&&!showSub&&b&&model.has('rigForce'));
     subForces.visible=Boolean(enabled&&showSub&&f?.thrust);
     if(boatForces.visible){
       sails.forEach((a,i)=>{a.glyph.name=i?'Jib · wind':'Mainsail · wind';});

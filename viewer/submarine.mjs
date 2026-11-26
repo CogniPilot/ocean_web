@@ -1,3 +1,6 @@
+import {createPlayablePolicy} from './live-policy-actor.mjs';
+import {getAppliedPolicy} from './live-training-tasks.mjs';
+import {submarineTask} from './vehicle-training-tasks.mjs';
 import {legacyFloodFraction,floodedMass,legacyFloodHeave} from './piccard-flood.mjs';
 import {wreckApproach} from './red-sea-sites.mjs';
 import {showInLowWaterCapture} from './render-layers.mjs';
@@ -82,7 +85,7 @@ export function submarine(T,scene,world,signal,spawn=wreckApproach()){
   const doppler=dopplerDisplay(T,mesh);
   const drawPing=imagingSonar(document.getElementById('sonarFan'));
   let worker,breached=false,legacyFraction=0,hasFloodPhysics=world?.hasSubFlood??false,isolatedBattery;
-  const aim=piccardAim();
+  const aim=piccardAim(),swimPolicy=createPlayablePolicy(submarineTask);
   let pitchCommand=0;
   let frame,displayedMap,busy=false,error,previous=0,submittedTime=0,completedTime=0;
   const fromPosition=new T.Vector3(),toPosition=new T.Vector3();
@@ -192,7 +195,14 @@ export function submarine(T,scene,world,signal,spawn=wreckApproach()){
       if(!world && !this.active && this.manual){previous=time;completedTime=time;return;}
       if(error||busy||time<previous+.049)return;
       busy=true;
-      const {pilot,attitude}=submarinePilot(driving?axis:()=>0,mode,pitchCommand,fastTravel);
+      let {pilot,attitude}=submarinePilot(driving?axis:()=>0,mode,pitchCommand,fastTravel);
+      const checkpoint=driving&&mode===1?getAppliedPolicy('submarine'):null;
+      const velocity=checkpoint&&(world?world.get('sub.velocity'):frame?.policyVelocity);
+      const yawRate=checkpoint&&(world?world.get('sub.yawRate'):frame?.policyYawRate);
+      if(velocity&&Number.isFinite(yawRate)){
+        const controls={time:world?.time??frame.time,get:key=>key==='velocity'?velocity:yawRate,set:(_,value)=>{pilot=value;}};
+        swimPolicy(controls,{surge:pilot[0],yaw:pilot[2],heave:pilot[3]},checkpoint);
+      }else swimPolicy(null,null,null);
       if(breached&&!hasFloodPhysics){
         const depth=(surfaceAt?.(mesh.position.x,mesh.position.y)??0)-mesh.position.z;
         legacyFraction=legacyFloodFraction(legacyFraction,depth,time-previous);
@@ -217,6 +227,6 @@ export function submarine(T,scene,world,signal,spawn=wreckApproach()){
       const steps=Math.min(20,Math.floor((time-previous)*100+1e-6));
       previous+=steps*.01;
       submittedTime=previous;
-      worker.postMessage({spawn,inspectLoads:this.inspectLoads,animalTraffic:this.animalTraffic,animalJoints:this.animalJoints,peerCruisers:this.peerCruisers,peerLiftStates:this.peerLiftStates,hoist:this.hoist,hoistUp:this.hoistUp,hoistQuaternion:this.hoistQuaternion,hoistAngularVelocity:this.hoistAngularVelocity,acquireSurvey,manual,pilot,mode,breached,attitude,wind,bearing,showSonar,steps});
+      worker.postMessage({spawn,policyObservation:Boolean(checkpoint),inspectLoads:this.inspectLoads,animalTraffic:this.animalTraffic,animalJoints:this.animalJoints,peerCruisers:this.peerCruisers,peerLiftStates:this.peerLiftStates,hoist:this.hoist,hoistUp:this.hoistUp,hoistQuaternion:this.hoistQuaternion,hoistAngularVelocity:this.hoistAngularVelocity,acquireSurvey,manual,pilot,mode,breached,attitude,wind,bearing,showSonar,steps});
     }};
 }

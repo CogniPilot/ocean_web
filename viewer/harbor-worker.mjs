@@ -1,3 +1,5 @@
+import {createPlayablePolicy} from './live-policy-actor.mjs';
+import {mantaTask,whaleTask} from './wildlife-training-tasks.mjs';
 import {appendDiverRig} from './diver-frame.mjs';
 import {decisionSteps,loadSwimPolicy} from './diver-swim-policy.mjs';
 import {loadInstance} from './fmi3/instance.mjs';
@@ -35,9 +37,14 @@ async function advance({actors,environment,steps}){
     if(!individualModels[actor.kind]){
       for(const [name,value] of Object.entries(environment))if(model.has(name))model.set(name,value);
     }
-    if(actor.inputs.sharkDirect===2&&!model.sharkPolicyLoaded){
-      sharkPolicy??=await loadSharkPolicy();
-      model.set('sharkPolicyWeights',sharkPolicy);model.sharkPolicyLoaded=true;
+    if(actor.inputs.sharkDirect===2){
+      const checkpoint=actor.policies?.shark;
+      if(checkpoint){
+        model.set('sharkPolicyWeights',checkpoint.weights.flat());model.shippedSharkPolicy=false;
+      }else if(!model.shippedSharkPolicy){
+        sharkPolicy??=await loadSharkPolicy();
+        model.set('sharkPolicyWeights',sharkPolicy);model.shippedSharkPolicy=true;
+      }
     }
     const legacyObservers=actor.inputs.observerIds&&!model.has('observerIds');
     for(const [name,value] of Object.entries(actor.inputs)){
@@ -64,7 +71,29 @@ async function advance({actors,environment,steps}){
           actor.inputs.lateralPilot??0,actor.inputs.verticalPilot??0,model.has('torchDeployment')?model.get('torchDeployment')>.5:actor.inputs.torchEquipped>.5);
       }else model.swimDecision=undefined;
     }
+    const controls=actor.inputs,whalePolicy=actor.policies?.whale,mantaPolicy=actor.policies?.manta;
+    let swimTask,target,checkpoint;
+    if(actor.kind==='manta'){
+      swimTask=mantaTask;checkpoint=mantaPolicy;
+      const [,turn,pitch,effort,roll]=controls.pilot;
+      target={speed:3.5*Math.max(0,effort),turn,pitch:.5*pitch,roll:.6*roll,current:controls.currentVelocity};
+    }else if(!individualModels[actor.kind]){
+      swimTask=whaleTask;checkpoint=whalePolicy;
+      if(checkpoint)target={speed:1+2.5*controls.whalePilot[2],turn:controls.whaleTurn,pitch:controls.whalePilot[1],roll:controls.whaleBank};
+    }
+    if(swimTask&&checkpoint){
+      // Each host message is a structured clone. Keep the same policy identity
+      // between batches so the actor continues its decision clock.
+      const key=JSON.stringify(checkpoint.weights);
+      if(model.swimPolicyKey!==key){model.swimPolicyKey=key;model.swimCheckpoint=checkpoint;}
+      checkpoint=model.swimCheckpoint;
+      model.bestSwimPolicy??=createPlayablePolicy(swimTask);
+    }
     for(let step=0;step<steps;step++){
+      if(swimTask&&model.bestSwimPolicy){
+        const applied=model.bestSwimPolicy(model,target,checkpoint);
+        model.set(swimTask===mantaTask?'directDrive':'whaleDirect',Number(applied));
+      }
       if(actor.learned){
         const state=model.get('state');
         const decision=Math.floor((state[14]+1e-7)/(.01*decisionSteps));

@@ -33,4 +33,6 @@ done
 # on the guest stack. The default WASI stack traps during initialization.
 export CARGO_PROFILE_RELEASE_OPT_LEVEL="${CARGO_PROFILE_RELEASE_OPT_LEVEL:-3}"
 export CARGO_ENCODED_RUSTFLAGS="${CARGO_ENCODED_RUSTFLAGS:--Dwarnings}"$'\x1f'"-Clink-arg=-zstack-size=8388608"
-exec "$compiler" compile "models/$modelName.mo" -m "$modelName" "${roots[@]}" --target fmi-ls-wasm -o "${OCEAN_WORLD_OUT:-$defaultOut}"
+target=${OCEAN_WORLD_TARGET:-fmi-ls-wasm}
+if [[ $target == fmi3 ]]; then defaultOut+=-numeric; fi
+exec "$compiler" compile "models/$modelName.mo" -m "$modelName" "${roots[@]}" --target "$target" -o "${OCEAN_WORLD_OUT:-$defaultOut}"
