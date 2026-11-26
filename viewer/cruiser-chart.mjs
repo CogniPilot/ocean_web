@@ -1,3 +1,4 @@
+import {wreckSites} from './red-sea-sites.mjs';
 import {sonarHalfBearing,sonarMount} from './cruiser-sonar-view.mjs';
 
 // The same terrain profile is used to build the island mesh. Search radially
@@ -68,10 +69,13 @@ export function cruiserChart(canvas,fitButton,terrain){
       c.fillRect(px(ee)-1.4,py(nn)-1.4,2.8,2.8);
     }
 
-    // The model's ship lies east-west between the stern at 0 and bow at 34.
     c.strokeStyle='#6a3d67';c.lineWidth=1.6;c.setLineDash([4,3]);
-    c.strokeRect(px(0),py(4),34*scale,8*scale);c.setLineDash([]);
-    c.font='600 14px system-ui';c.fillStyle='#553251';c.fillText('Wreck',px(17)-16,py(-4)+16);
+    c.font='600 14px system-ui';c.fillStyle='#553251';
+    for(const site of wreckSites){
+      c.strokeRect(px(site.east-site.halfLength),py(site.north+site.halfBeam),2*site.halfLength*scale,2*site.halfBeam*scale);
+      c.fillText(site.name,px(site.east-site.halfLength),py(site.north-site.halfBeam)+16);
+    }
+    c.setLineDash([]);
     c.save();c.translate(px(east),py(north));c.rotate(heading+Math.PI/2);
     c.beginPath();c.moveTo(0,-10);c.lineTo(6,7);c.lineTo(0,4);c.lineTo(-6,7);c.closePath();
     c.fillStyle='#152c42';c.strokeStyle='#f4ffff';c.lineWidth=1.5;c.fill();c.stroke();c.restore();

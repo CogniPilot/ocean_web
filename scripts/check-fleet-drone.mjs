@@ -100,6 +100,54 @@ try{
   receiver.onPeerLeave('pilot');
   draw(performance.now()+5200);
   assert(!remoteScene.children.includes(ghost),'Remove a peer after a sustained disconnect');
+  // The same remote-pose path clones both Piccard lamp mounts. Clone targets
+  // must follow the receiving player's pose independently of the source model.
+  receiver.onPeerJoin('pilot');
+  await deliver();
+  const vehicle=new T.Group();
+  const lampNames=['Survey lamp','Starboard survey lamp'];
+  for(const [i,name] of lampNames.entries()){
+    const light=new T.SpotLight();light.name=name;light.position.set(.24,i?.109:-.109,.071);
+    const lens=new T.Object3D();lens.name=name+' lens';
+    light.target.name=name+' target';light.target.position.copy(light.position);light.target.position.x+=1;
+    vehicle.add(light,lens,light.target);
+  }
+  const subPose=new Float32Array([1,.002,4,2,-7,0,0,0,1]);
+  receiver.actions.get('sail-pose').onMessage(new Uint8Array(subPose.buffer),{peerId:'pilot'});
+  const showSub=()=>observer.frame(performance.now(),null,false,null,vehicle,airframe,'drone');
+  showSub();
+  assert.equal(observer.lamps.length,2);
+  const proxy=observer.submarines[0];
+  for(const light of observer.lamps){
+    assert.equal(light.parent,proxy);
+    assert.equal(light.target,proxy.getObjectByName(light.name+' target'));
+    assert.notEqual(light.target,vehicle.getObjectByName(light.name+' target'));
+  }
+  const rpm=[1234,-2000,0,5200,-123,586];
+  const sendRPM=time=>pilot.frame(time,null,false,null,vehicle,null,'sub',true,
+    null,null,null,0,0,rpm);
+  sendRPM(start+6000);await deliver();showSub();
+  assert.deepEqual(proxy.userData.thrusterRPM,rpm);
+  const drive=sent.find(row=>row.name==='sub-drive');
+  assert.equal(drive.data.byteLength,16);
+  observer.frame(performance.now()+950,null,false,null,vehicle,airframe,'drone');
+  assert.deepEqual(proxy.userData.thrusterRPM,rpm,'A delayed packet must not interrupt a running motor');
+  observer.frame(performance.now()+2150,null,false,null,vehicle,airframe,'drone');
+  assert.equal(proxy.userData.thrusterRPM,undefined);
+  receiver.onPeerLeave('pilot');receiver.onPeerJoin('pilot');
+  const rebootPose=new Float32Array(subPose);rebootPose[1]=.001;
+  receiver.actions.get('sail-pose').onMessage(new Uint8Array(rebootPose.buffer),{peerId:'pilot'});
+  const reboot=drive.data.slice();new DataView(reboot.buffer).setFloat32(0,.001,true);
+  receiver.actions.get('sub-drive').onMessage(reboot,{peerId:'pilot'});
+  showSub();assert.deepEqual(proxy.userData.thrusterRPM,rpm);
+  for(const on of [false,true]){
+    receiver.actions.get('sub-lamp').onMessage(on,{peerId:'pilot'});
+    showSub();assert.equal(observer.lamps.length,on?2:0);
+    for(const name of lampNames){
+      assert.equal(proxy.getObjectByName(name).visible,on);
+      assert.equal(proxy.getObjectByName(name+' lens').visible,on);
+    }
+  }
   console.log('Combined drone packets, legacy fallback, prop animation, stale poses and reconnect passed.');
 }finally{
   observer.leave();

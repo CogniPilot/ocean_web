@@ -1,0 +1,49 @@
+--- a/MultiBodyLie/package.mo
++++ b/MultiBodyLie/package.mo
+@@ -301,35 +301,23 @@
+     protected
+       Integer n = size(A, 1);
+       Real L[size(A, 1), size(A, 1)];
+-      Real s;
++      Real column[size(A, 1)], y[size(A, 1)], diagonal;
+     algorithm
+-      L := zeros(n, n);
++      // Factor complete columns so a compiler can update L once per column.
++      // Its unwritten columns remain zero, allowing full-length dot products.
++      L := zeros(n,n);
+       for j in 1:n loop
+-        s := A[j, j];
+-        for k in 1:j - 1 loop
+-          s := s - L[j, k] ^ 2;
+-        end for;
+-        L[j, j] := sqrt(s);
+-        for i in j + 1:n loop
+-          s := A[i, j];
+-          for k in 1:j - 1 loop
+-            s := s - L[i, k] * L[j, k];
+-          end for;
+-          L[i, j] := s / L[j, j];
+-        end for;
++        column := A[:,j] - L * L[j,:];
++        diagonal := sqrt(column[j]);
++        L[:,j] := {if i >= j then column[i] / diagonal else 0 for i in 1:n};
+       end for;
+-      x := b;
++      y := zeros(n);
+       for i in 1:n loop
+-        for k in 1:i - 1 loop
+-          x[i] := x[i] - L[i, k] * x[k];
+-        end for;
+-        x[i] := x[i] / L[i, i];
++        y[i] := (b[i] - L[i,:] * y) / L[i,i];
+       end for;
++      x := zeros(n);
+       for i in n:-1:1 loop
+-        for k in i + 1:n loop
+-          x[i] := x[i] - L[k, i] * x[k];
+-        end for;
+-        x[i] := x[i] / L[i, i];
++        x[i] := (y[i] - L[:,i] * x) / L[i,i];
+       end for;
+     end solveSPD;
+ 

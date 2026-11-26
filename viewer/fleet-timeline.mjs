@@ -68,6 +68,17 @@ export class PeerTimeline {
     return {left: left.data, right: left.data, fraction: 0};
   }
 
+  // Use the same pair that was rendered, or the nearest measured interval
+  // while holding its endpoint. Legacy packets have only arrival timestamps.
+  motionSpan(left,right){
+    const index=this.samples.findIndex(sample=>sample.data===right);
+    const end=left===right&&index===0?1:index;
+    const prev=this.samples[end-1],next=this.samples[end];
+    if(!prev||!next)return;
+    const dt=(next.sent-prev.sent)*.001;
+    if(dt>.005&&dt<=2.5)return {from:prev.data,to:next.data,dt};
+  }
+
   age(now) { return now - (this.latest.sent + this.clockOffset); }
 
   get latest() { return this.samples.at(-1); }

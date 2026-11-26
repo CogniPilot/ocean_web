@@ -39,7 +39,8 @@ function engineVoice(context,output,recordings){
       }
       cranking=starting&&Boolean(recordings.starter);
       loop?.playbackRate.setTargetAtTime(.62+.92*load,t,.09);
-      filter.frequency.setTargetAtTime((underwater?260:1750)+(underwater?480:3000)*load,t,.11);
+      const airCutoff=1750+3000*load,wetCutoff=260+480*load;
+      filter.frequency.setTargetAtTime(airCutoff*(wetCutoff/airCutoff)**underwater,t,.16);
       gain.gain.setTargetAtTime((starting?.85:.75+.48*load)/(1+distance/9),t,.05);
       pan.pan.setTargetAtTime(Math.max(-1,Math.min(1,balance)),t,.085);
     },

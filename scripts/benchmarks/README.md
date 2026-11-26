@@ -277,7 +277,7 @@ An optional final argument to the lattice driver sets the number of sampling int
 
 The lattice loads are averaged over the last complete revolution of 3.5 actual turns including startup. OpenFOAM uses the last 20 iterations of 300 steady SIMPLE iterations with k–ω SST, local mesh refinement and no prism layers. One diameter behind the rotor, disk-mean axial velocity is 1.114 m/s for OpenFOAM and 1.074 m/s for the finer blade-normal run. Pointwise axial RMS difference is 0.234 m/s and mean swirl is −0.254 and −0.387 m/s respectively. Those probes compare one transient field to a steady rotating-frame result at aligned blade phase. The disk average can conceal substantial local errors.
 
-Run the benchmark from the repository root with Python, NumPy, Gmsh, VTK, Docker, an OpenMP C compiler and the Rumoca build toolchain. Set `RUMOCA` to the compiler executable if using a separate checkout. The generated Modelica kernel computes the fluid collision and blade forces. The native driver streams populations between cells and exports the volume. The browser displays the resulting fields.
+Run the benchmark from the repository root with Python, NumPy, Gmsh, VTK, Docker, an OpenMP C compiler and the Rumoca build toolchain. Set `RUMOCA` to the compiler executable if using a separate checkout. The source build installs the pinned Marine library under `.deps/marine-models`. The generated Modelica kernel computes the fluid collision and blade forces. The native driver streams populations between cells and exports the volume. The browser displays the resulting fields.
 
 ```sh
 tools=scripts/benchmarks/onrt-propeller

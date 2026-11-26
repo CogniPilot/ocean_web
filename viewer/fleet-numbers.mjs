@@ -2,7 +2,7 @@ import {npcAnimalLimit,npcGullLimit,npcVesselLimit} from './npc-room.mjs';
 
 const slots=(prefix,count)=>Array.from({length:count},(_,i)=>prefix+(i+1));
 const npcIds=[...slots('npc-',npcVesselLimit),...slots('gull-',npcGullLimit),'breakwater',
-  ...['whale','shark'].flatMap(kind=>[kind,...slots(kind+'-',npcAnimalLimit).slice(1)])];
+  ...['whale','shark','manta','diver'].flatMap(kind=>[kind,...slots(kind+'-',npcAnimalLimit).slice(1)])];
 
 function hash(text){
   let value=2166136261;

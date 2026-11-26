@@ -1,0 +1,439 @@
+diff --git a/crates/rumoca-phase-codegen/src/codegen/pure_call_families.rs b/crates/rumoca-phase-codegen/src/codegen/pure_call_families.rs
+index 41b23f4..6b8622a 100644
+--- a/crates/rumoca-phase-codegen/src/codegen/pure_call_families.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/pure_call_families.rs
+@@ -20,6 +20,7 @@ use serde_json::Value as Json;
+ 
+ use crate::errors::CodegenError;
+ 
++mod integer_tables;
+ mod json_view;
+ 
+ /// Target-neutral view of a checked typed function owner (primal or
+@@ -51,6 +52,8 @@ pub(super) struct PureCallFamilies {
+     /// Whether any emitted body hands a callee's assertions to its own
+     /// observer, the only user of `rmc_forward_assertion`.
+     forwards_assertions: bool,
++    repeated_calls: Vec<RepeatedCall>,
++    repeated_symbols: Vec<u32>,
+ }
+ 
+ impl PureCallFamilies {
+@@ -74,7 +77,11 @@ impl PureCallFamilies {
+             }
+         }
+         let forwards_assertions = owners.iter().chain(&directional).any(forwards_assertion);
++        let repeated_calls = repeated_calls(table, &symbols);
++        let repeated_symbols = repeated_calls.iter().map(|call| call.symbol).collect();
+         Ok(Self {
++            repeated_calls,
++            repeated_symbols,
+             symbols,
+             forwards_assertions,
+             owners: owners.into(),
+@@ -87,6 +94,8 @@ impl PureCallFamilies {
+         minijinja::context! {
+             owners => json_view::array_value(Arc::clone(&self.owners)),
+             forwards_assertions => self.forwards_assertions,
++            repeated_calls => &self.repeated_calls,
++            repeated_symbols => &self.repeated_symbols,
+         }
+     }
+ 
+@@ -115,6 +124,73 @@ impl PureCallFamilies {
+     }
+ }
+ 
++/// Fixed storage for a large pure function whose values and assertions are
++/// evaluated separately. Every cache hit compares every input bit.
++#[derive(Debug, serde::Serialize)]
++struct RepeatedCall {
++    symbol: u32,
++    widths: Vec<usize>,
++    inputs: usize,
++    outputs: usize,
++    predicates: Vec<usize>,
++}
++
++fn repeated_calls(table: &solve::SolvePureCallTable, symbols: &[u32]) -> Vec<RepeatedCall> {
++    let mut candidates: Vec<_> = table
++        .owners()
++        .iter()
++        .filter_map(|owner| {
++            let symbol = owner.id().index();
++            if symbols[symbol as usize] != symbol {
++                return None;
++            }
++            let widths: Vec<_> = owner
++                .inputs()
++                .iter()
++                .map(|ty| ty.scalar_count() as usize)
++                .collect();
++            let inputs = widths
++                .iter()
++                .copied()
++                .try_fold(0usize, usize::checked_add)?;
++            let mut outputs = 0usize;
++            let mut predicates = Vec::new();
++            for output in owner.outputs() {
++                if output.assertion_level().is_some() {
++                    predicates.push(outputs);
++                }
++                outputs = outputs.checked_add(output.value_type().scalar_count() as usize)?;
++            }
++            // A long computation can be expensive to replay even if it only
++            // returns a few scalars. Bound each cache before budgeting all families.
++            let short_call = outputs < 256 && owner.body().operations().len() < 64;
++            if short_call || inputs.checked_add(outputs)? > 65536 || predicates.is_empty() {
++                return None;
++            }
++            Some(RepeatedCall {
++                symbol,
++                widths,
++                inputs,
++                outputs,
++                predicates,
++            })
++        })
++        .collect();
++    candidates.sort_by_key(|call| std::cmp::Reverse(call.outputs));
++    // Cache high-volume call families independently. The compile-time bound
++    // covers the sum of all input and output arrays in one model instance.
++    let mut remaining = 96 * 1024;
++    candidates.retain(|call| {
++        let width = call.inputs + call.outputs;
++        if width > remaining {
++            return false;
++        }
++        remaining -= width;
++        true
++    });
++    candidates
++}
++
+ /// Whether any call operation inside `json` forwards child assertions.
+ fn forwards_assertion(json: &Json) -> bool {
+     match json {
+@@ -276,6 +352,7 @@ fn route_calls(mut json: Json, symbols: &[u32]) -> Result<Json, CodegenError> {
+             .copied()
+             .ok_or_else(|| CodegenError::template(format!("unknown pure-call owner {callee}")))
+     })?;
++    integer_tables::annotate(&mut json);
+     Ok(json)
+ }
+ 
+diff --git a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/integer_tables.rs b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/integer_tables.rs
+new file mode 100644
+index 0000000..73e2217
+--- /dev/null
++++ b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/integer_tables.rs
+@@ -0,0 +1,73 @@
++//! Keep immutable aggregate literals in read-only C storage. This lets LLVM
++//! lower indexed Modelica tables to loads instead of reconstructing every
++//! element on the WASM stack at each lookup.
++use std::collections::BTreeMap;
++
++use serde_json::Value;
++
++pub(super) fn annotate(node: &mut Value) {
++    match node {
++        Value::Object(fields) => {
++            if let Some(operations) = fields.get_mut("operations").and_then(Value::as_array_mut) {
++                annotate_region(operations);
++            }
++            fields.values_mut().for_each(annotate);
++        }
++        Value::Array(items) => items.iter_mut().for_each(annotate),
++        _ => {}
++    }
++}
++
++fn annotate_region(operations: &mut [Value]) {
++    let mut literals = BTreeMap::new();
++    for issued in operations {
++        let op = &mut issued["operation"];
++        match op["operation"].as_str() {
++            Some("constant") if op["value"]["kind"]["kind"] == "integer" => {
++                if let (Some(register), Some(value)) = (
++                    op["destination"].as_u64(),
++                    op["value"]["kind"]["bits"].as_i64(),
++                ) {
++                    literals.insert(register, value);
++                }
++            }
++            Some("construct_aggregate") => {
++                let Some(elements) = op["elements"].as_array() else {
++                    continue;
++                };
++                if elements.len() < 8 {
++                    continue;
++                }
++                let values: Option<Vec<_>> = elements
++                    .iter()
++                    .map(|reg| literals.get(&reg.as_u64()?).copied())
++                    .collect();
++                if let Some(values) = values {
++                    op["integer_literals"] = Value::from(values);
++                }
++            }
++            _ => {}
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use serde_json::json;
++
++    #[test]
++    fn annotates_only_complete_integer_literals_in_their_own_region() {
++        let c = json!({"operation":{"operation":"constant","destination":0,"value":{"kind":{"kind":"integer","bits":i64::MIN}}}});
++        let table = json!({"operation":{"operation":"construct_aggregate","destination":1,"elements":[0,0,0,0,0,0,0,0]}});
++        let mixed = json!({"operation":{"operation":"construct_aggregate","destination":2,"elements":[0,0,0,0,0,0,0,3]}});
++        let mut program = json!({"operations":[c,table,mixed],"body":{"operations":[table]}});
++        annotate(&mut program);
++        assert_eq!(
++            program["operations"][1]["operation"]["integer_literals"],
++            json!(vec![i64::MIN; 8])
++        );
++        assert!(program["operations"][2]["operation"]["integer_literals"].is_null());
++        assert!(program["body"]["operations"][0]["operation"]["integer_literals"].is_null());
++    }
++}
+diff --git a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests.rs b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests.rs
+index d6bdc7c..7aa8f8f 100644
+--- a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests.rs
+@@ -3,6 +3,8 @@ mod nocaptures_directional;
+ #[cfg(target_os = "linux")]
+ mod output_storage;
+ mod reductions;
++#[cfg(target_os = "linux")]
++mod repeated_call;
+ 
+ use std::num::NonZeroU64;
+ 
+diff --git a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/repeated_call.rs b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/repeated_call.rs
+new file mode 100644
+index 0000000..36cc46c
+--- /dev/null
++++ b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/repeated_call.rs
+@@ -0,0 +1,70 @@
++use super::assertion_carrier::compile_and_execute;
++
++/// Exercise cache misses, the exact predicate layout, bitwise argument
++/// identity, independent instances and warning/error replay in emitted C.
++#[test]
++fn repeated_call_reuses_only_effect_free_success_for_identical_inputs() {
++    let mut environment = super::super::super::create_environment();
++    environment.add_template("repeated_call_control", r#"
++{%- from "fmi-typed-functions.jinja" import repeated_call_fields, repeated_call_kernel %}
++#include <assert.h>
++#include <stdbool.h>
++#include <stdint.h>
++#include <stddef.h>
++#include <string.h>
++#include <math.h>
++typedef struct { {{ repeated_call_fields(memos) }} } ModelInstance;
++typedef struct { void* context; int (*observe)(void*, size_t, const void* const[], size_t); } RmcAssertionObserver;
++static int calls, checks, notices;
++static int receive(void* context,size_t predicate,const void* const captures[],size_t n){
++    (void)context;(void)predicate;(void)captures;(void)n;++notices;return 0;
++}
++static int rumoca_scalar_pure_9(const double* const in[],double* out,const RmcAssertionObserver* o){
++    ++calls;
++    if(in[1][0]<0){o->observe(o->context,0,NULL,0);if(in[1][0]<-1)return 2;}
++    out[0]=in[0][0];out[1]=in[1][0]<0?0:1;out[2]=in[0][1];return 0;
++}
++static int rumoca_scalar_observe_9(const double* const in[],double* out,const RmcAssertionObserver* o){
++    ++checks;double all[3];int status=rumoca_scalar_pure_9(in,all,o);if(!status)*out=all[1];return status;
++}
++static int other_calls;
++static int rumoca_scalar_pure_10(const double* const in[],double* out,const RmcAssertionObserver* o){
++    (void)o;++other_calls;out[0]=in[0][0]+7;out[1]=1;out[2]=0;return 0;
++}
++static int rumoca_scalar_observe_10(const double* const in[],double* out,const RmcAssertionObserver* o){
++    (void)in;(void)o;out[0]=1;return 0;
++}
++{{ repeated_call_kernel(memos) }}
++int main(void){
++    ModelInstance a={0},b={0};double x[]={0,2},flag=1,out[3]={0};const double* in[]={x,&flag};
++    const RmcAssertionObserver log={NULL,receive};
++    assert(!rmc_repeated_pure_call_9(&a,false,in,out,&log));
++    assert(!rmc_repeated_pure_call_9(&a,true,in,out,&log)&&out[0]==1);
++    assert(!rmc_repeated_pure_call_9(&a,false,in,out,&log)&&out[0]==0&&out[2]==2);
++    assert(!rmc_repeated_pure_call_10(&a,false,in,out,&log)&&other_calls==1&&out[0]==7);
++    assert(!rmc_repeated_pure_call_9(&a,false,in,out,&log)&&out[0]==0);
++    assert(!rmc_repeated_pure_call_10(&a,false,in,out,&log)&&other_calls==1&&out[0]==7);
++    assert(calls==1&&checks==0);
++    assert(!rmc_repeated_pure_call_9(&b,true,in,out,&log)&&calls==2&&checks==1);
++    x[0]=-0.0;
++    assert(!rmc_repeated_pure_call_9(&a,false,in,out,&log)&&signbit(out[0])&&calls==3);
++    flag=-1;
++    assert(!rmc_repeated_pure_call_9(&a,false,in,out,&log)&&notices==1);
++    assert(!rmc_repeated_pure_call_9(&a,true,in,out,&log)&&notices==2&&out[0]==0);
++    flag=-2;
++    assert(rmc_repeated_pure_call_9(&a,false,in,out,&log)==2&&notices==3);
++    assert(rmc_repeated_pure_call_9(&a,true,in,out,&log)==2&&notices==4);
++    return 0;
++}"#).unwrap();
++    let memo =
++        serde_json::json!({"symbol":9,"widths":[2,1],"inputs":3,"outputs":3,"predicates":[1]});
++    let mut other = memo.clone();
++    other["symbol"] = serde_json::json!(10);
++    let memos = [memo, other];
++    let source = environment
++        .get_template("repeated_call_control")
++        .unwrap()
++        .render(minijinja::context! { memos })
++        .unwrap();
++    compile_and_execute(&source);
++}
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi2/model.h.jinja b/crates/rumoca-phase-codegen/src/templates/fmi2/model.h.jinja
+index ae5cf75..84d8582 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi2/model.h.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi2/model.h.jinja
+@@ -1,7 +1,7 @@
+ {%- set model_identifier = "Rumoca_" ~ (artifact.identities.fmu | replace("-", "_")) %}
+ {%- from "fmi-c-kernel.jinja" import text_fields, warning_fields, linear_solve_kernel %}
+ {%- from "fmi-me-projection.jinja" import workspace_fields, kernel_declarations %}
+-{%- from "fmi-typed-functions.jinja" import function_prototypes %}
++{%- from "fmi-typed-functions.jinja" import function_prototypes, repeated_call_fields, repeated_call_kernel %}
+ {%- from "fmi-scalar-events.jinja" import event_fields, event_now %}
+ /* Declarations shared by the component's translation units. */
+ #ifndef RUMOCA_FMU_MODEL_H
+@@ -41,8 +41,9 @@ typedef struct {
+     fmi2Type type;
+     fmi2CallbackFunctions callbacks;{{ text_fields(fmi_text_starts) }}{{ warning_fields(solve, fmi) }}
+    {{ workspace_fields(me_refresh) }}{{ event_fields(fmi) }}
+-} ModelInstance;
++{{ repeated_call_fields(typed_pure_calls.repeated_calls) }} } ModelInstance;
+ {{ event_now(fmi) }}
+ {{ kernel_declarations(me_refresh) }}{{ linear_solve_kernel() }}
+ {{ function_prototypes(typed_pure_calls, typed_directional_calls if me_refresh.blocks|length > 0 or fmi_tangents.available else []) }}
++{{ repeated_call_kernel(typed_pure_calls.repeated_calls) }}
+ #endif
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/model.h.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/model.h.jinja
+index 2a447ca..ec7deeb 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/model.h.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/model.h.jinja
+@@ -1,7 +1,7 @@
+ {%- set model_identifier = "Rumoca_" ~ (artifact.identities.fmu | replace("-", "_")) %}
+ {%- from "fmi-c-kernel.jinja" import text_fields, warning_fields, linear_solve_kernel %}
+ {%- from "fmi-me-projection.jinja" import workspace_fields, kernel_declarations %}
+-{%- from "fmi-typed-functions.jinja" import function_prototypes %}
++{%- from "fmi-typed-functions.jinja" import function_prototypes, repeated_call_fields, repeated_call_kernel %}
+ {%- from "fmi-scalar-events.jinja" import event_fields, event_now %}
+ /* Declarations shared by the component's translation units. */
+ #ifndef RUMOCA_FMU_MODEL_H
+@@ -30,8 +30,9 @@ enum InterfaceType { INTERFACE_ME, INTERFACE_CS };
+ #define Y_LEN {{ solve.layout.y_scalars if solve.layout.y_scalars > 0 else 1 }}
+ #define P_LEN {{ solve.layout.p_scalars if solve.layout.p_scalars > 0 else 1 }}
+ #define STATE_LEN {{ solve.solve_layout.state_scalar_count if solve.solve_layout.state_scalar_count > 0 else 1 }}
+-typedef struct { bool assertions_initialized; bool assertion_failed; bool parameters_dirty; bool rmc_nonfinite; fmi3InstanceEnvironment environment; fmi3LogMessageCallback logger; double time; double tolerance; double rmc_cs_substep; double y[Y_LEN]; double p[P_LEN]; double derivative[STATE_LEN]; enum ModelState state; enum InterfaceType type;{{ text_fields(fmi_text_starts) }}{{ warning_fields(solve, fmi) }}{{ workspace_fields(me_refresh) }}{{ event_fields(fmi) }} } ModelInstance;
++typedef struct { bool assertions_initialized; bool assertion_failed; bool parameters_dirty; bool rmc_nonfinite; fmi3InstanceEnvironment environment; fmi3LogMessageCallback logger; double time; double tolerance; double rmc_cs_substep; double y[Y_LEN]; double p[P_LEN]; double derivative[STATE_LEN]; enum ModelState state; enum InterfaceType type;{{ text_fields(fmi_text_starts) }}{{ warning_fields(solve, fmi) }}{{ workspace_fields(me_refresh) }}{{ event_fields(fmi) }} {{ repeated_call_fields(typed_pure_calls.repeated_calls) }} } ModelInstance;
+ {{ event_now(fmi) }}
+ {{ kernel_declarations(me_refresh) }}{{ linear_solve_kernel() }}
+ {{ function_prototypes(typed_pure_calls, typed_directional_calls if me_refresh.blocks|length > 0 or fmi_tangents.available else []) }}
++{{ repeated_call_kernel(typed_pure_calls.repeated_calls) }}
+ #endif
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
+index f43a6a1..1757314 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
+@@ -96,7 +96,11 @@
+     RmcModelAssertionContext context={m, {{ op.owner }}, {{ observation_mode }}, {% if op.kind == "PureCallObservation" %}&r[{{ op.dst }}]{% else %}NULL{% endif %}, {% if observation_mode == 2 %}warnings.notices{% else %}NULL{% endif %}};
+     const RmcAssertionObserver observer={&context, rmc_model_assertion};
+ {% set parameters = op.parameter_inputs|default([]) -%}
+-    int status={{ "rumoca_scalar_observe_" if op.kind == "PureCallObservation" else ("rumoca_scalar_pure_directional_" if op.kind == "PureCallDirectional" else "rumoca_scalar_pure_") }}{{ pure_symbol(op.owner) }}((const double*[]){ {% for start in op.input_starts %}{% if parameters and parameters[loop.index0] is not none %}&m->p[{{ parameters[loop.index0] }}],{% else %}&r[{{ start }}],{% endif %}{% else %}NULL{% endfor %} }, &r[{{ op.dst }}], &observer);
++{% if typed_pure_calls is defined and op.kind != "PureCallDirectional" and pure_call_symbols[op.owner] in typed_pure_calls.repeated_symbols -%}
++    int status=rmc_repeated_pure_call_{{ pure_symbol(op.owner) }}(m, {{ "true" if op.kind == "PureCallObservation" else "false" }},
++{%- else -%}
++    int status={{ "rumoca_scalar_observe_" if op.kind == "PureCallObservation" else ("rumoca_scalar_pure_directional_" if op.kind == "PureCallDirectional" else "rumoca_scalar_pure_") }}{{ pure_symbol(op.owner) }}(
++{%- endif -%}(const double*[]){ {% for start in op.input_starts %}{% if parameters and parameters[loop.index0] is not none %}&m->p[{{ parameters[loop.index0] }}],{% else %}&r[{{ start }}],{% endif %}{% else %}NULL{% endfor %} }, &r[{{ op.dst }}], &observer);
+ {% if observation_mode == 2 %}
+     warnings.notices=context.notices;
+     if (status) { rmc_finish_assertion_observation(&warnings, status); return {{ error_status }}; }
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+index c471ac9..fc684c6 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+@@ -283,3 +283,50 @@ void rmc_finish_assertion_observation(RmcModelAssertionContext* context, int sta
+ {% for owner in directional %}RMC_API int rumoca_scalar_pure_directional_{{ owner.id }}(const double* const in[], double* out, const RmcAssertionObserver* observer);
+ {% endfor -%}
+ {% endmacro %}
++
++{%- macro repeated_call_fields(memos) -%}
++{% for memo in memos %}bool rmc_pure_valid_{{ memo.symbol }}; double rmc_pure_inputs_{{ memo.symbol }}[{{ memo.inputs if memo.inputs else 1 }}]; double rmc_pure_outputs_{{ memo.symbol }}[{{ memo.outputs }}];{% endfor %}
++{%- endmacro %}
++
++{%- macro repeated_call_kernel(memos) -%}
++{% if memos %}
++typedef struct { const RmcAssertionObserver* parent; bool observed; } RmcPureCallObservation;
++static inline int rmc_record_pure_observation(void* context, size_t predicate, const void* const captures[], size_t count) {
++    RmcPureCallObservation* record = context;
++    record->observed = true;
++    return record->parent->observe(record->parent->context, predicate, captures, count);
++}
++{% for memo in memos %}
++static inline int rmc_repeated_pure_call_{{ memo.symbol }}(ModelInstance* m, bool predicates_only, const double* const in[], double* out, const RmcAssertionObserver* observer) {
++    static const size_t widths[] = { {% for width in memo.widths %}{{ width }}, {% else %}0{% endfor %} };
++    bool equal = m->rmc_pure_valid_{{ memo.symbol }};
++    size_t offset = 0;
++    for (size_t i = 0; equal && i < {{ memo.widths|length }}; ++i) {
++        if (widths[i]) equal = !memcmp(m->rmc_pure_inputs_{{ memo.symbol }} + offset, in[i], widths[i] * sizeof(double));
++        offset += widths[i];
++    }
++    if (equal) {
++        if (predicates_only) {
++{% for index in memo.predicates %}            out[{{ loop.index0 }}] = m->rmc_pure_outputs_{{ memo.symbol }}[{{ index }}];
++{% endfor %}        } else memcpy(out, m->rmc_pure_outputs_{{ memo.symbol }}, sizeof(m->rmc_pure_outputs_{{ memo.symbol }}));
++        return 0;
++    }
++    if (predicates_only) return rumoca_scalar_observe_{{ memo.symbol }}(in, out, observer);
++    RmcPureCallObservation record = {observer, false};
++    const RmcAssertionObserver forwarded = {&record, rmc_record_pure_observation};
++    int status = rumoca_scalar_pure_{{ memo.symbol }}(in, out, &forwarded);
++    /* A reported assertion belongs to its current call site and observation
++       mode; warnings and errors always execute the original body again. */
++    if (status || record.observed) return status;
++    offset = 0;
++    for (size_t i = 0; i < {{ memo.widths|length }}; ++i) {
++        if (widths[i]) memcpy(m->rmc_pure_inputs_{{ memo.symbol }} + offset, in[i], widths[i] * sizeof(double));
++        offset += widths[i];
++    }
++    memcpy(m->rmc_pure_outputs_{{ memo.symbol }}, out, sizeof(m->rmc_pure_outputs_{{ memo.symbol }}));
++    m->rmc_pure_valid_{{ memo.symbol }} = true;
++    return 0;
++}
++{% endfor %}
++{% endif %}
++{%- endmacro %}
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
+index 9b50629..6119bbe 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
+@@ -1,5 +1,5 @@
+ {#- Follows the whitespace convention stated in `typed_arithmetic.jinja`. -#}
+-{%- from "fmi-typed-arithmetic.jinja" import register_copy, binary, integer_binary, domain_check %}
++{%- from "fmi-typed-arithmetic.jinja" import integer, register_copy, binary, integer_binary, domain_check %}
+ {%- macro bounds(index, extent) -%}
+ if (r{{ index }}[0]<1 || r{{ index }}[0]>{{ extent }}) return 1;
+ {% endmacro %}
+@@ -45,10 +45,15 @@ memcpy(&{{ dst }}[{{ row }}{{ cursor.value }}], &r{{ operand }}[{{ src }}], {{ w
+ {% endif -%}
+ {% endif -%}
+ {% elif op.operation == "construct_aggregate" -%}
++{% if op.integer_literals is defined -%}
++{ static const int64_t literal[] = { {% for value in op.integer_literals %}{{ integer(value) }},{% endfor %} };
++  memcpy({{ dst }}, literal, sizeof(literal)); }
++{% else -%}
+ {% for element in op.elements -%}
+ {% set width = program.register_types[element].scalar_count -%}
+ memcpy(&{{ dst }}[{{ loop.index0 * width }}], r{{ element }}, {{ width if width > 0 else 1 }} * sizeof(r{{ element }}[0]));
+ {% endfor -%}
++{% endif -%}
+ {% elif op.operation == "scale" -%}
+ for (size_t k=0; k<{{ ty.scalar_count }}; ++k) {{ dst }}[k]=r{{ op.aggregate }}[k]*r{{ op.scalar }}[0];
+ {% elif op.operation == "transpose" -%}

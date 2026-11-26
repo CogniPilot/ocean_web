@@ -1,5 +1,6 @@
 model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and rudder"
-  extends OceanMission(waves(localHull=true,heading=yaw,heel=roll,pitch=pitch,
+  extends OceanMission(race(racerState={1,yaw,roll,pitch,z,der(east),der(north),yawRate,vertical,rollRate,pitchRate},
+    hullStations=cruiserStations,hullWidths=2*halfStripBeam),waves(localHull=true,heading=yaw,heel=roll,pitch=pitch,
     stations=cruiserStations,beamHalf=halfStripBeam,separation=.55,volume=stripVolume));
   // Two longitudinal halves of the single chine hull. Their displaced volumes
   // sum to the 3250 kg design displacement in seawater at the trimmed waterline.
@@ -105,12 +106,36 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   input Real helmLever(start=0) "Positive port helm";
   input Real startEncounter(start=0);
   input Real lowerAnchor(start=0),wiperSwitch(start=0);
+  input Real peerSubs[9,14](each start=0) "Nearby free-swimming Piccard poses and twists";
+  discrete output Real peerHullWrench[6](each start=0,each fixed=true);
   input Real droneLandingLoad[6]=zeros(6) "Force and moment on the cruiser from a landed drone in ENU";
   output Real landingDeck[12] "Cruiser ENU deck pose and twist, with bow-up pitch";
-  Real landingMoment[3];
+  Real landingMoment[3],deckLoad[6];
+  parameter Real initialHoistLevel(min=0,max=1)=1 "Hoist stroke at launch, stowed inboard by default";
+  input Real sternLiftGoal(start=1) "Commanded stroke end, 0 lowered or 1 raised";
+  input Real sternLiftOccupied(start=0) "Owner-confirmed Piccard aboard";
+  output Real sternLiftState[2] "Fraction of stroke and rate per second";
+  output Real sternLiftPose[15] "ENU rider position, velocity, forward, up and angular velocity";
+  discrete output Real sternLiftBottomPose[15](each start=0,each fixed=true) "Last completed downstroke endpoint pose and twist in ENU";
+  output Real sternLiftWrench[6] "External force and moment on the cruiser from the carried Piccard, ENU";
+  parameter Real liftFormCd(min=0)=1.2, liftForkExposure(min=0,max=1)=.70
+    "Estimated bluff-member drag coefficient and fore-aft wake shielding of the four tines";
+  final parameter Integer liftKinematics=Wreck.PortLift.kinematics;
+  final parameter Real liftHydroGeometry[Wreck.PortLift.count,15]=Wreck.PortLift.restGeometry();
+  discrete output Real liftWaterWrench[6](each start=0,each fixed=true) "Bare lift hydrodynamic force and torque about cruiser origin, ENU";
+  Real liftPhase,liftOrbitalSpeed,liftWaterVelocity[3];
+  final parameter Real liftTravelSeconds=Wreck.PortLift.cycleSeconds;
+  Real hoistGeometry[8],tipArm[3],tip[3],tipVelocity[3],cradleArm[3],cradleEye[3],cradleVelocity[3];
+  discrete Real hoistState[14](each start=0,each fixed=true) "Hook position/velocity, force on tip, force on cradle, tension and seated flag";
+  output Real sternHoistCable[8] "Boom tip XYZ, dynamic hook XYZ, winch payout [m], axial tension [N]";
+  output Real sternHoistSeated "Piccard resting secured on the aft deck cradle";
+  discrete Real liftLevel(start=initialHoistLevel,fixed=true),lastLiftSample(start=0,fixed=true);
+  discrete Real liftSea(start=0,fixed=true),priorLiftSea(start=0,fixed=true);
+  Real liftWaterline,liftRate,liftRotation[3,3],liftNormal[3],liftForward[3],liftOmega[3],carrierVelocity[3];
   output Real anchorState[12] "Anchor position, quaternion, bow roller position, line paid and grounded";
   output Real wiperAngle "Sweep angle from park [rad]";
   discrete Real wiperPhase(start=0,fixed=true);
+  Real animalMoment[3] "Animal torque in the yaw-aligned vessel axes";
   Real bowRollerArm[3],bowRoller[3],anchorMoment[3],anchorForce[3];
   output Real anchorHolding[2] "Fluke embedment fraction and rode tension [N]";
   CruiserAnchor anchor(stowed={initialEast+3.25*cos(initialHeading),initialNorth+3.25*sin(initialHeading),1.12},
@@ -182,6 +207,8 @@ equation
   when sample(0,wakeInterval) then
     // The strips radiate from their changing displacement. Their radiation
     // reaction is represented by the heave and angular damping below.
+    liftSea=boatWater.tide+Wreck.Perception.seaHeight(boatWater.tile,tip[1],tip[2]);
+    priorLiftSea=if initial() then liftSea else pre(liftSea);
     panelSea=panelElevations(boatWater.tile,stripEast,stripNorth,boatWater.tide);
     previousSea=if initial() then panelSea else pre(panelSea);
     bowSpeed=if omitWake<.5 then {surge,sway} else zeros(2);
@@ -217,15 +244,63 @@ equation
   bowRoller=focus+bowRollerArm;
   anchorForce=if noEvent(anchor.paid>.22 or lowerAnchor>.5) then anchor.reaction else zeros(3);
   anchorMoment=transpose(yawRotation)*cross(bowRollerArm,anchorForce);
-  landingMoment=transpose(yawRotation)*droneLandingLoad[4:6];
+  liftRate=if sternLiftGoal>.5 and liftLevel<1 then 1/liftTravelSeconds
+    elseif sternLiftGoal<=.5 and liftLevel>0 then -1/liftTravelSeconds else 0;
+  sternLiftState={liftLevel,liftRate};
+  liftRotation=yawRotation*rotation;
+  hoistGeometry=Wreck.PortLift.hoist(liftLevel);
+  liftOmega=yawRotation*spin;
+  carrierVelocity={der(east),der(north),vertical};
+  tipArm=liftRotation*hoistGeometry[1:3];tip=focus+tipArm;
+  tipVelocity=carrierVelocity+cross(liftOmega,tipArm)+liftRotation*hoistGeometry[5:7]*liftRate;
+  liftNormal=liftRotation[:,3];liftForward=liftRotation[:,1];
+  cradleArm=liftRotation*Wreck.PortLift.cradle;
+  cradleEye=focus+cradleArm+Wreck.PortLift.bridleHeight*liftNormal;
+  cradleVelocity=carrierVelocity+cross(liftOmega,cradleEye-focus);
+  // A four-leg bridle guides body attitude in the carrier's fore/aft direction.
+  // The cable determines translational swing, and the cradle supports the stowed hull.
+  sternLiftPose=cat(1,hoistState[1:3]-Wreck.PortLift.bridleHeight*liftNormal,
+    hoistState[4:6]-Wreck.PortLift.bridleHeight*cross(liftOmega,liftNormal),liftForward,liftNormal,liftOmega);
+  sternHoistCable=cat(1,tip,hoistState[1:3],{hoistGeometry[4],hoistState[13]});
+  sternHoistSeated=if sternLiftOccupied>.5 then hoistState[14] else 0;
+  liftWaterline=(1-waterFraction)*priorLiftSea+waterFraction*liftSea+.5*sum(encounter.waveSurge)
+    +swell[1]*sin(swell[2]+tip[1]*swell[3]+tip[2]*swell[4])
+    +swimmerWater[13]+hoistGeometry[1]*swimmerWater[14]+hoistGeometry[2]*swimmerWater[15];
+  liftPhase=swell[2]+tip[1]*swell[3]+tip[2]*swell[4];
+  liftOrbitalSpeed=swell[1]*swellOmega*exp(min(0,swellK*(tip[3]-hoistGeometry[4]-liftWaterline)));
+  liftWaterVelocity={boatWater.profile[1,2],boatWater.profile[1,3],0}+
+    liftOrbitalSpeed*{cos(swellBearing)*sin(liftPhase),sin(swellBearing)*sin(liftPhase),-cos(liftPhase)};
+  when sample(0,.02) then
+    liftWaterWrench=Wreck.portLiftWaterLoad(liftHydroGeometry,liftLevel,liftRate,focus,liftRotation,
+      {der(east),der(north),vertical},liftOmega,liftWaterline,liftWaterVelocity,liftFormCd,liftForkExposure);
+  end when;
+  sternLiftWrench=cat(1,hoistState[7:9]+hoistState[10:12],
+    cross(tipArm,hoistState[7:9])+cross(cradleArm,hoistState[10:12]));
+  when sample(0,.02) then
+    peerHullWrench=Wreck.peerHullLoad(cat(1,{1},focus,LieGroups.SO3.Quat.from_DCM(liftRotation),
+      {der(east),der(north),vertical},liftOmega),peerSubs,false,sternLiftState);
+  end when;
+  deckLoad=droneLandingLoad+sternLiftWrench+liftWaterWrench+race.racerLoad+peerHullWrench;
+  landingMoment=transpose(yawRotation)*deckLoad[4:6];
+  animalMoment=transpose(yawRotation)*animalWrench[4:6];
   landingDeck=cat(1,{east,north,z,yaw,roll,-pitch,der(east),der(north),vertical},yawRotation*spin);
   anchorHolding={anchor.embedment,anchor.tension};
   anchorState=cat(1,anchor.position,anchor.orientation,bowRoller,{anchor.paid,anchor.grounded});
   when sample(0,.02) then
+    // Co-simulation can revisit a sample boundary. Integrate only elapsed
+    // simulation time so each interval contributes at most once.
+    lastLiftSample=time;
+    liftLevel=if sternLiftGoal>.5 then min(1,pre(liftLevel)+max(0,time-pre(lastLiftSample))/liftTravelSeconds)
+      else max(0,pre(liftLevel)-max(0,time-pre(lastLiftSample))/liftTravelSeconds);
+    hoistState=Wreck.hoistCableStep(pre(hoistState),max(0,time-pre(lastLiftSample)),tip,tipVelocity,
+      hoistGeometry[4],hoistGeometry[8]*liftRate,cradleEye,cradleVelocity,liftRotation,liftWaterline,
+      liftWaterVelocity,liftLevel,sternLiftOccupied>.5,time<1e-8);
+    sternLiftBottomPose=if pre(liftLevel)>0 and liftLevel<=0 then sternLiftPose else pre(sternLiftBottomPose);
     wiperPhase=if wiperSwitch>.5 then mod(pre(wiperPhase)+.02,1.12)
       elseif pre(wiperPhase)>.001 and pre(wiperPhase)+.02<1.12 then pre(wiperPhase)+.02 else 0;
   end when;
   wiperAngle=.71*(1-cos(2*Modelica.Constants.pi*wiperPhase/1.12));
+  // Cable and cradle reactions already transmit payload inertia to the hull.
   wetMass=3250+encounter.waterMass;
   submergedDrag=max(0,min(1,(boatWater.tide-z-.65)/1.05));
   damageMoment=transpose(yawRotation)*encounter.collisionMoment;
@@ -262,21 +337,21 @@ equation
   effectiveThrottle=if encounter.waterMass>1650 then 0 else governedThrottle;
   der(shaftRPM)=((if effectiveThrottle>=0 then shaftRpmAhead else shaftRpmAstern)*effectiveThrottle-shaftRPM)/.85;
   thrust=propulsion.propellerThrust;
-  der(surge)=sway*yawRate+(driveForce[1]+(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1]+droneLandingLoad[1])*cos(yaw)+(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2]+droneLandingLoad[2])*sin(yaw)+shoreWrench[1]
+  der(surge)=sway*yawRate+(driveForce[1]+(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1]+deckLoad[1])*cos(yaw)+(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2]+deckLoad[2])*sin(yaw)+shoreWrench[1]
     -118*surge*abs(surge)-180*surge)/wetMass;
   der(yawRate)=-yawRate/.9+(driveMoment[3]+animalWrench[6]+shoreWrench[6]+peerForce[3]+sceneForce[3]+damageMoment[3]+anchorMoment[3]+landingMoment[3])/(14000+3.6*encounter.waterMass);
   der(yaw)=yawRate;
-  der(sway)=-surge*yawRate+(driveForce[2]-sin(yaw)*(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1]+droneLandingLoad[1])+cos(yaw)*(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2]+droneLandingLoad[2])+shoreWrench[2])/wetMass-(1.5+.45*abs(sway))*sway;
+  der(sway)=-surge*yawRate+(driveForce[2]-sin(yaw)*(animalWrench[1]+peerForce[1]+sceneForce[1]+encounter.collisionForce[1]+anchorForce[1]+deckLoad[1])+cos(yaw)*(animalWrench[2]+peerForce[2]+sceneForce[2]+encounter.collisionForce[2]+anchorForce[2]+deckLoad[2])+shoreWrench[2])/wetMass-(1.5+.45*abs(sway))*sway;
   der(east)=surge*cos(yaw)-sway*sin(yaw)+boatWater.profile[1,2];
   der(north)=surge*sin(yaw)+sway*cos(yaw)+boatWater.profile[1,3];
-  der(vertical)=(sum(stripForce)+driveForce[3]+shoreWrench[3]+encounter.collisionForce[3]+anchorForce[3]+droneLandingLoad[3]-9.80665*encounter.waterMass
+  der(vertical)=(sum(stripForce)+animalWrench[3]+driveForce[3]+shoreWrench[3]+encounter.collisionForce[3]+anchorForce[3]+deckLoad[3]-9.80665*encounter.waterMass
     -16500*vertical)/(wetMass+addedHeaveMass);der(z)=vertical;
   // Restoring moments about the centre of flotation. Roll stiffness accounts
   // for the raised centre of gravity; turning and thrust also trim the hull.
   der(rollRate)=(.68*.55*sum(stripForce[1,j]-stripForce[2,j] for j in 1:6)
-    +driveMoment[1]+shoreWrench[4]+damageMoment[1]+anchorMoment[1]+landingMoment[1]+encounter.rollMoment-(7400+18000*submergedDrag)*rollRate-1950*surge*yawRate)/(rollInertia+.65*encounter.waterMass);der(roll)=rollRate;
+    +driveMoment[1]+animalMoment[1]+shoreWrench[4]+damageMoment[1]+anchorMoment[1]+landingMoment[1]+encounter.rollMoment-(7400+18000*submergedDrag)*rollRate-1950*surge*yawRate)/(rollInertia+.65*encounter.waterMass);der(roll)=rollRate;
   der(pitchRate)=(-sum((stripX[j]-floatX)*(stripForce[1,j]+stripForce[2,j]) for j in 1:6)
-    +driveMoment[2]+shoreWrench[5]+damageMoment[2]+anchorMoment[2]+landingMoment[2]+encounter.pitchMoment-(47000+52000*submergedDrag)*pitchRate)/(pitchInertia+3.5*encounter.waterMass);der(pitch)=pitchRate;
+    +driveMoment[2]+animalMoment[2]+shoreWrench[5]+damageMoment[2]+anchorMoment[2]+landingMoment[2]+encounter.pitchMoment-(47000+52000*submergedDrag)*pitchRate)/(pitchInertia+3.5*encounter.waterMass);der(pitch)=pitchRate;
   boatPose={east,north,z,roll,pitch,yaw};
   engine={shaftRPM,surge,thrust,propulsion.rudderAngle};
 end OceanMotorboat;

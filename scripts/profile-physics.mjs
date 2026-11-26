@@ -5,14 +5,23 @@ import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {openFmuSession} from '../.deps/microduck_web/site/fmu-session.js';
 import {fileFetch} from '../.deps/microduck_web/scripts/fmu-test-support.mjs';
+import {abyssCave} from '../viewer/abyss-cave.mjs';
 import {sailingStart, startGate, windBearing, windSpeed} from '../viewer/sailing-start.mjs';
 
 const [root='build/pages', role='sailing', count='400', ...options]=process.argv.slice(2);
-const ticks=Number(count), warmup=200, step=.01;
+const ticks=Number(count), step=.01;
+const warmupOption=options.find(option=>option.startsWith('--warmup='));
+const warmup=Number(warmupOption?.slice('--warmup='.length)??200);
 const wakes=options.includes('--no-wakes')?0:1;
 const banked=options.includes('--banked');
+const cave=options.includes('--cave');
+const subManual=Number(options.includes('--manual'));
+const idleCamera=options.includes('--idle-sensors')?1:-1;
 assert(Number.isSafeInteger(ticks)&&ticks>=20,'Provide at least 20 timed steps');
-assert(options.every(option=>option==='--no-wakes'||(role==='shark'&&option==='--banked')),'Unknown profiling option');
+assert(Number.isSafeInteger(warmup)&&warmup>=0&&(!warmupOption||/^--warmup=\d+$/.test(warmupOption)),
+  'Provide a nonnegative whole number of warmup steps');
+assert(options.every(option=>option===warmupOption||option==='--no-wakes'||(role==='shark'&&option==='--banked')||
+  (role==='submarine'&&['--manual','--idle-sensors','--cave'].includes(option))),'Unknown profiling option');
 const base=pathToFileURL(resolve(root)+'/');
 const read=async url=>new Response(readFileSync(url));
 const arrays=(name,count)=>Array.from({length:count},(_,i)=>name+'['+(i+1)+']');
@@ -24,7 +33,7 @@ const cases={
   motorboat:{inputs:{throttleLever:.65,helmLever:.08},fields:[...arrays('boatPose',6),...arrays('engine',4)]},
   flight:{inputs:{station:[-5,0],flightManual:1,flightMode:0,flightPilot:[.2,-.1,0,.1]},fields:[...arrays('drone.position',3),...arrays('drone.quaternion',4),...arrays('drone.dragBody',3)]},
   'flight-idle':{runtime:'flight',inputs:{station:[-5,0],flightManual:1,flightMode:0,flightPilot:[0,0,0,0]},fields:arrays('focus',3)},
-  submarine:{inputs:{subManual:0,idleCamera:-1},fields:[...arrays('sub.position',3),...arrays('estimate',3),'sub.waypoint']},
+  submarine:{inputs:{subManual,idleCamera},fields:[...arrays('sub.position',3),...arrays('estimate',3),'sub.waypoint']},
   habitat:{inputs:{animalPosition:[9,-12,-4]},fields:arrays('focus',3)},
   world:{inputs:{sailingManual:1,subManual:0,idleCamera:-1,flightManual:0},fields:[...boatPose,...arrays('sub.position',3),...arrays('drone.position',3)],launch:true},
   whale:{model:'HarborTraffic',inputs:{whalePilot:[1,0,.65,-1],whaleTurn:.05},fields:['whale','swimmerState','tailForce','tailPower']},
@@ -48,11 +57,15 @@ async function openVehicle(){
   const manifest=await load('manifest.json'),index=await load(manifest.index);
   const variables=new Map(index.variables.map(v=>[v.name,v]));
   const parameters={prevailingBearing:windBearing};
+  if(cave){
+    parameters['sub.spawnHeading']=abyssCave.heading;
+    abyssCave.approach.forEach((value,i)=>{parameters['sub.spawnPosition['+(i+1)+']']=value;});
+  }
   for(const [key,value] of Object.entries(startGate))parameters['race.'+key]=value;
   if(scenario.launch!==undefined){
     for(const [key,value] of Object.entries(sailingStart(scenario.launch)))parameters['boat.'+key]=value;
   }
-  const fmu=await openFmuSession({index,base:runtime,fetch:fileFetch,parameters});
+  const fmu=await openFmuSession({index,base:runtime,fetch:fileFetch,parameters,downloadFirst:true});
   try{
     const controls={windSpeed,windBearing,seaState:.45,epoch:100,omitWake:1-wakes,...scenario.inputs};
     const inputs=Object.entries(controls).flatMap(([name,value])=>{
@@ -91,6 +104,7 @@ try{
   }
   const stepTimes=[],readTimes=[],trace=[];
   perf('enable');
+  const cpuStart=process.threadCpuUsage?.();
   for(let tick=0;tick<ticks;tick++){
     const start=performance.now();
     vehicle.advance();
@@ -101,6 +115,7 @@ try{
     stepTimes.push(advanced-start);readTimes.push(observed-advanced);
     if(process.env.OCEAN_PHYSICS_TRACE)trace.push(Array.from(pose));
   }
+  const cpu=cpuStart&&process.threadCpuUsage(cpuStart);
   perf('disable');
   const summarize=samples=>{
     const sorted=[...samples].sort((a,b)=>a-b);
@@ -108,8 +123,9 @@ try{
     return {mean:samples.reduce((sum,x)=>sum+x,0)/samples.length,p50:quantile(.50),p95:quantile(.95)};
   };
   const timing={step:summarize(stepTimes),read:summarize(readTimes)};
+  if(cpu)timing.threadCpuMsPerTick=(cpu.user+cpu.system)/(1000*ticks);
   if(process.env.OCEAN_PHYSICS_TRACE)writeFileSync(process.env.OCEAN_PHYSICS_TRACE,JSON.stringify(trace));
-  console.log(JSON.stringify({role,ticks,warmup,wakes,banked,timing,realTimeFactor:1000*step/(timing.step.mean+timing.read.mean)}));
+  console.log(JSON.stringify({role,ticks,warmup,wakes,banked,...(role==='submarine'?{subManual,idleCamera,...(cave?{spawn:'cave'}:{})}:{}),timing,realTimeFactor:1000*step/(timing.step.mean+timing.read.mean)}));
 }finally{
   vehicle.close();
   if(control!==undefined)closeSync(control);

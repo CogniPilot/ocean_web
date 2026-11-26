@@ -1,0 +1,1 @@
+{"inputs":{"feature":0,"noise":24,"reward":48,"weight":72,"moment":73,"variance":74,"step":75,"sigma":76,"learningRate":77,"previousGradient":78,"groupCount":79},"p":80,"out":16,"sourceSha256":"9b2136ec632b41f80904a91e47916b271e2a5dffec84e914f1f903de3ce55092","compiler":{"version":"0.10.4","git_commit":"343f2c40ef07-dirty","git_merge_parents":[]}}

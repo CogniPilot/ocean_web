@@ -2,12 +2,14 @@
   "name": "pelagic-peer-bundle",
   "version": "1.0.0",
   "scripts": {
-    "build": "esbuild entry.mjs --bundle --format=esm --minify --outfile=../../viewer/vendor/trystero.mjs"
+    "build": "bash ../../scripts/build-trystero.sh && npm run build:lobby",
+    "build:lobby": "esbuild names.mjs --bundle --format=esm --minify --outdir=../../viewer/vendor"
   },
   "license": "Apache-2.0",
   "dependencies": {
     "@trystero-p2p/nostr": "0.25.3",
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "obscenity": "0.4.6"
   },
   "private": "true",
   "devDependencies": {

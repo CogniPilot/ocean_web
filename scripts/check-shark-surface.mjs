@@ -43,3 +43,24 @@ const breaches=await swim('repeated breaches',0,2,3,44,time=>{
 assert.equal(breaches.emerged,3);
 assert.equal(breaches.returned,3);
 assert(breaches.maxNose>1.2 && breaches.maxHeight>0 && breaches.maxTimeOut<3.5);
+
+// Use actual ENU speed relative to the sampled current at the first crossing of a travelling wave.
+for(const [depth,current,reserve] of [[4,0,1],[7,1,1],[4,0,.01]]){
+  const plant=await loadInstance('HarborTraffic',{
+    initialState:[0,-28,6,0,2,-25,2,6,0,-900,-200,-depth,0,-.06,0,0,0],
+    initialFish:[1.65+current,0,0,0,0,0,0,0,0,0],initialSwimReserve:[1,reserve],
+    currentVelocity:[.17,-.08],sharkWater:[1,current,0],whaleWater:[1,-.23,.046]
+  },read);
+  assert.deepEqual(plant.get('whiteShark.current'),[current,0]);assert.deepEqual(plant.get('swimmer.current'),[-.23,.046]);
+  let crossing;
+  for(let tick=0;tick<950;tick++){
+    const sea=.13*Math.sin(tick*.01*1.2);
+    plant.set('sharkSurface',sea);plant.set('sharkPilot',[1,0,1,tick*.01]);plant.advance(.01);
+    const [harbor,fish]=plant.getMany(['state','fish']);
+    if(harbor[11]>=sea){
+      crossing=Math.hypot(fish[0]-current*Math.cos(harbor[12]),fish[1],fish[9]+current*Math.sin(harbor[12]));break;
+    }
+  }
+  console.log('Breach COM crossing',{depth,current,reserve,metresPerSecond:crossing});
+  assert(reserve>.1?crossing>13.8&&crossing<16.4:crossing<8);
+}

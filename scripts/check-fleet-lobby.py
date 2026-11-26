@@ -35,7 +35,17 @@ with tempfile.TemporaryDirectory() as directory:
     assert request(token(), room="another room")["channel"] not in {s["channel"] for s in seats}
     spare = token()
     assert request(spare, fleet=2)["fleet"] == 4  # invited fleet full
+    directory = assign(database, {"action": "list"}, now)["fleets"]
+    assert sum(row["count"] for row in directory) == 33
+    assert all(set(row) == {"fleet", "count"} for row in directory)
+    try:
+        assign(database, dict(action="join", token=token(), room="regatta", fleet=2, exact=True), now)
+    except OverflowError:
+        pass
+    else:
+        raise AssertionError("A full fleet accepted an exact invitation")
     now += LEASE_SECONDS
+    assert assign(database, {"action": "list"}, now) == {"fleets": []}
     try:
         request(spare, "renew")
     except LookupError:

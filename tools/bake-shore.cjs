@@ -1,8 +1,8 @@
 // Bake the actual display mesh into convex collision planes; run from the repository root.
 const fs=require('node:fs'),vm=require('node:vm');
 const T=require('../viewer/vendor/three.min.js');
-const ctx={T,scene:new T.Scene()};
-vm.runInNewContext(fs.readFileSync('viewer/visuals.js','utf8')+'\nbatchScenery=()=>{}; land=coast(T,scene,false);',ctx);
+const ctx={T,scene:new T.Scene(),harborBed:{height:()=>0}};
+vm.runInNewContext(fs.readFileSync('viewer/visuals.js','utf8')+'\nislandTextures=()=>({}); islandPalms=()=>{}; islandScrub=()=>{}; land=coast(T,scene,false);',ctx);
 ctx.scene.updateMatrixWorld(true);
 const rocks=[];
 ctx.land.traverse(o=>{if(o.geometry?.type==='IcosahedronGeometry')rocks.push(o);});

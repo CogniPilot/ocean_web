@@ -4,8 +4,8 @@ import {piccardParts,viewport} from '../viewer/piccard-geometry.mjs';
 // clearance. Work in Piccard coordinates and reject distant wreck plates first.
 export function piccardClearance(T,wreck,mounts,axes){
   const vec=coords=>new T.Vector3(...coords);
-  const local=piccardParts(mounts,axes).parts.map(({center,half,basis})=>({
-    center:vec(center),half,basis:basis.map(vec),radius:Math.hypot(...half)
+  const local=piccardParts(mounts,axes).parts.map(({center,half,basis,kind,axis})=>({
+    center:vec(center),half,basis:basis.map(vec),kind,axis,radius:Math.hypot(...half)
   }));
   const plates=wreck.children.map(mesh=>({
     center:mesh.position,half:mesh.scale.toArray().map(x=>.5*x),
@@ -34,7 +34,15 @@ export function piccardClearance(T,wreck,mounts,axes){
       for(const part of local){
         if(sphereGap(part.center,part.radius)>=best)continue;
         delta.copy(part.center).sub(center);
-        const gapOn=n=>Math.abs(delta.dot(n))-radius(extent,basis,n)-radius(part.half,part.basis,n);
+        // Each tested separating axis gives a conservative clearance bound.
+        const gapOn=n=>{
+          let support;
+          if(part.kind==='cylinder'){
+            const axial=Math.min(1,Math.abs(n.dot(part.basis[part.axis])));
+            support=part.half[part.axis]*axial+part.half[(part.axis+1)%3]*Math.sqrt(1-axial*axial);
+          }else support=radius(part.half,part.basis,n);
+          return Math.abs(delta.dot(n))-radius(extent,basis,n)-support;
+        };
         let gap=-Infinity;
         for(const n of basis){gap=Math.max(gap,gapOn(n));if(gap>=best)break;}
         if(gap>=best)continue;

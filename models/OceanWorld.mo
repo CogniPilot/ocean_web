@@ -1,10 +1,19 @@
 model OceanWorld "Single-clock marine world, with onboard perception and guidance"
   extends OceanRace;
   parameter Real surveyAtStartup=1 "Enable SLAM for clients that leave idleCamera at its default";
+  input Real imagingSonar(start=0) "Request a sonar ping independently of optical acquisition and mapping";
   input Real idleCamera(start=0) "Camera and SLAM mode: -1 active, 0 use startup setting, 1 idle";
   input Real subManual(start=1),subPilot[4],subMode(start=0),subAttitudePilot[2],flightManual(start=1),flightPilot[4],motorCut;
   input Real flightMode(start=0),racePilot(start=0),station[2](each start=0);
-  Wreck.Plant sub(seaClockOffset=seaClockOffset,seaState=seaState,windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,
+  input Real peerCruisers[9,14](each start=0),peerLiftStates[9,2](each start=0);
+  input Real mappedCurrent[4](each start=0) "Coverage and local mean ENU current at Piccard";
+  input Real scanConstraints[8,10](each start=0) "Local scan contacts for Piccard";
+  input Real subFlood(start=0) "Trip Piccard power and open the flooded housing";
+  output Real subFloodState[4]=sub.floodState;
+  input Real subHoist[8](each start=0),subHoistUp[3](start={0,0,1});
+  input Real subHoistQuaternion[4](each start=0),subHoistAngularVelocity[3](each start=0);
+  Wreck.Plant sub(mappedCurrent=mappedCurrent,animalTraffic=animalTraffic,animalJoints=animalJoints,flood=subFlood,peerCruisers=peerCruisers,peerLiftStates=peerLiftStates,hoist=subHoist,hoistUp=subHoistUp,hoistQuaternion=subHoistQuaternion,
+    hoistAngularVelocity=subHoistAngularVelocity,scanConstraints=scanConstraints,seaClockOffset=seaClockOffset,seaState=seaState,windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,navigationUp=estimate[3],navigationUpValid=if estimate[9]>0 then 1 else 0,
     manual=subManual,pilot=subPilot,manualMode=subMode,attitudePilot=subAttitudePilot,hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:7]);
   Wreck.Ocean droneWater(seaClockOffset=seaClockOffset,seaState=seaState,pos=drone.position,windSpeed=windSpeed,windDirection=windBearing);
   input Real rotorWakeTraffic[4,12]=zeros(4,12),droneTraffic[4,14]=zeros(4,14);
@@ -43,6 +52,6 @@ equation
     previousGyro=sub.gyroAngle;
     (sensor,elev,image,estimate,keyframes,features,ping)=Wreck.Perception.sampleFrame(time,
       cat(1,sub.position,sub.orientation,sub.velocity,{sub.yawRate,sub.pressure},sub.specificForce,(sub.gyroAngle-pre(previousGyro))/.2),
-      beams,zeros(1017),0,pre(image),pre(estimate),pre(keyframes), idleCamera<surveyAtStartup-.5,idleCamera<surveyAtStartup-.5,idleCamera<surveyAtStartup-.5 or subManual<.5);
+      beams,zeros(1017),0,pre(image),pre(estimate),pre(keyframes), idleCamera<surveyAtStartup-.5,idleCamera<surveyAtStartup-.5,idleCamera<surveyAtStartup-.5 or subManual<.5 or imagingSonar>.5,sub.carrierFix);
   end when;
 end OceanWorld;

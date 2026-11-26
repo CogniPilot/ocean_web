@@ -1,3 +1,4 @@
+import {rigSelection} from './rig-selection.mjs';
 import {battenPath} from './board/sail-battens.mjs';
 
 // All geometry is projected from the current boat and water state. Keeping the
@@ -46,17 +47,33 @@ export function sampleAirflow(model,position,ambient,{rotors,sailPeers,sailNpcs,
     rotor:Boolean(rotors),thrust:rotors?model.get('localRotorThrust'):null};
 }
 
-export function sampleCurrent(model,position,environment){
-  const spacing=.9,points=new Float64Array(125*3);
-  let index=0;
-  for(let z=-2;z<=2;z++)for(let y=-2;y<=2;y++)for(let x=-2;x<=2;x++){
-    points.set([position[0]+spacing*x,position[1]+spacing*y,position[2]+spacing*z],index);
-    index+=3;
+// Use the same selected mean field for physics, inspection and suspended particles.
+export function currentVelocities(model,points,environment,out=new Float64Array(points.length)){
+  if(model.sample){
+    const pos=[0,0,0],v=[0,0,0];
+    for(let i=0;i<points.length;i+=3){
+      pos[0]=points[i];pos[1]=points[i+1];pos[2]=points[i+2];
+      model.sample(pos,v);out.set(v,i);
+    }
+    return out;
   }
   model.set('points',points);
   ['tide','wind','bearing','tidalEast'].forEach((name,i)=>model.set(name,environment[i]));
-  const velocity=model.get('velocity');
-  return {points,position,velocity,spacing,dimensions:[5,5,5],ambient:[0,0,0],water:true,surface:environment[0]};
+  return model.get('velocity',out);
+}
+
+export function sampleCurrent(model,position,environment,bed,surface){
+  const spacing=.9,points=new Float64Array(125*3),wet=new Uint8Array(125);
+  for(let y=0;y<5;y++)for(let x=0;x<5;x++){
+    const east=position[0]+spacing*(x-2),north=position[1]+spacing*(y-2);
+    const floor=bed?.(east,north)??-Infinity,top=surface?.(east,north)??environment[0];
+    for(let z=0;z<5;z++){
+      const index=25*z+5*y+x,up=position[2]+spacing*(z-2);
+      points.set([east,north,up],3*index);
+      wet[index]=Number(up>=floor&&up<=top);
+    }
+  }
+  return {points,position,velocity:currentVelocities(model,points,environment),spacing,dimensions:[5,5,5],ambient:[0,0,0],water:true,wet};
 }
 
 export function alignPontoonSamples(points,stations,separation,transform,aligned){
@@ -75,7 +92,8 @@ export function alignPontoonSamples(points,stations,separation,transform,aligned
   return aligned;
 }
 
-export function physicsView(T,canvas,status){
+export function physicsView(T,canvas,status,viewport,select,signal){
+  const picker=rigSelection(T,viewport,select,signal);
   const ink=canvas.getContext('2d');
   const clip=new T.Vector3(),projected=new T.Vector2();
   const colors={main:'#79edff',jib:'#b2ffa8',mast:'#ffd080',joint:'#ff9cce',batten:'#fff07b',
@@ -203,25 +221,92 @@ export function physicsView(T,canvas,status){
     ink.restore();
     if(anchor)label(anchor,sail.pivot,count+' full-length battens',colors.batten,8,8);
   }
+  const shaft=new T.Vector3(),across=new T.Vector3(),perpendicular=new T.Vector3(),end=new T.Vector3(),viewAxis=new T.Vector3();
+  const bodyColor='#64ebdf';
+  let namesVisible=false;
+  const catalogs=new WeakMap();
+  function strokePath(color,width){
+    ink.strokeStyle='#092331';ink.lineWidth=width+2;ink.stroke();
+    ink.strokeStyle=color;ink.lineWidth=width;ink.stroke();
+  }
   function drawJoints(joints,length){
+    camera.getWorldDirection(viewAxis);
     for(const [joint,axis,name] of joints){
-      // The display length is in metres, including for scaled glTF bones.
       center.setFromMatrixPosition(joint.matrixWorld);
-      b.fromArray(axis).transformDirection(joint.matrixWorld).multiplyScalar(length);
-      a.copy(center).sub(b);b.add(center);
-      ink.strokeStyle=colors.joint;ink.lineWidth=2;ink.beginPath();
-      segment(a,b);ink.stroke();
-      dot(center,null,colors.joint,3);
-      if(name)label(center,null,name,colors.joint);
+      const focus=picker.active?.frame===joint&&picker.active.kind==='joint';
+      shaft.fromArray(axis).transformDirection(joint.matrixWorld);
+      if(!namesVisible&&!focus){
+        const p=project(center);
+        if(!p)continue;
+        const {x,y}=p,tip=project(end.copy(center).addScaledVector(shaft,length));
+        if(!tip)continue;
+        const turn=Math.atan2(tip.y-y,tip.x-x),edge=Math.abs(viewAxis.dot(shaft));
+        // Draw the hinge collar and its short axle. Co-located rotation axes
+        // share a pivot but keep their own projected orientation.
+        const r=4.5;
+        ink.beginPath();
+        ink.ellipse(x,y,r,Math.max(1.3,r*edge),turn+Math.PI/2,0,2*Math.PI);
+        ink.moveTo(x-5*Math.cos(turn)*(1-edge),y-5*Math.sin(turn)*(1-edge));
+        ink.lineTo(x+5*Math.cos(turn)*(1-edge),y+5*Math.sin(turn)*(1-edge));
+        strokePath(colors.joint,1.45);
+        continue;
+      }
+      across.set(Math.abs(shaft.z)<.85?0:1,0,Math.abs(shaft.z)<.85?1:0).cross(shaft).normalize();
+      perpendicular.crossVectors(shaft,across);
+      const radius=.37*length;
+      a.copy(center).addScaledVector(across,radius);
+      ink.beginPath();
+      for(let i=1;i<=18;i++){
+        const angle=2*Math.PI*i/18;
+        b.copy(center).addScaledVector(across,radius*Math.cos(angle)).addScaledVector(perpendicular,radius*Math.sin(angle));
+        segment(a,b);a.copy(b);
+      }
+      a.copy(center).addScaledVector(shaft,-length*.65);
+      end.copy(center).addScaledVector(shaft,length);
+      segment(a,end);
+      for(const direction of [-1,1]){
+        b.copy(end).addScaledVector(shaft,-radius*.75).addScaledVector(across,direction*radius*.48);
+        segment(end,b);
+      }
+      strokePath(colors.joint,1.7);
+      dot(center,null,'#192536',4);dot(center,null,colors.joint,2.4);
+      if(name||focus)label(center,null,name??picker.active.label,colors.joint,9,-9);
+    }
+  }
+  function rigidMarkers(group,joints){
+    const bodies=group.userData.physicsBodies??[];
+    ink.beginPath();
+    for(const [joint] of joints){
+      let parent=joint.parent;
+      while(parent&&parent!==group&&!parent.userData.physicsJoint)parent=parent.parent;
+      if(parent){
+        a.setFromMatrixPosition(parent.matrixWorld);b.setFromMatrixPosition(joint.matrixWorld);
+        segment(a,b);
+      }
+    }
+    for(const {frame,center:com} of bodies){
+      a.setFromMatrixPosition(frame.matrixWorld);b.fromArray(com).applyMatrix4(frame.matrixWorld);segment(a,b);
+    }
+    strokePath(bodyColor,1.8);
+    for(const {frame,center:com,label:name} of bodies){
+      center.fromArray(com).applyMatrix4(frame.matrixWorld);
+      const pt=project(center);
+      if(!pt)continue;
+      const {x,y}=pt;
+      const focus=picker.active?.frame===frame&&picker.active.kind==='body',r=focus?5:2.8;
+      ink.beginPath();ink.moveTo(x,y-r);ink.lineTo(x+r,y);ink.lineTo(x,y+r);ink.lineTo(x-r,y);ink.closePath();
+      ink.fillStyle=bodyColor;ink.fill();ink.lineWidth=1;ink.strokeStyle='#092331';ink.stroke();
+      if(name&&(namesVisible||focus))label(center,null,name,bodyColor,9,12);
     }
   }
 
   function drawBody(body){
     const {group,kind,thrust}=body;
-    const scale=kind==='motorboat'?1.1:kind==='drone'?.22:kind==='gull'?.30:kind==='sub'?.32:kind==='boat'?.62:1.25;
-    const axes=[[scale,0,0,'X · Forward','#ffb278'],[0,scale,0,'Y · Port','#a1f1a2'],[0,0,scale,'Z · Up','#8ccaff']];
+    const scale=kind==='motorboat'?.48:kind==='drone'?.10:kind==='gull'?.12:kind==='sub'?.14:kind==='boat'?.32:kind==='diver'?.13:.42;
+    const axes=[[scale,0,0,'F','#ffb278'],[0,scale,0,'L','#a1f1a2'],[0,0,scale,'U','#8ccaff']];
     a.set(0,0,0);
-    for(const [x,y,z,name,color] of axes){
+    const showAxes=namesVisible||!group.userData.physicsBodies?.length;
+    for(const [x,y,z,name,color] of showAxes?axes:[]){
       b.set(x,y,z);
       ink.strokeStyle=color;ink.lineWidth=2;ink.beginPath();segment(a,b,group);ink.stroke();
       label(b,group,name,color);
@@ -231,11 +316,30 @@ export function physicsView(T,canvas,status){
       joints=[];
       group.traverse(object=>{
         const frame=object.userData.physicsJoint;
-        if(frame)joints.push([object,frame.axis,frame.label]);
+        if(frame){
+          joints.push([object,frame.axis,frame.label]);
+          for(const axis of frame.axes??[])joints.push([object,axis]);
+        }
       });
-      markCache.set(group,joints);
+      if(joints.length)markCache.set(group,joints);
     }
-    drawJoints(joints,kind==='gull'?.07:kind==='drone'?.09:kind==='motorboat'?.34:kind==='shark'?.19:.35);
+    const bodies=group.userData.physicsBodies,extra=body.rig?.joints;
+    let catalog=catalogs.get(group);
+    if(!catalog||catalog.bodies!==bodies||catalog.extra!==extra||catalog.count!==joints.length){
+      const parts=[],seen=new Set();
+      function add(kind,frame,label,point=[0,0,0]){
+        const key=kind+':'+frame.id;
+        if(seen.has(key)||!label)return;
+        seen.add(key);parts.push({key,kind,frame,label,center:point});
+      }
+      for(const body of bodies??[])add('body',body.frame,body.label,body.center);
+      for(const [joint,,name] of joints)add('joint',joint,name);
+      for(const [joint,,name] of extra??[])add('joint',joint,name??joint.name);
+      catalog={parts,bodies,extra,count:joints.length};catalogs.set(group,catalog);
+    }
+    picker.update(group,catalog.parts,camera,width,height);
+    rigidMarkers(group,joints);
+    drawJoints(joints,kind==='gull'?.07:kind==='drone'?.09:kind==='motorboat'?.34:kind==='shark'?.19:kind==='diver'?.085:.35);
     if(kind==='sub'){
       const rotors=group.userData.rotors;
       for(const [i,rotor] of rotors.entries()){
@@ -461,7 +565,7 @@ export function physicsView(T,canvas,status){
     }
   }
 
-  function drawFlow({points,position,velocity,ambient,dimensions,spacing,previous,blend,anchor,water,surface}){
+  function drawFlow({points,position,velocity,ambient,dimensions,spacing,previous,blend,anchor,water,wet}){
     const [length,width,height]=dimensions;
     airflowOffset.fromArray(anchor).sub(a.fromArray(position));
     const pointAt=(target,i)=>target.fromArray(points,i).add(airflowOffset);
@@ -483,7 +587,7 @@ export function physicsView(T,canvas,status){
     const dots=colors.map(()=>[]);
     for(let i=0;i<points.length;i+=3){
       pointAt(a,i);
-      if(water&&(a.z>surface||a.z< -13.7))continue;
+      if(water&&!wet[i/3])continue;
       vectorAt(i);
       const difference=Math.hypot(b.x-ambient[0],b.y-ambient[1],b.z-ambient[2]);
       const band=Math.round((colors.length-1)*Math.min(1,difference/(fastest*.65)));
@@ -532,7 +636,8 @@ export function physicsView(T,canvas,status){
     const w=Math.round(width*scale),h=Math.round(height*scale);
     if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
     ink.setTransform(scale,0,0,scale,0,0);ink.clearRect(0,0,width,height);
-    labelRects.length=0;
+    labelRects.length=0;namesVisible=options.names===true;
+    if(!options.rig)picker.reset();
     const {group}=body;
     camera=viewCamera;camera.updateMatrixWorld();group.updateMatrixWorld(true);
     const captions=[];
@@ -546,7 +651,7 @@ export function physicsView(T,canvas,status){
     if(options.rig){
       drawBody(body);
       if(body.rig)drawRig(body.rig);
-      if(group.userData.swimmer)captions.push('Pink · rig joints driven by the swimmer model');
+      if(catalogs.get(group)?.parts.length)captions.push('Hover or tap a marker to inspect a part.');
     }
     if(options.hulls){
       if(hull?.stations)drawHull(hull,group);
@@ -559,7 +664,7 @@ export function physicsView(T,canvas,status){
     if(body.current){
       drawFlow(body.current);
       const speed=Math.hypot(...body.current.velocity.slice(3*62,3*63));
-      captions.push('3D mean water current · '+speed.toFixed(2)+' m/s at sub · Cyan slow · Yellow fast');
+      captions.push('3D mean water current · '+speed.toFixed(2)+' m/s at '+body.current.label+' · Cyan slow · Yellow fast');
     }else if(body.currentMessage)captions.push(body.currentMessage);
     if(body.airflow){
       drawFlow(body.airflow);
@@ -575,5 +680,5 @@ export function physicsView(T,canvas,status){
     if(status.textContent!==caption)status.textContent=caption;
     status.hidden=!caption;
   }
-  return {draw};
+  return {draw,reset:picker.reset,selection:picker.selection};
 }

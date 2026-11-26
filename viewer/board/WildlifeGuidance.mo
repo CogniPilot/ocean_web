@@ -1,9 +1,10 @@
 function WildlifeGuidance "Patrol interruptions, target choice and closest approach in ENU"
   input Boolean whale;
   input Real clock,pose[4],speed;
-  input Real craft[32,8] "Stable identifier, type (boat=1, sub=2, drone=3, NPC boat=4), ENZ, EN velocity, host flag";
+  input Real craft[32,8] "Stable identifier, type (boat=1, sub=2, drone=3, wildlife=4), ENZ, EN velocity, host flag";
   input Real memory[3] "Target identifier, encounter episode, passing side";
   input Real prey[4]=zeros(4) "Live prey during a foraging bout";
+  input Real selfId=0 "Ignore this actor in both target selection and avoidance";
   output Real result[9] "Investigating, course, speed, breach clearance, target depth, submarine, then memory";
 protected
   // The -10 m contour of Shore.terrain plus clearance for body length and fins.
@@ -17,11 +18,11 @@ algorithm
   clearance:=if whale then 15 else 9;notice:=if whale then 85 else 65;
   episode:=floor(clock/68);target:=0;best:=-1e9;heading:=pose[4];pace:=1.7;
   for i in 1:32 loop
-    if craft[i,2]>=1 and craft[i,2]<=3 and mod(clock,68)<51 then
-      dx:=pose[1]-craft[i,3];dy:=pose[2]-craft[i,4];d:=sqrt(dx^2+dy^2);
-      if d<notice and (craft[i,2]<>3 or craft[i,5]<16) then
-        score:=-d+100*craft[i,8]+(if not whale and craft[i,2]==2 then 250 else 0);
-        if memory[2]==episode and memory[1]==craft[i,1] then score:=score+500;end if;
+    if craft[i,1]<>selfId and craft[i,2]>=1 and craft[i,2]<=4 and mod(clock,68)<51 then
+      dx:=pose[1]-craft[i,3];dy:=pose[2]-craft[i,4];d:=sqrt(dx^2+dy^2+(pose[3]-craft[i,5])^2);
+      if d<notice and (craft[i,2]<3 or craft[i,5]<16) then
+        score:=-d;
+        if memory[2]==episode and memory[1]==craft[i,1] then score:=score+2;end if;
         if score>best then best:=score;target:=i;end if;
       end if;
     end if;
@@ -51,7 +52,7 @@ algorithm
   end if;
   safety:=0;sx:=0;sy:=0;clear:=1;
   for i in 1:32 loop
-    if craft[i,2]>0 and (craft[i,2]<>3 or craft[i,5]<=2) then
+    if craft[i,1]<>selfId and craft[i,2]>0 and (craft[i,2]<>3 or craft[i,5]<=2) then
       dx:=pose[1]-craft[i,3];dy:=pose[2]-craft[i,4];
       vx:=speed*cos(pose[4])-craft[i,6];vy:=speed*sin(pose[4])-craft[i,7];
       lead:=max(0,min(if whale then 10 else 5,-(dx*vx+dy*vy)/(.01+vx^2+vy^2)));
@@ -93,20 +94,22 @@ algorithm
   end if;
   // Steer away before a submerged animal's swept path enters the wreck envelope.
   // Above the deck the same horizontal track is safe.
-  low:=Wreck.WreckSolids.wreckLow;high:=Wreck.WreckSolids.wreckHigh;
-  reach:=if whale then 6.7 else 2.6;
-  if pose[3]-(if whale then 2.5 else 1.1)<high[3] and pose[3]+reach>low[3] then
-    ahead:=min(28,reach+max(1,speed)*(if whale then 6 else 4));
-    margin:=if whale then 3.6 else 1.4;
-    for j in 0:8 loop
-      px:=pose[1]+ahead*j/8*cos(pose[4]);py:=pose[2]+ahead*j/8*sin(pose[4]);
-      if px>=low[1]-margin and px<=high[1]+margin and py>=low[2]-margin and py<=high[2]+margin then
-        // Keep passing on the animal's present side of the wreck's long axis.
-        side:=if pose[2]>=.5*(low[2]+high[2]) then 1 else -1;
-        heading:=atan2(side,.35*cos(pose[4]));pace:=min(pace,1.4);clear:=0;result[1]:=1;result[6]:=0;
-        break;
-      end if;
-    end for;
-  end if;
+  for site in 1:2 loop
+    low:=Wreck.ScanOccupancy.low[site,:];high:=Wreck.ScanOccupancy.high[site,:];
+    reach:=if whale then 6.7 else 2.6;
+    if pose[3]-(if whale then 2.5 else 1.1)<high[3] and pose[3]+reach>low[3] then
+      ahead:=min(28,reach+max(1,speed)*(if whale then 6 else 4));
+      margin:=if whale then 3.6 else 1.4;
+      for j in 0:8 loop
+        px:=pose[1]+ahead*j/8*cos(pose[4]);py:=pose[2]+ahead*j/8*sin(pose[4]);
+        if px>=low[1]-margin and px<=high[1]+margin and py>=low[2]-margin and py<=high[2]+margin then
+          // Keep passing on the animal's present side of the wreck's long axis.
+          side:=if pose[2]>=.5*(low[2]+high[2]) then 1 else -1;
+          heading:=atan2(side,.35*cos(pose[4]));pace:=min(pace,1.4);clear:=0;result[1]:=1;result[6]:=0;
+          break;
+        end if;
+      end for;
+    end if;
+  end for;
   result[2]:=heading;result[3]:=pace;result[4]:=clear;
 end WildlifeGuidance;

@@ -25,3 +25,31 @@ for(const [heel,trim,yaw] of [[0,0,0],[.65,-.2,1.3],[-.4,.22,-2.7],[1.4,.3,3.05]
   }
 }
 console.log('Sail and foil loads stayed in body axes under combined roll, pitch and yaw; buoyancy stayed vertical.');
+
+// Resolve water loads in world axes and motor torque about the moving joint.
+const {loadVectors}=await import('../viewer/load-vectors.mjs');
+const root=new T.Group(),thigh=new T.Group();scene.add(root);root.add(thigh);
+root.position.set(8,3,-7);root.rotation.z=Math.PI/2;
+thigh.position.set(-.21,.11,.04);thigh.userData.physicsJoint={axis:[0,1,0],label:'Left hip flexion'};
+root.userData.physicsBodies=[{frame:root,label:'Torso and equipment'}];
+const abort=new AbortController(),display=loadVectors(T,scene,new EventTarget(),{},abort.signal);
+const siteLoads=Array(182).fill(0),linkWeights=Array(60).fill(0);
+siteLoads[6]=545;siteLoads[39+6]=30;siteLoads[39+5]=.13;
+siteLoads[7]=-5;linkWeights[3]=-575;
+const model={siteLoads,linkWeights,jointTorque:[-8,0,0,0,0,0,0,0,0,0]};
+const glyphs=scene.getObjectByName('Forces and moments').children;
+function inspect(mode,part){
+  display.begin(new T.PerspectiveCamera());display.wildlife(root,'diver',model,mode,part);display.end();
+  return glyphs.filter(g=>g.visible);
+}
+const summary=inspect('overview');
+assert.equal(summary.length,4);
+assert(summary.some(g=>g.name.includes('weight')&&g.name.includes('575 N')));
+assert(summary.some(g=>g.name.includes('bladder')&&g.position.z===root.position.z+.13));
+assert(summary.some(g=>g.name.includes('buoyancy')&&g.position.distanceTo(root.position)<1e-10));
+assert(summary.some(g=>g.name.includes('drag')&&g.name.includes('5 N')));
+const [torque]=inspect('overview',{kind:'joint',label:'Left hip flexion',frame:thigh});
+assert(torque.name.includes('actuator')&&torque.position.distanceTo(thigh.getWorldPosition(new T.Vector3()))<1e-10);
+assert(direction.set(0,0,1).applyQuaternion(torque.quaternion).distanceTo(new T.Vector3(1,0,0))<1e-10);
+display.begin(new T.PerspectiveCamera());display.end();assert(glyphs.every(g=>!g.visible));abort.abort();
+console.log('Overview separates weight, body buoyancy, bladder lift and drag. Pinning isolates joint torque.');

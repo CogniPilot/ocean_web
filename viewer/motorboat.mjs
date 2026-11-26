@@ -1,3 +1,4 @@
+import {liftMechanism,liftX,hingeY,davitReach,tipZ,bridleHeight} from './stern-lift.mjs';
 import {showInLowWaterCapture} from './render-layers.mjs';
 import {sonarMount} from './cruiser-sonar-view.mjs';
 
@@ -9,8 +10,9 @@ export const hullLamps=[-1,1].flatMap(side=>[
 ]);
 // Lens centre and sight target in hull coordinates. The keel image is bow-up.
 export const cruiserUnderwaterViews={
-  motorBow:[[2.77,-.38,-.77],[9,-.38,-3.22]],
-  motorStern:[[-3.795,.88,-.16],[-10,.88,-2.60]],
+  motorBow:[[2.40,-.22,-.451],[8.63,-.22,-2.901]],
+  // Port of the skeg, at the foot of the transom below the swim platform.
+  motorStern:[[-3.775,.17,-.58],[-9.98,.17,-3.02]],
   motorPort:[[-.38,1.20,-.45],[-.38,7.4,-3.20]],
   motorStarboard:[[-.38,-1.20,-.45],[-.38,-7.4,-3.20]],
   motorKeel:[[.45,0,-.88],[.45,0,-2],[1,0,0]]
@@ -27,7 +29,7 @@ export const searchlightHeight=2.74;
 // For each surface z=base+slope*x; the last pairs are its x and half-beam bounds.
 const deckPanels=[
   [2.207,0,-1.24,.82,.98,.93],[2.51,-.728,1.19,1.83,.85,.65],
-  [.902,.117,1.18,2.93,1.02,.58],[.824,.137,2.93,3.80,.58,.012],[.54,0,-3.72,1.12,1.05,1.14]
+  [.902,.117,1.18,2.93,1.02,.58],[.824,.137,2.93,3.80,.58,.012],[.54,0,-3.72,1.12,1.05,1.14],[.185,0,-4.16,-3.65,.93,1.05]
 ];
 function deckHit(origin,d,range){
   let distance=range;
@@ -242,6 +244,122 @@ function cruiserDrive(T,group,geometry=defaultDriveGeometry){
   return {propeller,rudder};
 }
 
+function portHoist(T,hull,{fittings,collectPart,addBatch,metal,steel}){
+  const {box,rod}=fittings(),alloy=0xb3bdbf,paint=0x48565c,rubber=0x293130,lineColor=0x75878b;
+  // A bolted socket and an exterior doubler share the port gunwale frame.
+  box(liftX,hingeY,.817,.23,.195,.034,paint);
+  box(liftX,1.271,.68,.19,.032,.26,paint,new T.Euler(-.055,0,0));
+  for(const dx of [-.075,.075]){
+    for(const dy of [-.06,.06])rod([liftX+dx,hingeY+dy,.831],[liftX+dx,hingeY+dy,.846],.012,steel);
+    for(const z of [.59,.76])rod([liftX+dx,1.264,z],[liftX+dx,1.293,z],.012,steel);
+  }
+  rod([liftX,hingeY,.831],[liftX,hingeY,1.84],.051,alloy);
+  for(const z of [.864,1.45,1.80])rod([liftX,hingeY,z],[liftX,hingeY,z+.034],.069,paint);
+  // Two padded crossbearers span the engine hatch on four cockpit sole feet.
+  for(const x of [liftX-.265,liftX+.215]){
+    box(x,.0175,.611,.065,.905,.032,alloy);
+    box(x,.13,.6335,.060,.325,.013,rubber);
+    for(const y of [-.408,.443]){
+      box(x,y,.565,.09,.065,.06,paint);
+      box(x,y,.541,.11,.085,.012,alloy);
+    }
+  }
+  const jib=new T.Group(),bins=new Map();
+  jib.name='Slewing davit jib';jib.position.set(liftX,hingeY,0);hull.add(jib);
+  const ax=new T.Vector3(0,1,0);
+  function part(geometry,color,pos,q){
+    const matrix=new T.Matrix4().compose(new T.Vector3(...pos),q??new T.Quaternion(),new T.Vector3(1,1,1));
+    collectPart(geometry,color,matrix,metal,bins);
+  }
+  function tube(from,to,width,depth,color){
+    const a=new T.Vector3(...from),b=new T.Vector3(...to),delta=b.clone().sub(a);
+    part(new T.BoxGeometry(width,delta.length(),depth),color,a.lerp(b,.5).toArray(),
+      new T.Quaternion().setFromUnitVectors(ax,delta.normalize()));
+  }
+  function wheel(x,y,z,r,length,color){
+    part(new T.CylinderGeometry(r,r,length,20),color,[x,y,z],new T.Quaternion().setFromAxisAngle(new T.Vector3(0,0,1),Math.PI/2));
+  }
+  tube([0,0,1.84],[0,davitReach,tipZ],.073,.09,alloy);
+  tube([0,0,1.48],[0,.64,2.01],.055,.060,paint);
+  for(const x of [-.044,.044])tube([x,.97,2.075],[x,1.075,2.135],.018,.10,paint);
+  wheel(0,davitReach,tipZ,.055,.062,paint);wheel(.053,davitReach,tipZ,.014,.022,steel);
+  // The line winds onto a transverse drum and passes up the jib to the head sheave.
+  for(const x of [-.066,.066])tube([x,-.035,1.48],[x,-.035,1.65],.018,.10,paint);
+  wheel(0,-.04,1.615,.056,.12,paint);
+  for(let i=-4;i<=4;i++)wheel(.011*i,-.04,1.615,.059,.011,lineColor);
+  for(const x of [-.065,.065])wheel(x,-.04,1.615,.071,.014,alloy);
+  tube([.072,-.04,1.615],[.072,-.12,1.565],.013,.014,paint);
+  wheel(.10,-.12,1.565,.012,.057,rubber);
+  tube([0,-.07,1.657],[0,-.035,1.88],.006,.006,lineColor);
+  tube([0,-.035,1.88],[0,1.038,2.171],.006,.006,lineColor);
+  for(const [mat,batch] of bins)showInLowWaterCapture(addBatch(jib,mat,batch));
+
+  const ropeMat=new T.MeshStandardMaterial({color:lineColor,roughness:.6,metalness:.2});
+  const segments=8,line=new T.InstancedMesh(new T.CylinderGeometry(.0045,.0045,1,6),ropeMat,segments);
+  line.name='Davit winch line';line.frustumCulled=false;hull.add(showInLowWaterCapture(line));
+  // The electromagnet face is the solver attachment point, with the cable
+  // entering the potted coil through its insulated gland on top.
+  const magnet=new T.Group();magnet.name='Davit electromagnet';hull.add(magnet);
+  const bright=new T.MeshStandardMaterial({color:0xaab7b6,roughness:.38,metalness:.5});
+  const coil=new T.MeshStandardMaterial({color:0x39484f,roughness:.62,metalness:.25});
+  function disc(name,radius,height,z,material){
+    const mesh=new T.Mesh(new T.CylinderGeometry(radius,radius,height,20),material);
+    mesh.name=name;mesh.rotation.x=Math.PI/2;mesh.position.z=z;magnet.add(mesh);
+  }
+  disc('Magnet landing face',.0335,.003,.0015,bright);
+  disc('Potted magnet winding',.034,.028,.017,coil);
+  disc('Magnet cover',.029,.004,.033,bright);
+  disc('Cable strain relief',.007,.014,.042,coil);
+  const magnetLight=new T.MeshStandardMaterial({color:0x27312b,emissive:0x37c565,emissiveIntensity:0});
+  disc('Magnet energized indicator',.006,.002,.036,magnetLight);magnet.children.at(-1).position.x=.016;
+  // Folding hook keeper stands on the forward saddle when the empty cable is parked.
+  const keeper=new T.Group();keeper.name='Folding magnet keeper';
+  const parked=liftMechanism(1);
+  keeper.position.set(liftX+.215,parked.padY,.645);
+  const socket=new T.Vector3(-.215,0,parked.padZ+bridleHeight-.645);
+  const stalk=new T.Mesh(new T.CylinderGeometry(.006,.009,socket.length(),7),bright);
+  stalk.position.copy(socket).multiplyScalar(.5);
+  stalk.quaternion.setFromUnitVectors(ax,socket.clone().normalize());
+  const clip=new T.Mesh(new T.CylinderGeometry(.030,.02,.005,12),bright);
+  clip.rotation.x=Math.PI/2;clip.position.copy(socket);clip.position.z-=.0025;
+  keeper.add(stalk,clip);hull.add(keeper);
+  const tip=new T.Vector3(),load=new T.Vector3(),bulge=new T.Vector3(),v=new T.Vector3(),a=new T.Vector3(),b=new T.Vector3();
+  const section=new T.Object3D(),inverse=new T.Quaternion(),origin=new T.Vector3(),frame=new T.Euler(0,0,0,'ZYX');
+  const localUp=new T.Vector3(),cableEnd=new T.Vector3(),upAxis=new T.Vector3(0,0,1);
+  function setLift(level,cable,carrier,occupied=false,riderPose,goal=level){
+    const m=liftMechanism(level);jib.rotation.z=m.slew;hull.userData.portLiftLevel=level;
+    let paid=m.paid;
+    if(cable?.length===8&&carrier){
+      inverse.setFromEuler(frame.set(carrier.heel,carrier.pitch,carrier.yaw,'ZYX')).invert();
+      origin.set(carrier.x,carrier.y,carrier.z);
+      tip.fromArray(cable).sub(origin).applyQuaternion(inverse);
+      load.fromArray(cable,3).sub(origin).applyQuaternion(inverse);paid=cable[6];
+      if(riderPose?.length===15)localUp.fromArray(riderPose,9).applyQuaternion(inverse).normalize();
+      else localUp.copy(upAxis);
+    }else{
+      localUp.copy(upAxis);tip.set(m.padX,m.padY,tipZ);load.set(m.padX,m.padY,m.padZ+bridleHeight);
+    }
+    keeper.visible=!occupied&&level>.995&&Math.hypot(load.x-parked.padX,load.y-parked.padY,load.z-parked.padZ-bridleHeight)<.04;
+    magnetLight.emissiveIntensity=occupied&&(level<.99999||goal===0)?1.2:0;
+    magnet.position.copy(load);magnet.quaternion.setFromUnitVectors(upAxis,localUp);
+    cableEnd.copy(load).addScaledVector(localUp,.049);a.copy(tip);
+    const chord=tip.distanceTo(load),sag=Math.min(.16,Math.sqrt(Math.max(0,paid-chord)*Math.max(.02,chord)*.375));
+    // Sag perpendicular to a sloped span; a nearly vertical slack fall bows
+    // away from the hull. A taut span reduces to exactly its two endpoints.
+    v.copy(load).sub(tip).normalize();bulge.set(0,0,-1).addScaledVector(v,v.z);
+    if(bulge.lengthSq()<.01)bulge.set(0,1,0);
+    bulge.normalize().multiplyScalar(sag);
+    for(let i=0;i<segments;i++){
+      const f=(i+1)/segments;b.lerpVectors(tip,cableEnd,f).addScaledVector(bulge,4*f*(1-f));
+      section.position.copy(a).lerp(b,.5);v.subVectors(b,a);section.scale.set(1,v.length(),1);
+      section.quaternion.setFromUnitVectors(ax,v.normalize());section.updateMatrix();
+      line.setMatrixAt(i,section.matrix);a.copy(b);
+    }
+    line.instanceMatrix.needsUpdate=true;
+  }
+  setLift(1);return setLift;
+}
+
 export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
   // Keep local light counts fixed so toggle changes are uniform updates.
   // Remote cruisers add lights only when they actually illuminate the scene.
@@ -315,11 +433,6 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     for(let i=0;i<(index?.count??positions.count);i++)batch.indices.push(offset+(index?index.getX(i):i));
     geometry.dispose();
   }
-  function part(geometry,color,pos,rot,scale,material=solid){
-    const matrix=new T.Matrix4().compose(v3(...(pos??[0,0,0])),
-      new T.Quaternion().setFromEuler(rot??new T.Euler()),v3(...(scale??[1,1,1])));
-    collectPart(geometry,color,matrix,material,batches);
-  }
   function addBatch(parent,material,batch){
     const geometry=new T.BufferGeometry();
     for(const [name,data] of Object.entries(batch.attributes))
@@ -329,14 +442,24 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     parent.add(mesh);
     return mesh;
   }
-  function box(x,y,z,l,w,h,color,rotation){
-    part(new T.BoxGeometry(l,w,h),color,[x,y,z],rotation);
+  function fittings(frame){
+    function part(geometry,color,pos,rot,scale,material=solid){
+      const matrix=new T.Matrix4().compose(v3(...(pos??[0,0,0])),
+        new T.Quaternion().setFromEuler(rot??new T.Euler()),v3(...(scale??[1,1,1])));
+      if(frame)matrix.premultiply(frame);
+      collectPart(geometry,color,matrix,material,batches);
+    }
+    function box(x,y,z,l,w,h,color,rotation){
+      part(new T.BoxGeometry(l,w,h),color,[x,y,z],rotation);
+    }
+    function rod(a,b,r,color,material=metal){
+      const start=v3(...a),end=v3(...b),dir=end.clone().sub(start);
+      const rot=new T.Euler().setFromQuaternion(new T.Quaternion().setFromUnitVectors(v3(0,1,0),dir.clone().normalize()));
+      part(new T.CylinderGeometry(r,r,dir.length(),8),color,start.lerp(end,.5).toArray(),rot,null,material);
+    }
+    return {part,box,rod};
   }
-  function rod(a,b,r,color,material=metal){
-    const start=v3(...a),end=v3(...b),dir=end.clone().sub(start);
-    const rot=new T.Euler().setFromQuaternion(new T.Quaternion().setFromUnitVectors(v3(0,1,0),dir.clone().normalize()));
-    part(new T.CylinderGeometry(r,r,dir.length(),8),color,start.lerp(end,.5).toArray(),rot,null,material);
-  }
+  const {part,box,rod}=fittings();
   function pad(x,y,z,l,w,h,color,material=solid){
     part(new T.SphereGeometry(1,16,10),color,[x,y,z],null,[l,w,h],material);
   }
@@ -441,19 +564,20 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     surface(aftCockpit.slice(1).map(k=>{
       const [x,y,z]=k.point(s,.84,1);return [[x,y,z],[x,y,.535]];
     }),ivory);
-    for(const x of [-3.23,-2.94])rod([x,s*1.08,.78],[x+.04,s*1.05,.95],.022,steel);
-    rod([-3.26,s*1.05,.96],[-2.87,s*1.05,.96],.025,steel);
+    if(s<0)for(const x of [-3.23,-2.94])rod([x,s*1.08,.78],[x+.04,s*1.05,.95],.022,steel);
+    if(s<0)rod([-3.26,s*1.05,.96],[-2.87,s*1.05,.96],.025,steel);
   }
   // Low engine hatch leaves the middle of the fishing cockpit clear.
   box(-2.13,0,.55,1.03,.75,.026,wood);
   for(let j=-2;j<=2;j++)box(-2.13,j*.126,.568,1.01,.011,.006,plank);
-  for(const side of [-1,1]){
+  for(const side of [-1]){
     box(-2.52,side*.84,.68,1.70,.43,.24,ivory);
     for(const x of [-2.94,-2.11])cushion(x,side*.84,.80,.79,.43,.076,upholstery);
     cushion(-2.53,side*1.045,.87,1.64,.09,.16,upholstery);
   }
   box(-3.38,0,.68,.36,1.17,.24,ivory);
   cushion(-3.38,0,.80,.36,1.17,.076,upholstery);
+  const setLift=portHoist(T,group,{fittings,collectPart,addBatch,metal,steel});
   // Rounded swim platform, inset transom gate, folding boarding ladder.
   const platform=new T.Shape();platform.moveTo(-3.65,-1.06);platform.lineTo(-4.05,-1.04);
   platform.quadraticCurveTo(-4.18,-1.03,-4.18,-.85);platform.lineTo(-4.18,.85);
@@ -890,7 +1014,18 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
   for(const [id,[position,target]] of Object.entries(cruiserUnderwaterViews)){
     const lensCentre=v3(...position),axis=v3(...target).sub(lensCentre).normalize();
     const behind=distance=>lensCentre.clone().addScaledVector(axis,-distance).toArray();
-    // The stern port seats directly in the outboard transom below the swim platform.
+    if(id==='motorBow'){
+      // Recess the rear of the port in the rising forefoot. Only the bezel
+      // and the tapered nose protrude below the plating.
+      const aft=v3(...behind(.12)),front=v3(...behind(.022));
+      const shell=new T.CylinderGeometry(.037,.054,aft.distanceTo(front),16);
+      shell.applyQuaternion(new T.Quaternion().setFromUnitVectors(v3(0,1,0),axis));
+      part(shell,trim,aft.lerp(front,.5).toArray(),null,null,metal);
+      rod(behind(.025),behind(.006),.038,steel);
+      rod(behind(.006),behind(.003),.031,0x234450);
+      continue;
+    }
+    // The stern housing seats in the lower transom near the keel.
     if(id!=='motorKeel' && id!=='motorStern'){
       const [x,y,z]=behind(.18);
       rod([x,y,-.16],[x,y,z],.041,steel);
@@ -1018,6 +1153,6 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     for(const m of materials){m.map?.dispose();m.dispose();}
   }
   const lamps=[{swivel,light,beam,lens,under:underwaterLamps[1]},{under:underwaterLamps[8]}];
-  return {group,update,updateDamage,cabinObjects,deckObjects,setCabinLight,setRadio,setElectricalPower,setWiper,setHelmSwitch,setAnchor,lamps,searchlight:{swivel,light},underwaterLamps,preloadLighting,dispose,
+  return {group,setLift,update,updateDamage,cabinObjects,deckObjects,setCabinLight,setRadio,setElectricalPower,setWiper,setHelmSwitch,setAnchor,lamps,searchlight:{swivel,light},underwaterLamps,preloadLighting,dispose,
     get cabinWaterLevel(){return cabinWaterLevel;},get shaftRPM(){return shaftRPM;}};
 }

@@ -44,7 +44,7 @@ await new Promise(r=>setTimeout(r,3));
 guest.connect(guestChannel,'guest');host.join('guest');guest.join('host');flush();
 assert(host.host&&!guest.host);
 guest.select('whale');flush();guest.steer('whale',[.2,-.1,.5],-.7);flush();
-assert.deepEqual(host.command('whale'),{axes:[.2,-.1,.5],bank:-.7,breach:false});
+assert.deepEqual(host.command('whale'),{axes:[.2,-.1,.5],bank:-.7,breach:false,sprint:false});
 hostChannel.onMessage({type:'steer',id:'whale',axes:[0,0,0]},{peerId:'guest'});
 assert.equal(host.command('whale').bank,0);
 

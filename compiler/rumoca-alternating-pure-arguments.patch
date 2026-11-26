@@ -1,0 +1,129 @@
+diff --git a/crates/rumoca-phase-codegen/src/codegen/pure_call_families.rs b/crates/rumoca-phase-codegen/src/codegen/pure_call_families.rs
+index 6b8622a..a9a3b85 100644
+--- a/crates/rumoca-phase-codegen/src/codegen/pure_call_families.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/pure_call_families.rs
+@@ -132,6 +132,7 @@ struct RepeatedCall {
+     widths: Vec<usize>,
+     inputs: usize,
+     outputs: usize,
++    slots: usize,
+     predicates: Vec<usize>,
+ }
+ 
+@@ -172,6 +173,7 @@ fn repeated_calls(table: &solve::SolvePureCallTable, symbols: &[u32]) -> Vec<Rep
+                 widths,
+                 inputs,
+                 outputs,
++                slots: 1,
+                 predicates,
+             })
+         })
+@@ -188,6 +190,16 @@ fn repeated_calls(table: &solve::SolvePureCallTable, symbols: &[u32]) -> Vec<Rep
+         remaining -= width;
+         true
+     });
++    // When two component instances call the same pure function between value
++    // and assertion passes, a single entry evicts the first component's result.
++    // Give smaller families a second entry out of the existing per-FMU budget.
++    for call in &mut candidates {
++        let width = call.inputs + call.outputs;
++        if width <= 2048 && width <= remaining {
++            call.slots = 2;
++            remaining -= width;
++        }
++    }
+     candidates
+ }
+ 
+diff --git a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/repeated_call.rs b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/repeated_call.rs
+index 36cc46c..cfc8fc3 100644
+--- a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/repeated_call.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/repeated_call.rs
+@@ -48,6 +48,9 @@ int main(void){
+     assert(!rmc_repeated_pure_call_9(&b,true,in,out,&log)&&calls==2&&checks==1);
+     x[0]=-0.0;
+     assert(!rmc_repeated_pure_call_9(&a,false,in,out,&log)&&signbit(out[0])&&calls==3);
++    x[0]=0.0;
++    assert(!rmc_repeated_pure_call_9(&a,true,in,out,&log)&&checks==1);
++    assert(!rmc_repeated_pure_call_9(&a,false,in,out,&log)&&!signbit(out[0])&&calls==3);
+     flag=-1;
+     assert(!rmc_repeated_pure_call_9(&a,false,in,out,&log)&&notices==1);
+     assert(!rmc_repeated_pure_call_9(&a,true,in,out,&log)&&notices==2&&out[0]==0);
+@@ -57,8 +60,9 @@ int main(void){
+     return 0;
+ }"#).unwrap();
+     let memo =
+-        serde_json::json!({"symbol":9,"widths":[2,1],"inputs":3,"outputs":3,"predicates":[1]});
++        serde_json::json!({"symbol":9,"slots":2,"widths":[2,1],"inputs":3,"outputs":3,"predicates":[1]});
+     let mut other = memo.clone();
++    other["slots"] = serde_json::json!(1);
+     other["symbol"] = serde_json::json!(10);
+     let memos = [memo, other];
+     let source = environment
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+index fc684c6..aeb25df 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+@@ -285,7 +285,7 @@ void rmc_finish_assertion_observation(RmcModelAssertionContext* context, int sta
+ {% endmacro %}
+ 
+ {%- macro repeated_call_fields(memos) -%}
+-{% for memo in memos %}bool rmc_pure_valid_{{ memo.symbol }}; double rmc_pure_inputs_{{ memo.symbol }}[{{ memo.inputs if memo.inputs else 1 }}]; double rmc_pure_outputs_{{ memo.symbol }}[{{ memo.outputs }}];{% endfor %}
++{% for memo in memos %}unsigned rmc_pure_recent_{{ memo.symbol }}; bool rmc_pure_valid_{{ memo.symbol }}[{{ memo.slots }}]; double rmc_pure_inputs_{{ memo.symbol }}[{{ memo.slots }}][{{ memo.inputs if memo.inputs else 1 }}]; double rmc_pure_outputs_{{ memo.symbol }}[{{ memo.slots }}][{{ memo.outputs }}];{% endfor %}
+ {%- endmacro %}
+ 
+ {%- macro repeated_call_kernel(memos) -%}
+@@ -299,17 +299,22 @@ static inline int rmc_record_pure_observation(void* context, size_t predicate, c
+ {% for memo in memos %}
+ static inline int rmc_repeated_pure_call_{{ memo.symbol }}(ModelInstance* m, bool predicates_only, const double* const in[], double* out, const RmcAssertionObserver* observer) {
+     static const size_t widths[] = { {% for width in memo.widths %}{{ width }}, {% else %}0{% endfor %} };
+-    bool equal = m->rmc_pure_valid_{{ memo.symbol }};
+-    size_t offset = 0;
+-    for (size_t i = 0; equal && i < {{ memo.widths|length }}; ++i) {
+-        if (widths[i]) equal = !memcmp(m->rmc_pure_inputs_{{ memo.symbol }} + offset, in[i], widths[i] * sizeof(double));
+-        offset += widths[i];
+-    }
+-    if (equal) {
+-        if (predicates_only) {
+-{% for index in memo.predicates %}            out[{{ loop.index0 }}] = m->rmc_pure_outputs_{{ memo.symbol }}[{{ index }}];
+-{% endfor %}        } else memcpy(out, m->rmc_pure_outputs_{{ memo.symbol }}, sizeof(m->rmc_pure_outputs_{{ memo.symbol }}));
+-        return 0;
++    for (unsigned probe = 0; probe < {{ memo.slots }}; ++probe) {
++        unsigned slot = (m->rmc_pure_recent_{{ memo.symbol }} + probe) % {{ memo.slots }};
++        if (!m->rmc_pure_valid_{{ memo.symbol }}[slot]) continue;
++        size_t offset = 0;
++        bool equal = true;
++        for (size_t i = 0; equal && i < {{ memo.widths|length }}; ++i) {
++            if (widths[i]) equal = !memcmp(m->rmc_pure_inputs_{{ memo.symbol }}[slot] + offset, in[i], widths[i] * sizeof(double));
++            offset += widths[i];
++        }
++        if (equal) {
++            m->rmc_pure_recent_{{ memo.symbol }} = slot;
++            if (predicates_only) {
++{% for index in memo.predicates %}                out[{{ loop.index0 }}] = m->rmc_pure_outputs_{{ memo.symbol }}[slot][{{ index }}];
++{% endfor %}            } else memcpy(out, m->rmc_pure_outputs_{{ memo.symbol }}[slot], sizeof(m->rmc_pure_outputs_{{ memo.symbol }}[slot]));
++            return 0;
++        }
+     }
+     if (predicates_only) return rumoca_scalar_observe_{{ memo.symbol }}(in, out, observer);
+     RmcPureCallObservation record = {observer, false};
+@@ -318,13 +323,15 @@ static inline int rmc_repeated_pure_call_{{ memo.symbol }}(ModelInstance* m, boo
+     /* A reported assertion belongs to its current call site and observation
+        mode; warnings and errors always execute the original body again. */
+     if (status || record.observed) return status;
+-    offset = 0;
++    unsigned slot = (m->rmc_pure_recent_{{ memo.symbol }} + 1) % {{ memo.slots }};
++    m->rmc_pure_recent_{{ memo.symbol }} = slot;
++    size_t offset = 0;
+     for (size_t i = 0; i < {{ memo.widths|length }}; ++i) {
+-        if (widths[i]) memcpy(m->rmc_pure_inputs_{{ memo.symbol }} + offset, in[i], widths[i] * sizeof(double));
++        if (widths[i]) memcpy(m->rmc_pure_inputs_{{ memo.symbol }}[slot] + offset, in[i], widths[i] * sizeof(double));
+         offset += widths[i];
+     }
+-    memcpy(m->rmc_pure_outputs_{{ memo.symbol }}, out, sizeof(m->rmc_pure_outputs_{{ memo.symbol }}));
+-    m->rmc_pure_valid_{{ memo.symbol }} = true;
++    memcpy(m->rmc_pure_outputs_{{ memo.symbol }}[slot], out, sizeof(m->rmc_pure_outputs_{{ memo.symbol }}[slot]));
++    m->rmc_pure_valid_{{ memo.symbol }}[slot] = true;
+     return 0;
+ }
+ {% endfor %}

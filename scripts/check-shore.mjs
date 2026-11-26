@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
 const read=async u=>new Response(await readFile(u));
-const launch=(east,north,height,speed=0)=>loadInstance('Hobie16',{
-  launchEast:east,launchNorth:north,launchHeading:0,launchHeight:height,
+const launch=(east,north,height,speed=0,heading=0)=>loadInstance('Hobie16',{
+  launchEast:east,launchNorth:north,launchHeading:heading,launchHeight:height,
   launchSpeed:speed,manualHelm:1,windEast:0,windNorth:0
 },read);
 const clear=await launch(14,40.7,.2);
@@ -36,6 +36,21 @@ for(const north of [40.7,42.8]){
   }
   assert(impact && furthest<16,JSON.stringify({north,impact,furthest}));
   console.log({north,firstRockForce:impact[0],yawMoment:impact[5],furthest});
+}
+// A measured crest on shoreline boulder 11 fits between the pontoons. Move
+// the same pose vertically to distinguish front beam and cloth contact from
+// a broad bounding box. The pre-existing keel samples miss both strikes.
+for(const [name,east,north,z,heading] of [
+  ['forward crossbeam',39.229259,28.164306,1.211095,Math.PI/3],
+  ['trampoline',39.259814,28.520938,1.187095,31*Math.PI/24],
+]){
+  const boat=await launch(east,north,z,0,heading);
+  const [w,total,rig]=boat.getMany(['rockShoreWrench','shoreWrench','rigShoreWrench']);
+  assert(w[2]>250,name+' should carry the load at the rock crest');
+  assert(total.every((v,i)=>Math.abs(v-rig[i]-w[i])<.01),name+' pose should leave the original keel samples clear');
+  const above=await launch(east,north,z+.10,0,heading);
+  assert.deepEqual(above.get('rockShoreWrench'),[0,0,0,0,0,0],name+' has clearance above rock');
+  console.log({part:name,rockVerticalForce:w[2],torque:w.slice(3)});
 }
 const sand=await launch(36,40,3.9);
 let peak=0,rigPeak=0;

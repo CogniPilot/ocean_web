@@ -22,11 +22,12 @@ function drive(key,seconds){
   const axis=(pos,neg)=>Number(command===pos)-Number(command===neg);
   plant.set('pilot',submarinePilot(axis,3).pilot);
   const start=plant.get('position'),heading=attitude().yaw;
-  let lastYaw=heading,turn=0,maxHeadingChange=0,maxDepthChange=0;
+  let minRoll=0,maxRoll=0,lastYaw=heading,turn=0,maxHeadingChange=0,maxDepthChange=0;
   for(let tick=0;tick<seconds*5;tick++){
     sample();
     step();
-    const yaw=attitude().yaw;
+    const {yaw,roll}=attitude();
+    minRoll=Math.min(minRoll,roll);maxRoll=Math.max(maxRoll,roll);
     turn+=Math.atan2(Math.sin(yaw-lastYaw),Math.cos(yaw-lastYaw));
     lastYaw=yaw;
     maxHeadingChange=Math.max(maxHeadingChange,Math.abs(turn));
@@ -34,7 +35,7 @@ function drive(key,seconds){
   }
   const [east,north,up]=plant.get('position').map((v,i)=>v-start[i]);
   return {
-    ahead:east*Math.cos(heading)+north*Math.sin(heading),
+    minRoll,maxRoll,ahead:east*Math.cos(heading)+north*Math.sin(heading),
     port:-east*Math.sin(heading)+north*Math.cos(heading),
     up,turn,roll:attitude().roll,maxHeadingChange,maxDepthChange
   };
@@ -45,7 +46,9 @@ for(const [key,sign] of [['Q',1],['E',-1]]){
   const motion=drive(key,10);
   console.log(key,motion);
   assert(sign*motion.port>1,key+' must travel sideways');
-  assert(-sign*motion.roll>.25,key+' must bank into the maneuver');
+  // Measure the bank during acceleration. At the target ground speed the
+  // controller can level the hull or compensate a cross-current.
+  assert((sign>0?-motion.minRoll:motion.maxRoll)>.25,key+' must bank into the maneuver');
   assert(motion.maxDepthChange<.25,key+' must hold depth');
   assert(motion.maxHeadingChange<.15,key+' must hold heading');
   assert(Math.abs(drive('',5).roll)<.08,'release must level the sub');

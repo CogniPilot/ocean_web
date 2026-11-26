@@ -1,0 +1,195 @@
+{
+  "format": "trimmed-wreck-v1",
+  "sourceOriginGltfXYZMetres": [
+    696.6800000000001,
+    -205.15,
+    -257.57500000000005
+  ],
+  "preTrimSimplification": {
+    "inputFaces": 1653635,
+    "metresPerSourceUnit": 1.0,
+    "sourceToBlenderZUp": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        -698.1066589355469
+      ],
+      [
+        0.0,
+        0.0,
+        -1.0,
+        -257.42608642578125
+      ],
+      [
+        0.0,
+        1.0,
+        0.0,
+        205.4183349609375
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "sampleCountPerDirection": 30000,
+    "dive": {
+      "faces": 74382,
+      "bytes": 3148800,
+      "atlas": [
+        2048,
+        1024
+      ],
+      "boundsGltf": [
+        [
+          -25.096553802490234,
+          -0.0006743970443494618,
+          -4.618603706359863
+        ],
+        [
+          25.092437744140625,
+          12.946779251098633,
+          4.632343292236328
+        ]
+      ],
+      "sourceToLodDistanceM": {
+        "median": 0.005676249507814646,
+        "p95": 0.024813524913042777,
+        "p99": 0.03784994833171367,
+        "maxSample": 0.08803287893533707
+      },
+      "lodToSourceDistanceM": {
+        "median": 0.005245801759883761,
+        "p95": 0.02108995784074068,
+        "p99": 0.031118557322770354,
+        "maxSample": 0.07562639564275742
+      }
+    },
+    "far": {
+      "faces": 5026,
+      "bytes": 118144,
+      "atlas": null,
+      "boundsGltf": [
+        [
+          -24.920665740966797,
+          0.10031900554895401,
+          -4.360468864440918
+        ],
+        [
+          25.092437744140625,
+          12.773843765258789,
+          4.459348678588867
+        ]
+      ],
+      "sourceToLodDistanceM": {
+        "median": 0.044632378965616226,
+        "p95": 0.219473497569561,
+        "p99": 0.3194914850592612,
+        "maxSample": 1.1634186506271362
+      },
+      "lodToSourceDistanceM": {
+        "median": 0.029061530716717243,
+        "p95": 0.1591501012444496,
+        "p99": 0.22919514313340186,
+        "maxSample": 0.38812217116355896
+      }
+    }
+  },
+  "hullProfile": "satil-profile.json",
+  "closure": {
+    "pairedEdges": 720,
+    "triangles": 480,
+    "syntheticLowerHull": true
+  },
+  "islandCleanup": {
+    "sourceFaces": 1658468,
+    "sourceIslands": 1192,
+    "removedIslands": 343,
+    "removedFaces": 4701,
+    "remainingIslandsBeforeBedTrim": 849
+  },
+  "far": {
+    "faces": 4414,
+    "surveyFaces": 3934,
+    "bytes": 129700,
+    "boundsGltf": [
+      [
+        -22.300000000000068,
+        0.0,
+        -3.3716316699981235
+      ],
+      [
+        22.299999999999955,
+        12.505508804321295,
+        3.5733022212982632
+      ]
+    ],
+    "undersideVerification": {
+      "watertightVolumeM3": 168.07345752879237,
+      "nearCutHorizontalRayHits": 168,
+      "upwardRayHits": 5292,
+      "upwardRayCount": 5292,
+      "openEdgesInSurvey": 1058,
+      "surveyLowerCutEdges": 468,
+      "maxCutLateralOverhangM": 5.000000044219632e-06
+    }
+  },
+  "uvCheck": {
+    "clippedCorners": 8419,
+    "maxUvDeviation": 7.149836278586008e-14
+  },
+  "dive": {
+    "faces": 55355,
+    "surveyFaces": 54875,
+    "bytes": 2801208,
+    "boundsGltf": [
+      [
+        -22.300000000000068,
+        0.0,
+        -3.6732299804687045
+      ],
+      [
+        22.299999999999955,
+        12.678444290161138,
+        3.770978587607374
+      ]
+    ],
+    "undersideVerification": {
+      "watertightVolumeM3": 168.07345752879237,
+      "nearCutHorizontalRayHits": 168,
+      "upwardRayHits": 5292,
+      "upwardRayCount": 5292,
+      "openEdgesInSurvey": 8035,
+      "surveyLowerCutEdges": 2136,
+      "maxCutLateralOverhangM": 8.700000000771979e-05
+    }
+  },
+  "collision": {
+    "faces": 7879,
+    "surveyFaces": 7399,
+    "bytes": 106820,
+    "boundsGltf": [
+      [
+        -22.300000000000068,
+        0.0,
+        -3.5384692605388888
+      ],
+      [
+        22.299999999999955,
+        12.581930943556069,
+        3.6831185
+      ]
+    ],
+    "undersideVerification": {
+      "watertightVolumeM3": 168.07345752879237,
+      "nearCutHorizontalRayHits": 168,
+      "upwardRayHits": 5292,
+      "upwardRayCount": 5292,
+      "openEdgesInSurvey": 1666,
+      "surveyLowerCutEdges": 183,
+      "maxCutLateralOverhangM": 0.0
+    }
+  }
+}

@@ -540,7 +540,10 @@ function whitecapField(T,U){
  }};
 }
 function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobieSurface,bowFoamGrid,bowLength=8,islandBed},makeSwimmerWater,makeSpray,cruiserBeamGLSL,cruiserHullGLSL,searchlightHeight,hullGlowLobes){
- const U={cruiserTilt:{value:new Float32Array(10)},cruiserCount:{value:0},cruiserPose:{value:new Float32Array(20)},cruiserAim:{value:new Float32Array(20)},cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
+ const U={underwaterFogDensity:{value:0},underwaterFogColor:{value:new THREE.Color()},cruiserTilt:{value:new Float32Array(10)},cruiserCount:{value:0},cruiserPose:{value:new Float32Array(20)},cruiserAim:{value:new Float32Array(20)},cloudTravel:{value:new THREE.Vector2()},lightning:{value:new THREE.Vector2()},storm:{value:0},tm:{value:0},sunDir:{value:new THREE.Vector3()},moonDir:{value:new THREE.Vector3()},under:{value:1},waveAmp:{value:1},tidalPhase:{value:.5}};
+ U.subPortCount={value:0};
+ U.subPorts={value:new Float32Array(40)};
+ U.subForwards={value:new Float32Array(30)};
  U.islandBedMap={value:islandBed.texture};U.islandBedBounds={value:islandBed.bounds};
  const swimmerWater=makeSwimmerWater(THREE,U);
  const skyTarget=new THREE.WebGLRenderTarget(512,192,{type:THREE.HalfFloatType});
@@ -805,6 +808,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+foamPatchGLSL+`
  uniform sampler2D windMap,foamTexture,whitecapMap; uniform vec3 whitecapBounds; uniform float windFieldActive,windBlend,referenceWind,windPeriod,rippleScale;
+ uniform vec3 underwaterFogColor;uniform float underwaterFogDensity;
  uniform highp sampler2D reflection,reflectionDepth,transmission; uniform mat4 mirrorMatrix,mirrorInverse;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
  #ifndef DISABLE_STERN_FOAM
  uniform sampler2D sternFoamMap;
@@ -924,9 +928,25 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    }
    return total;
  }
+ uniform int subPortCount;
+ uniform vec4 subPorts[10];
+ uniform vec3 subForwards[10];
+ bool subWaterExcluded(vec3 surface){
+   for(int i=0;i<10;++i){
+     if(i>=subPortCount)break;
+     vec3 p=surface-subPorts[i].xyz;
+     float d2=dot(p,p);
+     float r=subPorts[i].w,scale=r/.168;
+     if(d2>1.25*scale*scale)continue;
+     float axial=dot(p,subForwards[i]);
+     if(axial>=0.){if(d2<r*r)return true;}
+     else if(axial>=-1.08*scale && d2-axial*axial<.17*.17*scale*scale)return true;
+   }
+   return false;
+ }
  vec3 surfaceColor(vec3 eye,float eyeDistance,float day){
    vec3 color;
-   if(cruiserWaterExcluded(wp))discard;
+   if(cruiserWaterExcluded(wp)||subWaterExcluded(wp))discard;
    vec4 air=texture2D(windMap,wp.xy/windPeriod+.5/48.);
    vec2 baseDir=vec2(cos(bearing),sin(bearing));
    float localSpeed=${windTextureRange}.*mix(air.r,air.g,windBlend);
@@ -1077,6 +1097,18 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      float rayScale=length(throughEye-wp)/max(.01,surfaceDepth);
      float straightDepth=viewDepth(texture2D(transmissionDepth,clamp(screen,.001,.999)).r);
      float opticalPath=clamp((straightDepth-surfaceDepth)*rayScale,0.,5.);
+     // At a narrow guard or skid a neighbouring depth texel can belong to the
+     // seabed, moving a near-surface object's refracted silhouette several metres.
+     // Bound the bend by the short water path where a ray crosses a Piccard.
+     for(int i=0;i<10;++i){
+       if(i>=subPortCount)break;
+       float scale=subPorts[i].w/.168;
+       vec3 towardBody=subPorts[i].xyz-.51*scale*subForwards[i]-wp;
+       float along=dot(towardBody,-eye);
+       float rad2=max(0.,dot(towardBody,towardBody)-along*along);
+       float weight=(1.-smoothstep(.60*scale*scale,scale*scale,rad2))*smoothstep(-.95*scale,-.70*scale,along);
+       opticalPath=mix(opticalPath,min(opticalPath,max(.04*scale,along+.25*scale)),weight);
+     }
      vec4 refractedClip=captureClip+throughMatrix*vec4(.60*opticalPath*(bentRay-levelRay),0.);
      vec2 refrUV=clamp(refractedClip.xy/max(.001,refractedClip.w)*.5+.5,.001,.999);
      float edgeWidth=max(.008,.5*fwidth(surfaceDepth));
@@ -1159,6 +1191,21 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    float day=smoothstep(-.12,.22,sunDir.z);
    vec3 color=eyeDistance<=540.?surfaceColor(eye,eyeDistance,day):
      under>.5?vec3(.013,.105,.145)*(.22+.78*day):skyColor(normalize(vec3(-eye.xy,.01)));
+   if(under>.5){
+     color*=exp(-vec3(.12,.096,.075)*max(0.,tide-cameraPosition.z-11.));
+     // Match the fog on nearby meshes where they intersect the water surface.
+     float opticalDepth=underwaterFogDensity/gl_FragCoord.w;
+     float zenith=max(0.,-eye.z);
+     // Water-to-eye attenuation is already applied to transmitted sky above.
+     // Toward the horizon, retain the same visibility as submerged geometry.
+     float skyWindow=smoothstep(.50,.82,zenith);
+     float visibility=mix(exp(-opticalDepth*opticalDepth),1.,skyWindow);
+     // Daylight scattered down from the surface makes the upper water column
+     // brighter even just outside the refracted window. It fades with depth.
+     vec3 downwelling=vec3(.018,.110,.145)*day*(1.-.40*storm)*
+       exp(-.064*max(0.,tide-cameraPosition.z))*zenith*zenith;
+     color=mix(underwaterFogColor+downwelling,color+downwelling,visibility);
+   }
    gl_FragColor=vec4(color,1.);
    #include <tonemapping_fragment>
    #include <colorspace_fragment>
@@ -1253,7 +1300,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  const mirrorLook=new THREE.Vector3(),mirrorClip=new THREE.Plane(new THREE.Vector3(0,0,1));
  const viewPlane=new THREE.Plane(),clip=new THREE.Vector4(),corner=new THREE.Vector4();
  const clearThrough=new THREE.Color(0x144958);
- let simpleCapture=false,captureScale=1;
+ let simpleCapture=false,captureScale=1,baseThroughWidth=320,baseThroughHeight=200;
  function clipReflectionAtTide(){
    // Replace the reflected camera's near plane. Geometry is clipped in the
    // rasterizer, so the reflection uses the regular material programs.
@@ -1269,14 +1316,14 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    mirrorCamera.projectionMatrixInverse.copy(matrix).invert();
    return true;
  }
- function capture(renderer,camera,submergedScenery,refreshReflection){
+ function capture(renderer,camera,submergedScenery,terrain){
    camera.updateMatrixWorld();
    const oldBackground=scene.background,oldFog=scene.fog;
    const foamMesh=trails?.mesh,foamVisible=foamMesh?.visible,sprayVisible=spray?.points.visible;
    if(spray)spray.points.visible=false;
    water.visible=false;dome.visible=false;scene.fog=null;
    if(foamMesh)foamMesh.visible=false;
-   if(refreshReflection){
+   {
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
      if(simpleCapture)mirrorCamera.layers.set(waterCaptureLayer);
@@ -1291,15 +1338,35 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      renderer.setClearColor(0x000000,0);renderer.setRenderTarget(reflectRT);
      if(!obliqueClip)renderer.clippingPlanes=[mirrorClip];
      const hideSubmerged=submergedScenery && U.tide.value>=0 && submergedScenery.visible;
-     if(hideSubmerged)submergedScenery.visible=false;
-     renderer.render(scene,mirrorCamera);
-     if(!obliqueClip)renderer.clippingPlanes=[];
-     if(hideSubmerged)submergedScenery.visible=true;
+     const range=terrain?.userData.reflectionRange;
+     if(hideSubmerged){
+       submergedScenery.visible=false;
+       if(range)terrain.setDrawRange(range.start,range.count);
+     }
+     try {renderer.render(scene,mirrorCamera);} finally {
+       if(!obliqueClip)renderer.clippingPlanes=[];
+       if(hideSubmerged){
+         submergedScenery.visible=true;
+         if(range)terrain.setDrawRange(0,Infinity);
+       }
+     }
    }
    {
      U.throughMatrix.value.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse);
      U.throughEye.value.copy(camera.position);U.cameraRange.value.set(camera.near,camera.far);
      renderer.getDrawingBufferSize(U.viewport.value);
+     let closeHousing=false;
+     const ports=U.subPorts.value;
+     for(let i=0;i<U.subPortCount.value;i++){
+       if(Math.hypot(camera.position.x-ports[4*i],camera.position.y-ports[4*i+1],
+         camera.position.z-ports[4*i+2])<16){closeHousing=true;break;}
+     }
+     const view=U.viewport.value,nearScale=Math.min(1,768/Math.max(1,view.x,view.y));
+     const width=closeHousing?Math.max(baseThroughWidth,Math.round(nearScale*view.x)):baseThroughWidth;
+     const height=closeHousing?Math.max(baseThroughHeight,Math.round(nearScale*view.y)):baseThroughHeight;
+     if(throughRT.width!==width||throughRT.height!==height){
+       throughRT.setSize(width,height);U.transmissionSize.value.set(width,height);
+     }
      renderer.setRenderTarget(throughRT);scene.background=clearThrough;
      const viewLayers=camera.layers.mask;
      if(simpleCapture)camera.layers.set(waterCaptureLayer);
@@ -1375,8 +1442,8 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    const scale=captureScale*ratio;
    const width=Math.round(512*scale),height=Math.round(320*scale);
    reflectRT.setSize(simpleCapture?256:width,simpleCapture?160:height);
-   const throughWidth=Math.max(320,width),throughHeight=Math.max(200,height);
-   throughRT.setSize(throughWidth,throughHeight);U.transmissionSize.value.set(throughWidth,throughHeight);
+   baseThroughWidth=Math.max(320,width);baseThroughHeight=Math.max(200,height);
+   throughRT.setSize(baseThroughWidth,baseThroughHeight);U.transmissionSize.value.set(baseThroughWidth,baseThroughHeight);
  }
  return {U,dome,water,renderThroughAir,updateWhitecaps:whitecaps.update,dispose(){airTargets.forEach(rt=>rt.dispose());whitecaps.dispose();U.foamTexture.value.dispose();cruiserFoam?.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
 }

@@ -5,6 +5,9 @@ model FeedingGround "Kinematic bait schools and body-mounted fish finder"
   input Real feedAge "Time since the last feeding command, negative when idle";
   constant Integer fishCount=72;
   input Real restock[fishCount]=zeros(fishCount) "Time when each eaten fish returns";
+  input Real useSchool=0 "Use the host's individual fish checkpoint";
+  input Real swimmers[fishCount,4]=zeros(fishCount,4);
+  output Real migration[fishCount,4] "Unperturbed migration path used by the schooling model";
   output Real prey[5] "Target available, ENZ of live fish and mouth opening request";
   output Real gape,capture;
   output Real school[fishCount,4] "East, north, up and course in radians";
@@ -85,6 +88,7 @@ equation
     else max(0,min(1,min(feedAge/.26,(.72-feedAge)/.21))));
   capture=noEvent(if whale>.5 then (if gape>.72 then 1 else 0)
     else (if feedAge>=.45 and feedAge<=.72 then 1 else 0));
-  school=swim(clock,fishCount);
+  migration=swim(clock,fishCount);
+  school=if noEvent(useSchool>.5) then swimmers else migration;
   (returns,inMouth)=scan(school,pose,whale);
 end FeedingGround;

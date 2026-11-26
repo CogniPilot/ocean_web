@@ -35,12 +35,10 @@ model CruiserImagingSonar "Forward volumetric sonar mounted under the cruiser bo
   protected
     Real bed,near,far,mid,height,previous,s,cap,rock,entry,exitDistance,spacing;
   algorithm
-    range:=Wreck.WreckSolids.beamRange(o,d,limit);
+    range:=Wreck.WreckSolids.structureRange(o,d,limit);
     kind:=if range<limit then 2 else 0;
-    if d[3]<-1e-8 then
-      bed:=(-13.7-o[3])/d[3];
-      if bed>=0 and bed<=range+.0001 then range:=min(range,bed);kind:=1;end if;
-    end if;
+    bed:=Wreck.Bathymetry.range(o,d,range);
+    if bed<range then range:=bed;kind:=1;end if;
     (entry,exitDistance):=Wreck.Perception.slabInterval(o,d,{7,17,-13.71},{65,63,6},1e-15);
     if exitDistance>=max(.08,entry) and entry<=range then
       // Bracket an intersection on the island's triangular sand mesh and refine its slant range.

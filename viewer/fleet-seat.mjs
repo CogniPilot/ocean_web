@@ -1,5 +1,5 @@
 // The lobby owns the ten seats. Players connect to the returned WebRTC channel.
-export async function reserveFleetSeat(endpoint,room,fleet=1){
+export async function reserveFleetSeat(endpoint,room,fleet=1,exact=false){
   const token=crypto.randomUUID();
   async function request(action,fields={}){
     return fetch(endpoint,{
@@ -12,12 +12,13 @@ export async function reserveFleetSeat(endpoint,room,fleet=1){
   let data;
   try{
     let response;
-    try{response=await request('join',{room,fleet});}
+    try{response=await request('join',{room,fleet,exact});}
     catch{
       // A lost reply can still have committed the seat. Reuse its token.
       started=Date.now();
-      response=await request('join',{room,fleet});
+      response=await request('join',{room,fleet,exact});
     }
+    if(response.status===409)throw Error('Fleet full');
     if(!response.ok)throw Error('Room service unavailable');
     data=await response.json();
   }catch(error){void request('leave').catch(()=>{});throw error;}

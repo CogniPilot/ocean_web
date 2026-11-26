@@ -1,5 +1,12 @@
 #include "model.h"
 static fmi3Instance instance;
+// Calls are synchronous. Each lane selects its own FMI state; scratch is shared.
+fmi3Instance current_instance(void) {return instance;}
+void select_instance(fmi3Instance selected) {instance=selected;}
+void release_instance(fmi3Instance selected) {
+    if(instance==selected) instance=NULL;
+    fmi3FreeInstance(selected);
+}
 static double values[16384];
 static fmi3ValueReference references[128];
 double *buffer(void) {return values;}

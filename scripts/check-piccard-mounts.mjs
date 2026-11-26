@@ -7,6 +7,13 @@ const asset=await readFile(new URL('../viewer/assets/survey-pressure-housing.glb
 const json=JSON.parse(asset.subarray(20,20+asset.readUInt32LE(12)).toString());
 const frame=json.nodes.find(node=>node.name==='PiccardFrame');
 const {mounts,axes}=JSON.parse(frame.extras.thrusterLayout);
+const pickup=json.nodes.find(node=>node.name==='Piccard pickup plate');
+assert(pickup,'Magnetic pickup steel plate missing from exported shell');
+assert(!json.materials.some(m=>/flotation foam/i.test(m.name)),'External buoyancy blocks are obsolete');
+const positions=json.meshes[pickup.mesh].primitives[0].attributes.POSITION;
+const bounds=json.accessors[positions],top=pickup.translation[1]+bounds.max[1];
+assert(Math.abs(top-.15)<1e-6,'glTF mating face must agree with the simulated magnet');
+for(const [i,span] of [[0,.10],[1,.005],[2,.068]])assert(Math.abs(bounds.max[i]-bounds.min[i]-span)<1e-6);
 const plant=await loadInstance('Wreck_Plant',{},async url=>new Response(await readFile(url)));
 assert.deepEqual(mounts.flat(),Array.from(plant.get('propMount')));
 assert.deepEqual(axes.flat(),Array.from(plant.get('propAxis')));
@@ -19,7 +26,8 @@ for(const side of [0,1]){
   assert.deepEqual(axes[mid],[0,0,1]);
   assert.deepEqual(axes[aft],[0,0,1]);
 }
-plant.set('manual',1);
+// Exercise direct heave allocation independently of the navigation controller.
+plant.set('manual',1);plant.set('manualMode',1);
 plant.set('pilot',[0,0,0,.2]);
 plant.advance(.01);
 const lift=Array.from(plant.get('cmd')).slice(2);

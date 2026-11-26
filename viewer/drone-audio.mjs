@@ -35,8 +35,9 @@ function rotorVoice(context,output,wave,noise){
         level.gain.setTargetAtTime(.105*load**1.55,now,.055);
       }
       wash.gain.setTargetAtTime(.17*energy/4,now,.07);
-      filter.frequency.setTargetAtTime(underwater?410:Math.max(1350,2650+2450*energy/4-25*distance),now,.10);
-      gain.gain.setTargetAtTime((underwater?.31:1)/(1+distance/6)**1.45,now,.08);
+      const airCutoff=Math.max(1350,2650+2450*energy/4-25*distance);
+      filter.frequency.setTargetAtTime(airCutoff*(410/airCutoff)**underwater,now,.16);
+      gain.gain.setTargetAtTime((1-.69*underwater)/(1+distance/6)**1.45,now,.08);
       pan.pan.setTargetAtTime(Math.max(-1,Math.min(1,balance)),now,.08);
     },
     fade(){

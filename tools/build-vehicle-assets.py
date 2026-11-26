@@ -339,7 +339,7 @@ export('sloop-hull')
 
 def cylinder(name,x,r,length,material,vertices=48):
     bpy.ops.mesh.primitive_cylinder_add(vertices=vertices,radius=r,depth=length,
-        location=(x,0,.1),rotation=(0,math.pi/2,0))
+        location=(x,0,.05),rotation=(0,math.pi/2,0))
     obj=bpy.context.object
     obj.name=name
     obj.data.materials.append(material)
@@ -356,7 +356,7 @@ def finish(name, rgb, metal=0, rough=.5):
     return material
 
 
-def block(name, pos, dimensions, material, bevel=.003):
+def block(name, pos, dimensions, material, bevel=.0015):
     bpy.ops.mesh.primitive_cube_add(size=1, location=pos)
     obj = bpy.context.object
     obj.name = name
@@ -373,7 +373,7 @@ def cable(points, material):
     curve = bpy.data.curves.new("Motor lead", "CURVE")
     curve.dimensions = '3D'
     curve.resolution_u = 5
-    curve.bevel_depth = .006
+    curve.bevel_depth = .003
     curve.bevel_resolution = 2
     spline = curve.splines.new('BEZIER')
     spline.bezier_points.add(len(points)-1)
@@ -394,19 +394,19 @@ frame = finish('Black frame and clamps', (.027,.030,.034), .18, .41)
 rubber = finish('Motor guards and cables', (.016,.020,.024), .08, .34)
 alloy = finish('Machined hardware', (.48,.53,.56), .68, .29)
 pack = finish('Yellow equipment pack', (.78,.46,.033), .07, .47)
-cylinder('Pressure housing', 0, .17, 1.05, tube)
-for x in (-.30,.26):
-    cylinder('Saddle clamp', x, .183, .067, frame, 20)
-    block('Clamp foot', (x,0,.087), (.078,.458,.036), frame)
-    for y in (-.201,.201):
-        block('Clamp nut', (x,y,.112), (.023,.023,.015), alloy)
-for x in (-.53,.53):
-    cylinder('Viewport flange', x,.18,.024,frame)
+cylinder('Pressure housing', 0, .085, .525, tube)
+for x in (-.15,.13):
+    cylinder('Saddle clamp', x, .0915, .0335, frame, 20)
+    block('Clamp foot', (x,0,.0435), (.039,.229,.018), frame)
+    for y in (-.1005,.1005):
+        block('Clamp nut', (x,y,.056), (.0115,.0115,.0075), alloy)
+for x in (-.265,.265):
+    cylinder('Viewport flange', x,.09,.012,frame)
     for i in range(12):
         a = 2*math.pi*i/12
-        cylinder('Flange fastener', x+math.copysign(.016,x), .009,.01,alloy,6)
-        bpy.context.object.location.y = .166*math.cos(a)
-        bpy.context.object.location.z += .166*math.sin(a)
+        cylinder('Flange fastener', x+math.copysign(.008,x), .0045,.005,alloy,6)
+        bpy.context.object.location.y = .083*math.cos(a)
+        bpy.context.object.location.z += .083*math.sin(a)
 
 # Keep mounts in the physical body frame even when Blender batches the shell.
 plant = (DEST.parents[1]/"Wreck/package.mo").read_text()
@@ -417,22 +417,28 @@ def motor_table(name):
 mounts = motor_table("propMount")
 axes = motor_table("propAxis")
 for side in (-1,1):
-    y = side*.218
+    y = side*.109
     # Open central ports in the side plates.
-    for x in (-.356,.356):
-        block('Longitudinal side plate', (x,y,.015), (.49,.015,.191), frame)
-    block('Upper plate bridge',(0,y,.091),(.23,.015,.039),frame)
-    block('Equipment tray rail',(0,y,-.143),(1.205,.019,.03),frame)
-    block('Lower pack',(-.04,side*.092,-.125),(.73,.16,.084),pack,.011)
+    for x in (-.178,.178):
+        block('Longitudinal side plate', (x,y,.0075), (.245,.0075,.0955), frame)
+    block('Upper plate bridge',(0,y,.0455),(.115,.0075,.0195),frame)
+    block('Equipment tray rail',(0,y,-.0715),(.6025,.0095,.015),frame)
+    block('Lower pack',(-.02,side*.046,-.0625),(.365,.08,.042),pack,.0055)
     drive_x = mounts[0][0]
-    cable([(drive_x,side*.32,.015),(drive_x+.05,side*.34,-.08),(.23,side*.285,-.14),
-           (.02,side*.24,-.154),(-.12,side*.20,-.12)], rubber)
+    cable([(drive_x,side*.16,.0075),(drive_x+.025,side*.17,-.04),(.115,side*.1425,-.07),
+           (.01,side*.12,-.077),(-.06,side*.10,-.06)], rubber)
     for x, motor_y, z in mounts:
         if side*motor_y > 0:
-            block('Thruster mounting lug',(x,side*.244,z-.053),(.055,.07,.026),frame)
-for x in (-.53,-.20,.43):
-    block('Lower tray crossmember',(x,0,-.177),(.032,.445,.019),alloy)
-block('Equipment tray',(-.02,0,-.169),(.99,.40,.013),frame)
+            block('Thruster mounting lug',(x,side*.122,z-.0265),(.0275,.035,.013),frame)
+for x in (-.265,-.10,.215):
+    block('Lower tray crossmember',(x,0,-.0885),(.016,.2225,.0095),alloy)
+block('Equipment tray',(-.01,0,-.0845),(.495,.20,.0065),frame)
+
+# Magnetic landing face, backed by two narrow longitudinal strips on the existing tube collars.
+for y in (-.022,.022):
+    block('Pickup bearer',(-.01,y,.1415),(.31,.012,.007),frame,.001)
+steel_plate=finish('Piccard magnetic pickup steel',(.21,.24,.24),.66,.43)
+block('Piccard pickup plate',(0,0,.1475),(.10,.068,.005),steel_plate,.0015)
 
 # Combine opaque fixed geometry by finish for local and multiplayer vehicles.
 for material in (tube,frame,rubber,alloy,pack):

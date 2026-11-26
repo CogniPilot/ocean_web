@@ -2,9 +2,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 compiler=${RUMOCA:-.deps/rumoca-upstream/target/debug/rumoca}
+bash scripts/prepare-wreck-sensor-mounts.sh
 lib=build/world-libs
 mkdir -p "$lib"
-for package in "$PWD"/.deps/modelica_models/*/package.mo "$PWD"/.deps/msl/*/package.mo "$PWD"/Wreck/package.mo; do
+for package in "$PWD"/.deps/marine-models/*/package.mo "$PWD"/.deps/msl/*/package.mo "$PWD"/Wreck/package.mo; do
   directory=${package%/package.mo}
   ln -sfn "$directory" "$lib/${directory##*/}"
 done
@@ -25,7 +26,7 @@ case $modelName in
   OceanSubmarine|OceanFlight|OceanHabitat) roots+=(--source-root models/OceanMission.mo) ;;
   OceanMotorboat) roots+=(--source-root models/OceanMission.mo --source-root viewer/board/BreakwaterEncounter.mo --source-root models/CruiserAnchor.mo --source-root models/CruiserPropulsion.mo) ;;
 esac
-for model in SwimmerCollision WildlifeContact Shore SailingTactics Sailboat SailMembrane MarineWind WakeSpectrum BowWavePatch Regatta Rdd2Survey; do
+for model in MantaContact SwimmerCollision WildlifeContact Shore SailingTactics Sailboat SailMembrane MarineWind WakeSpectrum BowWavePatch RegattaBase Regatta SharedRegatta Rdd2Survey; do
   roots+=(--source-root "viewer/board/$model.mo")
 done
 # The coupled FMI kernel holds event snapshots and sensor tensor temporaries

@@ -41,7 +41,22 @@ try{
   assert(vertices.every(Number.isFinite));
   assert([...edges.values()].every(([count,orientation])=>count===2&&orientation===0),
     'Every hull edge must join two consistently oriented triangles');
-  await writeFile(destination,JSON.stringify({vertices,faces,cabinVertices,cabinFaces})+'\n');
+  const source=await readFile(new URL('../Wreck/peerHullLoad.mo',import.meta.url),'utf8');
+  const table=source.match(/constant Real guards\[(\d+),4\]\s*=\s*\[([^\]]+)\]/);
+  assert(table,'Missing Piccard peer hull-contact guard table');
+  const piccardGuards=table[2].split(';').map(row=>row.split(',').map(Number));
+  assert.equal(piccardGuards.length,Number(table[1]));
+  assert(piccardGuards.every(row=>row.length===4&&row.every(Number.isFinite)&&row[3]>0));
+  let portLift;
+  if(index.variables.some(v=>v.name==='liftHydroGeometry')){
+    const definition=await readFile(new URL('../Wreck/PortLift.mo',import.meta.url),'utf8');
+    const boxes=read('liftHydroGeometry');
+    const kinematics=index.variables.some(v=>v.name==='liftKinematics')?read('liftKinematics')[0]:1;
+    const movingCount=Number(definition.match(/movingCount=(\d+)/)[1]),travel=Number(definition.match(/travel=([\d.]+)/)[1]);
+    assert(boxes.length%15===0&&movingCount<boxes.length/15&&boxes.every(Number.isFinite));
+    portLift={boxes,movingCount,travel:kinematics===1?1.75:travel,kinematics};
+  }
+  await writeFile(destination,JSON.stringify({vertices,faces,cabinVertices,cabinFaces,piccardGuards,portLift})+'\n');
 }finally{
   session.free();
 }

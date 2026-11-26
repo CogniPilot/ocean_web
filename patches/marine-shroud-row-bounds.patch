@@ -1,0 +1,98 @@
+--- a/Marine/Sailing/PanelSailMembrane.mo
++++ b/Marine/Sailing/PanelSailMembrane.mo
+@@ -230,6 +230,7 @@
+     Real panelWind[3],wire[3],wireStart[3],wireEnd[3],offset[3],denom,along,edge,penetration,loadY,totalInv,direction;
+     Real wireMinX,wireMaxX,wireMinZ,wireMaxZ,wireMinSide;
+     Integer left,j,k,c1,c2,c3,backRow;
++    Real minX[rows],maxX[rows],minZ[rows],maxZ[rows];
+   algorithm
+     p:=old;v:=oldV;mass:=fill(.0001,n);nodal:=zeros(n,3);force:=zeros(3);moment:=zeros(3);wetArea:=0;
+     for row in 0:rows-2 loop
+@@ -435,6 +436,14 @@
+     // triangle in the sail XZ plane. Signed separation varies linearly over
+     // the intersection interval, so its extrema occur on those edges.
+     if contact then
++      // Wire loads move only Y. Bounds of each row and the following row
++      // cover its horizontal, vertical and diagonal edges throughout the solve.
++      for row in 1:rows loop
++        minX[row]:=min({p[(row-1)*cols+col,1] for col in 1:cols});
++        maxX[row]:=max({p[(row-1)*cols+col,1] for col in 1:cols});
++        minZ[row]:=min({p[(row-1)*cols+col,3] for col in 1:cols});
++        maxZ[row]:=max({p[(row-1)*cols+col,3] for col in 1:cols});
++      end for;
+       for pass in 1:3 loop
+         for side in 1:2 loop
+           for half in 1:2 loop
+@@ -448,38 +457,44 @@
+             wireMinZ:=min(wireStart[3],wireEnd[3])-1e-9;
+             wireMaxZ:=max(wireStart[3],wireEnd[3])+1e-9;
+             wireMinSide:=min(direction*wireStart[2],direction*wireEnd[2])-.009-1e-9;
+-            for j in 1:n loop
+-              for link in 1:3 loop
+-                k:=if link==1 then j+1 elseif link==2 then j+cols else j+cols+1;
+-                if k<=n and (link==2 or mod(j,cols)<>0) then
+-                  if (invMass[j]>0 or invMass[k]>0)
+-                    and max(p[j,1],p[k,1])>=wireMinX and min(p[j,1],p[k,1])<=wireMaxX
+-                    and max(p[j,3],p[k,3])>=wireMinZ and min(p[j,3],p[k,3])<=wireMaxZ
+-                    and max(direction*p[j,2],direction*p[k,2])>=wireMinSide then
+-                    d:=p[k,:]-p[j,:];offset:=wireStart-p[j,:];
+-                    denom:=d[1]*wire[3]-d[3]*wire[1];
+-                    if abs(denom)>1e-9 then
+-                      edge:=(offset[1]*wire[3]-offset[3]*wire[1])/denom;
+-                      along:=(offset[1]*d[3]-offset[3]*d[1])/denom;
+-                      if edge>=0 and edge<=1 and along>=0 and along<=1 then
+-                        penetration:=direction*(p[j,2]+edge*d[2]-wireStart[2]-along*wire[2])+.009;
+-                        if penetration>0 then
+-                          wa:=invMass[j];
+-                          wb:=invMass[k];
+-                          totalInv:=wa*(1-edge)^2+wb*edge^2;
+-                          if totalInv>1e-8 then
+-                            loadY:=-direction*penetration/(totalInv+1/(max(1,contactK[side])*dt^2));
+-                            wireForce[side]:=wireForce[side]-loadY/dt^2;
+-                            p[j,2]:=p[j,2]+wa*(1-edge)*loadY;
+-                            p[k,2]:=p[k,2]+wb*edge*loadY;
+-                            clewForce[2]:=clewForce[2]+(boomArm[j]*(1-edge)+boomArm[k]*edge)*loadY/dt^2;
++            for row in 1:rows loop
++              if max(maxX[row],maxX[min(rows,row+1)])>=wireMinX and min(minX[row],minX[min(rows,row+1)])<=wireMaxX
++                and max(maxZ[row],maxZ[min(rows,row+1)])>=wireMinZ and min(minZ[row],minZ[min(rows,row+1)])<=wireMaxZ then
++                for col in 1:cols loop
++                  j:=(row-1)*cols+col;
++                  for link in 1:3 loop
++                    k:=if link==1 then j+1 elseif link==2 then j+cols else j+cols+1;
++                    if k<=n and (link==2 or mod(j,cols)<>0) then
++                      if (invMass[j]>0 or invMass[k]>0)
++                        and max(p[j,1],p[k,1])>=wireMinX and min(p[j,1],p[k,1])<=wireMaxX
++                        and max(p[j,3],p[k,3])>=wireMinZ and min(p[j,3],p[k,3])<=wireMaxZ
++                        and max(direction*p[j,2],direction*p[k,2])>=wireMinSide then
++                        d:=p[k,:]-p[j,:];offset:=wireStart-p[j,:];
++                        denom:=d[1]*wire[3]-d[3]*wire[1];
++                        if abs(denom)>1e-9 then
++                          edge:=(offset[1]*wire[3]-offset[3]*wire[1])/denom;
++                          along:=(offset[1]*d[3]-offset[3]*d[1])/denom;
++                          if edge>=0 and edge<=1 and along>=0 and along<=1 then
++                            penetration:=direction*(p[j,2]+edge*d[2]-wireStart[2]-along*wire[2])+.009;
++                            if penetration>0 then
++                              wa:=invMass[j];
++                              wb:=invMass[k];
++                              totalInv:=wa*(1-edge)^2+wb*edge^2;
++                              if totalInv>1e-8 then
++                                loadY:=-direction*penetration/(totalInv+1/(max(1,contactK[side])*dt^2));
++                                wireForce[side]:=wireForce[side]-loadY/dt^2;
++                                p[j,2]:=p[j,2]+wa*(1-edge)*loadY;
++                                p[k,2]:=p[k,2]+wb*edge*loadY;
++                                clewForce[2]:=clewForce[2]+(boomArm[j]*(1-edge)+boomArm[k]*edge)*loadY/dt^2;
++                              end if;
++                            end if;
+                           end if;
+                         end if;
+                       end if;
+                     end if;
+-                  end if;
+-                end if;
+-              end for;
++                  end for;
++                end for;
++              end if;
+             end for;
+           end for;
+         end for;

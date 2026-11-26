@@ -21,119 +21,329 @@ function batchScenery(T,group,attributes=[]){
  }
  return group;
 }
+
+// Join the independent surveys only in the flat water between them. The two
+// measured grids retain their native SW–NE diagonals and their actual heights.
+function harborTerrainGeometry(T){
+ const {min,max,step,shelf}=harborBed,far=250;
+ const deepAxis=[];
+ for(let x=min;x<=max;x+=step)deepAxis.push(x);
+ const survey=[-far,...deepAxis,far], shore=[-far];
+ const west=shelf.center[0]-shelf.width/2,south=shelf.center[1]-shelf.height/2;
+ for(let i=0;i<=shelf.columns;i++)shore.push(west+shelf.width*i/shelf.columns);
+ shore.push(far);
+ const positions=[],indices=[],uv=[],colors=[];
+ const dry=new T.Color(0xdcc69d),wet=new T.Color(0xa29276),tint=new T.Color();
+ let previous=[],first=0;
+ function row(y,xs){
+   const start=positions.length/3;
+   for(const x of xs){
+     const z=harborBed.surfaceHeight(x,y);
+     positions.push(x,y,z);
+     uv.push((x-west)/shelf.width,(y-south)/shelf.height);
+     tint.copy(wet).lerp(dry,T.MathUtils.smoothstep(z,-.23,.45));
+     colors.push(tint.r,tint.g,tint.b);
+   }
+   // Merge the two sorted edge lists. Matching columns make ordinary quads;
+   // unequal columns on the datum strip share edges with both surveys.
+   if(previous.length){
+     let i=0,j=0;
+     while(i+1<previous.length || j+1<xs.length){
+       const a=previous[i+1]??Infinity,b=xs[j+1]??Infinity;
+       if(a===b){
+         indices.push(first+i,first+i+1,start+j+1,first+i,start+j+1,start+j);
+         i++;j++;
+       }else if(a<b){
+         indices.push(first+i,first+i+1,start+j);i++;
+       }else{
+         indices.push(first+i,start+j+1,start+j);j++;
+       }
+     }
+   }
+   first=start;previous=xs;
+ }
+ row(-far,[-far,far]);
+ for(const y of deepAxis)row(y,survey);
+ row(south,shore);
+ const shoreStart=indices.length;
+ for(let j=1;j<=shelf.rows;j++)row(south+shelf.height*j/shelf.rows,shore);
+ const shoreCount=indices.length-shoreStart;
+ row(far,[-far,far]);
+ const geo=new T.BufferGeometry();
+ geo.setAttribute('position',new T.Float32BufferAttribute(positions,3));
+ geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+ geo.setAttribute('color',new T.Float32BufferAttribute(colors,3));
+ geo.setIndex(indices);geo.computeVertexNormals();geo.computeBoundingSphere();
+ geo.userData.reflectionRange={start:shoreStart,count:shoreCount};
+ return geo;
+}
+
 const seabedTime={value:0};
-function seabedMaterials(T,illumination,terrainTextures,tide){
- function textured(base,kind){
-   const shore=kind==='shore';
-   const m=new T.MeshStandardMaterial({color:0xffffff,roughness:.86,metalness:kind==='metal'?.22:0,vertexColors:shore});
-   m.onBeforeCompile=s=>{
-     s.vertexShader='varying vec3 location;\n'+s.vertexShader.replace('#include <worldpos_vertex>','#include <worldpos_vertex>\nlocation=(modelMatrix*vec4(transformed,1.)).xyz;');
-     s.fragmentShader='varying vec3 location;\n'+skyNoiseGLSL+s.fragmentShader;
-     if(shore){
-       const {sand,height,ready}=terrainTextures;
-       Object.assign(s.uniforms,{sandMap:{value:sand},sandHeightMap:{value:height},sandMapsReady:ready,seaLevel:tide});
-       s.fragmentShader='uniform sampler2D sandMap,sandHeightMap;uniform float sandMapsReady,seaLevel;\n'+s.fragmentShader;
-       s.fragmentShader=s.fragmentShader
-         .replace('#include <roughnessmap_fragment>',`#include <roughnessmap_fragment>
-           roughnessFactor=mix(roughnessFactor,.64+.29*drySand,shoreWeight*sandMapsReady);`)
-         .replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
+// Keep one shared texture pair per substrate. Above-water sailing never downloads them.
+function diveSurfaces(T){
+ const files=[],loader=new T.ImageLoader();let requested=false,disposed=false;
+ function map(name,suffix,color,srgb){
+   const c=document.createElement('canvas');c.width=c.height=1;
+   const ctx=c.getContext('2d');ctx.fillStyle=color;ctx.fillRect(0,0,1,1);
+   const texture=new T.CanvasTexture(c);
+   texture.wrapS=texture.wrapT=T.MirroredRepeatWrapping;
+   if(srgb)texture.colorSpace=T.SRGBColorSpace;
+   files.push([texture,'assets/subsea/'+name+'-'+suffix+'.webp']);return texture;
+ }
+ function material(name,color,tileMeters){
+   return {albedo:map(name,'albedo',color,true),relief:map(name,'surface','#80dcdb',false),tileMeters};
+ }
+ return {sand:material('carbonate-sand','#acaa91',.8),rubble:material('reef-rubble','#80786c',1.5),weed:material('ribbon-algae','#69814b',1),
+   load(){if(requested||disposed)return;requested=true;
+     for(const [texture,url] of files)loader.load(url,img=>{if(!disposed){texture.dispose();texture.image=img;texture.needsUpdate=true;}});},
+   dispose(){disposed=true;for(const [texture] of files)texture.dispose();}
+ };
+}
+// One world-space material spans the deep survey, datum strip and beach.
+function harborTerrainMaterial(T,illumination,terrainTextures,tide,dive){
+ const m=new T.MeshStandardMaterial({vertexColors:true,roughness:.86});
+ m.onBeforeCompile=s=>{
+   Object.assign(s.uniforms,illumination,{
+     sandMap:{value:dive.sand.albedo},sandSurface:{value:dive.sand.relief},
+     rubbleMap:{value:dive.rubble.albedo},rubbleSurface:{value:dive.rubble.relief},
+     basinCenter:{value:new T.Vector2(harborBed.abyss.east,harborBed.abyss.north)},
+     beachSand:{value:terrainTextures.sand},beachHeight:{value:terrainTextures.height},
+     sandMapsReady:terrainTextures.ready,seaLevel:tide
+   });
+   s.vertexShader='varying vec3 location;\n'+s.vertexShader.replace('#include <worldpos_vertex>',
+     '#include <worldpos_vertex>\nlocation=(modelMatrix*vec4(transformed,1.)).xyz;');
+   s.fragmentShader=`varying vec3 location;
+     uniform sampler2D sandMap,sandSurface,rubbleMap,rubbleSurface,beachSand,beachHeight,wreckFlux,wreckDepth;
+     uniform vec2 basinCenter,causticShift;uniform float sandMapsReady,seaLevel,sunStrength;
+     uniform mat4 wreckProjection;uniform vec3 waterRay;
+     `+skyNoiseGLSL+s.fragmentShader;
+   s.fragmentShader=s.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+     vec2 p=location.xy;
+     float shoreWeight=smoothstep(-13.7,-7.,location.z);
+     vec3 beachTint=diffuseColor.rgb;
+     float groundRelief=0.,substrateRoughness=.86;
+     if(shoreWeight<1.){
+       float ridge=sin(6.*p.x+2.4*sin(p.y*.81)+cloud(p*.7)*5.);
+       // Expose more rock on steeper faces and collect sediment in the abyss.
+       vec3 bedNormal=inverseTransformDirection(normalize(vNormal),viewMatrix);
+       float wall=smoothstep(.12,.65,1.-abs(bedNormal.z));
+       vec2 sandUV=location.xy/.8;
+       vec2 rubbleUV=location.xy/1.5;
+       float patchField=.5+.18*sin(.43*p.x+.16*p.y+.8*sin(.35*p.y))
+         +.14*sin(.32*p.y-.52*p.x)+.10*sin(.76*p.x+.40*p.y);
+       float rubbleWeight=smoothstep(.30,.75,patchField);
+       // Sand accumulates in the sheltered bottom of the abyss. Fade it into
+       // the existing substrate as the bed climbs back to exposed rock.
+       vec2 basin=p-basinCenter;
+       float deposit=(1.-smoothstep(.48,1.,length(basin/vec2(8.5,6.5))))*
+         (1.-smoothstep(-43.,-38.,location.z));
+       float rippleHeight=0.;
+       if(deposit>0.){
+         // Include elevation along the west flank so grains retain their size on the incline.
+         vec2 bedUV=vec2(basin.x-.48*(location.z+46.),basin.y);
+         bedUV=mat2(.88,.475,-.475,.88)*bedUV;
+         float meander=noise2(bedUV*.65);
+         sandUV+=deposit*(bedUV/1.35-basin/.8+vec2(.06*meander,.14*meander));
+         float ripplePhase=19.*bedUV.y+6.*meander+.9*sin(1.5*bedUV.x+.7*bedUV.y);
+         float ripple=.5+.5*sin(ripplePhase);
+         rippleHeight=.011*ripple*ripple*smoothstep(.16,.77,meander)*deposit;
+         // Sparse shell grit collects in hollows between ripples.
+         rubbleWeight=mix(rubbleWeight,.05+.52*(1.-ripple)*smoothstep(.47,.73,meander),deposit);
+         wall*=1.-deposit;
+       }
+       vec3 grains=texture2D(sandMap,sandUV).rgb;
+       vec3 rubble=texture2D(rubbleMap,rubbleUV).rgb;
+       vec2 grainRG=texture2D(sandSurface,sandUV).rg;
+       vec2 rubbleRG=texture2D(rubbleSurface,rubbleUV).rg;
+       // Project the same rubble onto steep faces without stretching its grains.
+       if(wall>.001){
+         vec3 planes=abs(bedNormal);planes*=planes;planes*=planes;
+         planes/=dot(planes,vec3(1.));
+         vec2 yz=location.yz/1.5,xz=location.xz/1.5;
+         rubble=mix(rubble,planes.x*texture2D(rubbleMap,yz).rgb+planes.y*texture2D(rubbleMap,xz).rgb+planes.z*rubble,wall);
+         rubbleRG=mix(rubbleRG,planes.x*texture2D(rubbleSurface,yz).rg+planes.y*texture2D(rubbleSurface,xz).rg+planes.z*rubbleRG,wall);
+       }
+       float mineral=mix(rubbleWeight,1.,wall);
+       groundRelief=rippleHeight+mix(mix(.0035,.011,deposit)*grainRG.r,.019*rubbleRG.r,mineral);
+       substrateRoughness=mix(grainRG.g,rubbleRG.g,mineral);
+       float ledge=cloud(vec2(.78*(location.x+.53*location.y),location.z*2.0));
+       vec3 shale=rubble*vec3(.67,.72,.70)*(.75+.38*ledge);
+       diffuseColor.rgb=mix(mix(grains,rubble,rubbleWeight)*(.79+.08*ridge+.18*cloud(p)),shale,wall);
+       // Attenuate daylight reaching the lower walls, including views down from the rim.
+       diffuseColor.rgb*=mix(1.,mix(.47,.88,deposit),smoothstep(15.,32.,-location.z));
+     }
+     if(shoreWeight>0.){
+       // Blend two scales of the same sand scan to break up visible tiling.
+       vec2 sandUv=p*.094+vec2(.74,.23);
+       vec2 detailUv=mat2(.78,.626,-.626,.78)*p*.19+vec2(.38,.77);
+       float variation=noise2(p*.32);
+       float blend=smoothstep(.21,.78,variation);
+       float drySand=smoothstep(-.32,.59,location.z-seaLevel+.22*(variation-.5));
+
+       vec3 sandColor=mix(texture2D(beachSand,sandUv).rgb,texture2D(beachSand,detailUv).rgb,blend);
+       vec3 shoreSand=sandColor*mix(vec3(.68,.73,.72),vec3(2.55,2.43,2.28),drySand);
+       shoreSand=mix(shoreSand,vec3(.70,.64,.53),.35*drySand);
+       float beachRelief=.017*mix(texture2D(beachHeight,sandUv).r,texture2D(beachHeight,detailUv).r,blend)*sandMapsReady;
+       groundRelief=mix(groundRelief,beachRelief,shoreWeight);
+       substrateRoughness=mix(substrateRoughness,.64+.29*drySand,shoreWeight*sandMapsReady);
+       diffuseColor.rgb=mix(diffuseColor.rgb,mix(beachTint,shoreSand,sandMapsReady),shoreWeight);
+     }
+     if(sunStrength>.001){
+       if(shoreWeight<1.){
+         vec3 shadow=(wreckProjection*vec4(location,1.)).xyz*.5+.5;
+         float exposed=1.;
+         if(all(greaterThan(shadow,vec3(0.)))&&all(lessThan(shadow,vec3(1.))))
+           exposed=step(shadow.z-.00032,texture2D(wreckDepth,shadow.xy).r);
+         vec2 floorUV=(location.xy+waterRay.xy*((-13.7-location.z)/min(-.05,waterRay.z))-vec2(16.,0.))/64.+.5;
+         if(all(greaterThan(floorUV,vec2(0.)))&&all(lessThan(floorUV,vec2(1.)))){
+           float focus=max(0.,texture2D(wreckFlux,floorUV*(64./12.)+causticShift).r/.13-1.);
+           vec2 margin=min(floorUV,1.-floorUV);
+           float coverage=smoothstep(0.,.10,min(margin.x,margin.y));
+           diffuseColor.rgb*=1.+(1.-shoreWeight)*coverage*min(focus,3.)*sunStrength*exposed*vec3(.55,.86,.77);
+         }
+       }
+       if(shoreWeight>0.){
+         float depth=seaLevel-location.z;
+         if(depth>0.&&depth<6.){
+           vec2 entry=location.xy-waterRay.xy*(depth/max(.05,-waterRay.z));
+           vec2 causticUV=.34*entry+causticShift;
+           float focus=clamp(texture2D(wreckFlux,causticUV).r/.13-1.,-.40,2.3);
+           float contrast=smoothstep(.03,.35,depth)*(1.-smoothstep(2.,6.,depth));
+           diffuseColor.rgb*=1.+shoreWeight*sunStrength*contrast*focus*vec3(.52,.84,.79);
+         }
+       }
+     }`)
+     .replace('#include <roughnessmap_fragment>','#include <roughnessmap_fragment>\nroughnessFactor=substrateRoughness;')
+     .replace('#include <normal_fragment_maps>',`#include <normal_fragment_maps>
            // Height in metres on the terrain surface, with a screen-space tangent frame.
            vec3 sx=dFdx(-vViewPosition),sy=dFdy(-vViewPosition);
            vec3 tx=cross(sy,normal),ty=cross(normal,sx);
            float handedness=dot(sx,tx);
            vec3 hill=sign(handedness)*(dFdx(groundRelief)*tx+dFdy(groundRelief)*ty);
-           normal=normalize(max(abs(handedness),1e-12)*normal-hill);`);
-     }
-     const shoreline=`
-     // Blend two scales of the same sand scan to break up visible tiling.
-     vec2 sandUv=p*.094+vec2(.74,.23);
-     vec2 detailUv=mat2(.78,.626,-.626,.78)*p*.19+vec2(.38,.77);
-     float variation=noise2(p*.32);
-     float blend=smoothstep(.21,.78,variation);
-     float drySand=smoothstep(-.32,.59,location.z+.22*(variation-.5));
-     float shoreWeight=smoothstep(-13.7,-7.,location.z);
-     vec3 sandColor=mix(texture2D(sandMap,sandUv).rgb,texture2D(sandMap,detailUv).rgb,blend);
-     vec3 shoreSand=sandColor*mix(vec3(.68,.73,.72),vec3(2.55,2.43,2.28),drySand);
-     shoreSand=mix(shoreSand,vec3(.70,.64,.53),.35*drySand);
-     float groundRelief=.017*mix(texture2D(sandHeightMap,sandUv).r,texture2D(sandHeightMap,detailUv).r,blend)
-       *sandMapsReady*shoreWeight;
-     diffuseColor.rgb=mix(bed,mix(diffuseColor.rgb,shoreSand,sandMapsReady),shoreWeight);`;
-     const code=kind==='sand'||shore?`vec2 p=location.xy;float ridge=sin(6.*p.x+2.4*sin(p.y*.81)+cloud(p*.7)*5.);
-     vec3 bed=vec3(.26,.31,.27)*(.65+.12*ridge+.53*cloud(p*2.));
-     ${shore?shoreline:'diffuseColor.rgb=bed;'}`:
-     `vec2 p=vec2(location.x+.34*location.y,location.z+.25*location.y);float oxidation=cloud(p*vec2(.75,.38))+.16*noise2(p*vec2(7.,1.2));vec3 brown=vec3(.35,.125,.046);diffuseColor.rgb=mix(vec3(${base}),brown,smoothstep(.43,.69,oxidation))*(.63+.47*noise2(p*43.));`;
-     Object.assign(s.uniforms,illumination);
-     s.fragmentShader='uniform sampler2D wreckFlux,wreckDepth;uniform mat4 wreckProjection;uniform vec3 waterRay;uniform vec2 causticShift;uniform float sunStrength;\n'+s.fragmentShader;
-     s.fragmentShader=s.fragmentShader.replace('#include <color_fragment>', '#include <color_fragment>\n'+code+`
-       if(sunStrength>.001){
-       ${shore?`
-       float depth=seaLevel-location.z;
-       if(depth>0.&&depth<6.){
-         vec2 entry=location.xy-waterRay.xy*(depth/max(.05,-waterRay.z));
-         vec2 causticUV=.34*entry+causticShift;
-         float focus=clamp(texture2D(wreckFlux,causticUV).r/.13-1.,-.40,2.3);
-         float contrast=smoothstep(.03,.35,depth)*(1.-smoothstep(2.,6.,depth));
-         diffuseColor.rgb*=1.+sunStrength*contrast*focus*vec3(.52,.84,.79);
-       }
-       `:`
-       vec3 shadow=(wreckProjection*vec4(location,1.)).xyz*.5+.5;
-       float exposed=1.;
-       if(all(greaterThan(shadow,vec3(0.)))&&all(lessThan(shadow,vec3(1.))))
-         exposed=step(shadow.z-.00032,texture2D(wreckDepth,shadow.xy).r);
-       vec2 floorUV=(location.xy+waterRay.xy*((-13.7-location.z)/min(-.05,waterRay.z))-vec2(16.,0.))/64.+.5;
-       if(all(greaterThan(floorUV,vec2(0.)))&&all(lessThan(floorUV,vec2(1.)))){
-         float focus=max(0.,texture2D(wreckFlux,floorUV*(64./12.)+causticShift).r/.13-1.);
-         vec2 margin=min(floorUV,1.-floorUV);
-         float coverage=smoothstep(0.,.10,min(margin.x,margin.y));
-         diffuseColor.rgb*=1.+coverage*min(focus,3.)*sunStrength*exposed*vec3(.55,.86,.77);
-       }`}
-       }`);
-   };
-   m.customProgramCacheKey=()=>kind+base;return m;
- }
- return {iron:textured('.18,.25,.24','metal'),deck:textured('.20,.23,.19','metal'),rib:textured('.26,.28,.23','metal'),wood:textured('.35,.20,.085','wood'),sand:textured('','sand'),shore:textured('','shore'),dark:new T.MeshStandardMaterial({color:0x172927})};
+           normal=normalize(max(abs(handedness),1e-12)*normal-hill);
+     `);
+ };
+ m.customProgramCacheKey=()=>'harbor-terrain';
+ return m;
 }
-function marineLife(T,scene,webgl2,schoolState){
- const fish=new T.Group();scene.add(fish);
- const pose=new T.Object3D(),swimPhase={value:0};
- let school,swimmers=[],fishLoad;
- function updateSchool(){
-   const shared=schoolState?.();
-   fish.visible=!!shared;
-   if(!shared)return;
-   fishLoad??=fetch('assets/fish.json').then(r=>r.json()).then(asset=>buildSchool(asset,shared.positions.length/4)).catch(console.error);
-   swimPhase.value=shared.time*6%8;
-   for(let i=0;i<(school?school.count:swimmers.length);i++){
-     const f=school?pose:swimmers[i],k=i*4,visible=shared.restock[i]<=shared.time;
-     f.scale.setScalar(visible?.68+.4*Math.abs(Math.sin(i)):0);
-     f.position.fromArray(shared.positions,k);
-     f.rotation.z=shared.positions[k+3];
-     if(school){
-       f.updateMatrix();school.setMatrixAt(i,f.matrix);
-     }else{
-       const cycle=(swimPhase.value+i)%8,k=Math.floor(cycle);
-       f.morphTargetInfluences.fill(0);
-       f.morphTargetInfluences[k]=1-(cycle-k);f.morphTargetInfluences[(k+1)%8]=cycle-k;
+// Each instance is a single rooted ribbon. Nearby shoots share a swell phase
+// through their world coordinates, while their height and bearing vary.
+function seabedVegetation(T,sites,shore,weed){
+ let seed=992;
+ const rand=()=>{seed=(Math.imul(1664525,seed)+1013904223)>>>0;return seed/4294967296;};
+ const group=new T.Group();group.name='Seabed vegetation';
+ const vertices=[],faces=[],uv=[];
+ for(let j=0;j<=8;j++){
+   const u=j/8,w=.09*(.09+Math.sin(Math.PI*u)**.75)*(1+.19*Math.sin(u*16));
+   vertices.push(.23*u*u,-w,u,.23*u*u,w,u);uv.push(0,u,1,u);
+   if(j){const a=2*j;faces.push(a-2,a-1,a,a,a-1,a+1);}
+ }
+ const blade=new T.BufferGeometry();
+ blade.setAttribute('position',new T.Float32BufferAttribute(vertices,3));
+ blade.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
+ blade.setIndex(faces);blade.computeVertexNormals();
+ const material=new T.MeshStandardMaterial({side:T.DoubleSide,map:weed.albedo,bumpMap:weed.relief,bumpScale:.0008,roughnessMap:weed.relief,roughness:1});
+ material.onBeforeCompile=shader=>{
+   shader.uniforms.seabedTime=seabedTime;
+   shader.vertexShader='uniform float seabedTime;\n'+shader.vertexShader.replace('#include <project_vertex>',`
+     vec4 mvPosition=instanceMatrix*vec4(transformed,1.);
+     vec2 root=modelMatrix[3].xy+instanceMatrix[3].xy;
+     float bend=position.z*position.z*instanceMatrix[2].z;
+     float wave=sin(.81*seabedTime+dot(root,vec2(.28,.17))-.9*position.z);
+     mvPosition.xy+=bend*vec2(.15*wave,.07*sin(.64*seabedTime+.32*root.y)+.045*wave);
+     mvPosition=modelViewMatrix*mvPosition;
+     gl_Position=projectionMatrix*mvPosition;`);
+ };
+ const pose=new T.Object3D(),tint=new T.Color(),tileSize=48;
+ for(let iy=-5;iy<5;iy++)for(let ix=-5;ix<5;ix++){
+   const cx=(ix+.5)*tileSize,cy=(iy+.5)*tileSize,shoots=[];
+   function patch(x,y){
+     const radius=1.1+rand()*2.4,height=.42+rand()*.95,shade=rand(),count=7+Math.floor(rand()*9);
+     for(let i=0;i<count;i++){
+       const a=rand()*2*Math.PI,r=radius*Math.sqrt(rand());
+       const east=x+r*Math.cos(a),north=y+.65*r*Math.sin(a);
+       if(sites.some(s=>Math.abs(east-s.east)<s.halfLength+1.6&&Math.abs(north-s.north)<s.halfBeam+1.6))continue;
+       let z=harborBed.height(east,north);
+       const dx=east-shore.center[0],dy=north-shore.center[1];
+       if(Math.abs(dx)<29&&Math.abs(dy)<23)z=Math.max(z,shore.height(dx,dy));
+       if(z> -2.5||z< -22)continue;
+       shoots.push([east-cx,north-cy,z-.045,height*(.5+rand()*.75),rand()*2*Math.PI,shade*.7+rand()*.3]);
      }
    }
-   if(school)school.instanceMatrix.needsUpdate=true;
+   for(let n=0;n<11;n++)patch((ix+rand())*tileSize,(iy+rand())*tileSize);
+   for(const site of sites){
+     // Loose beds along both sides make the weeds visible on wreck approaches.
+     for(const side of [-1,1])for(let i=0;i<6;i++){
+       const x=site.east+site.halfLength*(i/2.5-1);
+       const y=site.north+side*(site.halfBeam+4+1.5*Math.sin(i*2+side));
+       if(Math.floor(x/tileSize)===ix&&Math.floor(y/tileSize)===iy)patch(x,y);
+     }
+   }
+   if(!shoots.length)continue;
+   const mesh=new T.InstancedMesh(blade,material,shoots.length);
+   for(let i=0;i<shoots.length;i++){
+     const [x,y,z,h,angle,shade]=shoots[i];
+     pose.position.set(x,y,z-harborBed.datum);pose.rotation.z=angle;pose.scale.set(.8+.4*h,.75+.4*h,h);
+     pose.updateMatrix();mesh.setMatrixAt(i,pose.matrix);
+     tint.setRGB(.56+shade*.34,.74+shade*.23,.54+shade*.28);
+     mesh.setColorAt(i,tint);
+   }
+   mesh.computeBoundingSphere();mesh.boundingSphere.radius+=.4;
+   const tile=new T.LOD();tile.position.set(cx,cy,harborBed.datum);
+   tile.addLevel(mesh,0);tile.addLevel(new T.Group(),70,.08);group.add(tile);
+ }
+ return group;
+}
+function marineLife(T,scene,webgl2,schoolState,sites,shore,weed,baitfishSurface,fishBodies,isCollisionVisible){
+ const habitat=new T.Group(),fish=new T.Group();habitat.add(fish);scene.add(habitat);
+ const pose=new T.Object3D(),swimPhase={value:0};
+ let school,strokeAttribute,tailExcursion,swimmers=[],scales=[],fishLoad,overlay,shapes,beatPeriod=1.2,disposed=false;
+ function loadSchool(count){
+   return fishLoad??=fetch('assets/fish.json?surface=3').then(r=>r.json()).then(asset=>buildSchool(asset,count)).catch(console.error);
+ }
+ function updateSchool(){
+   if(disposed)return;
+   const shared=schoolState?.();
+   fish.visible=!!shared;
+   const showCollision=shared&&fishBodies&&isCollisionVisible?.();
+   if(overlay&&!showCollision){overlay.dispose();overlay=undefined;}
+   if(!shared)return;
+   loadSchool(shared.positions.length/4);
+   const authoredPhase=(shared.time*8/beatPeriod)%8;
+   const count=school?school.count:swimmers.length;
+   if(showCollision&&count&&!overlay){
+     overlay=fishBodies.createFishCollisionOverlay(T,habitat,count);
+     shapes??=scales.map(scale=>fishBodies.fishBodyShape('bait',scale));
+   }
+   overlay?.begin();
+   for(let i=0;i<count;i++){
+     const f=school?pose:swimmers[i],k=i*4,visible=shared.restock[i]<=shared.time;
+     f.scale.setScalar(visible?scales[i]:0);
+     f.position.fromArray(shared.positions,k);
+     f.rotation.z=shared.positions[k+3];
+     if(overlay&&visible)overlay.add(f.position.x,f.position.y,f.position.z,f.rotation.z,shapes[i]);
+     const offset=3*i,stroke=shared.strokes,solved=stroke&&stroke[offset+1]>=0;
+     const frame=solved?stroke[offset]:authoredPhase+i*3.81966011;
+     const gain=solved?stroke[offset+1]/(scales[i]*tailExcursion):1;
+     if(school){
+       strokeAttribute.setXYZ(i,frame,gain,0);
+       f.updateMatrix();school.setMatrixAt(i,f.matrix);
+     }else{
+       setSchoolMorph(f,frame,gain);
+     }
+   }
+   if(school){school.instanceMatrix.needsUpdate=true;strokeAttribute.needsUpdate=true;}
+   overlay?.end();
  }
  function buildSchool(asset,count){
-   const geo=fishGeometry(T,asset);
-   const mat=new T.MeshStandardMaterial({vertexColors:true,roughness:.42,metalness:.08,side:T.DoubleSide});
+   if(disposed)return;
+   beatPeriod=asset.swimProfile?.cycle??1.2;
+   const geo=fishGeometry(T,asset,true);tailExcursion=geo.userData.tailExcursion;
+   const mat=schoolFishMaterial(T,swimPhase,webgl2,asset.uv?baitfishSurface?.(T):undefined,true);
+   scales=Array.from({length:count},(_,i)=>fishBodies?fishBodies.baitfishScale(i):.68+.4*Math.abs(Math.sin(i)));
    if(webgl2){
-     // All instances share the same eight absolute poses in Three's morph texture.
-     // The vertex and normal use the same two layers, offset by each fish's index.
-     mat.onBeforeCompile=shader=>{
-       shader.uniforms.swimPhase=swimPhase;
-       shader.vertexShader='uniform float swimPhase;\n'+shader.vertexShader
-         .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
-           float swimFrame=mod(swimPhase+float(gl_InstanceID),float(MORPHTARGETS_COUNT));
-           int firstPose=int(floor(swimFrame)),secondPose=(firstPose+1)%MORPHTARGETS_COUNT;
-           float weight=fract(swimFrame);`)
-         .replace('#include <morphnormal_vertex>', 'objectNormal=mix(getMorph(gl_VertexID,firstPose,1).xyz,getMorph(gl_VertexID,secondPose,1).xyz,weight);')
-         .replace('#include <morphtarget_vertex>', 'transformed=mix(getMorph(gl_VertexID,firstPose,0).xyz,getMorph(gl_VertexID,secondPose,0).xyz,weight);');
-     };
+     strokeAttribute=new T.InstancedBufferAttribute(new Float32Array(count*3),3).setUsage(T.DynamicDrawUsage);
+     geo.setAttribute('swimOffset',strokeAttribute);
      school=new T.InstancedMesh(geo,mat,count);
      school.morphTargetInfluences=new Array(geo.morphAttributes.position.length).fill(0);
      school.instanceMatrix.setUsage(T.DynamicDrawUsage);
@@ -147,37 +357,7 @@ function marineLife(T,scene,webgl2,schoolState){
    updateSchool();
  }
  let seed=992;function random(){seed=(1664525*seed+1013904223)>>>0;return seed/4294967296;}
- // Rooted kelp beds flank the survey corridor. All fronds share one draw call.
- const blades=[],bladeFaces=[],flex=[];
- for(let bed=0;bed<50;bed++){
-   const x=-17+random()*62,y=(bed%2?1:-1)*(5+random()*18);
-   for(let blade=0;blade<11;blade++){
-     const rootX=x+2*(random()-.5),rootY=y+2*(random()-.5);
-     const h=.45+1.65*random(),az=random()*Math.PI*2,w=.055+random()*.09;
-     const offset=blades.length/3;
-     for(let j=0;j<=8;j++){
-       const u=j/8,width=w*(.11+Math.sin(Math.PI*u)**.7)*(1+.20*Math.sin(u*16));
-       const bend=h*.38*u*u+.08*Math.sin(7*u);
-       for(const side of [-1,1]){
-         blades.push(rootX+bend*Math.cos(az)-side*width*Math.sin(az),
-           rootY+bend*Math.sin(az)+side*width*Math.cos(az),-13.7+h*u);
-         flex.push(u*u);
-       }
-       if(j){const a=offset+2*j;bladeFaces.push(a-2,a-1,a,a,a-1,a+1);}
-     }
-   }
- }
- const kelp=new T.BufferGeometry();
- kelp.setAttribute('position',new T.Float32BufferAttribute(blades,3));
- kelp.setAttribute('flex',new T.Float32BufferAttribute(flex,1));
- kelp.setIndex(bladeFaces);kelp.computeVertexNormals();
- const frond=new T.MeshStandardMaterial({color:0x416047,side:T.DoubleSide,roughness:.74});
- frond.onBeforeCompile=s=>{
-   s.uniforms.seabedTime=seabedTime;
-   s.vertexShader='attribute float flex;uniform float seabedTime;\n'+s.vertexShader.replace('#include <begin_vertex>',
-     '#include <begin_vertex>\ntransformed.xy+=flex*vec2(.15*sin(.83*seabedTime+.6*position.y),.09*cos(.6*seabedTime+.45*position.x));');
- };
- scene.add(new T.Mesh(kelp,frond));
+ habitat.add(seabedVegetation(T,sites,shore,weed));
  const dust=new Float32Array(1500*3);
  for(let i=0;i<dust.length;i+=3){dust[i]=random()*80;dust[i+1]=random()*80;dust[i+2]=-13.3+random()*12.6;}
  const geo=new T.BufferGeometry();geo.setAttribute('position',new T.BufferAttribute(dust,3));
@@ -188,14 +368,20 @@ function marineLife(T,scene,webgl2,schoolState){
       vec2 origin=(modelMatrix*vec4(0.,0.,0.,1.)).xy;
       vec2 offset=mod(position.xy+origin-cameraPosition.xy+40.,80.)-40.;
       transformed.xy=cameraPosition.xy-origin+offset;
+      transformed.z+=min(0.,cameraPosition.z+9.);
       siltFade=1.-smoothstep(26.,39.,length(offset));`);
    shader.fragmentShader='varying float siltFade;\n'+shader.fragmentShader.replace('#include <alphamap_fragment>',
      '#include <alphamap_fragment>\ndiffuseColor.a*=siltFade*(1.-smoothstep(.06,.5,length(gl_PointCoord-.5)));');
  };
  const motes=new T.Points(geo,silt);motes.frustumCulled=false;scene.add(motes);
- return t=>{
-   updateSchool();
-   motes.position.set(.35*Math.sin(t*.23),.15*Math.sin(t*.18),.14*Math.cos(t*.12));
+ return {
+   async prepare(count){await loadSchool(count);return habitat;},
+   refreshSchool:updateSchool,
+   dispose(){disposed=true;overlay?.dispose();},
+   update(t){
+     updateSchool();
+     motes.position.set(.35*Math.sin(t*.23),.15*Math.sin(t*.18),.14*Math.cos(t*.12));
+   }
  };
 }
 // Sparse palms share two indexed meshes and each has its own wind sample.
@@ -322,36 +508,18 @@ function islandPalms(T,land,terrain,center,textures){
 
 function coast(T,scene,instanceRocks=true){
  const land=new T.Group();scene.add(land);
- const center=[36,40],sand=new T.Color(0xdcc69d),wet=new T.Color(0xa29276),rock=new T.Color(0x827665);
- const geo=new T.PlaneGeometry(58,46,74,62),pos=geo.attributes.position,colors=[];
- const bedPixels=new Uint8Array(4*pos.count);
- function smoothStep(value){
-   const u=Math.max(0,Math.min(1,value));
-   return u*u*(3-2*u);
- }
- function terrain(x,y){
-   // Keep the same slope, skirt and cell vertices as Shore.terrain.
-   const height=17.3-4.2*((x/17)**2+(y/11)**2)+.34*Math.sin(x*.64)*Math.cos(y*.55)+.37*Math.cos(.34*x-.51*y);
-   return -13.7+Math.max(0,height)*smoothStep(height/.8)*smoothStep((29-Math.abs(x))/7)*smoothStep((23-Math.abs(y))/7);
- }
+ const {shelf}=harborBed,center=shelf.center,rock=new T.Color(0x827665);
+ const terrain=shelf.vertex;
  land.userData.chartTerrain={center,height:terrain};
- const color=new T.Color();
- for(let i=0;i<pos.count;i++){
-   const x=pos.getX(i),y=pos.getY(i),z=terrain(x,y);
-   pos.setZ(i,z);
-   const bedIndex=4*((62-Math.floor(i/75))*75+i%75);
-   bedPixels[bedIndex]=Math.round(255*(z+13.7)/18);
-   color.copy(wet).lerp(sand,smoothStep((z+.23)/.68));
-   colors.push(color.r,color.g,color.b);
- }
- geo.setAttribute('color',new T.Float32BufferAttribute(colors,3));
- geo.computeVertexNormals();
- // Reuse the actual terrain elevations for shallow-water light scattering.
- const bedTexture=new T.DataTexture(bedPixels,75,63);
- bedTexture.minFilter=bedTexture.magFilter=T.LinearFilter;
- bedTexture.needsUpdate=true;
- land.userData.bed={texture:bedTexture,bounds:new T.Vector4(center[0]-29,center[1]-23,58,46)};
- const island=new T.Mesh(geo,new T.MeshStandardMaterial({vertexColors:true,roughness:.86}));land.userData.sand=island;land.add(island);land.position.set(...center,0);
+ const geo=harborTerrainGeometry(T);
+ const bedPixels=new Uint8Array(4*shelf.samples.length);
+ for(let i=0;i<shelf.samples.length;i++)bedPixels[4*i]=Math.round(255*(shelf.samples[i]+13.7)/18);
+ const bedTexture=new T.DataTexture(bedPixels,shelf.columns+1,shelf.rows+1);
+ bedTexture.minFilter=bedTexture.magFilter=T.LinearFilter;bedTexture.needsUpdate=true;
+ land.userData.bed={texture:bedTexture,bounds:new T.Vector4(center[0]-shelf.width/2,center[1]-shelf.height/2,shelf.width,shelf.height)};
+ const bottom=new T.Mesh(geo,new T.MeshStandardMaterial({vertexColors:true,roughness:.86}));
+ bottom.name='Harbor bathymetry';land.userData.sand=bottom;
+ land.position.set(...center,0);bottom.position.set(-center[0],-center[1],0);land.add(bottom);
  let seed=13;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
  const rockCount=46,shape=new T.IcosahedronGeometry(1,1);
  const rocks=instanceRocks?new T.InstancedMesh(shape,new T.MeshStandardMaterial({roughness:.93}),rockCount):new T.Group();
@@ -367,15 +535,6 @@ function coast(T,scene,instanceRocks=true){
    }
  }
  if(instanceRocks)rocks.computeBoundingSphere();
- const blades=[],indices=[];
- for(let i=0;i<200;i++){
-   const x=random()*48-14,y=random()*25-12;
-   if(x>=0 && x<=30 && Math.abs(y)<4.4)continue;
-   for(let j=0;j<10;j++){const bx=x+random()*.45,by=y+random()*.45,h=.15+.7*random(),n=blades.length/3;
-     blades.push(bx-.035,by,-13.7,bx+.035,by,-13.7,bx+.10,by+.05,-13.7+h*.55,bx+.17,by+.06,-13.7+h);indices.push(n,n+1,n+2,n+1,n+3,n+2);}
- }
- const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(blades,3));g.setIndex(indices);g.computeVertexNormals();
- scene.add(new T.Mesh(g,new T.MeshStandardMaterial({color:0x42624c,side:T.DoubleSide})));
  land.add(rocks);
  const textures=islandTextures(T);
  land.userData.terrainTextures=textures;

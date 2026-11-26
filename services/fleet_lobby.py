@@ -30,6 +30,10 @@ def initialize(path):
 
 def assign(path, request, now):
     action = request.get("action")
+    if action == "list":
+        with closing(sqlite3.connect(path)) as db:
+            rows = db.execute("SELECT fleet, count(*) FROM seats WHERE room = 'regatta' AND expires > ? GROUP BY fleet ORDER BY fleet LIMIT 128", (now,))
+            return {"fleets": [{"fleet": n, "count": count} for n, count in rows]}
     token = request.get("token")
     if action not in ("join", "renew", "leave") or not isinstance(token, str) or not re.fullmatch(r"[0-9a-f-]{36}", token):
         raise ValueError("Invalid seat request")
@@ -56,6 +60,10 @@ def assign(path, request, now):
                 "SELECT fleet, count(*), min(channel) FROM seats WHERE room = ? GROUP BY fleet", (room,))}
             # A shared invite prefers its active fleet. Otherwise fill the first vacancy.
             fleet = preferred if preferred in fleets and fleets[preferred][0] < CAPACITY else 1
+            if request.get("exact") is True:
+                fleet = preferred
+                if fleet in fleets and fleets[fleet][0] >= CAPACITY:
+                    raise OverflowError("Fleet full")
             while fleet in fleets and fleets[fleet][0] >= CAPACITY:
                 fleet += 1
             channel = fleets[fleet][1] if fleet in fleets else secrets.token_urlsafe(24)
@@ -105,6 +113,8 @@ class Handler(BaseHTTPRequestHandler):
                 result["iceServers"] = ice_servers(self.server.turn_secret, self.server.turn_urls, data["token"], now)
         except (ValueError, UnicodeError):
             return self.reply(400, {})
+        except OverflowError:
+            return self.reply(409, {"error": "fleet_full"})
         except LookupError:
             return self.reply(410, {})
         except sqlite3.OperationalError:

@@ -17,9 +17,12 @@ aside>details[open]>summary{border-bottom:1px solid #9ad7d530}
 .flow-link:hover{background:#c4f2e9}.flow-link:active{background:#84d1c2}
 .flow-link:focus-visible,summary:focus-visible,button:focus-visible,select:focus-visible{outline:2px solid #ffca7f;outline-offset:2px}
 @media(max-width:580px){aside>details>summary{min-height:42px}}
+.basin-heading{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0 .6rem}
+.basin-heading a{display:inline-flex;align-items:center;min-height:38px;font-size:.88rem}
+@media(pointer:coarse){.basin-heading a,aside>details>summary,.run-bar button,.run-bar select{min-height:44px}}
 </style></head><body><canvas tabindex="-1" id="view" aria-label="ONR Tumblehome in the model basin"></canvas>
 <div id="crtOverlay" aria-hidden="true" hidden></div>
-<aside aria-label="Basin controls"><h1>ONR Tumblehome</h1>
+<aside aria-label="Basin controls"><div class="basin-heading"><h1>ONR Tumblehome</h1><a href="./?menu=1" aria-label="Return to the Ocean Web main menu">Main menu</a></div>
 <div id="readout" aria-live="off">Loading vessel and wave solver…</div>
 <div class="run-bar"><label>Run <select id="mode"><option value="drive">Free running</option><option value="tow">Straight tow</option><option value="turn">IIHR 35° port turn</option><option value="iihr" selected>IIHR head-seas replay</option></select></label> <button id="reset">Reset run</button></div>
 <a class="flow-link" href="./onrt-propeller.html">Explore 3D propeller flow <span aria-hidden="true">→</span></a>
@@ -74,7 +77,7 @@ aside>details[open]>summary{border-bottom:1px solid #9ad7d530}
 <div class="pane-body">
 <small>University of Iowa · IIHR model 5613 · 3.147 m LWL · 72.6 kg · Rumoca simulation</small>
 <div class="row"><button id="save" disabled>Export wave cuts</button></div>
-<footer><a href="./">Ocean Web models</a> · <a href="https://t2015.nmri.go.jp/onrt_gc.html">Experiment particulars</a></footer>
+<footer><a href="https://t2015.nmri.go.jp/onrt_gc.html">Experiment particulars</a></footer>
 </div></details>
 </aside>
 <span id="distance">IIHR wave basin · 40 × 20 × 3 m</span>

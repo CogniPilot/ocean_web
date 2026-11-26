@@ -1,9 +1,34 @@
+function schoolFishMaterial(T,swimPhase,instanced,surface,memberPhase=false) {
+  const mat=surface?.clone()??new T.MeshStandardMaterial({vertexColors:true,roughness:.42,metalness:.08,side:T.DoubleSide});
+  if(instanced) {
+    mat.customProgramCacheKey=()=>memberPhase?'school-actuated-tail':'school-index-phase';
+    mat.onBeforeCompile=shader=>{
+      shader.uniforms.swimPhase=swimPhase;
+      shader.vertexShader=(memberPhase?'attribute vec3 swimOffset;\n':'')+'uniform float swimPhase;\n'+shader.vertexShader
+        .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
+          float swimFrame=mod(${memberPhase?'swimOffset.x+swimPhase*swimOffset.z':'swimPhase+float(gl_InstanceID)*3.81966011'},float(MORPHTARGETS_COUNT));
+          int firstPose=int(floor(swimFrame)),secondPose=(firstPose+1)%MORPHTARGETS_COUNT;
+          float weight=fract(swimFrame),gain=${memberPhase?'swimOffset.y':'1.'};`)
+        .replace('#include <morphnormal_vertex>', 'objectNormal=mix(objectNormal,mix(getMorph(gl_VertexID,firstPose,1).xyz,getMorph(gl_VertexID,secondPose,1).xyz,weight),gain);')
+        .replace('#include <morphtarget_vertex>', 'transformed=mix(transformed,mix(getMorph(gl_VertexID,firstPose,0).xyz,getMorph(gl_VertexID,secondPose,0).xyz,weight),gain);');
+    };
+  }
+  return mat;
+}
+function setSchoolMorph(mesh,frame,gain){
+  const count=mesh.morphTargetInfluences.length,wrapped=(frame%count+count)%count,first=Math.floor(wrapped),t=wrapped-first;
+  mesh.morphTargetInfluences.fill(0);
+  mesh.morphTargetInfluences[first]=gain*(1-t);
+  mesh.morphTargetInfluences[(first+1)%count]=gain*t;
+}
+
 // Weld the colour-split glTF vertices so light flows continuously across each swim pose.
-function fishGeometry(T,asset){
+function fishGeometry(T,asset,swimming=false){
  const unique=new Map(),remap=[],source=[],colors=[],counts=[];
  const rest=asset.frames[0];
  for(let i=0;i<rest.length;i+=3){
-   const key=rest.slice(i,i+3).join(',');
+   const uvOffset=2*i/3;
+   const key=rest.slice(i,i+3).concat(asset.uv?asset.uv.slice(uvOffset,uvOffset+2):[]).join(',');
    if(!unique.has(key)){unique.set(key,source.length);source.push(i);colors.push([0,0,0]);counts.push(0);}
    remap.push(unique.get(key));
  }
@@ -15,8 +40,26 @@ function fishGeometry(T,asset){
    g.computeVertexNormals();return g;
  });
  const geo=poses[0];
+ if(asset.uv)geo.setAttribute('uv',new T.Float32BufferAttribute(source.flatMap(i=>asset.uv.slice(2*i/3,2*i/3+2)),2));
  geo.morphAttributes.position=poses.map(g=>g.attributes.position);
  geo.morphAttributes.normal=poses.map(g=>g.attributes.normal);
+ if(swimming){
+   // The unpowered posture is the beat average. Calibrate metres of solved
+   // caudal excursion to this species' eight registered absolute poses.
+   const neutral=geo.attributes.position.clone(),p=neutral.array,positions=geo.morphAttributes.position;
+   let minX=Infinity,maxX=-Infinity;
+   for(let i=0;i<p.length;i++){
+     let sum=0;for(const attr of positions)sum+=attr.array[i];
+     p[i]=sum/positions.length;
+     if(i%3===0){minX=Math.min(minX,p[i]);maxX=Math.max(maxX,p[i]);}
+   }
+   const tail=[];
+   for(let i=0;i<p.length;i+=3)if(p[i]<minX+.08*(maxX-minX))tail.push(i+1);
+   const centres=positions.map(attr=>tail.reduce((sum,i)=>sum+attr.array[i],0)/Math.max(1,tail.length));
+   geo.userData.tailExcursion=Math.max(.001,(Math.max(...centres)-Math.min(...centres))/2);
+   geo.setAttribute('position',neutral);
+   geo.deleteAttribute('normal');geo.computeVertexNormals();
+ }
  geo.setAttribute('color',new T.Float32BufferAttribute(colors.flatMap((rgb,i)=>rgb.map(v=>v/Math.max(1,counts[i]))),3));
  return geo;
 }

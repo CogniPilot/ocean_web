@@ -1,0 +1,60 @@
+--- a/Marine/Environment/WakeSpectrum.mo
++++ b/Marine/Environment/WakeSpectrum.mo
+@@ -271,6 +271,7 @@
+     Real rowR[n],rowI[n],windR[n],windI[n],sourceR[n],sourceI[n],dx,kx,ky,k,omega,c,s,atten,along,across,ex,ny,a,b,amplitude,phase,slope;
+     Integer mx,my,wetStrips,oppositeRow,opposite[n];
+     Real km,peak,windSpeed,directional,seed,trial,gainX[n],gainY[n],rowGain[n];
++    Real modeR,modeI,windModeR,windModeI;
+     Real sr,si,mr,mi,stripR,stripI,momentArm,crossTerm,forceScale;
+     Real cx[12,n],sx[12,n],cy[12,n],sy[12,n],ka,kb,weight;
+     Real armAlong[12],armAcross[12],stripLength[12],stripWidth[12],stripDraft[12],sectionVolume[12];
+@@ -343,24 +344,26 @@
+               mr:=mr+momentArm*stripR;mi:=mi+momentArm*stripI;
+             end for;
+           end if;
+-          sourceR[i]:=sr;sourceI[i]:=si;
+           c:=cos(omega*dt);s:=sin(omega*dt);
+           atten:=exp(-dt*loss*(1+.08*k^2));
+           // Complex travelling waves encode elevation and its quadrature.
+           // A real spatial displacement increment excites both travel directions.
+-          rowR[i]:=atten*(c*prevR[j,i]+s*prevI[j,i])+(if first or k==0 then 0 else sourceR[i]-oldR[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerR[j,i] else 0);
+-          rowI[i]:=atten*(c*prevI[j,i]-s*prevR[j,i])+(if first or k==0 then 0 else sourceI[i]-oldI[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerI[j,i] else 0);
++          modeR:=atten*(c*prevR[j,i]+s*prevI[j,i])+(if first or k==0 then 0 else sr-oldR[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerR[j,i] else 0);
++          modeI:=atten*(c*prevI[j,i]-s*prevR[j,i])+(if first or k==0 then 0 else si-oldI[j,i])+(if k>0 and abs(mx)<div(n,2) and abs(my)<div(n,2) then peerI[j,i] else 0);
+ 
+           if localHull then
+             // Integral of -rho*g*displacement*grad(elevation), evaluated by
+             // Parseval on the same modes used to reconstruct the displayed wake.
+-            crossTerm:=forceScale*(rowI[i]*sr-rowR[i]*si);
++            crossTerm:=forceScale*(modeI*sr-modeR*si);
+             load[1]:=load[1]+kx*crossTerm;load[2]:=load[2]+ky*crossTerm;
+-            load[3]:=load[3]+forceScale*(rowI[i]*mr-rowR[i]*mi);
++            load[3]:=load[3]+forceScale*(modeI*mr-modeR*mi);
+           end if;
+         else
+-          rowR[i]:=0;rowI[i]:=0;
++          modeR:=0;modeI:=0;
+         end if;
++        rowR[i]:=modeR;rowI[i]:=modeI;
++        sourceR[i]:=sr;sourceI[i]:=si;
++        windModeR:=0;windModeI:=0;
+         // Directional gravity-wave spectrum. Independent reproducible phase and
+         // Rayleigh amplitude per travelling mode break up parallel crest lines.
+         if abs(mx)<div(n,2) and abs(my)<div(n,2) and kx*ue+ky*un>0 then
+@@ -371,13 +374,14 @@
+           amplitude:=(.013*min(16,windSpeed)+sea*.85)*2*pi/(L*peak)
+             *exp(-.625/km^2-.035*k^2)/km^2*directional^2*sqrt(-2*log(max(.0001,trial)));
+           phase:=2*pi*seed-omega*t;
+-          windR[i]:=n*n*amplitude*cos(phase);
+-          windI[i]:=n*n*amplitude*sin(phase);
++          windModeR:=n*n*amplitude*cos(phase);
++          windModeI:=n*n*amplitude*sin(phase);
+           phase:=phase+kx*x+ky*y;slope:=-amplitude*sin(phase);
+           probe[1]:=probe[1]+amplitude*cos(phase);
+           probe[2]:=probe[2]-slope*(kx*cos(bearing)+ky*sin(bearing));
+           probe[3]:=probe[3]+slope*(-kx*sin(bearing)+ky*cos(bearing));
+         end if;
++        windR[i]:=windModeR;windI[i]:=windModeI;
+       end for;
+       displacedR[j,:]:=sourceR;displacedI[j,:]:=sourceI;
+       wr[j,:]:=rowR;wi[j,:]:=rowI;re[j,:]:=rowR+windR;im[j,:]:=rowI+windI;

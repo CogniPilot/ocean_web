@@ -13,7 +13,7 @@ model CurrentProbe "On-demand 3D samples of the Piccard's ambient mean current i
       for j in 1:2 loop
         residual[j]:=Modelica.Math.Vectors.interpolate(layers[:,1],layers[:,j+1],depth);
       end for;
-      velocity[i,:]:=Wreck.Current.meanVelocity(points[i,3],tide,wind,bearing,tidalEast,residual,Wreck.Current.shelterAt(points[i,:]));
+      velocity[i,:]:=Wreck.Current.meanVelocity(points[i,3],tide,wind,bearing,tidalEast,residual,1);
     end for;
   end sampleField;
 equation

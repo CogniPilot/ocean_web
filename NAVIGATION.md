@@ -1,10 +1,30 @@
 # Wreck survey navigation
 
+## Piccard geometry and hydrostatics
+
+The Piccard model uses 18 kg of dry mass and 18.4 L of fully submerged displacement. The sealed housing and internal buoyancy are assumed to provide that volume. The top lifting plate and its supports participate in contact. Buoyancy uses one aggregate immersion fraction across 0.16 m of hull height and one fully submerged center of buoyancy 0.0275 m above the body origin. The sensor origins in forward, port, up coordinates are (0, 0, −0.075) m for DVL, (0.31, 0, 0.045) m for the optical camera and (0.30, 0, 0.01) m for imaging sonar.
+
+## Aft-deck davit
+
+The carrier integrates the magnetic lifting head and any attached Piccard at 50 Hz. Winch payout sets the unstretched length of a 5 mm line. The line transmits tension only when extended, with assumed axial stiffness of 12 kN/m. The model includes lifting-head and vehicle weight, partial buoyancy, vehicle drag and transverse drag on the immersed line. Separate forces at the boom tip and deck cradle act on the cruiser. A parked Piccard rests on the cradle with slack in the line.
+
+The magnetic head mates with the steel plate 0.15 m above the Piccard body origin. While attached, the model holds vehicle attitude relative to the cruiser. The solver computes translation and swing. It treats the line as one span and omits bending dynamics. The carrier publishes both cable endpoints, paid length, tension and the body pose and velocity used at water release.
+
+## Standalone position controller
+
+`Wreck.PiccardPositionHold` runs submerged Position mode from measured inputs. It combines the 5 Hz `SurveySLAM` estimator and water-current filter with the same 50 Hz station controller used by the simulated vehicle. Supply body angular velocity at 50 Hz, plus four bottom-track beam ranges and signed speeds, gauge pressure, body specific force, and the optional sonar and camera observations at 5 Hz. Set `imageValid` or `sonarValid` false for missing observations. The local pose starts at `initialPosition` with zero heading, and a stationary launch sample establishes the gyro bias. The frame is east, north, up with body axes forward, port, up.
+
+The block also takes the measured fore and aft piston volumes and the six estimated achieved motor thrusts in newtons. It outputs six signed motor force commands and two piston volume targets. Current uses bottom track and measured dynamics. Losing bottom lock holds the estimate and increases its uncertainty. The carrier interlock sets motor force to zero and holds the measured piston volumes. The hydrostatic compensation assumes a fully submerged hull. Vehicle drivers must supply calibrated thrust feedback or a thrust estimate and translate force targets to the ESC and piston interfaces.
+
+The standard `build.sh` exports the controller under `build/fmi3/Wreck.PiccardPositionHold`. The generated browser module can be exercised with `node scripts/check-piccard-position-controller.mjs <module-directory>`. The integrated plant and navigation regression runs with `node scripts/check-piccard-current-estimator.mjs <plant-module-directory> <navigation-module-directory>`.
+
 ## What runs in ocean_web
 
-The submarine tracks 17 preplanned 3D waypoints from a known launch pose. Modelica synthesizes four DVL beams, pressure, gyro and accelerometer measurements, a grayscale navigation camera, and a forward-imaging sonar fan with 65 bearings and 128 range bins. The estimator propagates position with DVL and inertial measurements, uses pressure for vertical position, and corrects horizontal position and yaw by registering sonar scans. Camera patches contribute yaw information and help verify revisits. Control uses the resulting measurements for the waypoint error, velocity, heading and attitude feedback. Simulated true state generates the sensor readings and provides a reference for evaluation.
+Piccard follows an eight-station 3D inspection route at Yatush or Satil and returns to its first station for a ninth visit. The launch pose initializes the geographic reference. Modelica synthesizes four DVL beams, pressure, gyro and accelerometer measurements, a grayscale navigation camera, and a forward-imaging sonar fan with 65 bearings and 128 range bins. The estimator propagates attitude from all three axes of the onboard gyro and uses the accelerometer to correct tilt. It subtracts the rotational velocity of the DVL mount when estimating vehicle-center velocity, fuses vertical velocity and pressure for depth, and corrects horizontal position and yaw by registering sonar scans. At four-beam bottom lock, slant ranges, the DVL mounting offset and estimated attitude locate four 3D points per keyframe. Three or more overlapping, consistent hits on a locally planar DVL patch can also correct vertical drift. Camera patches contribute yaw information and help verify revisits. Survey guidance uses the fused east, north and height estimates for waypoint errors and arrival. DVL feedback commands a bank to counter cross-current while the high-rate gyro damps rotation. The sub keeps its leg heading through each station. Simulated true state generates the sensor readings and provides a reference for evaluation.
 
-In the integrated survey test, the submarine completed all 17 stations in 172.2 simulated seconds. The position estimate had 0.215 m RMS error and recorded 48 keyframes with seven loop closures. This is localization on a known route under simulated sensing conditions. The renderer draws Gaussian splats at the measured sonar returns and redraws their world positions when a loop closure updates the keyframes.
+In the compact-vehicle split-FMU regression, both inspection runs completed without contact. Yatush took 115.2 simulated seconds with 0.177 m RMS position error and 0.50° RMS yaw error. Satil took 223.0 s with 0.158 m and 0.16°, respectively. Both runs started from their known launch poses and recorded zero loop closures.
+
+In the earlier pressure-only vertical estimator benchmark, the submarine completed all 17 stations in 172.2 simulated seconds. The position estimate had 0.215 m RMS error and recorded 48 keyframes with seven loop closures. This is localization on a known route under simulated sensing conditions. The renderer draws Gaussian splats at the measured sonar returns and redraws their world positions when a loop closure updates the keyframes.
 
 ## Field-tested methods
 

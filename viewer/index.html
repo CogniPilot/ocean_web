@@ -1,45 +1,57 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="ocean-lobby-endpoint" content=""><meta name="ocean-turn-endpoint" content=""><title>ocean_web · Ocean robotics</title><style>
-*{box-sizing:border-box}body{margin:0;background:#092f39;color:#f0f8f6;font:15px system-ui,sans-serif}canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}header,footer{position:fixed;left:clamp(12px,3vw,44px);background:#061f2cd9;border:1px solid #b3dfdf40;border-radius:9px;padding:15px 20px}header{top:20px;pointer-events:none}h1{font:normal clamp(23px,3vw,36px) Georgia,serif;margin:.12em 0}small,output{font:12px ui-monospace,monospace;color:#a4e4d9}footer{bottom:18px;max-width:calc(100% - 24px)}select,button{background:#103540;color:#effdf9;border:1px solid #659995;border-radius:5px;padding:7px}button[aria-pressed=true]{background:#2c655d}label{font-size:13px}p{margin:8px 0 0;color:#c7dcdf;font-size:13px}nav{margin-top:8px;display:flex;gap:5px}button{touch-action:none}a{color:#c5eee5}
+:root{--hud-gutter:14px}
+*{box-sizing:border-box}body{margin:0;background:#092f39;color:#f0f8f6;font:15px system-ui,sans-serif}canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}header,footer{position:fixed;left:max(var(--hud-gutter),env(safe-area-inset-left));background:#061f2cd9;border:1px solid #b3dfdf40;border-radius:9px;padding:15px 20px}header{top:20px;pointer-events:none}h1{font:normal clamp(23px,3vw,36px) Georgia,serif;margin:.12em 0}small,output{font:12px ui-monospace,monospace;color:#a4e4d9}footer{bottom:18px;max-width:calc(100% - 24px)}select,button{background:#103540;color:#effdf9;border:1px solid #659995;border-radius:5px;padding:7px}button[aria-pressed=true]{background:#2c655d}label{font-size:13px}p{margin:8px 0 0;color:#c7dcdf;font-size:13px}nav{margin-top:8px;display:flex;gap:5px}button{touch-action:none}a{color:#c5eee5}
 aside{position:fixed;right:18px;top:20px;background:#071f2be8;border-left:3px solid #f8a441;padding:10px 16px;border-radius:4px;display:grid;gap:2px}#countdown{font:600 clamp(26px,4vw,54px)/1.05 ui-monospace,monospace;color:#ffc371}#raceStatus{font-size:12px}footer{max-height:43vh;overflow:auto}@media(max-width:650px){header{max-width:55%;padding:8px}aside{right:6px;max-width:40%;padding:7px}footer{padding:8px}}
 #harborMap{position:fixed;inset:auto 14px 14px auto;margin:0;width:clamp(298px,33vw,460px);max-height:47dvh;overflow:auto;padding:9px 10px;background:#0b2938;color:#eff7f5;border:1px solid #65878b;border-radius:9px}
 #harborMap>div{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+#spawnForm label{display:block}#spawnPoint,#respawnVehicle{max-width:100%}
+#spawnHint:not(:empty),#spawnStatus:not(:empty){display:block;margin-top:.3rem;line-height:1.35}
+#spawnStatus:not(:empty){color:#ffcc85}
 #harborMap h2{font:17px Georgia,serif;margin:0}
 #harborMapCanvas{position:static;display:block;width:100%;height:auto;margin:5px 0;background:#aed5dc;max-height:28dvh;object-fit:contain}
 #harborMapLegend{display:flex;flex-wrap:wrap;gap:5px 14px;font-size:12px}#harborMapLegend span::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--point);margin-right:4px}
 #harborMapRoster{display:block;margin-top:7px;font:12px/1.45 ui-monospace,monospace}
 #physicsCanvas{pointer-events:none}#physicsLayers{display:inline-flex;gap:8px;flex-wrap:wrap;align-items:center}
-#crtOverlay{position:fixed;inset:0;pointer-events:none;background:
-  radial-gradient(ellipse 110% 92% at center,transparent 60%,#0005),
-  repeating-linear-gradient(to bottom,#0002 0 1px,transparent 1px 3px),
-  repeating-linear-gradient(to right,#ff4e4409 0 1px,#60ff6907 1px 2px,#527aff09 2px 3px)}
+/* Microduck's halftone, glass vignette and phosphor pattern share a cached layer. */
+#crtOverlay{position:fixed;inset:0;pointer-events:none;will-change:transform}
+#crtOverlay::before,#crtOverlay .crt-glass,#crtOverlay .crt-glass::after{position:absolute;inset:0}
+#crtOverlay::before{
+  content:"";background-image:radial-gradient(#ffffff0d 1px,transparent 1.5px);
+  background-size:21px 21px;mask-image:linear-gradient(to bottom,transparent 30%,black 100%)
+}
+#crtOverlay .crt-glass{background:radial-gradient(115% 90% at 50% 50%,transparent 62%,#0000006b 100%)}
+#crtOverlay .crt-glass::after{
+  content:"";opacity:.13;background:
+    repeating-linear-gradient(to bottom,#0000008c 0,#0000008c 1px,transparent 1px,transparent 3px),
+    repeating-linear-gradient(to right,#ff463c0d 0,#ff463c0d 1px,#46ff5a09 1px,#46ff5a09 2px,#466eff0d 2px,#466eff0d 3px)
+}
 #physicsLayers label{white-space:nowrap}#physicsStatus{display:block}
 #cabinControls{display:flex;gap:6px;align-items:center;flex-wrap:wrap;pointer-events:auto;margin-top:7px}
 #cabinControls button{min-height:44px;touch-action:manipulation;cursor:pointer}
 #cabinRadio{min-width:96px}#cabinRadio:disabled{opacity:.5}
 #cabinRadioState{display:inline-block;min-width:24px;margin-left:4px;text-align:center;font-size:11px}
-#cabinRadioStatus:not(:empty){flex-basis:100%}#cruiserIntegrity{display:block;margin-top:4px}
-#runStats{display:block;margin-top:4px;font-variant-numeric:tabular-nums}#vehiclePanel{display:inline}#online{display:inline-block;margin:0 .6em 0 .25em}#sticks{position:fixed;inset:auto 12px calc(var(--panel-height,66px) + 20px);display:flex;justify-content:space-between;pointer-events:none}.stick{touch-action:none;user-select:none;pointer-events:auto;background:#082936bc;color:white;border:1px solid #92c9ce;width:88px;height:88px;border-radius:50%;display:grid;place-items:center;position:relative}.knob{width:32px;height:32px;border-radius:50%;background:#c6eddfaa;border:1px solid white}.stick small{position:absolute;top:-16px;white-space:nowrap;color:white;text-shadow:0 1px 3px black;font-size:11px}#sound,#music{min-width:44px;min-height:44px;font-size:18px;vertical-align:middle}#collapsePanel{margin-right:5px}
+#cabinRadioStatus:not(:empty){flex-basis:100%}#cruiserIntegrity{display:block;margin-top:4px}#vesselLoss:not([hidden]){display:block;color:#ffbc8d;font-weight:700;margin:.3em 0}
+#subAim:not([hidden]){display:block;font-variant-numeric:tabular-nums}.stick.sub-heave{width:56px;height:88px;border-radius:28px}
+#subBattery{display:block;font-variant-numeric:tabular-nums}#runStats{display:block;margin-top:4px;font-variant-numeric:tabular-nums}#vehiclePanel{display:inline}#online{display:inline-block;margin:0 .6em 0 .25em}#sticks{position:fixed;inset:auto 12px calc(var(--panel-height,66px) + 20px);display:flex;justify-content:space-between;pointer-events:none}.stick{touch-action:none;user-select:none;pointer-events:auto;background:#082936bc;color:white;border:1px solid #92c9ce;width:88px;height:88px;border-radius:50%;display:grid;place-items:center;position:relative}.knob{width:32px;height:32px;border-radius:50%;background:#c6eddfaa;border:1px solid white}.stick small{position:absolute;top:-16px;white-space:nowrap;color:white;text-shadow:0 1px 3px black;font-size:11px}#sound,#music{min-width:44px;min-height:44px;font-size:18px;vertical-align:middle}#collapsePanel{margin-right:5px}
 #racePenalty{padding:.45em .65em;background:#8c2237;color:#fff;border-radius:4px;font-variant-numeric:tabular-nums}
- [hidden]{display:none!important}#dial{position:static;width:274px;max-width:100%;height:auto;inset:auto;display:block}nav{flex-wrap:wrap}#droneCovariance{display:block;white-space:pre-line}#setup{margin-top:6px}@media(pointer:coarse){footer{left:6px;right:6px;bottom:6px;max-width:none}button,select{min-height:36px}}#flightHud{position:fixed;left:50%;top:50%;width:min(96vw,680px);height:min(64vh,510px);translate:-50% -50%;pointer-events:none}
-#vehiclePicker{color:#ecf6f5;background:#0b2938;border:1px solid #5c868b;border-radius:12px;padding:clamp(18px,4vw,36px);width:min(460px,calc(100vw - 50px));box-sizing:border-box}#vehiclePicker::backdrop{background:#071d27e6}#vehiclePicker h2{font:32px Georgia,serif;margin:0 0 18px}#vehiclePicker form{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}#vehiclePicker button{min-height:46px}
+ [hidden]{display:none!important}#dial{position:static;width:274px;max-width:100%;height:auto;inset:auto;display:block}nav{flex-wrap:wrap}#droneCovariance{display:block;white-space:pre-line}#setup{margin-top:6px}@media(pointer:coarse){footer{right:6px;bottom:6px;max-width:none}button,select{min-height:36px}}#flightHud{position:fixed;left:50%;top:50%;width:min(96vw,680px);height:min(64vh,510px);translate:-50% -50%;pointer-events:none}
+#vehiclePicker{color:#ecf6f5;background:#0b2938;border:1px solid #5c868b;border-radius:12px;padding:clamp(18px,4vw,36px);width:min(460px,calc(100vw - 50px));box-sizing:border-box}#vehiclePicker::backdrop{background:#071d27e6}#vehiclePicker h2{font:32px Georgia,serif;margin:0 0 18px}#vehiclePicker form{display:grid;gap:5px}#vehiclePicker button{min-height:46px}
 #subPanel{position:fixed;right:12px;top:145px;background:#092632;padding:8px;border-radius:4px}
-#subPanel:has(#subSensors[open]){width:min(740px,62vw)}
+#subPanel:has(details[open]){width:min(430px,48vw)}
+#dvlMapLegend{display:none}#subPanel:has(#sonarMap:checked) #dvlMapLegend{display:block}
 #subPanel summary{cursor:pointer;font:13px ui-monospace,monospace;color:#a4e4d9}
-.sensor-images{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,5fr);gap:8px;margin:6px 0;align-items:start}
+.sensor-images{margin:6px 0}
 .sensor-images figure{margin:0}
 .sensor-images figcaption{font:12px ui-monospace,monospace;color:#bfd4d6;margin-bottom:3px}
 .sensor-images canvas{position:static;display:block;width:100%;height:auto;background:#06131c}
-#subPanel small,#dvlReport{display:block;font:11px/1.35 ui-monospace,monospace;color:#a4e4d9}
-#dvlReport{font-variant-numeric:tabular-nums;margin:4px 0;display:grid}
-body:has(#subPanel:not([hidden])) header{width:min(780px,calc(100vw - 64px))}
 @media(max-width:650px){
   #subPanel{top:20px;right:8px}
-  #subPanel:has(#subSensors[open]){width:min(450px,calc(100vw - 16px));max-height:50dvh;overflow-y:auto}
+  #subPanel:has(details[open]){width:min(450px,calc(100vw - 16px));max-height:50dvh;overflow-y:auto}
 }
 @media(max-height:600px){
   #subPanel{top:8px}
-  #subPanel:has(#subSensors[open]){max-height:55dvh;overflow-y:auto}
+  #subPanel:has(details[open]){max-height:55dvh;overflow-y:auto}
 }
 #fpvVideo{position:fixed;inset:0;overflow:hidden;pointer-events:none;background:radial-gradient(ellipse at center,transparent 42%,rgba(9,12,16,.2) 100%)}#fpvVideo::before{content:"";position:absolute;inset:-16px;background-image:var(--fpv-grain);opacity:.06;animation:fpv-grain .38s steps(1,end) infinite}#fpvVideo::after{content:"";position:absolute;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.06) 0 1px,transparent 1px 3px)}@keyframes fpv-grain{0%{transform:translate(0,0)}25%{transform:translate(7px,-13px)}50%{transform:translate(-9px,5px)}75%{transform:translate(13px,8px)}}@media(prefers-reduced-motion:reduce){#fpvVideo::before{animation:none}}
 #racePanel summary,#fleetRoster summary{cursor:pointer;color:#a4e4d9;font:12px ui-monospace,monospace;text-transform:uppercase}
@@ -97,7 +109,7 @@ header:has(#dial:not([hidden])):has(+ #flightHud[hidden]){padding:6px 10px}heade
   #cruiserChartCanvas{max-height:max(150px,calc(100dvh - var(--panel-height,80px) - 355px));object-fit:contain;background:#91bdcd}
   #motorSensors:has(#cruiserCameras[open]) .camera-grid canvas{max-height:18dvh;object-fit:contain}
 }
-footer{left:14px;bottom:14px;width:min(540px,calc(100% - 28px));max-height:min(58dvh,560px);padding:0;display:flex;flex-direction:column;overflow:hidden;background:#071f2cf2}
+footer{bottom:14px;width:min(540px,calc(100% - 28px));max-height:min(58dvh,560px);padding:0;display:flex;flex-direction:column;overflow:hidden;background:#071f2cf2}
 footer button,footer select,footer input[type="text"]{min-height:36px;font:inherit;font-size:13px}
 footer button{touch-action:manipulation;cursor:pointer}
 footer button[aria-expanded="true"]#settings{background:#2c655d;border-color:#9fd0bd}
@@ -136,7 +148,8 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 #spawnAnimal[data-state="added"]{background:#3a785d;border-color:#a3e5bd;color:#fff}
 #spawnAnimal[data-state="error"]{background:#714b2d;border-color:#efbc8b;color:#fff}
 @media(max-width:580px){
-  footer{left:6px;right:6px;bottom:max(6px,env(safe-area-inset-bottom));width:auto;max-width:none;max-height:58dvh}
+  :root{--hud-gutter:6px}
+  footer{right:max(var(--hud-gutter),env(safe-area-inset-right));bottom:max(6px,env(safe-area-inset-bottom));width:auto;max-width:none;max-height:58dvh}
   footer button,footer select,footer input[type="text"],.control-toolbar #sound{min-height:42px}
   .control-toolbar{padding:6px}
   .control-toolbar .control-row{gap:5px}
@@ -173,6 +186,23 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 #startupScreen progress{display:block;width:min(72vw,248px);height:8px;margin:18px auto 0;accent-color:#91d8ca}
 #startupScreen button{margin-top:16px}
 
+#diverTraining{position:fixed;inset:0;margin:0;width:100%;max-width:none;height:100dvh;max-height:none;box-sizing:border-box;overflow:auto;padding:0;background:#0b2935;color:#e6f4f6;border:0;border-radius:0}
+#diverTraining[open]{display:flex;flex-direction:column}
+#diverTraining .trainingHead{position:sticky;top:0;background:#0b2935;z-index:2;flex:none}
+#trainingViewStatus{position:absolute;top:10px;left:12px;font:13px ui-monospace,monospace;color:#e1f1f1;pointer-events:none}
+#trainingSceneLabel,#trainingViewStatus{background:#0b2935db;border-radius:4px;padding:3px 7px}
+#trainingViewStatus:empty,.trainingCharts[hidden]{display:none}
+#trainingTools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:5px 14px}#trainingTools label{display:inline-flex;align-items:center;gap:5px}
+.trainingCharts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;padding:0 14px 12px}
+.trainingCharts figure{margin:0;min-width:0}.trainingCharts figcaption{font-size:13px;color:#d6e9e8}.trainingCharts canvas{position:static;inset:auto;width:100%;height:84px;display:block}
+#diverTraining::backdrop{background:#01121cba}
+.trainingHead,.trainingFoot{display:flex;align-items:center;flex-wrap:wrap;padding:10px 14px;gap:8px}
+.trainingHead{justify-content:space-between}.trainingHead h2{font:24px Georgia,serif;margin:0}
+#trainingViewport{position:relative;flex:1 0 min(42dvh,240px);background:linear-gradient(165deg,#488992 0%,#24596a 39%,#123746 82%,#102e3c)}
+#trainingGhosts{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab}
+#trainingSceneLabel{position:absolute;left:12px;bottom:9px;font:12px ui-monospace,monospace;color:#e1f1f1;pointer-events:none}
+.trainingFoot label{display:flex;gap:6px;align-items:center}.trainingFoot output{flex:1 0 100%;font:13px/1.4 ui-monospace,monospace}.trainingFoot output:empty{display:none}
+#sticks .swim-fast{position:absolute;pointer-events:auto;left:0;bottom:calc(100% + 21px);min-width:44px;min-height:44px}
 #sticks.hobie{align-items:center}
 #sticks.hobie .stick::before{content:"";position:absolute;border-radius:4px;background:#a4d7d381;pointer-events:none}
 #sticks.hobie .rudder::before{width:72%;height:3px}
@@ -192,16 +222,47 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 #roomQrImage{display:block;margin:auto;width:min(100%,55dvh);height:auto;image-rendering:pixelated}
 #roomQrName{margin:10px 0;overflow-wrap:anywhere}
 #roomQrDialog button{min-height:44px;min-width:80px}
-</style></head><body><section id="startupScreen" aria-labelledby="startupTitle">
+
+#worldType{margin:4px 0 12px}
+#basinInfo{margin:0 0 12px}
+#fleetBrowser{border:0;padding:0;min-width:0}
+#fleetBrowser legend{font-weight:600;margin-bottom:4px}
+#fleetBrowser label{display:flex;align-items:center;gap:7px;min-height:34px;cursor:pointer}
+#fleetBrowser input{accent-color:#9adbd2}
+#fleetBrowser table{border-collapse:collapse;width:100%;text-align:left;font-size:13px;font-variant-numeric:tabular-nums}
+#fleetBrowser :is(th,td){border-bottom:1px solid #44656e;padding:4px}
+#fleetBrowser th{color:#b5d5d6;font-weight:500}
+#fleetBrowser tbody tr:has(:checked){background:#24545e}
+#fleetBrowser tbody tr:has(:disabled){opacity:.65}
+#serverTable{max-height:24dvh;overflow:auto;margin-top:6px}
+#vehiclePicker{max-height:92dvh;overflow:auto}
+#vehiclePicker .mode-switch{display:flex;gap:6px;margin-bottom:16px}
+#vehiclePicker .mode-switch button{flex:1}
+#vehiclePicker [aria-pressed=true]{border-color:#a4e4d9;background:#24545e;box-shadow:inset 0 0 0 1px #a4e4d9}
+#vehiclePicker button:disabled{opacity:.55}
+#fleetBrowser{margin:0 0 16px}
+#vehiclePicker select,#launchFleet{width:100%;min-height:44px}
+#fleetDirectoryStatus,#fleetLaunchStatus{display:block;margin-top:5px}
+#launchFleet{margin-top:14px;background:#9adbd2;color:#102b35;font-weight:650}
+</style><link rel="stylesheet" href="harbor-hud.css?v=47b0c91b988ee2da"><link rel="stylesheet" href="harbor-aux.css"><script type="importmap">{"imports":{"./harbor-hud.mjs":"./harbor-hud.mjs?v=019f3590171ef166"}}</script></head><body><section id="startupScreen" aria-labelledby="startupTitle">
   <div><h2 id="startupTitle">Ocean Web</h2><div class="startup-brand"><img src="https://cognipilot.com/brand/assets/rumoca/rumoca-logo-color-dark.svg?v=ac5137ca86f2" alt="" width="128" height="128" referrerpolicy="no-referrer"><span>Powered by Rumoca</span></div><p id="startupStatus" role="status">Loading model and scene</p>
     <progress id="startupProgress" max="1" value="0" aria-label="Loading simulator"></progress>
     <button id="startupRetry" type="button" hidden>Reload simulator</button>
   </div>
 </section>
-<canvas id="view" tabindex="0" aria-label="Interactive three-dimensional wreck"></canvas>
-<div id="crtOverlay" aria-hidden="true"></div>
-<canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><h1>Sailboat</h1><output id="readout" aria-live="off">Starting vehicle…</output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-label="Cabin radio" aria-pressed="false">Radio <span id="cabinRadioState" aria-hidden="true">Off</span></button><output id="cabinRadioStatus" aria-live="polite"></output></div><details id="roomChat" hidden>
+<canvas id="view" tabindex="0" aria-label="Interactive ocean simulation"></canvas>
+<output id="loadProbe" hidden style="position:fixed;z-index:5;pointer-events:none;padding:.35em .6em;color:white;background:#092935;border-radius:.3em"></output>
+<svg id="diverMaskRim" aria-hidden="true" hidden viewBox="0 0 1000 600" preserveAspectRatio="none" style="position:fixed;inset:0;width:100%;height:100%;pointer-events:none">
+  <defs><path id="diverLens" d="M -5,236 Q -2,19 145,7 C 320,-2 680,-2 855,7 Q 1002,19 1005,236 L 1005,385 Q 997,557 922,581 C 831,610 638,611 555,590 C 524,582 523,558 500,557 C 477,558 476,582 445,590 C 362,611 169,610 78,581 Q 3,557 -5,385 Z"/>
+  <mask id="diverLensOpening"><rect width="100%" height="100%" fill="white"/><use href="#diverLens" fill="black"/></mask></defs>
+  <rect width="100%" height="100%" fill="#0c171a" mask="url(#diverLensOpening)"/>
+  <use href="#diverLens" fill="none" stroke="#24383a" stroke-width="9" vector-effect="non-scaling-stroke"/>
+  <use href="#diverLens" fill="none" stroke="#628381" stroke-opacity=".55" stroke-width="2" vector-effect="non-scaling-stroke"/>
+</svg>
+<div id="crtOverlay" aria-hidden="true"><div class="crt-glass"></div></div>
+<canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><div class="hud-heading"><h1>Sailboat</h1><div id="hudAudio" role="group" aria-label="Audio shortcuts"><button id="hudMusic" type="button" aria-label="Music" aria-pressed="false" title="Play music"><span aria-hidden="true">♫</span></button></div></div><output id="vesselLoss" role="status" aria-live="polite" hidden></output><output id="hudBrief" aria-live="off"></output><output id="readout" aria-live="off">Starting vehicle…</output><output id="subAim" aria-live="off" hidden></output><output id="subBattery" aria-live="off" hidden></output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-label="Cabin radio" aria-pressed="false">Radio <span id="cabinRadioState" aria-hidden="true">Off</span></button><output id="cabinRadioStatus" aria-live="polite"></output></div><details id="roomChat" hidden>
 <summary id="roomChatTitle">Room chat</summary>
+<button id="chatClose" type="button" aria-label="Close room chat">Close</button>
 <ol id="chatLog" role="log" aria-label="Messages" aria-live="polite"></ol>
 <form id="chatSend" class="chat-compose">
 <input type="text" id="chatMessage" placeholder="Message" aria-label="Message" maxlength="400" autocomplete="off" required>
@@ -218,40 +279,43 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="sonar-desk"><div class="sonar-pane">
 <canvas width="640" height="360" id="cruiserSonarCanvas" aria-label="Perspective view of the seabed and forward sonar returns. Tap a return for range, bearing and depth."></canvas><output id="cruiserSonarReturn">Acquiring sonar…</output></div>
 <section class="chart-pane" aria-label="Local harbor chart"><div class="chart-heading"><span>Harbor chart</span><button id="cruiserChartFit" type="button" aria-pressed="false">Fit sonar range</button></div>
-<canvas width="480" height="360" id="cruiserChartCanvas" aria-label="Chart of the simulated harbor with depth contours, the wreck, boat and sonar coverage."></canvas></section>
+<canvas width="480" height="360" id="cruiserChartCanvas" aria-label="Chart of the simulated harbor with depth contours, wreck dive sites, boat and sonar coverage."></canvas></section>
 </div></details><details id="cruiserCameras"><summary>Underwater cameras</summary><label><input id="cameraKeelLamp" type="checkbox" aria-keyshortcuts="X"> Underwater lights (X)</label> <label class="echo-view">Feed <select id="echoCamera"><option value="all">All cameras</option><option value="motorBow">Bow</option><option value="motorStern">Stern</option><option value="motorPort">Port</option><option value="motorStarboard">Starboard</option><option value="motorKeel">Keel (down)</option></select></label><div class="camera-grid"><figure><figcaption>Bow</figcaption><canvas data-camera="motorBow" width="256" height="144" aria-label="Live underwater bow camera"></canvas></figure><figure><figcaption>Stern</figcaption><canvas data-camera="motorStern" width="256" height="144" aria-label="Live underwater stern camera"></canvas></figure><figure><figcaption>Port</figcaption><canvas data-camera="motorPort" width="256" height="144" aria-label="Live underwater port camera"></canvas></figure><figure><figcaption>Starboard</figcaption><canvas data-camera="motorStarboard" width="256" height="144" aria-label="Live underwater starboard camera"></canvas></figure><figure><figcaption>Keel (down)</figcaption><canvas data-camera="motorKeel" width="256" height="144" aria-label="Live downward-facing keel camera"></canvas></figure></div><button id="openCamera" disabled>Open selected feed in main view</button></details></section>
-<section id="animalSensors" aria-label="Animal sensors" hidden><details open id="fishFinder"><summary>Fish finder · <output id="fishCaught">0 fish caught</output></summary><canvas id="animalSonar" width="320" height="140" aria-label="Forward sonar in plan and elevation, range 15 metres"></canvas></details></section>
-<canvas id="flightHud" role="img" hidden></canvas><section id="subPanel" hidden><details open id="subSensors"><summary>Onboard sensors</summary><div class="sensor-images"><figure><figcaption>Optical camera</figcaption><canvas id="sensorCam" width="320" height="238" aria-label="Live forward color camera"></canvas></figure><figure><figcaption>Forward imaging sonar</figcaption><canvas id="sonarFan" width="320" height="185" aria-label="Sonar echoes by bearing and range, 18 metres ahead"></canvas></figure></div><label><input type="checkbox" id="sonarMap"> Sonar map</label> <label><input type="checkbox" id="showDvlRays"> DVL rays</label> <button type="button" id="subLamp" aria-pressed="true">Lamp (Z)</button><div id="dvlReport"><span id="dvlLock">DVL · Awaiting ping</span><span id="dvlSpeed">Fwd — · Port — m/s</span><span id="dvlRanges">Beam ranges — m</span></div><small id="subKeys">W/S forward/back · A/D yaw · Q/E bank to strafe · R/F rise/dive</small><small>Survey covers the interior and upper hull.</small></details></section><aside aria-label="Race and fleet">
-<details id="racePanel" open>
+<section id="animalSensors" aria-label="Animal sensors" hidden><details id="fishFinder"><summary>Fish finder · <output id="fishCaught">0 fish caught</output></summary><canvas id="animalSonar" width="320" height="140" aria-label="Forward sonar in plan and elevation, range 15 metres"></canvas></details></section>
+<canvas id="flightHud" role="img" hidden></canvas><section id="subPanel" hidden><details id="subSensors"><summary>Imaging sonar</summary><div class="sensor-images"><figure><figcaption>Forward imaging sonar</figcaption><canvas id="sonarFan" width="320" height="185" aria-label="Sonar echoes by bearing and range, 18 metres ahead"></canvas></figure></div><label><input type="checkbox" id="sonarMap"> Sonar map</label><small id="dvlMapLegend">White points show DVL bottom-lock hits. Soft marks show fan echoes with uncertain elevation.</small></details><details id="subOptical"><summary>Optical camera</summary><div class="sensor-images"><canvas id="sensorCam" width="320" height="238" aria-label="Forward RGB camera for computer vision"></canvas></div></details></section><aside aria-label="Race and fleet">
+<details id="racePanel">
 <summary><span>Next fleet start</span><output id="countdown">—</output></summary>
 <div><small id="raceCourse"></small><output id="raceStatus"></output><output id="raceWinner" aria-live="polite" hidden></output></div>
 <p id="racePenalty" role="status" hidden></p><section id="bestLaps" aria-label="Best laps"><strong>Best laps</strong><small></small><ol></ol><p>No finished laps yet.</p></section>
-</details><details id="fleetRoster" open><summary>Players &amp; NPCs <span id="fleetCount"></span></summary><div><table aria-label="Players and NPCs"><thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead><tbody id="fleetEntries"></tbody></table></div></details><section id="mastPanel" aria-label="Live mast cameras" hidden><label>Mast camera <select id="mastPort"><option value="0">Forward</option><option value="1">Port</option><option value="2">Aft</option><option value="3">Starboard</option></select></label><canvas id="mastImage" width="256" height="256" aria-label="Live mast fisheye image"></canvas><button type="button" id="mastExport">Export calibrated capture</button></section></aside><footer aria-label="Simulator controls">
+</details><details id="fleetRoster"><summary>Players &amp; NPCs <span id="fleetCount"></span></summary><div><table aria-label="Players and NPCs"><thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead><tbody id="fleetEntries"></tbody></table></div></details><section id="mastPanel" aria-label="Live mast cameras" hidden><button type="button" id="mastClose" aria-label="Close mast cameras">Close</button><label>Mast camera <select id="mastPort"><option value="0">Forward</option><option value="1">Port</option><option value="2">Aft</option><option value="3">Starboard</option></select></label><canvas id="mastImage" width="256" height="256" aria-label="Live mast fisheye image"></canvas><button type="button" id="mastExport">Export calibrated capture</button></section></aside><footer aria-label="Simulator controls">
 <div class="control-toolbar"><div class="control-row">
-<button id="sound" type="button" aria-label="Sound" title="Turn sound effects on" aria-pressed="false"><span aria-hidden="true">🔇</span></button>
-<button type="button" id="harborMapButton" aria-haspopup="dialog" aria-keyshortcuts="M">Map</button>
-<button id="play">Pause</button>
-<button type="button" id="resetSimulation" title="Restart the current simulation">Reset</button>
+<button type="button" id="harborMapButton" aria-controls="harborMap" aria-expanded="false" aria-haspopup="dialog" aria-keyshortcuts="M">Map</button>
+<button id="collapsePanel" aria-controls="vehicleControls" aria-expanded="false">Controls</button>
+<button type="button" id="hudInstruments" aria-expanded="false" aria-controls="hudCustomize">Instruments</button>
 <button id="settings" aria-expanded="false" aria-controls="setup">Settings</button>
-<button id="openChat" type="button" aria-controls="roomChat" aria-keyshortcuts="Enter" hidden>Chat</button>
-<button id="collapsePanel" aria-label="Hide controls" aria-controls="vehiclePanel" aria-expanded="true">Controls</button>
+<button type="button" id="hudMore" aria-expanded="false" aria-controls="hudActions">Menu</button>
 </div></div>
 <audio id="theme" loop preload="none" src="./assets/audio/Pirate1_Theme1.mp3"></audio>
-<div id="vehiclePanel">
-<div class="control-fields quick-controls"><div class="control-grid">
-<label class="control-select"><span>Model</span><select id="controlTarget" disabled><option value="boat">Hobie 16</option><option id="otherSailboat" value="sloop">Pilothouse sloop</option><option value="onrt">ONR Tumblehome · model basin</option><option value="motorboat">Motorboat: cabin cruiser</option><option value="drone">Drone: RDD2</option><option value="sub">Sub: Piccard</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="gull">Herring gull</option></select></label>
-<label class="control-select"><span>Camera</span><select id="cameraDepth"><option value="deck">Orbit</option><option value="line">Waterline</option><option value="keel">Under hull</option><option hidden id="droneFpvOption" value="fpv">Drone FPV</option><option hidden id="onboardOption" value="onboard">Piccard Sub FPV</option><option value="gull" hidden disabled>Gull cam</option><option value="whale" hidden disabled>Whale cam</option><option value="shark" hidden disabled>Shark cam</option></select></label>
-<label class="control-select" id="subModeLabel" hidden><span>Sub mode</span><select id="subMode"><option value="0">Position</option><option value="1">Auto-level</option><option value="2">Acro</option></select></label>
+<section id="vehiclePanel" aria-labelledby="hudMenuTitle" hidden>
+<div class="hud-drawer-head"><h2 id="hudMenuTitle">Controls</h2><button type="button" id="hudDone">Close</button></div>
+<div id="vehicleControls" class="control-fields quick-controls"><div class="control-grid">
+<label class="control-select"><span>Model</span><select id="controlTarget" disabled><option value="boat">Hobie 16</option><option id="otherSailboat" value="sloop">Pilothouse sloop</option><option value="motorboat">Motorboat: cabin cruiser</option><option value="drone">Drone: RDD2</option><option value="sub">Sub: Piccard</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option><option value="gull">Herring gull</option></select></label>
+<label class="control-select"><span>Camera</span><select id="cameraDepth"><option value="deck">Orbit</option><option value="line">Waterline</option><option value="keel">Under hull</option><option hidden id="droneFpvOption" value="fpv">Drone FPV</option><option hidden id="onboardOption" value="onboard">Piccard Sub FPV</option><option value="gull" hidden disabled>Gull cam</option><option value="whale" hidden disabled>Whale cam</option><option value="shark" hidden disabled>Shark cam</option><option value="manta" hidden disabled>Manta cam</option><option value="diver" hidden disabled>Diver orbit</option><option value="diverEyes" hidden disabled>Diver first person</option></select></label>
+<label class="control-select" id="diverModeLabel" hidden><span>Dive mode</span><select id="diverMode"><option value="manual">Manual</option><option value="learned">Learned swim</option><option value="auto">Auto patrol</option></select></label>
+<label class="control-select" id="subModeLabel" hidden><span id="subModeTitle">Sub control mode</span><select id="subMode" aria-labelledby="subModeTitle"><option value="0">Position hold</option><option value="1">Auto level</option><option value="2">Acro</option></select></label>
 <label class="control-select" id="flightModeLabel" hidden><span>Flight mode</span><select id="flightMode"><option value="0">Position hold</option><option value="1">Auto level</option><option value="2">Acro</option></select></label>
 </div><div class="control-row">
+<span id="subAccessories" hidden><button type="button" id="subLamp" aria-pressed="true" aria-keyshortcuts="Z">Survey lamp (Z)</button></span>
+<button type="button" id="diverTorch" hidden aria-pressed="false" aria-keyshortcuts="X">Equip flashlight</button>
+<button type="button" id="openDiverTraining" aria-haspopup="dialog" hidden>Live training</button>
+<button id="showSticks" aria-controls="sticks" aria-pressed="false">On-screen controls</button>
 <button type="button" id="recenterView" aria-keyshortcuts="Home" title="Restore the selected camera’s default view (Home)">Recenter view</button>
 <button id="helm" title="Sail the regatta course automatically">Engage race autopilot</button>
 <button type="button" id="easeTraveler" aria-keyshortcuts="C" title="Release the main traveler line fully (C)" hidden>Ease traveler</button>
 <button id="cutMotors" hidden aria-pressed="false">Cut motors</button>
 <button type="button" id="gullCall" hidden>Caw</button>
 <button type="button" id="goBelow" hidden>Go below</button>
-</div><section class="control-row" id="animalPilot" hidden><button type="button" id="animalFeed">Feed (F)</button> <button id="animalBreach" type="button">Breach</button> <span id="swimKeys"></span></section></div>
-<div id="setup" class="control-settings" aria-label="Settings" hidden>
+</div><section class="control-row" id="animalPilot" hidden><button type="button" id="animalFeed">Feed (F)</button> <button id="animalBreach" type="button">Breach</button> <span id="swimKeys"></span></section>
 <details class="control-pane" data-boat><summary>Sail trim</summary>
 <div class="control-fields">
 <div class="control-grid">
@@ -295,7 +359,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <output id="weightPos"></output>
 <p>↑/↓ move ballast forward/aft. ←/→ move it to port/starboard. Pressing an arrow takes over from auto ballast.</p>
 </div></details>
-<details class="control-pane" id="motorPanel" hidden open><summary>Accessories</summary>
+<details class="control-pane" id="motorPanel" hidden><summary>Throttle, lights &amp; deck equipment</summary>
 <div class="control-fields">
 <div class="control-grid">
 <div class="control-slider"><div class="control-label"><label for="shaftLever">Throttle</label><output id="shaftPercent" for="shaftLever">0%</output></div>
@@ -305,6 +369,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <label class="control-check"><input id="searchLamp" type="checkbox" aria-keyshortcuts="Z"><span>Searchlight (Z)</span></label>
 <label class="control-check"><input id="keelLamp" type="checkbox" aria-keyshortcuts="X"><span>Underwater lights (X)</span></label>
 <button type="button" id="anchorSwitch" aria-keyshortcuts="C" aria-pressed="false" hidden>Lower anchor (C)</button>
+<button id="moveSternLift" aria-keyshortcuts="Space" type="button" hidden>Launch over port side</button><output id="sternLiftStatus" hidden></output>
 <output id="anchorReadout" hidden></output>
 <button id="lampCenter" type="button">Center searchlight</button>
 <label class="control-check" id="wiperControl" hidden><input id="wiperSwitch" type="checkbox"><span>Windshield wipers</span></label>
@@ -315,8 +380,11 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-slider"><div class="control-label"><label for="lampTilt">Searchlight elevation</label><output id="tiltDegrees">−12°</output></div>
 <input id="lampTilt" type="range" min="-65" max="15" value="-12" aria-describedby="lampTiltScale"><div class="control-scale" id="lampTiltScale"><span>Down</span><span>Up</span></div></div>
 </div>
-<p id="motorKeys">W/S throttle · A/D helm · Arrows aim searchlight · Z/X lights · C anchor</p>
+<p id="motorKeys">W/S throttle · A/D helm · Arrows aim searchlight · Z/X lights · Space hoist · C anchor</p>
 </div></details>
+
+</div>
+<div id="setup" class="control-settings" aria-label="Settings" hidden>
 <details class="control-pane"><summary>Environment</summary>
 <div class="control-fields">
 <div class="control-grid">
@@ -332,10 +400,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <details class="control-pane"><summary>View &amp; diagnostics</summary>
 <div class="control-fields">
 <div class="control-row">
-<button id="showSticks" aria-controls="sticks" aria-pressed="false">Touch sticks</button>
-<button type="button" aria-pressed="false" id="showForces">Forces</button>
-<button type="button" aria-pressed="false" id="showCompass">Compass</button>
-<button type="button" data-boat id="mastCapture" aria-controls="mastPanel" aria-expanded="false">Mast cameras</button>
+<label class="control-check"><input type="checkbox" id="showForces" aria-describedby="loadLegend"><span>Forces and moments</span></label>
 <label class="control-check"><input type="checkbox" id="crtFilter" checked><span>CRT filter</span></label>
 <label class="control-check"><input type="checkbox" id="cameraCones"><span>Camera view cones</span></label>
 </div>
@@ -343,25 +408,31 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <label class="control-check"><input type="checkbox" id="physicsView"><span>Physics view</span></label>
 <label class="control-check"><input type="checkbox" id="collisionShapes" title="Show contact surfaces, grounding probes and landing targets"><span>Collision shapes</span></label>
 <label class="control-check"><input type="checkbox" id="inertiaShapes" title="Show inertia ellipsoids and colored radii of gyration for individual moments"><span>Inertia shapes</span></label>
+<label class="control-check" id="subDvlLabel" hidden><input type="checkbox" id="showDvlRays" aria-keyshortcuts="C"><span>DVL rays (C)</span></label>
 <label class="control-check" id="droneCovarianceLabel" hidden><input type="checkbox" id="showDroneCovariance"><span>Drone covariance</span></label>
 </div>
+<label id="diverLoadChoice" hidden>Diver loads
+<select id="diverLoadGroup">
+<option value="overview">Overview</option><option value="buoyancy">Buoyancy by site</option><option value="weight">Weight by body</option><option value="drag">Hydrodynamic drag</option><option value="joints">Joint moments</option><option value="strokes">Fin and hand strokes</option><option value="contact">Contact forces</option><option value="all">All loads</option>
+</select></label>
+<output id="loadLegend" hidden>Arrows show force (N), pink arcs show moment (N·m). Point or tap for the source and value. <span id="diverLoadKey" hidden>Orange: weight · Teal: body buoyancy · Lime: bladder · Blue: drag.</span></output>
 <div class="control-fields" id="physicsLayers" hidden><div class="control-row">
 <label class="control-check"><input id="physicsRig" type="checkbox" checked><span>Bodies and joints</span></label>
+<label class="control-select" hidden><span>Inspect part</span><select id="inspectPart"><option value="">Overview</option></select></label>
+<label class="control-check"><input id="physicsAllLabels" type="checkbox"><span>Show all rig labels</span></label>
 <label class="control-check"><input id="physicsHulls" type="checkbox" checked><span>Hull sections</span></label>
 <label class="control-check"><input id="physicsWater" type="checkbox" checked><span>Wave grids</span></label>
 <label class="control-check"><input id="physicsAir" type="checkbox"><span>Airflow</span></label>
-<label class="control-check"><input id="physicsCurrent" type="checkbox"><span>Submarine water current</span></label>
+<label class="control-check"><input id="physicsCurrent" type="checkbox"><span>Water current</span></label>
 <label class="control-select" id="waveLayerControl"><span>Wave layer</span><select id="waveLayer"><option value="auto">Automatic</option><option value="surface">Surface height</option><option value="pontoons">Pontoon water samples</option><option value="near">Local displacement wake</option><option value="wind">Wind sea</option><option value="wake">Shared displacement wake</option><option value="contours">Wake elevation contours</option><option value="all">All fields</option></select></label>
 </div><output id="physicsStatus"></output></div>
-<div class="control-grid">
-<label class="control-select" data-boat><span>Compass wind</span><select id="compassWind"><option value="apparent">Apparent</option><option value="true">True</option></select></label>
-</div>
+
 </div></details>
-<details class="control-pane"><summary>Performance</summary>
+<details class="control-pane"><summary>Graphics &amp; performance</summary>
 <div class="control-fields">
 <div class="control-grid">
 <label class="control-select"><span>Graphics quality</span><select id="quality"><option value="fast">Fast (simplified water)</option><option value="low">Low (wakes off)</option><option value="balanced">Medium</option><option value="high">High</option></select></label>
-<label class="control-select"><span>Offline simulation speed</span><select id="simulationSpeed"><option value="1">1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+<label class="control-select"><span>Offline simulation speed</span><select id="simulationSpeed"><option value="1">1×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="10">10×</option></select></label>
 </div>
 <div class="control-row">
 <button type="button" id="measureFrames" disabled>Test frame rate (15 s)</button>
@@ -386,7 +457,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button id="resetRadioRecording" type="button" hidden>Use bundled track</button>
 </div>
 </div></details>
-<details class="control-pane"><summary>Multiplayer</summary>
+<details class="control-pane" id="fleetPane"><summary>Multiplayer fleet</summary>
 <div class="control-fields">
 <div class="control-row">
 <label class="control-select"><span>Room name</span><input type="text" id="roomName" value="regatta" maxlength="64" size="10" spellcheck="false" autocomplete="off"></label>
@@ -406,22 +477,33 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <details class="control-pane" id="wildlifeSpawn"><summary>Spawn NPC</summary>
 <div class="control-fields">
 <div class="control-row">
-<label class="control-select"><span>NPC model</span><select id="spawnKind" aria-label="NPC model"><option value="hobie">Hobie 16</option><option value="sloop">Pilothouse sloop</option><option value="motorboat">Cabin cruiser</option><option value="drone">RDD2 drone</option><option value="sub">Piccard submarine</option><option value="gull">Herring gull</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option></select></label>
+<label class="control-select"><span>NPC model</span><select id="spawnKind" aria-label="NPC model"><option value="hobie">Hobie 16</option><option value="sloop">Pilothouse sloop</option><option value="motorboat">Cabin cruiser</option><option value="drone">RDD2 drone</option><option value="sub">Piccard submarine</option><option value="gull">Herring gull</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option></select></label>
+<label class="control-select" id="npcDiveSiteLabel" hidden><span>Dive site</span><select id="npcDiveSite"></select></label>
 <button id="spawnAnimal" type="button">Spawn NPC</button>
 </div>
 <output id="spawnResult" aria-live="polite"></output>
 </div></details>
-<details class="control-pane"><summary>Keyboard shortcuts</summary>
+<details class="control-pane" id="keyboardHelp"><summary>Keyboard shortcuts</summary>
 <div class="control-fields">
 <label class="control-select"><span>Keyboard layout</span><select id="keyLayout"><option value="wasd">WASD + Q/E + R/F</option><option value="mode2">WASD + arrows (Mode 2)</option></select></label>
 <p id="gullKeys" hidden>R/F pitch · Q/E bank · A/D turn · W flap · S glide · Space call</p>
+<p id="subKeys" hidden>↑/↓ pitch the bow · ←/→ or A/D yaw · W/S forward/back · Q/E strafe · R/F rise/dive · Release pitch to hold the angle · V view · Z lamp · X sonar map · C DVL rays</p>
 <p id="flightKeys" hidden>RDD2 · W/S forward/back · A/D yaw · Q/E strafe · R/F climb/descend · Space arm/disarm · hold Shift for fast horizontal flight · release direction to hover</p>
 <p id="sailKeys" data-boat>A/D steer · W eases the sheets · S hauls them in.</p>
-<p>Hold Shift for faster control or Ctrl for finer control. V cycles cameras, Home recenters the current view, M opens the map, and Enter opens room chat.</p>
+<p>Hold Shift for faster vehicle control or Ctrl for finer control. V cycles cameras, M opens the map, and Enter opens room chat. Hold Tab in the game view to see player names.</p>
+<p>External camera · Numpad 8/2 forward/back, 4/6 left/right, 9/3 up/down. Hold Shift to fly faster, drag to look around, and press Home to return to the vehicle.</p>
+<button type="button" id="closeKeyboardHelp">Close shortcuts</button>
 </div></details>
 </div>
-</div>
-</footer><div id="sticks" hidden></div>
+
+<div id="hudActions" hidden><button id="play">Pause</button>
+<button id="sound" type="button" aria-label="Sound" title="Turn sound effects on" aria-pressed="false"><span aria-hidden="true">🔇</span></button>
+<button type="button" id="resetSimulation" title="Choose a spawn point">Respawn</button>
+<button type="button" id="fleetButton">Invite a friend</button>
+<button id="openChat" type="button" aria-controls="roomChat" aria-keyshortcuts="Enter" hidden>Chat</button>
+<button type="button" id="mainMenu">Main menu</button></div>
+<div id="hudCustomize" hidden><fieldset><legend>Readouts</legend><div id="hudWidgets"></div><button type="button" aria-pressed="false" id="showCompass">Navigation compass</button><label class="control-select" data-boat><span>Compass wind</span><select id="compassWind"><option value="apparent">Apparent</option><option value="true">True</option></select></label></fieldset>
+<fieldset><legend>Panels</legend><div id="hudPanels"></div><button type="button" data-boat id="mastCapture" aria-controls="mastPanel" aria-expanded="false">Mast cameras</button></fieldset><details id="hudShortcutSettings"><summary>Toolbar shortcuts</summary><div id="hudShortcuts"></div></details><button type="button" id="hudReset">Restore defaults</button></div></section></footer><div id="sticks" hidden></div>
 <template id="hobieTouchTrim">
 <details class="touch-trim"><summary>Crew &amp; trim</summary>
 <div class="trim-grid">
@@ -430,11 +512,57 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <fieldset><legend>Main traveler</legend><button type="button" data-key="KeyF">Haul in</button><button type="button" data-key="KeyR">Ease</button></fieldset>
 <fieldset><legend>Jib travelers</legend><button type="button" data-key="KeyQ">Inboard</button><button type="button" data-key="KeyE">Outboard</button></fieldset>
 </div></details></template>
+<dialog id="diverTraining" aria-labelledby="diverTrainingTitle">
+  <div class="trainingHead"><h2 id="diverTrainingTitle">Diver training</h2><button type="button" id="trainingClose">Close</button></div>
+  <div id="trainingViewport"><canvas id="trainingGhosts" aria-label="Diver training grid. Drag to orbit or scroll to zoom."></canvas>
+    <span id="trainingViewStatus" role="status"></span><span id="trainingSceneLabel">Open ocean</span></div>
+  <div id="trainingTools"><label>View <select id="trainingFocus"><option value="-1">All swimmers</option></select></label>
+    <button type="button" id="trainingZoomIn" aria-label="Zoom in">+</button><button type="button" id="trainingZoomOut" aria-label="Zoom out">−</button>
+    <label>Playback <select id="trainingPlayback"><option value="live">Live</option><option value="replay" disabled>Recorded · 1×</option></select></label>
+    <label><input id="trainingOverlay" type="checkbox"> Bodies and joints</label></div>
+  <div class="trainingFoot"><label>Start from <select id="trainingStart"><option value="pretrained">Pre-trained swimmer</option><option value="scratch">Scratch · zero weights</option><option value="current">My swimmer</option></select></label><label>Count <select id="trainingLanes"><option value="auto" selected>Auto</option><option>1</option><option>4</option><option>16</option><option>32</option><option>64</option><option value="manual">Manual…</option></select></label> <input id="trainingCount" type="number" required aria-label="Manual instance count" min="1" step="1" max="256" value="16" style="width:5.5em" hidden><label>Physics <select id="trainingPhysics"><option value="cpu">CPU</option><option value="cuda" disabled>GPU (CUDA)</option></select></label><label>Policy updates <select id="trainingBackend"><option value="cpu">CPU</option><option value="gpu" selected>GPU (WebGPU)</option></select></label>
+    <button type="button" id="trainingRun">Start training</button><button type="button" id="trainingSave" disabled>Save weights</button>
+    <output id="trainingStatus" aria-live="polite">Ready</output><output id="trainingMetrics"></output>
+  </div>
+  <div class="trainingCharts" id="trainingCharts" hidden><figure><figcaption>Validation reward · <span style="color:#76ddcf">current</span> / <span style="color:#f9bd7c">best</span></figcaption><canvas id="trainingReward" aria-label="Validation reward by round"></canvas></figure><figure><figcaption>Forward speed error · m/s</figcaption><canvas id="trainingError" aria-label="Mean absolute forward speed error by round"></canvas></figure></div>
+</dialog>
 <dialog id="roomQrDialog" aria-labelledby="roomQrTitle" aria-describedby="roomQrName">
 <h2 id="roomQrTitle">Scan to join</h2><img id="roomQrImage" alt="QR code for the multiplayer room">
 <p id="roomQrName"></p><form method="dialog"><button autofocus>Close</button></form></dialog>
-<dialog id="vehiclePicker" aria-labelledby="vehiclePickerTitle"><h2 id="vehiclePickerTitle">Choose a model</h2><form method="dialog"><button value="hobie">Hobie 16</button><button value="onrt">ONR Tumblehome · model basin</button><button value="motorboat">Inboard cabin cruiser</button><button value="sloop">Pilothouse sloop</button><button value="drone">RDD2 drone</button><button value="sub">Piccard Sub</button><button value="whale">Humpback whale</button><button value="shark">Great white shark</button><button value="gull">Herring gull</button></form></dialog>
-<script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="vehicle.js?viewport=2"></script><script src="wreck.js"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="island-landscape.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
-<canvas id="harborMapCanvas" width="680" height="420" aria-label="North-up chart showing the race course, island, players and NPCs"></canvas>
-<div id="harborMapLegend"><span style="--point:#e97618">You</span><span style="--point:#a03731">Race course</span></div><output id="harborMapRoster" aria-label="Your coordinates"></output></dialog>
+<dialog id="vehiclePicker" aria-labelledby="vehiclePickerTitle"><h2 id="vehiclePickerTitle">Choose a world and vehicle</h2>
+<div class="mode-switch" role="group" aria-label="Play mode"><button id="pickSolo" type="button" aria-pressed="true">Solo</button><button id="pickFleet" type="button" aria-pressed="false">Multiplayer</button></div>
+<label for="worldType">World</label>
+<select id="worldType"><option value="ocean">Open ocean</option><option value="basin">Iowa wave basin · Solo only</option></select>
+<p id="basinInfo" hidden>Compare the simulated hull motion with measurements from the Iowa wave basin.</p>
+<fieldset id="fleetBrowser" hidden><legend>Server list</legend>
+<label id="inviteChoice" hidden><input type="radio" name="fleetChoice" value="invite"><span></span></label>
+<label><input type="radio" name="fleetChoice" value="any" checked>First available public fleet</label>
+<div id="serverTable"><table aria-label="Public fleets"><thead><tr><th scope="col">Fleet</th><th scope="col">Players</th><th scope="col">Availability</th></tr></thead><tbody id="publicFleets"></tbody></table></div>
+<output id="fleetDirectoryStatus" aria-live="polite"></output></fieldset>
+<form method="dialog">
+<label for="vehicleType">Vehicle type</label>
+<select id="vehicleType">
+<option value="hobie">Hobie 16</option>
+<option value="motorboat">Inboard cabin cruiser</option>
+<option value="sloop">Pilothouse sloop</option>
+<option value="drone">RDD2 drone</option>
+<option value="sub">Piccard Sub</option>
+<option value="whale">Humpback whale</option>
+<option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option>
+<option value="gull">Herring gull</option>
+</select>
+<div id="entrySpawnFields" hidden><label for="entrySpawn">Spawn point</label>
+<div class="entry-spawn-row"><select id="entrySpawn"></select><button type="button" id="entryMapOpen" aria-haspopup="dialog" aria-controls="entryMap">Choose on map</button></div></div>
+<button id="launchFleet" type="submit">Start simulation</button>
+</form><output id="fleetLaunchStatus" aria-live="polite"></output>
+</dialog>
+<dialog id="entryMap" aria-labelledby="entryMapTitle"><div class="entry-map-header"><h2 id="entryMapTitle">Choose a spawn point</h2><button type="button" id="entryMapBack" autofocus>Back</button></div>
+<canvas id="entryMapCanvas" tabindex="0" aria-label="Spawn map. Select a pin, drag or use arrow keys to pan, and pinch or use plus and minus to zoom."></canvas>
+<nav aria-label="Spawn map navigation"><button id="entryMapOut" type="button" aria-label="Zoom out">−</button><button id="entryMapIn" type="button" aria-label="Zoom in">+</button><button id="entryMapFit" type="button">Fit map</button></nav>
+<div class="entry-map-footer"><label for="entryMapChoice">Spawn point<select id="entryMapChoice"></select></label><button type="button" id="entryMapUse">Use spawn point</button></div></dialog>
+<script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="subsea-materials.js"></script><script src="vehicle.js?viewport=2"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="island-landscape.js"></script><script src="bathymetry.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
+<canvas id="harborMapCanvas" width="680" height="420" tabindex="0" aria-label="Harbor map. Drag or use arrow keys to pan. Pinch or use plus and minus to zoom. Select a spawn pin or use Choose spawn."></canvas>
+<nav class="chart-tools" aria-label="Chart navigation"><button id="mapChooseSpawn" type="button">Choose spawn</button><span class="chart-zoom"><button id="mapZoomOut" type="button" aria-label="Zoom out">−</button><button id="mapZoomIn" type="button" aria-label="Zoom in">+</button><button id="mapFit" type="button">Fit map</button></span></nav>
+<form id="spawnForm" hidden><label>Vehicle <select id="respawnVehicle"></select></label><label>Spawn point <span id="mapSpawnDepth"></span><select id="spawnPoint" aria-describedby="spawnHint"></select></label> <button type="submit">Respawn here</button> <output id="spawnHint" for="spawnPoint" aria-live="polite" aria-atomic="true"></output> <output id="spawnStatus" role="status"></output></form>
+<div id="harborMapLegend"><span style="--point:#ffe7a1">You</span><span style="--point:#6dd3bc">Spawn</span><span style="--point:#ecab8a">Race course</span></div><output id="harborMapRoster" aria-label="Your coordinates"></output></dialog>
 <script type="module" src="sailing-live.mjs?hud=2"></script></body></html>

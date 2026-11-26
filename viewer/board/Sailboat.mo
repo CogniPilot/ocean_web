@@ -1,4 +1,6 @@
 model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
+  function jibMastPlane = Marine.Sailing.jibMastPlane;
+
   function rigCapsules "Mast, sagging stays and three strips per rudder blade"
     input Real mast[8,3],stays[3,3,3],helm;
     output Real shapes[19,7] "Capsule endpoints and radius in hull axes";
@@ -202,7 +204,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
           point:=b*sample;
           rel:=shift+point;
           test:=transpose(a)*rel;
-          intersect:=if meshKind<1.5 then Shore.pontoonGap(test-{0,(3-2*h)*1.02,0},pontoon,radius,faces)
+          intersect:=if meshKind<1.5 then Shore.pontoonGap(test-{0,(3-2*h)*1.02,0},pontoon,radius,faces,true)
             elseif meshKind<2.5 then Shore.cruiserGap(test,cruiser,radius,faces)
             else Shore.committeeGap(test,launch,radius,launchFaces);
           depth:=radius-intersect[1];
@@ -417,6 +419,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   end standingRig;
   input Real traffic[4,9] "Active, east, north, yaw, east/north velocity, yaw rate, height, hull type (0 sloop, 1 Hobie, 2 cruiser)";
   input Real trafficTilt[4,2]=zeros(4,2),sceneTilt[6,2]=zeros(6,2);
+  final parameter Real platformContactCorners[32,4,3]=Shore.hobiePlatform();
   final parameter Real pontoonContactVertices[96,3]=Shore.pontoonVertices();
   final parameter Integer pontoonContactFaces[188,3]=Shore.pontoonFaces();
   input Real sceneTraffic[6,9]=zeros(6,9) "Five shared NPCs and the anchored launch";
@@ -511,6 +514,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   output Real mastBend "Largest fore-aft distance from the tack-to-head chord [m]";
   output Real mastStations[8,3] "Mast step, six luff stations and masthead in hull axes";
   output Real rigCollision[19,7] "Modelica collision capsules for mast, stays and rudder blades";
+  discrete Real rockShoreWrench[6](each start=0,each fixed=true);
   discrete Real rigShoreWrench[6](each start=0,each fixed=true);
   output Real mainGooseneck[3] "Actual main boom hinge in hull axes";
   output Real mainBlockPins[2,3] "Lower and upper mainsheet tackle pins in hull axes";
@@ -666,6 +670,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   output Real sheetRotation[2,3,3] "Sail frame to hull frame";
   SailMembrane cloth[2](each attachedAirflow=catamaran,telltaleCount={if catamaran then 3 else 2,2},
     battenEI={{3.2,19.2},{1.6,3.0}},telltaleRows={if catamaran then {3,5,9} else {2,3,5},{2,4,5}},cutAngle={footCut,0},footInTrack={catamaran,false},each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={spans[1]*mainMastSlope,spans[2]*jibLuffSlope});
+  discrete Integer jibContactSide(start=-1,fixed=true);
+  Real jibContactAngle(unit="rad",start=-Modelica.Constants.pi/2,fixed=true);
   Real rotation[3,3],rig[2,3,3],trim[2](each start=.17,each fixed=true) "Boom sweep and jib angle";
   Real waterRelative[3],spin[3],origin[2,3];
   Real pitchRate(start=launchPitchRate,fixed=true),rigMoment[2,3],rigForce[2,3],surfaceNormal[3];
@@ -753,7 +759,9 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     Real sectionZ[4],localLift,crestPhase,crestSin,deckWet,wetFraction,normalV,waterV[3],velocity[3],panelForce[3];
     Real deckPressure,entryPressure,edgeDepth[2,4],depthA,depthB,wetLength,stripWidth,skinLength,sideSign;
     Real verticalProjection,normalY,waveY,waveZ,depthScaleInv,rotY[3],rotZ[3],waveSpeed;
-    Boolean hasSwell;
+    Real stationWave,waveSpread,upperWater,lowerWater,sideY,outerFraction;
+    Boolean hasSwell,dryColumn;
+    Real stillDepth;
   algorithm
     skin:=0;lift:=0; pitchTorque:=0;rollTorque:=0;dynamicForce:=zeros(3);dynamicPitch:=0;maxForedeckDepth:=-1e6;volume:=zeros(size(xs,1)-1);swellForce:=zeros(2);
     rotY:=rot[:,2];rotZ:=rot[:,3];
@@ -761,7 +769,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     depthScaleInv:=1/max(1e-9,abs(verticalProjection));
     waveY:=kDir*rotY[1:2];waveZ:=kDir*rotZ[1:2];
     hasSwell:=amp<>0;
-    waveSpeed:=amp*frequency;
+    waveSpeed:=amp*frequency;outerFraction:=max(abs(fractions));
     for station in 1:size(xs,1)-1 loop
       x:=stations[station,1];w:=stations[station,2];
       sectionZ:=stations[station,3:6];stationDeck:=sectionZ[4];
@@ -770,13 +778,19 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       stationDepth:=stationLevel+surface*center;
       stationPhase:=phase+kDir*center[1:2];
       stationVolume:=0;
+      // Sin is 1-Lipschitz. Bound the swell at every transverse quadrature
+      // point using the phase at the station centre, including roundoff when
+      // a long-running shared clock is much larger than a local phase change.
+      stationWave:=if hasSwell then amp*sin(stationPhase) else 0;
+      waveSpread:=abs(amp)*min(2,abs(waveY*w)*outerFraction+abs(waveZ)*max(abs(sectionZ))
+        +1e-14*(1+abs(stationPhase)))+1e-13*(1+abs(stationDepth));
+      upperWater:=stationWave+waveSpread;lowerWater:=stationWave-waveSpread;
       // Adjacent sides of the transverse strips share their edges.
       for side in 1:2 loop
         sideSign:=if side==1 then 1 else -1;
         for edge in 1:4 loop
           y:=sideSign*w*fractions[edge];localZ:=sectionZ[edge];
-          edgeDepth[side,edge]:=stationDepth+normalY*y+verticalProjection*localZ
-            +(if hasSwell then amp*sin(stationPhase+waveY*y+waveZ*localZ) else 0);
+          edgeDepth[side,edge]:=stationDepth+normalY*y+verticalProjection*localZ;
         end for;
       end for;
       for strip in 1:3 loop
@@ -789,17 +803,42 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
         for side in 1:2 loop
           y:=(if side==1 then 1 else -1)*w*(fractions[strip+1]+fractions[strip])/2;
           depthA:=edgeDepth[side,strip];depthB:=edgeDepth[side,strip+1];
-          wetLength:=if min(depthA,depthB)>=0 then 1 elseif max(depthA,depthB)<=0 then 0 else max(depthA,depthB)/abs(depthA-depthB);
+          if min(depthA,depthB)+lowerWater>=0 then
+            wetLength:=1;
+          elseif max(depthA,depthB)+upperWater<=0 then
+            wetLength:=0;
+          else
+            sideY:=(if side==1 then 1 else -1)*w;
+            depthA:=depthA+(if hasSwell then amp*sin(stationPhase+waveY*(sideY*fractions[strip])+waveZ*sectionZ[strip]) else 0);
+            depthB:=depthB+(if hasSwell then amp*sin(stationPhase+waveY*(sideY*fractions[strip+1])+waveZ*sectionZ[strip+1]) else 0);
+            wetLength:=if min(depthA,depthB)>=0 then 1 elseif max(depthA,depthB)<=0 then 0 else max(depthA,depthB)/abs(depthA-depthB);
+          end if;
           skin:=skin+wetLength*skinLength;
           crestPhase:=stationPhase+waveY*y+waveZ*localZ;
-          crestSin:=if hasSwell then sin(crestPhase) else 0;
-          wetDepth:=min(stationDeck-bottom,max(0,(stationDepth+normalY*y+verticalProjection*localZ+amp*crestSin)*depthScaleInv));
+          stillDepth:=stationDepth+normalY*y+verticalProjection*localZ;
+          // Both endpoints stay above the highest possible surface. Their
+          // orbital speed is then unused by the one-sided panel pressure.
+          dryColumn:=stillDepth+upperWater<=0 and (depthScale<=1
+            or stationDepth+normalY*y+verticalProjection*stationDeck+upperWater<=0);
+          crestSin:=0;
+          if hasSwell and (not dryColumn or (depthScale>1 and x>1 and verticalProjection>0)) then
+            crestSin:=sin(crestPhase);
+          end if;
+          wetDepth:=if dryColumn then 0 else min(stationDeck-bottom,max(0,(stillDepth+amp*crestSin)*depthScaleInv));
           lever:=center+y*rotY+(localZ+(if verticalProjection<=0 then .5*wetDepth else -.5*wetDepth))*rotZ;
           stationVolume:=stationVolume+area*wetDepth;
           localLift:=1025*9.80665*area*wetDepth;
           if depthScale>1 then
-            deckWet:=stationDepth+normalY*y+verticalProjection*stationDeck+(if hasSwell then
-              amp*(if verticalProjection>0 then crestSin else sin(stationPhase+waveY*y+waveZ*stationDeck)) else 0);
+            deckWet:=stationDepth+normalY*y+verticalProjection*stationDeck;
+            if x<=1 and deckWet+upperWater<=0 then
+              deckWet:=0;
+            elseif hasSwell then
+              if verticalProjection>0 then
+                deckWet:=deckWet+amp*crestSin;
+              else
+                deckWet:=deckWet+amp*sin(stationPhase+waveY*y+waveZ*stationDeck);
+              end if;
+            end if;
             if x>1 then maxForedeckDepth:=max(maxForedeckDepth,deckWet);end if;
             if wetDepth>0 or deckWet>0 then
               wetFraction:=min(1,wetDepth/.065);
@@ -830,6 +869,43 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       end if;
     end for;
   end hullHydrostatics;
+
+  function hullPairHydrostatics "Hydrostatic loads on both sampled hull lines"
+    input Real xs[:],stations[size(xs,1)-1,6],fractions[4],rot[3,3],surface[3],waterLevel,halfSpacing,depthScale;
+    input Real sections[2,size(xs,1)-1],useSections;
+    input Real amp,kDir[2],phase,waveNumber,frequency,translation[3],spinRate[3];
+    output Real lift[2];
+    output Real pitchTorque[2];
+    output Real rollTorque[2];
+    output Real dynamicForce[2,3];
+    output Real dynamicPitch[2];
+    output Real maxForedeckDepth[2];
+    output Real volume[2,size(xs,1)-1];
+    output Real skin[2];
+    output Real swellForce[2,2];
+  algorithm
+    (lift[1],pitchTorque[1],rollTorque[1],dynamicForce[1,:],dynamicPitch[1],
+      maxForedeckDepth[1],volume[1,:],skin[1],swellForce[1,:]):=
+      hullHydrostatics(xs,stations,fractions,rot,surface,waterLevel,halfSpacing,depthScale,sections[1,:],useSections,
+        amp,kDir,phase,waveNumber,frequency,translation,spinRate);
+    // Coincident hull lines sample the same water on a centered monohull.
+    if halfSpacing==0 and (useSections<=.5 or max(abs(sections[1,:]-sections[2,:]))==0) then
+      lift[2]:=lift[1];
+      pitchTorque[2]:=pitchTorque[1];
+      rollTorque[2]:=rollTorque[1];
+      dynamicForce[2,:]:=dynamicForce[1,:];
+      dynamicPitch[2]:=dynamicPitch[1];
+      maxForedeckDepth[2]:=maxForedeckDepth[1];
+      volume[2,:]:=volume[1,:];
+      skin[2]:=skin[1];
+      swellForce[2,:]:=swellForce[1,:];
+    else
+      (lift[2],pitchTorque[2],rollTorque[2],dynamicForce[2,:],dynamicPitch[2],
+      maxForedeckDepth[2],volume[2,:],skin[2],swellForce[2,:]):=
+      hullHydrostatics(xs,stations,fractions,rot,surface,waterLevel,-halfSpacing,depthScale,sections[2,:],useSections,
+        amp,kDir,phase,waveNumber,frequency,translation,spinRate);
+    end if;
+  end hullPairHydrostatics;
 
 equation
   // Trampoline rail limits in hull coordinates, centred at the carriage mid-travel.
@@ -1231,6 +1307,16 @@ equation
   end for;
   mastStations[8,:]=mastStations[7,:]+(podZ-footZ[1]-spans[1])*
     ({-mainMastSlope,0,1}+{tangLean[1],tangLean[2],0}/(tang[3]-footZ[1])+mastTip*mastHeadSlope*{1,0,mainMastSlope});
+  // A luffing jib can rest on either side of the mast. Carry the previous
+  // side through the centreline until the new sheet angle clears the spar.
+  when sheetRotation[2,2,1]>.10 then
+    jibContactSide=-1;
+  elsewhen sheetRotation[2,2,1]<-.10 then
+    jibContactSide=1;
+  end when;
+  der(jibContactAngle)=if catamaran then max(-5,min(5,10*(jibContactSide*Modelica.Constants.pi/2-jibContactAngle))) else 0;
+  cloth[1].mastPlane=zeros(4);
+  cloth[2].mastPlane=if catamaran then jibMastPlane(mastStations,sheetRotation[2,:,:],{footX[2],0,footZ[2]},.065,jibContactAngle) else zeros(4);
   cloth[1].mastOffset=zeros(3);
   cloth[2].mastOffset=zeros(3);
   mainTension=lineTension[1];jibTension=sum(lineTension[2:3]);
@@ -1286,12 +1372,12 @@ equation
   for m in 1:2 loop
     tipLocal[m,:]=if m==1 then {-bailFromGooseneck*cos(boomElevation)-mainBailDrop*sin(boomElevation),0,
       bailFromGooseneck*sin(boomElevation)-mainBailDrop*cos(boomElevation)}
-      else {-attachRadius[m],0,0};
+      elseif catamaran then cloth[2].vertex[4,:] else {-attachRadius[m],0,0};
     attachment[m,:]=sheetRotation[m,:,:]*tipLocal[m,:]+(if m==1 then gooseneckOffset else zeros(3));
     tipVel[m,:]=cross(trimRate[m]*{axisX[m],0,axisZ[m]},sheetRotation[m,:,:]*tipLocal[m,:])+
       (if m==1 then sheetRotation[m,:,:]*cross({0,boomLiftRate,0},tipLocal[m,:])+
         der(tackDrop)*{mainMastSlope,0,-1}+mastRotationRate*cross({axisX[1],0,axisZ[1]},mastTrackOffset)
-        else zeros(3));
+        elseif catamaran then sheetRotation[m,:,:]*cloth[2].velocity[4,:] else zeros(3));
     rigWaterMass[m]=1025*.04*wettedArea[m];
     hingeWaterInertia[m]=rigWaterMass[m]*feet[m]^2/6;
     der(trim[m])=trimRate[m];
@@ -1371,8 +1457,12 @@ equation
   frictionCoefficient=if hullRe<5e5 then 1.328/sqrt(max(1,hullRe)) else .075/(log10(hullRe)-2)^2;
   skinDrag=.5*1025*skinArea*(1+formFactor)*frictionCoefficient*waterRelative[1]*abs(waterRelative[1]);
   rigCollision=if catamaran then rigCapsules(mastStations,cat(1,stayPath[1:2,:,:],{forestayPath}),rudder) else zeros(19,7);
-  shoreWrench=Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing)+rigShoreWrench;
+  shoreWrench=Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing)+rigShoreWrench+rockShoreWrench;
   when sample(0,.02) then
+    rockShoreWrench=if catamaran and abs(east-36)<31 and abs(north-40)<26 then
+      Shore.hobieRockContact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,
+        halfSpacing,platformContactCorners,pontoonContactVertices,pontoonContactFaces,Shore.rocks,Shore.planes)
+      else zeros(6);
     rigShoreWrench=if catamaran then rigTerrainContact({east,north,heave},heading,rotation,
       {surge,sway,vertical},spin,rigCollision) else zeros(6);
     (sceneForce,sceneContact,committeeReaction)=contactWrench({east,north,heading,ve,vn,yawRate,heave},sceneTraffic,if catamaran then 1 else 0,{heel,pitch},sceneTilt);
@@ -1407,13 +1497,13 @@ equation
         hydroSectionVolume[hull,(band-1)*hydroSubdivisions+1]
           +(if catamaran then hydroSectionVolume[hull,band*hydroSubdivisions] else 0) else 0;
     end for;
-    (hullLift[hull],hullPitch[hull],hullRoll[hull],impact[hull,:],impactTorque[hull],foredeckDepth[hull],
-     hydroSectionVolume[hull,:],wettedSkin[hull],hullSwellForce[hull,:])=hullHydrostatics(
-      hydroStationBounds,hydroStationGeometry,beamFraction,rotation,surfaceNormal,
-      (if useSectionWater>.5 then 0 else waveHeight)-heave,(if hull==1 then 1 else -1)*halfSpacing,
-      if catamaran then 2.65 else 1,hydroSectionWater[hull,:],useSectionWater,
-      swellAmplitude,swellLocal,swellPhase,swellK,swellOmega,{surge,sway,vertical},spin);
   end for;
+  (hullLift,hullPitch,hullRoll,impact,impactTorque,foredeckDepth,
+     hydroSectionVolume,wettedSkin,hullSwellForce)=hullPairHydrostatics(
+      hydroStationBounds,hydroStationGeometry,beamFraction,rotation,surfaceNormal,
+      (if useSectionWater>.5 then 0 else waveHeight)-heave,halfSpacing,
+      if catamaran then 2.65 else 1,hydroSectionWater,useSectionWater,
+      swellAmplitude,swellLocal,swellPhase,swellK,swellOmega,{surge,sway,vertical},spin);
   buoyancy=hullLift[1]+(if catamaran then hullLift[2] else 0);
   pitchBuoyancy=hullPitch[1]+(if catamaran then hullPitch[2] else 0);
   waterDamping=if catamaran then 2*heaveDampingRatio*sqrt(1025*9.80665*waterplaneArea/totalMass)*min(1,buoyancy/(mass*9.80665)) else 5.8;

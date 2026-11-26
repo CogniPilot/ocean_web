@@ -62,7 +62,7 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
     cp:=cos(state[6]);sp:=sin(state[6]);ct:=cos(state[8]);st:=sin(state[8]);
     // The furthest fluke probe stays within 6.7 m of the body origin.
     if Shore.aboveFlatBottom(state[1],state[2],state[3],6.7) and
-       (min(state[1:3]-Wreck.WreckSolids.wreckLow)<-6.7 or min(Wreck.WreckSolids.wreckHigh-state[1:3])<-6.7) then
+       not Wreck.WreckSolids.nearSite(state[1:3],6.7) then
       for i in 1:7 loop
         zOffset:=side[i]*sr+below[i]*cr;
         loads[11]:=min(loads[11],state[3]+(if i<=5 then along[i]*sp+zOffset*cp

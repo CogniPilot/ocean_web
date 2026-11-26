@@ -29,3 +29,24 @@ const legacy = new PeerTimeline();
 assert(legacy.receive(new Float32Array(232), 20));
 assert.equal(legacy.at(20).fraction, 0);
 console.log('Peer interpolation passed jitter, independent clocks, reordered packets, gap recovery and legacy packet checks.');
+
+const background=new PeerTimeline();
+for(const time of [1,3.2,3.3]){
+  const data=new Float32Array(232);
+  data[215]=time;
+  data[218]=time===3.3?16.2:time*5;
+  background.receive(data,5000+time*1000);
+}
+function northSpeed(now){
+  const {left,right}=background.at(now);
+  const {from,to,dt}=background.motionSpan(left,right);
+  return (to[218]-from[218])/dt;
+}
+assert(Math.abs(northSpeed(7500)-5)<.0001);
+assert(Math.abs(northSpeed(9000)-2)<.0001);
+const legacyNext=new Float32Array(232);
+legacyNext[218]=5;
+legacy.receive(legacyNext,1020);
+const legacyPose=legacy.at(750);
+assert.equal(legacy.motionSpan(legacyPose.left,legacyPose.right).dt,1);
+console.log('Carrier rates retained through background gaps and legacy snapshots.');

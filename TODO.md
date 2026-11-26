@@ -12,6 +12,9 @@ A checked item records the specific result described. Open items include partial
 
 ### Latest playtests
 
+- [ ] Fit the scuba weight belt flush against the wetsuit around the waist. Check the buckle and rear strap while gliding, kicking and standing.
+
+- [x] Zoom and pan the harbor chart with a mouse, keyboard or touch gestures and pick spawn points on the chart.
 - [ ] Make the island palms look less regular. Use the supplied island photo as a reference for varied heights, curved and leaning trunks, denser overlapping fronds and irregular clusters with visible gaps. Check the result from the waterline and at race-course distances.
 
 - [x] Match Piccard WASD and arrow keys to two mobile joysticks and preserve its Q/E and R/F aliases. Joining the shark or whale releases Piccard input and hides its sensor window; returning to the sub restores it. Verified in desktop and emulated mobile Chromium.

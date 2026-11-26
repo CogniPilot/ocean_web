@@ -1,3 +1,4 @@
+import {wreckApproach} from './red-sea-sites.mjs';
 import {cruiserBowLength} from './bow-grid.mjs';
 import {sailingStart,startGate,windBearing,windSpeed} from './sailing-start.mjs';
 // Views share one committed worker snapshot, so every mesh uses the same clock.
@@ -35,7 +36,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  let id=0,error,time=0;
  const pending=new Map();
  const state=new Map();
- const surveyView={camera:false,dvl:false,map:false,wakeSource:false,wakeSurface:!omitWake,physics:false};
+ const surveyView={camera:false,dvl:false,map:false,wakeSource:false,wakeSurface:!omitWake,physics:false,loads:false};
  function fail(reason){
    error=reason;
    for(const reply of pending.values())reply.reject(reason);
@@ -74,6 +75,12 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    parameters['boat.launchSeaState']=seaState;
    for(const [key,value] of Object.entries(options.start??sailingStart(mode!=='sloop',windBearing,initial.windBearing)))parameters['boat.'+key]=value;
  }
+ if(hasSub){
+   const spawn=options.subStart??wreckApproach();
+   for(const [i,value] of spawn.position.entries())parameters['sub.spawnPosition['+(i+1)+']']=value;
+   for(const [i,value] of spawn.velocity.entries())parameters['sub.spawnVelocity['+(i+1)+']']=value;
+   parameters['sub.spawnHeading']=spawn.heading;
+ }
  if(mode==='motorboat'&&options.motorStart){
    parameters.initialEast=options.motorStart.launchEast;
    parameters.initialNorth=options.motorStart.launchNorth;
@@ -87,14 +94,14 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
    breakingBows:mode==='motorboat'||(hasBoat&&mode!=='sloop'),singleBow:mode==='motorboat',bowLength:mode==='motorboat'?cruiserBowLength:8,warmSolver:options.warmSolver,
    reportProgress:Boolean(options.onProgress),
-   optionalInputs:[...(hasBoat&&mode!=='sloop'?['jibHalyardInput']:[]),...(mode==='motorboat'?['startEncounter','encounterTargets','wiperSwitch','lowerAnchor','droneLandingLoad']:[]),...(hasFlight?['rotorWakeTraffic','droneTraffic','vesselDecks']:[]),'animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','omitWake','subMode','subAttitudePilot'],
-   optionalOutputs:['swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame','sternFoamTrail',...inertiaOutputs,
+   optionalInputs:[...(hasSub?['peerCruisers','peerLiftStates','subFlood']:[]),...(mode==='motorboat'?['peerSubs']:[]),...(hasBoat&&mode!=='sloop'?['jibHalyardInput']:[]),...(mode==='motorboat'?['startEncounter','encounterTargets','wiperSwitch','lowerAnchor','droneLandingLoad','sternLiftGoal','sternLiftOccupied']:[]),...(hasFlight?['rotorWakeTraffic','droneTraffic','vesselDecks']:[]),'animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','imagingSonar','omitWake','subMode','subAttitudePilot','subHoist','subHoistUp','subHoistQuaternion','subHoistAngularVelocity'],
+   optionalOutputs:[...(hasBoat?group('boat','origin rigMoment'):[]),...(hasSub?group('sub','contactMoment wetTorque'):[]),...(mode==='motorboat'?group('propulsion','propellerCenter rudderCenter propellerForce rudderForce shaftReaction'):[]),...(mode==='motorboat'?['sternLiftState','sternLiftPose','sternLiftBottomPose','sternLiftWrench','sternHoistCable','sternHoistSeated']:[]),'swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame','sternFoamTrail',...inertiaOutputs,
      ...launchContactOutputs,
-     ...(hasSub?group('sub.ocean','tide wind bearing tidalEast'):[]),
+     ...(hasSub?['subFloodState','sub.batteryTelemetry','sub.pilotPitchLimit',...group('sub.ocean','tide wind bearing tidalEast')]:[]),
      'race.earlyStart','race.finishUtc','race.heatStart',
      ...(hasBoat&&mode!=='sloop'?['boat.ballastTrapezeReach','boat.travelerEase','boat.travelerTension','boat.travelerSag','boat.travelerMounts','boat.jibSheet','boat.jibSheetPins','boat.jibSheetLoads','boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins','boat.mainBlockClearance','boat.blockStack','boat.mastBend','boat.forestayPath','boat.forestayTension','boat.jibHalyardTension','boat.mastRake','boat.mastRotation','boat.rigCollision',
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
-     ...(hasBoat?[...hullInspectionOutputs,'boat.sailWind','boat.stationX','boat.beamHalf','boat.halfSpacing','boat.deckZ','boat.pontoonContactVertices','boat.pontoonContactFaces']:[]),
+     ...(hasBoat?[...hullInspectionOutputs,'boat.sailWind','boat.stationX','boat.beamHalf','boat.halfSpacing','boat.deckZ','boat.pontoonContactVertices','boat.pontoonContactFaces','boat.platformContactCorners']:[]),
      ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes','sectionStamp',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
      ...(mode==='motorboat'?[...cruiserInspectionFields,'driveGeometry','panelSea','cruiserContactVertices','cruiserContactFaces','cabinContactVertices','cabinContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','anchorHolding','anchor.horizontalSpeed','landingDeck','engineIdleTime','engineOffAfter']:[]),...(hasFlight?[...flightNavigationOutputs,...flightWakeOutputs,...droneContactOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount','drone.vesselDeckWrenches']:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
@@ -102,6 +109,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
    if(typeof value==='number')controls[i]=value;else controls.set(value,i);}
  if(offsets.has('idleCamera'))set('idleCamera',1);
+ if(offsets.has('sternLiftGoal'))set('sternLiftGoal',1);
  if(offsets.has('omitWake'))set('omitWake',omitWake);
  Object.entries(initial).forEach(([name,v])=>set(name,v));
  function unpack(fields,values){
@@ -122,12 +130,15 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  // Keep the worker supplied while the main thread draws. Both requests run
  // serially on the same FMU. Step counts here are centiseconds, even when
  // the FMU takes two ticks per communication point.
- let batchSize=5;
- let outstanding=0,queued=0,afterAdvance;
- function advance(steps,headroom=false){
+ let batchSize=5,wallMsPerTick=10;
+ let outstanding=0,queued=0,afterAdvance,appliedHoistCommand=0;
+ const hoistOffset=offsets.get('subHoist');
+ function advance(steps,headroom=false,rate=1){
    if(error)throw error;
    if(document.hidden)return 0;
-   batchSize=headroom?10:Math.ceil(5/stepTicks)*stepTicks;
+   // Limit the time before fresh helm inputs reach an accelerated worker.
+   const batchTicks=Math.min(5*rate,Math.max(5,Math.floor(35/wallMsPerTick)));
+   batchSize=headroom?10:Math.ceil(batchTicks/stepTicks)*stepTicks;
    const capacity=Math.max(0,2*batchSize-outstanding-queued);
    const accepted=Math.floor(Math.min(steps,capacity)/stepTicks)*stepTicks;
    queued+=accepted;
@@ -140,9 +151,15 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
      queued-=steps;
      set('epoch',Date.now()/1000-time-.01*outstanding);
      outstanding+=steps;
-     const revision=wakeRevision;
+     const revision=wakeRevision,started=performance.now();
+     const hoistCommand=hoistOffset===undefined?0:controls[hoistOffset];
      send({type:'advance',steps,values:controls,surveyView}).then(f=>{
+       appliedHoistCommand=hoistCommand;
        outstanding-=steps;
+       // A second queued request also waits for the first one and browser
+       // presentation. Only the worker service time predicts the next batch.
+       const serviceMs=f.serviceMs??(performance.now()-started);
+       wallMsPerTick=.8*wallMsPerTick+.2*serviceMs/steps;
        receive(f,revision);
        afterAdvance?.(time);
        dispatch();
@@ -161,7 +178,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const flight=view('drone',(n,v)=>{const i=axes.indexOf(n);if(i>=0)controls[offsets.get('flightPilot')+i]=v;
    else if(n==='stationEast'||n==='stationNorth')controls[offsets.get('station')+Number(n==='stationNorth')]=v;
    else set(n==='pilot'?'flightManual':n,v);});
- return {advance,get scheduledSteps(){return outstanding+queued;},setAfterAdvance(callback){afterAdvance=callback;},setPhysicsRequested(enabled){surveyView.physics=enabled;},setWakeSourceRequested(enabled){
+ return {advance,get appliedHoistCommand(){return appliedHoistCommand;},get scheduledSteps(){return outstanding+queued;},setAfterAdvance(callback){afterAdvance=callback;},setLoadInspection(enabled){surveyView.loads=enabled;},setPhysicsRequested(enabled){surveyView.physics=enabled;},setWakeSourceRequested(enabled){
    surveyView.wakeSource=enabled;
    if(!enabled)state.delete('waves.sourceStrips');
   },setWakeEnabled(enabled){
@@ -169,5 +186,10 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    if(surveyView.wakeSurface!==enabled)wakeRevision++;
    surveyView.wakeSurface=enabled;
    if(!enabled)for(const name of ['waves.height','bowHeight','bowFoam','bowSpray','sternFoamTrail'])state.delete(name);
- },hasWiper:offsets.has('wiperSwitch'),hasAnchor:offsets.has('lowerAnchor'),hasLandingLoad:offsets.has('droneLandingLoad'),hasVesselDecks:offsets.has('vesselDecks'),hasEncounter:offsets.has('startEncounter')&&offsets.has('encounterTargets')&&state.has('encounterShark'),hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasAnimalJoints:offsets.has('animalJoints'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),hasRotorWake:offsets.has('rotorWakeTraffic'),hasDroneContact:offsets.has('droneTraffic'),setSurveyView(active,camera,map,dvl=false){surveyView.dvl=camera||dvl;surveyView.camera=camera;surveyView.map=map;if(offsets.has('idleCamera'))set('idleCamera',active?-1:1);},clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
+ },hasSubFlood:offsets.has('subFlood')&&state.has('subFloodState'),hasPeerCruisers:offsets.has('peerCruisers'),hasPeerLiftStates:offsets.has('peerLiftStates'),hasPeerSubs:offsets.has('peerSubs'),hasWiper:offsets.has('wiperSwitch'),hasAnchor:offsets.has('lowerAnchor'),hasLandingLoad:offsets.has('droneLandingLoad'),hasSternLift:offsets.has('sternLiftGoal')&&offsets.has('sternLiftOccupied')&&state.has('sternLiftState'),hasVesselDecks:offsets.has('vesselDecks'),hasEncounter:offsets.has('startEncounter')&&offsets.has('encounterTargets')&&state.has('encounterShark'),hasSubHoist:offsets.has('subHoist'),hasSubHoistUp:offsets.has('subHoistUp'),hasHoistHandoff:offsets.has('subHoistQuaternion')&&offsets.has('subHoistAngularVelocity'),hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasAnimalJoints:offsets.has('animalJoints'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),hasRotorWake:offsets.has('rotorWakeTraffic'),hasDroneContact:offsets.has('droneTraffic'),setSurveyView(acquireSurvey,showSonar,map,dvl=false){
+   surveyView.dvl=showSonar||dvl;surveyView.camera=showSonar;surveyView.map=map;
+   const separateSonar=offsets.has('imagingSonar');
+   if(separateSonar)set('imagingSonar',Number(showSonar));
+   if(offsets.has('idleCamera'))set('idleCamera',acquireSurvey||(!separateSonar&&showSonar)?-1:1);
+ },clearQueued:()=>{queued=0;},set,flight:hasFlight?flight:null,boat:hasBoat?view('boat',(n,v)=>set(boatInputs[n],v)):null,race:view('race'),wind:view('wind'),get:n=>state.get(n),get time(){return time;}};
 }

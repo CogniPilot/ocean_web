@@ -162,6 +162,37 @@ function loadSwimmerHulls(){
   }
 }
 export function drawAnimalCollision(painter,frame,kind){
+  if(kind==='diver'){
+    if(frame.userData.diverTriangles&&painter.lines){
+      frame.userData.diverTriangles((part,wire)=>painter.lines(null,wire,part==='tank'?'#f5cd79':part==='fin'?'#8fc8ff':'#6ae5b5'));
+      return;
+    }
+    const rows=frame.userData.diverProbes?.(),kinds=frame.userData.diverParts;
+    if(rows)for(let k=0;k<rows.length;k+=4){
+      const r=rows[k+3],part=kinds[k/4];
+      painter.ellipsoid(null,[rows[k],rows[k+1],rows[k+2]],[r,r,r],
+        part==='tank'?'#f5cd79':part==='fin'?'#8fc8ff':'#6ae5b5');
+    }
+    return;
+  }
+  if(kind==='manta'){
+    const rest=frame.userData.mantaRestCapsules;
+    if(!rest)return;
+    const angles=frame.userData.mantaWingAngles??[0,0];
+    const posed=frame.userData.mantaOverlayCapsules??=new Float64Array(70);
+    for(let i=0;i<10;i++){
+      const row=rest[i];
+      posed.set(row,7*i);
+      if(i<4)continue;
+      for(const endpoint of [0,3]){
+        const y=row[endpoint+1],z=row[endpoint+2],arm=Math.max(0,Math.abs(y)-.48),angle=angles[y>=0?0:1],c=Math.cos(angle),s=Math.sin(angle);
+        posed[7*i+endpoint+1]=y+Math.sign(y)*(arm*(c-1)-z*s);
+        posed[7*i+endpoint+2]=z*c+arm*s;
+      }
+    }
+    painter.rigCapsules(frame,posed);
+    return;
+  }
   if(kind!=='whale'&&kind!=='shark')return;
   frame.updateWorldMatrix(true,false);
   const pose=frame.userData.contactPose;

@@ -22,16 +22,27 @@ function partition(name,p,material,bones){
     if(x>2.15)return ['rostrum',0];
     return ['torso',0];
   }
-  if(x< -1.65&&(z>.0||z<-.29))return [z>0?'upper caudal':'lower caudal',3];
-  if(z>.30&&x>-.62&&x<.74)return ['dorsal',0];
-  if((bones.some(b=>b==='Bone'||b.startsWith('Bone.'))&&Math.abs(y)>.28)||(Math.abs(y)>.47&&z<-.25))return [side+' pectoral',0];
+  if(x< -1.65&&(z>.0||z<-.29)){
+    const upper=z>0;
+    return [(upper?'upper':'lower')+' caudal '+(Math.abs(z+.15)>.47?'tip':'root'),3];
+  }
+  if(z>.30&&x>-.62&&x<.74)return ['dorsal '+(z>.58?'tip':'root'),0];
+  if((bones.some(b=>b==='Bone'||b.startsWith('Bone.'))&&Math.abs(y)>.28)||(Math.abs(y)>.47&&z<-.25)){
+    return [side+' pectoral '+(Math.abs(y)>.75?'tip':'root'),y>0?4:5];
+  }
+  // Axial stations follow the changing girth and taper of the snout and peduncle.
+  if(x< -1.56)return ['caudal base',2];
   if(x< -1.04)return ['peduncle',2];
-  if(x<-.18)return ['aft torso',1];
-  if(x>1.28)return ['rostrum',0];
-  return ['torso',0];
+  if(x< -.64)return ['rear flank',1];
+  if(x< -.18)return ['aft torso',1];
+  if(x<.48)return ['mid torso',0];
+  if(x<1.04)return ['shoulders',0];
+  if(x<1.54)return ['gill region',0];
+  if(x<1.98)return ['jaw',0];
+  return ['snout',0];
 }
 
-function fit(points){
+function fit(points,triangulate=false){
   const box=new T.Box3().setFromPoints(points),size=box.getSize(vec());
   const planes=[];
   for(const x of [-1,0,1])for(const y of [-1,0,1])for(const z of [-1,0,1]){
@@ -58,10 +69,27 @@ function fit(points){
       for(const t of [lo,hi])wire.push(...start.clone().addScaledVector(axis,t).toArray().map(digits));
     }
   }
-  return {planes:planes.map(({n,h})=>[...n.toArray(),h].map(digits)),wire,
+  const vertices=[],faces=[];
+  if(triangulate){
+    const unique=new Map();
+    for(let i=0;i<wire.length;i+=3){
+      const p=wire.slice(i,i+3),key=p.join(',');
+      if(!unique.has(key)){unique.set(key,vertices.length);vertices.push(p);}
+    }
+    for(const {n,h} of planes){
+      const ids=vertices.map((p,i)=>Math.abs(n.dot(vec(...p))-h)<.000018?i:-1).filter(i=>i>=0);
+      if(ids.length<3)continue;
+      const center=ids.reduce((c,i)=>c.add(vec(...vertices[i])),vec()).divideScalar(ids.length);
+      const u=vec(...vertices[ids[0]]).sub(center).normalize(),v=vec().crossVectors(n,u);
+      const angle=i=>{const d=vec(...vertices[i]).sub(center);return Math.atan2(d.dot(v),d.dot(u));};
+      ids.sort((a,b)=>angle(a)-angle(b));
+      for(let j=1;j+1<ids.length;j++)faces.push([ids[0],ids[j],ids[j+1]]);
+    }
+  }
+  return {vertices,faces,planes:planes.map(({n,h})=>[...n.toArray(),h].map(digits)),wire,
     bounds:[...box.min.toArray(),...box.max.toArray()].map(digits)};
 }
-const rows=[],bounds=[],joints=[],pivots=[],visuals={},counts=[],probes={};
+const sharkMesh=[],rows=[],bounds=[],joints=[],pivots=[],visuals={},counts=[],probes={};
 const probeTargets={
   whale:[[-2,0,-.84],[.5,0,-1.23],[4.35,0,-.3],[-.55,3.42,-1.9],[-.55,-3.42,-1.9],[-6,2.16,.25],[-6,-2.16,.25]],
   shark:[[2.32,0,-.19],[1.22,0,-.53],[0,0,-.68],[-1.12,0,-.40],[-2.24,0,-.8],
@@ -81,7 +109,7 @@ for(const name of ['whale','shark']){
   model.scale.setScalar(scale);
   if(name==='shark')model.position.copy(box.getCenter(vec())).multiplyScalar(-scale);
   group.updateMatrixWorld(true);
-  const names=name==='whale'?['Spine3','Spine4','Tail','TopFlipper.L','TopFlipper.R']:['Spine2','Spine3','Tail'];
+  const names=name==='whale'?['Spine3','Spine4','Tail','TopFlipper.L','TopFlipper.R']:['Spine2','Spine3','Tail','Bone','Bone001'];
   const pivot=names.map(n=>point(n).toArray().map(digits));
   while(pivot.length<5)pivot.push([0,0,0]);pivots.push(...pivot);
   const parts=new Map();
@@ -90,17 +118,32 @@ for(const name of ['whale','shark']){
     const feed=mesh.morphTargetDictionary?.Feed;
     if(feed!=null)mesh.morphTargetInfluences[feed]=0;
     const weights=mesh.geometry.attributes.skinWeight,ids=mesh.geometry.attributes.skinIndex;
+    const samples=[];
     for(let i=0;i<weights.count;i++){
       const p=mesh.localToWorld(mesh.getVertexPosition(i,vec())),bones=[];
       for(let k=0;k<4;k++)if(weights.getComponent(i,k)>.04)bones.push(mesh.skeleton.bones[ids.getComponent(i,k)].name);
-      const [part,joint]=partition(name,p,mesh.material.name,bones);
-      if(!parts.has(part))parts.set(part,{joint,points:[]});
-      parts.get(part).points.push(p);
+      samples.push({p,bones});
+      if(name==='whale'){
+        const [part,joint]=partition(name,p,mesh.material.name,bones);
+        if(!parts.has(part))parts.set(part,{joint,points:[]});
+        parts.get(part).points.push(p);
+      }
+    }
+    if(name==='shark'){
+      const indices=mesh.geometry.index?.array??samples.map((_,i)=>i);
+      for(let i=0;i<indices.length;i+=3){
+        const tri=[samples[indices[i]],samples[indices[i+1]],samples[indices[i+2]]];
+        const center=tri.reduce((v,sample)=>v.add(sample.p),vec()).divideScalar(3);
+        const [part,joint]=partition(name,center,mesh.material.name,tri.flatMap(s=>s.bones));
+        if(!parts.has(part))parts.set(part,{joint,points:[]});
+        parts.get(part).points.push(...tri.map(s=>s.p));
+      }
     }
   });
   visuals[name]=[];
   for(const [part,{points,joint}] of parts){
-    const {planes,wire,bounds:extents}=fit(points);
+    const {planes,wire,vertices,faces,bounds:extents}=fit(points,name==='shark');
+    if(name==='shark')sharkMesh.push({part,joint,bounds:extents,vertices,faces,planes});
     rows.push(...planes);bounds.push(extents);joints.push(joint);
     visuals[name].push({part,bone:joint?names[joint-1]:null,wire});
     console.log(name,part,extents);
@@ -124,7 +167,8 @@ const content='within Wreck;\npackage SwimmerHulls "Convex supports in the neutr
   '  constant Real whaleSkin[7,3]='+matrix(probes.whale)+';\n  constant Real sharkSkin[9,3]='+matrix(probes.shark)+';\n'+
   '  constant Real planes['+rows.length+',4]='+matrix(rows)+';\nend SwimmerHulls;\n';
 for(const [file,data] of [
-  ['../Wreck/SwimmerHulls.mo',content],['../viewer/assets/swimmer-hulls.json',JSON.stringify({...visuals,probes})+'\n']
+  ['../Wreck/SwimmerHulls.mo',content],
+  ['../viewer/shark-contact-data.mjs','// Generated by tools/build-swimmer-hulls.mjs in the neutral body frame (metres).\nexport const pivots='+JSON.stringify(pivots.slice(5))+';\nexport const pieces='+JSON.stringify(sharkMesh)+';\n'],['../viewer/assets/swimmer-hulls.json',JSON.stringify({...visuals,probes})+'\n']
 ]){
   const url=new URL(file,import.meta.url);
   if(process.argv.includes('--check'))assert.equal(await readFile(url,'utf8'),data,file+' is stale');

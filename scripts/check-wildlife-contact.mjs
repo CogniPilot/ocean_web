@@ -82,3 +82,20 @@ for(const kind of [1,2]){
   for(let i=0;i<8;i++){s.advance(.01);const reaction=s.get('npcContact');peak=Math.max(peak,Math.hypot(reaction[0],reaction[1]));}
   assert(peak>100);console.log('NPC Hobie contact against shared last slot',{kind,peak});
 }
+
+// One raised wing reaches the port hull at this height. Swapping the two
+// solved angles preserves mean stroke and moves that wing below the hull.
+const rayFrame=Array(29).fill(0);
+rayFrame[3]=-5;
+const rays=new Map([['manta',{id:'manta',kind:'manta',frame:rayFrame}]]);
+const hull=await open('HullWildlife',{hullClass:1,pose:[-.6,2,-4.5,0,0,0],velocity:[0,0,0]});
+function wingContact(port,starboard){
+  rayFrame[23]=port;rayFrame[24]=starboard;
+  const traffic=new Float64Array(90),articulation=new Float64Array(40);
+  writeAnimalContacts(rays,null,traffic,articulation);
+  hull.set('traffic',traffic);hull.set('articulation',articulation);
+  return Math.hypot(...hull.get('wrench').slice(0,3));
+}
+assert(wingContact(.55,-.45)>500);
+assert.equal(wingContact(-.45,.55),0);
+console.log('Vessel contact follows the independently posed port wing.');

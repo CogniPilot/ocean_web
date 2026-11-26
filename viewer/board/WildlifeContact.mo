@@ -3,7 +3,7 @@ function WildlifeContact "Boat contact against moving animal envelopes in ENU"
   input Real boat[6] "ENU position, roll, nose-down pitch, yaw";
   input Real velocity[3] "East, north, yaw rate";
   input Real mass,hullLength,halfWidth,spacing,draft;
-  input Real traffic[10,9]=zeros(10,9) "Kind (1 whale, 2 shark), ENU, yaw, nose-up pitch, east/north velocity, roll";
+  input Real traffic[10,9]=zeros(10,9) "Kind (1 whale, 2 shark, 3 manta), ENU, yaw, nose-up pitch, east/north velocity, roll";
   input Real articulation[10,4]=zeros(10,4) "Whale bend, feather and paired flipper angles, or shark trunk, peduncle and caudal angles";
   output Real wrench[6];
 
@@ -12,7 +12,7 @@ protected
   Real armE,armN,best,nx,ny,mag,speedNormal,lever,force;
   Real frames[6,3,4],frame[3,3],hit[4],normal[3],lx,ly,lz,penetration,width;
 algorithm
-  wrench:=zeros(6);
+  wrench:=Wreck.mantaVesselLoad(traffic,articulation,boat,velocity,hullLength,halfWidth,spacing,draft);
   for k in 1:10 loop
     a:=traffic[k,:];
     if k<=2 and a[1]<.5 and animals[min(2,k),1]>.5 then
@@ -20,7 +20,7 @@ algorithm
           animals[min(2,k),5],animals[min(2,k),6],0,0,0};
     end if;
     dx:=boat[1]-a[2];dy:=boat[2]-a[3];dz:=boat[3]-a[4];
-    if a[1]>.5 and dx*dx+dy*dy<(hullLength*.5+6.5)^2 and abs(dz)<6+draft then
+    if a[1]>.5 and a[1]<2.5 and dx*dx+dy*dy<(hullLength*.5+6.5)^2 and abs(dz)<6+draft then
       c:=cos(a[5]);s:=sin(a[5]);cp:=cos(a[6]);sp:=sin(a[6]);cr:=cos(a[9]);sr:=sin(a[9]);
       frame:=SwimmerCollision.worldFrame(a[5],a[6],a[9]);
       frames:=SwimmerCollision.skinFrames(a[1]<1.5,articulation[k,:]);

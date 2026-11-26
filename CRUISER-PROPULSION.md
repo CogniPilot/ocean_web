@@ -34,7 +34,7 @@ After building the simulator, prepare the standalone FMI component with the same
 
 ```bash
 "$RUMOCA" compile models/CruiserPropulsion.mo -m CruiserPropulsion \
-  --source-root .deps/msl --target fmi3 -o build/fmi3/CruiserPropulsion
+  --source-root .deps/msl --source-root .deps/marine-models --target fmi3 -o build/fmi3/CruiserPropulsion
 mkdir -p build/propulsion-browser
 python3 scripts/browser-fmi3.py build/fmi3/CruiserPropulsion/CruiserPropulsion \
   build/propulsion-browser

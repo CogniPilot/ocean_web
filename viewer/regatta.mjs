@@ -1,5 +1,6 @@
 import {inboardMixer} from './inboard-audio.mjs';
 import {droneMixer} from './drone-audio.mjs';
+import {piccardImpactDetector,piccardKnock,piccardMixer} from './piccard-audio.mjs';
 import {showInLowWaterCapture} from './render-layers.mjs';
 
 // Compass bearing clockwise from true north in the east/north world frame.
@@ -418,11 +419,64 @@ export function hullWashMix(speed,swell,wake){
   return {gurgle:Math.sqrt(1-blend)*low,rush:Math.sqrt(blend)*high};
 }
 
+// Signed listener height above the local animated wave, in metres.
+export function underwaterMix(height){
+  const t=Math.max(0,Math.min(1,.5-height/.7));
+  return t*t*(3-2*t);
+}
+
+// Piccard contacts short crests over its hull height. The cruiser crossfades
+// from lapping at rest to the existing hull wash as it gathers headway.
+export function hullLappingMix(piccard,height,speed){
+  const smooth=t=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
+  if(piccard)return smooth((height+.29)/.24)*(1-smooth((height-.08)/.17));
+  return 1-smooth((Math.abs(speed)-.25)/1.6);
+}
+
+// Arm only after seeing this rider's skids clearly above the local water.
+// Once a launch wets the skids, waves cannot retrigger it until another recovery.
+export function hoistWaterEntry(){
+  let rider,armed=false,wet=false;
+  return (lift,clearance)=>{
+    if(rider!==lift?.rider){rider=lift?.rider;armed=false;wet=false;}
+    if(!rider||!Number.isFinite(clearance))return false;
+    if(lift.goal===1&&clearance>.15){wet=false;armed=true;}
+    if(!wet&&clearance>.06)armed=true;
+    if(lift.goal!==0||!armed||wet||clearance>0)return false;
+    armed=false;wet=true;return true;
+  };
+}
+
 export function raceAudio(T){
   let engines,audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
   let submerged,effects,luffGain,flapOscillator,flapRate,level=.15;
   let waves,waveGains,lastWaveMix=-Infinity,lastWaveTime,waveTimeWall,wavesActive=false;
-  let hullWash;
+  let hullWash,hullLapping,piccardVoices,piccardRecording,piccardRetryAt=0;
+  function silencePiccard(){piccardVoices?.stop();piccardVoices=undefined;}
+  const detectPiccardImpact=piccardImpactDetector();
+  function submarineSound(sub,camera,wet,running,peers=[]){
+    const frame=sub?.frame;
+    const impact=frame?.contact?detectPiccardImpact(frame.time,Math.hypot(...frame.contact)):0;
+    if(!enabled||!level)return;
+    if(!piccardVoices&&!sub?.active&&!peers.length)return;
+    if(piccardRecording){
+      piccardVoices??=piccardMixer(audio,effects,piccardRecording);
+      piccardVoices.update(sub,peers,camera,wet,running);
+    }else if(audio.currentTime>=piccardRetryAt){
+      piccardRetryAt=Infinity;
+      decodeRecording('piccard-engine.flac').then(buffer=>{piccardRecording=buffer;})
+        .catch(error=>{
+          piccardRetryAt=audio.currentTime+30;
+          console.warn('Piccard motor recording unavailable',error);
+        });
+    }
+    if(impact&&sub.active&&running&&wet>0&&audio.state==='running'){
+      const source=sub.mesh.position,eye=camera.position,right=camera.matrixWorld.elements;
+      const dx=source.x-eye.x,dy=source.y-eye.y,dz=source.z-eye.z,distance=Math.hypot(dx,dy,dz);
+      const balance=(dx*right[0]+dy*right[1]+dz*right[2])/Math.max(2,distance);
+      piccardKnock(audio,effects,impact*wet,distance,balance);
+    }
+  }
   function silenceLuff(){
     flapRate?.reset();
     if(luffGain)luffGain.gain.setTargetAtTime(0,audio.currentTime,.06);
@@ -430,6 +484,7 @@ export function raceAudio(T){
   function silenceWaves(){
     if(!wavesActive)return;
     wavesActive=false;
+    hullLapping?.gain.setTargetAtTime(0,audio.currentTime,.16);
     waves?.reset();
     for(const gain of hullWash??[])gain.gain.setTargetAtTime(0,audio.currentTime,.20);
     for(const gain of waveGains??[])gain.gain.setTargetAtTime(0,audio.currentTime,.15);
@@ -437,7 +492,7 @@ export function raceAudio(T){
   function setVolume(value){
     level=value;
     if(effects)effects.gain.setTargetAtTime(level,audio.currentTime,.025);
-    if(!level){silenceLuff();silenceWaves();}
+    if(!level){silenceLuff();silenceWaves();silencePiccard();}
   }
   function connectCabinRadio(media){
     const speaker=audio.createPanner(),gain=audio.createGain();
@@ -494,19 +549,25 @@ export function raceAudio(T){
   }
   const loading=new Set(),gullCalls=['1','2','4','5','6'].map(take=>'gull-'+take+'.mp3');
   const gullRecordings=new Map();
+  let exhaleBuffer,loadingExhale;
   async function decodeRecording(file){
     const response=await fetch(new URL('./assets/audio/'+file,import.meta.url));
     if(!response.ok)throw Error('Audio HTTP '+response.status);
     return audio.decodeAudioData(await response.arrayBuffer());
   }
-  function startAmbience(file,destination){
+  function startAmbience(file,destination,fadeIn=false){
     if(loading.has(file))return;
     loading.add(file);
     decodeRecording(file)
       .then(buffer=>{
         const source=audio.createBufferSource();
         source.buffer=buffer;source.loop=true;
-        source.connect(destination);source.start();
+        if(fadeIn){
+          const entrance=audio.createGain();
+          entrance.gain.value=0;entrance.gain.setTargetAtTime(1,audio.currentTime,.16);
+          source.connect(entrance).connect(destination);
+        }else source.connect(destination);
+        source.start();
       }).catch(error=>console.warn('Ambience unavailable',file,error));
   }
   function imagingHit(distance,underwater){
@@ -525,7 +586,7 @@ export function raceAudio(T){
   async function setEnabled(on){
     if(!audio && !on)return;
     if(!audio){
-      audio=new AudioContext();noise=audio.createBuffer(1,2*audio.sampleRate,audio.sampleRate);
+      audio=new AudioContext({latencyHint:.025});noise=audio.createBuffer(1,2*audio.sampleRate,audio.sampleRate);
       const data=noise.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=2*Math.random()-1;
       effects=audio.createGain();effects.gain.value=level;effects.connect(audio.destination);
       submerged=audio.createGain();submerged.gain.value=0;submerged.connect(effects);
@@ -538,11 +599,19 @@ export function raceAudio(T){
       rainfall.connect(rainFilter).connect(rain).connect(weather).connect(effects);rainfall.start();
       blower.connect(filter).connect(wind).connect(effects);blower.start();
     }
-    if(on)await audio.resume();
+    if(on){
+      await audio.resume();
+      outputFailed=false;
+      startAmbience('underwater-rumble.flac',submerged,true);
+      if(!exhaleBuffer&&!loadingExhale){
+        loadingExhale=decodeRecording('diver-exhale.mp3?take=acid').then(buffer=>{exhaleBuffer=buffer;})
+          .catch(error=>console.warn('Diver regulator recording unavailable',error)).finally(()=>{loadingExhale=undefined;});
+      }
+    }
     else{
-      silenceLuff();
-      silenceWaves();
-      await audio.suspend();
+      enabled=false;
+      try{silenceLuff();silenceWaves();silencePiccard();}
+      finally{if(audio.state!=='closed')await audio.suspend();}
     }
     enabled=audio.state==='running';return enabled;
   }
@@ -565,7 +634,7 @@ export function raceAudio(T){
   function update(speed,storm,height,sailLuff,state,time,playbackRate){
     if(!enabled||!level)return;
     const wall=audio.currentTime;
-    const exposure=Math.max(0,Math.min(1,(height+.35)/.7));
+    const exposure=1-underwaterMix(height);
     let luff=0;
     if(sailLuff&&state&&exposure>0){
       const main=.74*sailLuff[0],jib=.45*sailLuff[1];
@@ -588,7 +657,6 @@ export function raceAudio(T){
       flapOscillator.frequency.setTargetAtTime(rate,wall,.15);
       luffGain.gain.setTargetAtTime(1.1*exposure*luff,wall,.09);
     }
-    if(exposure<1)startAmbience('deep_rumble.mp3',submerged);
     submerged.gain.setTargetAtTime(.36*(1-exposure),lastMix,.35);
     weather.gain.setTargetAtTime(storm?exposure:0,lastMix,.20);
     filter.frequency.setTargetAtTime(180+Math.min(30,speed)*53,audio.currentTime,.4);
@@ -607,7 +675,7 @@ export function raceAudio(T){
     source.start();
     return gains;
   }
-  function water(surface,time,east,north,tide,height,includeWake,hullSpeed,hullDistance=Infinity){
+  function water(surface,time,east,north,tide,height,includeWake,hullSpeed,hullDistance=Infinity,lappingPosition){
     if(!enabled||!level)return;
     if(!surface||height<=-.35){silenceWaves();return;}
     const wall=audio.currentTime;
@@ -618,13 +686,27 @@ export function raceAudio(T){
     wavesActive=true;
     waves??=waveAmbience();
     const {swell,crest,wake}=waves.sample(surface,time,east,north,tide,includeWake);
-    const exposure=Math.min(1,(height+.35)/.7)/(1+Math.max(0,height)/16);
+    const exposure=(1-underwaterMix(height))/(1+Math.max(0,height)/16);
     if(waveGains||swell+crest+wake>=.002){
       waveGains??=startWaves();
       waveGains[0].gain.setTargetAtTime(.76*swell*exposure,wall,.22);
       waveGains[1].gain.setTargetAtTime(.32*crest*exposure,wall,.09);
       waveGains[2].gain.setTargetAtTime(.66*wake*exposure,wall,.12);
     }
+    let lap=0;
+    if(lappingPosition){
+      const piccard=!Number.isFinite(hullSpeed);
+      // Use the hull's own waterline. A dry sub in the cradle and a deep sub
+      // can both be viewed by a camera sitting on the surface.
+      const hullHeight=piccard?lappingPosition.z-surface(lappingPosition.x,lappingPosition.y,true):0;
+      const range=Math.hypot(lappingPosition.x-east,lappingPosition.y-north,height);
+      lap=hullLappingMix(piccard,hullHeight,hullSpeed)*exposure*(.77+.62*swell+.30*wake)/(1+(range/(piccard?5:12))**2);
+    }
+    if(lap>.004&&!hullLapping){
+      hullLapping=audio.createGain();hullLapping.gain.value=0;hullLapping.connect(effects);
+      startAmbience('hull-lapping.mp3',hullLapping,true);
+    }
+    hullLapping?.gain.setTargetAtTime(lap,wall,.16);
     const {gurgle,rush}=hullWashMix(hullSpeed,swell,wake);
     const listenerGain=.86*exposure/(1+(hullDistance/15)**2);
     if(!hullWash&&Math.max(gurgle,rush)*listenerGain>.015){
@@ -678,6 +760,28 @@ export function raceAudio(T){
   }
   function wildlife(kind,distance,pan,underwater,strength){
     if(!enabled||audio.state!=='running'||distance>240)return;
+    if(kind==='fin'){
+      if(!level||distance>12||strength<=0)return;
+      const t=audio.currentTime,source=audio.createBufferSource(),band=audio.createBiquadFilter();
+      const gain=audio.createGain(),stereo=audio.createStereoPanner();
+      const peak=(underwater?.40:.08)*strength/(1+(distance/2.2)**2);
+      source.buffer=noise;source.loop=true;stereo.pan.value=pan;
+      band.type='bandpass';band.Q.value=.68;
+      band.frequency.setValueAtTime(280+310*strength,t);band.frequency.exponentialRampToValueAtTime(140,t+.24);
+      gain.gain.setValueAtTime(.00001,t);gain.gain.linearRampToValueAtTime(peak,t+.065);
+      gain.gain.exponentialRampToValueAtTime(.00001,t+.32);
+      source.connect(band).connect(gain).connect(stereo).connect(effects);
+      source.onended=()=>{source.disconnect();band.disconnect();gain.disconnect();stereo.disconnect();};
+      source.start(t,Math.random()*.35);source.stop(t+.33);return;
+    }
+    if(kind==='exhale'){
+      if(!exhaleBuffer||!level||distance>20)return;
+      const source=audio.createBufferSource(),gain=audio.createGain(),stereo=audio.createStereoPanner();
+      source.buffer=exhaleBuffer;source.playbackRate.value=.93+.14*Math.random();
+      stereo.pan.value=pan*Math.min(1,distance);gain.gain.value=strength*(underwater?.88:.18)/(1+(distance/2)**2);
+      source.connect(gain).connect(stereo).connect(effects);source.onended=()=>{source.disconnect();gain.disconnect();stereo.disconnect();};
+      source.start();return;
+    }
     if(kind==='gull'){
       const file=strength>=1?'gull-hit.mp3':gullCalls[Math.floor(Math.random()*gullCalls.length)];
       let recording=gullRecordings.get(file);
@@ -761,6 +865,47 @@ export function raceAudio(T){
       console.warn('Humpback recording unavailable',error);
     }).finally(()=>{if(loadingWhale===recording)loadingWhale=undefined;});
   }
+  const launches=new Map(),entryBuffers=new Map();
+  let splashVariant=0;
+  function entryRecording(variant){
+    if(!entryBuffers.has(variant)){
+      const file='hull-entry-'+variant+'.mp3';
+      entryBuffers.set(variant,decodeRecording(file).catch(error=>{
+        entryBuffers.delete(variant);console.warn('Hull entry recording unavailable',file,error);
+      }));
+    }
+    return entryBuffers.get(variant);
+  }
+  function hoistWater(local,peers,surface,camera,wet,running){
+    if(!enabled||!level||!running){launches.clear();return;}
+    for(const key of launches.keys())if(key!==null&&!peers.has(key))launches.delete(key);
+    function observe(id,lift){
+      if(!lift?.rider){launches.delete(id);return;}
+      const p=lift.pose;
+      if(!p||Math.hypot(p[0]-camera.position.x,p[1]-camera.position.y)>44){launches.delete(id);return;}
+      let entered=launches.get(id);
+      if(!entered){entered=hoistWaterEntry();launches.set(id,entered);}
+      // Build the buffers while lowering the loaded cable, before water entry.
+      if(lift.goal===0&&lift.level>.3){entryRecording(1);entryRecording(2);}
+      const clearance=p[2]-.09325*p[11]-surface(p[0],p[1],true);
+      if(!entered(lift,clearance))return;
+      const dx=p[0]-camera.position.x,dy=p[1]-camera.position.y,dz=p[2]-camera.position.z;
+      const distance=Math.hypot(dx,dy,dz),right=camera.matrixWorld.elements,at=audio.currentTime;
+      const variant=splashVariant++%2+1;
+      entryRecording(variant).then(buffer=>{
+        if(!buffer||!enabled||!level||audio.state!=='running'||audio.currentTime-at>.3||launches.get(id)!==entered)return;
+        const source=audio.createBufferSource(),pan=audio.createStereoPanner(),gain=audio.createGain(),filter=audio.createBiquadFilter();
+        source.buffer=buffer;
+        pan.pan.value=Math.max(-1,Math.min(1,(dx*right[0]+dy*right[1]+dz*right[2])/Math.max(1,distance)));
+        gain.gain.value=(.92-.40*wet)/(1+distance/7);
+        filter.type='lowpass';filter.frequency.value=14000*(1-wet)+1200*wet;
+        source.connect(filter).connect(gain).connect(pan).connect(effects);
+        source.onended=()=>{for(const node of [source,filter,gain,pan])node.disconnect();};source.start();
+      });
+    }
+    if(local)observe(null,local);else launches.delete(null);
+    for(const [id,lift] of peers)observe(id,lift);
+  }
   function structureImpact(force,distance,pan,underwater){
     if(!enabled||audio.state!=='running'||distance>140)return;
     const t=audio.currentTime,volume=Math.min(1.4,.30+force/55000)/(1+distance/16);
@@ -812,7 +957,21 @@ export function raceAudio(T){
     engines??=inboardMixer(audio,effects,decodeRecording);
     engines(local,peers,camera,underwater,running,throttle,simulationRate);
   }
-  return {get enabled(){return enabled;},get audible(){return enabled&&level>0;},
-    setEnabled,update,water,signal,finishGun,thunder,setVolume,connectCabinRadio,wildlife,imagingHit,motorSound,droneSound,structureImpact,floodSound,whaleSong,
+  const mixer={get enabled(){return enabled;},get audible(){return enabled&&level>0;},
+    setEnabled,setVolume,connectCabinRadio,onOutputError:undefined,
     dispose(){if(audio&&audio.state!=='closed')void audio.close().catch(()=>{});}};
+  let outputFailed=false;
+  const effectsMethods={update,water,signal,finishGun,thunder,wildlife,imagingHit,motorSound,droneSound,submarineSound,hoistWater,structureImpact,floodSound,whaleSong};
+  for(const [name,mix] of Object.entries(effectsMethods)){
+    mixer[name]=(...args)=>{
+      if(outputFailed)return;
+      try{return mix(...args);}
+      catch(error){
+        outputFailed=true;enabled=false;
+        console.warn('Sound effects interrupted',error);
+        mixer.onOutputError?.();
+      }
+    };
+  }
+  return mixer;
 }

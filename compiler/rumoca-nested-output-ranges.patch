@@ -1,0 +1,64 @@
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
+@@ -254,6 +254,21 @@
+ {%- elif op.kind == "StoreOutput" %}    {{ store_target(output, targets, op.output_index) }} = r[{{ op.src }}];
+ {%- elif op.kind == "StoreOutputRange" and op.output_span is defined and targets is none %}
+ {{ store_range(op, output) }}
++{#- Nested conditional results use local output ordinals. Their serialized
++    ops can lack the top-level span metadata. Keep large copies as loops. -#}
++{%- elif op.kind == "StoreOutputRange" and targets is none and op.output_indices|length >= 8 %}
++{%- set stores = namespace(consecutive=true) %}
++{%- set first = op.output_indices[0] %}
++{%- for ordinal in op.output_indices %}
++{%- if ordinal != first + loop.index0 %}{% set stores.consecutive = false %}{% endif %}
++{%- endfor %}
++    {
++{%- if not stores.consecutive %}
++        static const size_t dest[] = { {{ op.output_indices|join(",") }} };
++{%- endif %}
++        for (size_t k=0; k<{{ op.output_indices|length }}; ++k)
++            {{ output }}[{% if stores.consecutive %}{{ first }}+k{% else %}dest[k]{% endif %}] = r[{{ op.start }}+k*{{ op.stride }}];
++    }
+ {%- elif op.kind == "StoreOutputRange" %}{%- for output_index in op.output_indices %}    {{ store_target(output, targets, output_index) }} = r[{{ op.start + loop.index0 * op.stride }}];
+ {%- endfor %}
+ {%- elif op.kind == "LoadFunctionConditionalCapture" %}    r[{{ op.dst }}] = fc_captures[{{ op.index }}];
+diff --git a/crates/rumoca-phase-codegen/src/codegen/native_range_render_tests.rs b/crates/rumoca-phase-codegen/src/codegen/native_range_render_tests.rs
+index 2fa65ac..37f4bb2 100644
+--- a/crates/rumoca-phase-codegen/src/codegen/native_range_render_tests.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/native_range_render_tests.rs
+@@ -144,3 +144,35 @@ fn native_range_c_preserves_strided_descending_and_irregular_first_faults() {
+         );
+     }
+ }
++
++#[test]
++fn nested_output_store_ranges_keep_the_original_lane_order() {
++    let mut environment = super::create_environment();
++    environment
++        .add_template("kernel", builtin_template("fmi3", "scalar_kernel.jinja"))
++        .unwrap();
++    environment
++        .add_template(
++            "test.c",
++            "{% from 'kernel' import scalar_op %}{{ scalar_op(op, 'fc_out') }}",
++        )
++        .unwrap();
++    for indices in [vec![3, 4, 5, 6, 7, 8, 9, 10], vec![7, 4, 7, 1, 9, 2, 6, 8]] {
++        let op = serde_json::json!({
++            "kind": "StoreOutputRange", "output_indices": indices, "start": 11, "stride": 2
++        });
++        let c = environment
++            .get_template("test.c")
++            .unwrap()
++            .render(minijinja::context! {op => op})
++            .unwrap();
++        assert!(c.contains("k<8"));
++        assert!(c.contains("r[11+k*2]"));
++        if indices[0] == 3 {
++            assert!(c.contains("fc_out[3+k]"));
++        } else {
++            assert!(c.contains("7,4,7,1,9,2,6,8"));
++            assert!(c.contains("fc_out[dest[k]]"));
++        }
++    }
++}

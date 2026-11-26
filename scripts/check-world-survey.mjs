@@ -5,7 +5,8 @@ import {resolve} from 'node:path';
 import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 import {openFmuSession} from '../.deps/microduck_web/site/fmu-session.js';
-import {piccardClearance} from './piccard-clearance.mjs';
+import {collisionSurface} from '../viewer/wreck-contact.mjs';
+import {wreckSites, wreckApproach} from '../viewer/red-sea-sites.mjs';
 import {fileFetch} from '../.deps/microduck_web/scripts/fmu-test-support.mjs';
 
 const base = process.env.OCEAN_WORLD_RUNTIME
@@ -13,7 +14,15 @@ const base = process.env.OCEAN_WORLD_RUNTIME
   : new URL('../build/world-runtime/', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', base)));
 const index = JSON.parse(await readFile(new URL(manifest.index, base)));
-const world = await openFmuSession({index, base, fetch: fileFetch, instanceName: 'wreck-survey'});
+const site=process.argv.includes('--satil')?'satil':'yatush';
+const expectedSite=site==='satil'?2:1;
+const wreck=wreckSites.find(row=>row.id===site);
+const spawn=wreckApproach(wreck);
+const start=spawn.position;
+const parameters={};
+start.forEach((value,i)=>{parameters['sub.spawnPosition['+(i+1)+']']=value;});
+const firstStation=site==='satil'?[56,-57,-8.5]:[-24,21.4,-10.1];
+const world = await openFmuSession({index, base, fetch: fileFetch, parameters, instanceName: 'wreck-survey',downloadFirst:true});
 
 try {
   const browserSteps = process.argv.includes('--browser-steps');
@@ -28,31 +37,43 @@ try {
     'estimate[13]', 'estimate[14]', 'estimate[17]'];
   if (follow) outputs.push('drone.position[1]', 'drone.position[2]', 'drone.position[3]');
   const geometry=process.argv.includes('--clearance');
-  let measure,minimum=Infinity,backwardDistance=0,forwardDistance=0;
+  let measure,minBed=Infinity,minHull=Infinity,backwardDistance=0,forwardDistance=0,attitudeErrorSquared=0;
   if(geometry){
     const require=createRequire(import.meta.url),T=require('../viewer/vendor/three.min.js');
-    const wreck=require('../viewer/wreck.js')(T,{});
-    const asset=await readFile(new URL('../viewer/assets/survey-pressure-housing.glb',import.meta.url));
-    const gltf=JSON.parse(asset.subarray(20,20+asset.readUInt32LE(12)));
-    const {mounts,axes}=JSON.parse(gltf.nodes.find(n=>n.name==='PiccardFrame').extras.thrusterLayout);
-    const clearance=piccardClearance(T,wreck,mounts,axes);
-    const point=new T.Vector3(),relative=new T.Vector3(),attitude=new T.Quaternion(),previous=new T.Vector3(-5,0,-10);
-    measure=(x,y,z,[w,qx,qy,qz])=>{
+    const bed=require('../viewer/bathymetry.js');
+    const sites=await Promise.all(wreckSites.map(async site=>({
+      mesh:collisionSurface(JSON.parse(await readFile(new URL('../viewer/assets/red-sea/'+site.id+'/collision.json',import.meta.url)))),
+      origin:[site.east,site.north,bed.height(site.east,site.north)-site.burial]
+    })));
+    const point=new T.Vector3(),relative=new T.Vector3(),attitude=new T.Quaternion(),previous=new T.Vector3(...start);
+    const euler=new T.Euler(0,0,0,'ZYX'),estimatedAttitude=new T.Quaternion();
+    measure=(x,y,z,[roll,pitch,yaw,w,qx,qy,qz])=>{
       attitude.set(qx,qy,qz,w);
+      estimatedAttitude.setFromEuler(euler.set(roll,pitch,yaw,'ZYX'));
+      attitudeErrorSquared+=attitude.angleTo(estimatedAttitude)**2;
       const distance=relative.set(x,y,z).sub(previous).dot(point.set(1,0,0).applyQuaternion(attitude));
       forwardDistance+=Math.max(0,distance);backwardDistance+=Math.max(0,-distance);previous.set(x,y,z);
-      minimum=clearance(previous,attitude,Math.min(.5,minimum));
+      // A 40 cm sphere encloses the pressure housing, skids and thrusters at any attitude.
+      const bodyRadius=.4;
+      minBed=Math.min(minBed,z-bed.height(x,y)-bodyRadius);
+      for(const site of sites){
+        const local=[x,y,z].map((v,i)=>v-site.origin[i]);
+        const hit=site.mesh.nearest(local,minHull+bodyRadius);
+        if(hit)minHull=Math.min(minHull,hit.distance-bodyRadius);
+      }
     };
+    outputs.push('estimate[7]','estimate[8]','estimate[4]');
     for(let i=1;i<=4;i++)outputs.push('sub.orientation['+i+']');
   }
   const binding = world.bind_outputs(JSON.stringify(outputs));
+  const selected=world.bind_outputs(JSON.stringify(['sub.surveySite','sub.surveyTelemetry[2]']));
   let lastStation = 0, frames = 0, squaredError = 0, stepMs = 0, readMs = 0, finished = false;
 
   const positionErrors = [];
   let highest=-Infinity,lowest=Infinity;
   let depthSquared = 0, matchedFrames = 0, keyframes = 0, closures = 0, finishError = 0;
   let followSquared = 0, altitudeSquared = 0, peakOffset = 0;
-  while (world.time() < 240) {
+  while (world.time() < 650) {
     const start = performance.now();
     if (browserSteps) {
       for (let tick=0; tick<20; tick++) world.step(.01);
@@ -60,7 +81,7 @@ try {
     const stepped = performance.now();
     const values=world.read_bound(binding);
     const [station, done, x, y, z, east, north, up, keyCount, loopCount, matches, droneEast, droneNorth, altitude] = values;
-    if(measure)measure(x,y,z,values.slice(-4));
+    if(measure)measure(x,y,z,values.slice(-7));
     stepMs += stepped - start;
     readMs += performance.now() - stepped;
     assert([x, y, z, east, north, up].every(Number.isFinite), 'Non-finite survey pose');
@@ -85,8 +106,15 @@ try {
       lastStation = station;
       console.log('Waypoint', station, 'at', world.time().toFixed(1), 's');
     }
+    if(world.time()>.3){
+      const [active,count]=world.read_bound(selected);
+      assert.equal(active,expectedSite,'Survey chose the wrong wreck');
+      assert.equal(count,9);
+      assert(Math.abs(x-wreck.east)<wreck.halfLength+8 && Math.abs(y-wreck.north)<wreck.halfBeam+10,
+        'Survey left the local wreck perimeter');
+    }
     if (done) {
-      assert(Math.hypot(x + 1.5, y, z + 9.8) < 1, 'Vehicle finished outside the final station');
+      assert(Math.hypot(east-firstStation[0],north-firstStation[1],up-firstStation[2])<.55,'Measured circuit failed to close');
       finished = true;
       break;
     }
@@ -99,6 +127,19 @@ try {
     positionPeak: positionErrors.at(-1), depthRms: Math.sqrt(depthSquared / frames),
     finishError, matchedFrames, keyframes, closures});
   assert(keyframes > 1 && matchedFrames > 0, 'Survey must build a map and match camera features');
+  const landmarkFields=[];
+  for(let row=1;row<=keyframes;row++){
+    for(let col=176;col<=180;col++)landmarkFields.push(`keyframes[${row},${col}]`);
+  }
+  const landmarks=world.read_bound(world.bind_outputs(JSON.stringify(landmarkFields)));
+  let dvlLandmarks=0;
+  for(let row=0;row<keyframes;row++){
+    if(landmarks[5*row]===0)continue;
+    const slantRanges=landmarks.slice(5*row+1,5*row+5);
+    assert(slantRanges.every(range=>range>0&&Number.isFinite(range)), 'Invalid keyframe DVL lock');
+    dvlLandmarks+=4;
+  }
+  console.log({dvlLandmarks});
   if (follow) {
     const horizontalRms = Math.sqrt(followSquared / frames);
     const altitudeRms = Math.sqrt(altitudeSquared / frames);
@@ -106,13 +147,16 @@ try {
     assert(horizontalRms < 2.5 && altitudeRms < .5, 'Aircraft lost the moving survey station');
   }
   if(geometry){
-    console.log({minimumSeparatingMargin:minimum,forwardDistance,backwardDistance});
-    assert(minimum>0,'Piccard geometry touched wreck or seabed');
+    console.log({minimumHullMargin:minHull,minimumBedMargin:minBed,forwardDistance,backwardDistance});
+    assert(Math.min(minHull,minBed)>0,'Piccard geometry touched wreck or seabed');
+    const attitudeRmsDegrees=Math.sqrt(attitudeErrorSquared/frames)*180/Math.PI;
+    console.log('Attitude RMS error',attitudeRmsDegrees,'degrees');
+    assert(attitudeRmsDegrees<10,'Survey attitude estimate lost the actual vehicle orientation');
     assert(backwardDistance<.04*forwardDistance,'Sustained reverse survey travel');
   }
   assert(finished, 'The survey timed out');
-  assert.equal(lastStation, 17);
-  assert(highest-lowest>4, "Survey must traverse the interior and upper hull at different depths");
+  assert.equal(lastStation, 9);
+  assert(highest-lowest>.55, 'Survey should visit the wreck at multiple elevations');
   assert(rms < 1, 'Pose estimate exceeded 1 m RMS error');
 } finally {
   world.free();

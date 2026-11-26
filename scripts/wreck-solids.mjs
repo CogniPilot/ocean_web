@@ -1,128 +1,54 @@
-// Export the exact Three.js oriented boxes in the MultiBodyLie world-to-shape convention.
+// Rasterize actual occupied survey triangles, including their inferred keels, for FMI ray queries.
 import {createRequire} from 'node:module';
-import {writeFileSync} from 'node:fs';
-const require=createRequire(import.meta.url), T=require('../viewer/vendor/three.min.js');
-const wreck=require('../viewer/wreck.js')(T,{});
-const rows=wreck.children.map(m=>{
- const rot=new T.Matrix4().makeRotationFromQuaternion(m.quaternion),e=rot.elements;
- const axes=[e[0],e[1],e[2],e[4],e[5],e[6],e[8],e[9],e[10]];
- const half=m.scale.clone().multiplyScalar(.5).toArray();
- const bounds=[0,1,2].map(j=>half.reduce((v,r,k)=>v+r*Math.abs(axes[3*k+j]),0));
- return [...m.position.toArray(),...half,...axes,...bounds].map(x=>Math.abs(x)<1e-12?'0':x.toFixed(8)).join(',');
-});
-// A row accessor keeps the generated compiler from repeatedly expanding an entire
-// constant matrix for each subscript in the contact loop.
-function branches(first,last,indent){
- if(first===last)return indent+'box:={'+rows[first]+'};';
- const mid=Math.floor((first+last)/2);
- return [indent+'if index<='+String(mid+1)+' then',branches(first,mid,indent+'  '),
-   indent+'else',branches(mid+1,last,indent+'  '),indent+'end if;'].join('\n');
-}
-// Split the static broad phase at expanded AABB faces. A box that spans a
-// split belongs to both children. Thus every possible contact is in the leaf
-// selected by the vehicle position, including at cell boundaries. Keep the
-// finite seabed as candidate 1 everywhere; its normal AABB test still applies.
-const guardExtent = 0.8;
-const candidates = rows.map((row, i) => {
-  const values = row.split(',').map(Number);
-  const margin = values.slice(15,18).map(x => x + guardExtent + 1e-6);
-  return {id:i+1, low:margin.map((m,k)=>values[k]-m), high:margin.map((m,k)=>values[k]+m)};
-}).slice(1);
-let maxCandidates = 0;
-function partition(boxes, depth) {
-  let best;
-  if (boxes.length > 8 && depth < 12) {
-    for (let axis=0; axis<3; axis++) {
-      const faces = new Set(boxes.flatMap(box=>[box.low[axis],box.high[axis]]));
-      for (const split of faces) {
-        const left = boxes.filter(box=>box.low[axis]<split);
-        const right = boxes.filter(box=>box.high[axis]>=split);
-        if (left.length===boxes.length || right.length===boxes.length) continue;
-        const cost = Math.max(left.length,right.length) + .25*(left.length+right.length);
-        if (!best || cost<best.cost) best={cost,axis,split,left,right};
-      }
+import {readFileSync,writeFileSync} from 'node:fs';
+import {caveSurface} from '../viewer/abyss-cave.mjs';
+import {wreckSites} from '../viewer/red-sea-sites.mjs';
+const require=createRequire(import.meta.url),T=require('../viewer/vendor/three.min.js'),bed=require('../viewer/bathymetry.js');
+const spacing=.24,sites=[];
+for(const site of [...wreckSites,{id:"abyssCave"}]){
+  const name=site.id;
+  const cave=name==='abyssCave';
+  const {positions,indices}=cave?caveSurface(bed):JSON.parse(readFileSync(new URL('../viewer/assets/red-sea/'+name+'/collision.json',import.meta.url)));
+  const offset=cave?new T.Vector3():new T.Vector3(site.east,site.north,bed.height(site.east,site.north)-site.burial);
+  const pts=Array.from({length:positions.length/3},(_,j)=>new T.Vector3().fromArray(positions,3*j).add(offset));
+  const bounds=new T.Box3().setFromPoints(pts),origin=bounds.min.toArray().map(v=>spacing*Math.floor(v/spacing));
+  const dims=bounds.max.toArray().map((v,i)=>Math.floor((v-origin[i])/spacing)+1);
+  const [nx,ny,nz]=dims,bands=Math.ceil(nz/24),masks=new Int32Array(nx*ny*bands);
+  const box=new T.Box3(),tri=new T.Triangle();
+  for(let n=0;n<indices.length;n+=3){
+    tri.set(pts[indices[n]],pts[indices[n+1]],pts[indices[n+2]]);
+    const range=box.setFromPoints([tri.a,tri.b,tri.c]);
+    const cell=p=>p.toArray().map((v,k)=>Math.floor((v-origin[k])/spacing));
+    const low=cell(range.min),high=cell(range.max);
+    for(let i=low[0];i<=high[0];i++)for(let j=low[1];j<=high[1];j++)for(let k=low[2];k<=high[2];k++){
+      box.min.set(origin[0]+i*spacing,origin[1]+j*spacing,origin[2]+k*spacing);
+      box.max.copy(box.min).addScalar(spacing);
+      if(box.intersectsTriangle(tri))masks[(i*ny+j)*bands+Math.floor(k/24)]|=1<<(k%24);
     }
   }
-  if (best) return {axis:best.axis,split:best.split,left:partition(best.left,depth+1),right:partition(best.right,depth+1)};
-  const ids = [1,...boxes.map(box=>box.id)];
-  maxCandidates = Math.max(maxCandidates,ids.length);
-  return {ids};
+  sites.push({name,origin,dims,bands,masks});console.log(name,dims,indices.length/3+' scan triangles');
 }
-const root = partition(candidates,0);
-function emitPartition(node,indent) {
-  if (node.ids) {
-    const ids = [...node.ids,...Array(maxCandidates-node.ids.length).fill(0)];
-    return indent+'ids:={'+ids.join(',')+'};';
-  }
-  return [indent+'if pos['+(node.axis+1)+']<'+node.split+' then',
-    emitPartition(node.left,indent+'  '),indent+'else',emitPartition(node.right,indent+'  '),indent+'end if;'].join('\n');
+const matrix=rows=>'['+rows.map(r=>r.join(',')).join(';')+']';
+const lines=['within Wreck;','package ScanOccupancy "Generated from the registered collision scans and abyss cave by scripts/wreck-solids.mjs"',
+ '  constant Real spacing='+spacing+';', '  constant Real low[3,3]='+matrix(sites.map(s=>s.origin.map(v=>+v.toFixed(8))))+';',
+ '  constant Integer dims[3,3]='+matrix(sites.map(s=>s.dims))+';',
+ '  constant Real high[3,3]='+matrix(sites.map(s=>s.origin.map((v,k)=>+(v+s.dims[k]*spacing).toFixed(8))))+';'];
+for(const [site,s] of sites.entries()){
+ const [nx,ny]=s.dims,rows=ny*s.bands;
+ for(let start=0;start<nx;start+=8){
+   const end=Math.min(nx,start+8),len=(end-start)*rows;
+   const table=Array.from({length:end-start},(_,i)=>Array.from(s.masks.subarray((start+i)*rows,(start+i+1)*rows)).join(','));
+   lines.push('  function block'+site+'x'+start,'    input Integer idx; output Integer bits;',
+     '  protected constant Integer data['+len+']={\n      '+table.join(',\n      ')+'};',
+     '  algorithm bits:=data[idx];','    annotation(Inline=false);','  end block'+site+'x'+start+';');
+ }
+ lines.push('  function '+s.name+'Column','    input Integer i,j,band; output Integer bits;','  algorithm');
+ for(let start=0;start<nx;start+=8)lines.push('    '+(start===0?'if':'elseif')+' i<'+(start+8)+' then bits:=block'+site+'x'+start+'((i-'+start+')*'+rows+'+j*'+s.bands+'+band+1);');
+ lines.push('    else bits:=0;end if;','    annotation(Inline=false);','  end '+s.name+'Column;');
 }
-const exterior=[1,...Array(maxCandidates-1).fill(0)];
-// Use the same conservative bounds before entering the narrow-phase function.
-// Keep the large seabed separate so it cannot enlarge the wreck's guard volume.
-const vectorLiteral=values=>'{'+values.join(',')+'}';
-const bed=rows[0].split(',').map(Number);
-const boundsConstants=[
-  ['wreckLow',[0,1,2].map(i=>Math.min(...candidates.map(v=>v.low[i])))],
-  ['wreckHigh',[0,1,2].map(i=>Math.max(...candidates.map(v=>v.high[i])))],
-  ['bedLow',[0,1,2].map(i=>bed[i]-bed[15+i]-guardExtent-1e-6)],
-  ['bedHigh',[0,1,2].map(i=>bed[i]+bed[15+i]+guardExtent+1e-6)]
-].map(([name,values])=>'  constant Real '+name+'[3]='+vectorLiteral(values)+';');
-const hullBounds=[0,1,2].map(i=>'pos['+(i+1)+']>='+Math.min(...candidates.map(x=>x.low[i]))+
-    ' and pos['+(i+1)+']<='+Math.max(...candidates.map(x=>x.high[i]))).join(' and ');
-const contactTree=['  constant Integer maxCandidates='+maxCandidates+';',
-  '  constant Real guardExtent='+guardExtent+';',...boundsConstants,
-  '  function contactCandidates','    input Real pos[3];','    output Integer ids[maxCandidates];','  algorithm',
-  '    if '+hullBounds+' then',emitPartition(root,'      '),'    else','      ids:={'+exterior.join(',')+'};',
-  '    end if;','    annotation(Inline=false);','  end contactCandidates;'].join('\n');
-// Build a surface-area bounding-volume hierarchy for the calibrated sensor rays.
-// Constant bounds and leaf frames in Modelica let Rumoca specialize each subtree.
-// All leaves share the exact oriented-box intersection used by the headless model.
-let rayId=0;
-function makeRayTree(solids) {
-  const id=++rayId;
-  const low=[0,1,2].map(k=>Math.min(...solids.map(row=>row[k]-row[15+k]))-1e-6);
-  const high=[0,1,2].map(k=>Math.max(...solids.map(row=>row[k]+row[15+k]))+1e-6);
-  if(solids.length===1)return {id,low,high,plate:solids[0]};
-  // Favor splits that keep the finite seabed and long plates from widening
-  // both child bounds. Evaluate this once when generating the Modelica source.
-  function area(boxes){
-    const sides=[0,1,2].map(k=>Math.max(...boxes.map(p=>p[k]+p[15+k]))-Math.min(...boxes.map(p=>p[k]-p[15+k])));
-    return sides[0]*sides[1]+sides[1]*sides[2]+sides[0]*sides[2];
-  }
-  let best;
-  for(let axis=0;axis<3;axis++){
-    const sorted=[...solids].sort((a,b)=>a[axis]-b[axis]);
-    for(let i=1;i<sorted.length;i++){
-      const left=sorted.slice(0,i),right=sorted.slice(i);
-      const cost=area(left)*left.length+area(right)*right.length;
-      if(!best || cost<best.cost)best={left,right,cost};
-    }
-  }
-  return {id,low,high,left:makeRayTree(best.left),right:makeRayTree(best.right)};
-}
-const tree=makeRayTree(rows.map(row=>row.split(',').map(Number)));
-const rayFunctions=[];
-const vector=values=>'{'+values.map(x=>x.toFixed(9)).join(',')+'}';
-function emitRayNode(node,level,indent){
-  if(node.plate){
-    const p=node.plate;
-    const rotation='['+[6,9,12].map(i=>p.slice(i,i+3).map(x=>x.toFixed(8)).join(',')).join(';')+']';
-    return [indent+'distance:=Perception.plateRange(o,d,'+vector(p.slice(0,3))+','+vector(p.slice(3,6))+','+rotation+',distance);'];
-  }
-  const makeFunction=level%3===0;
-  const bodyIndent=makeFunction?'    ':indent;
-  const body=[bodyIndent+'if Perception.intersectsBounds(o,d,'+vector(node.low)+','+vector(node.high)+',distance) then',
-    ...emitRayNode(node.left,level+1,bodyIndent+'  '),...emitRayNode(node.right,level+1,bodyIndent+'  '),bodyIndent+'end if;'];
-  if(!makeFunction)return body;
-  const name=level===0?'beamRange':'beamNode'+node.id;
-  rayFunctions.push(['  function '+name,'    input Real o[3],d[3],limit;','    output Real distance;',
-    '  algorithm','    distance:=limit;',...body,'  end '+name+';'].join('\n'));
-  return [indent+'distance:='+name+'(o,d,distance);'];
-}
-emitRayNode(tree,0,'');
-const src=['within Wreck;','package WreckSolids "Generated by scripts/wreck-solids.mjs"',
- '  constant Integer count='+rows.length+';','  function getBox','    input Integer index;',
- '    output Real box[18];','  algorithm',branches(0,rows.length-1,'    '),
- '    annotation(Inline=false);','  end getBox;',contactTree,...rayFunctions,'end WreckSolids;',''].join('\n');
-writeFileSync(new URL('../Wreck/WreckSolids.mo',import.meta.url),src);
+lines.push('  function occupied','    input Integer site,i,j,k; output Boolean value;',
+ '  protected Integer bits; constant Integer bit[24]={'+Array.from({length:24},(_,i)=>2**i).join(',')+'};','  algorithm',
+ '    value:=false;','    if i>=0 and i<dims[site,1] and j>=0 and j<dims[site,2] and k>=0 and k<dims[site,3] then',
+ '      bits:=if site==1 then '+sites[0].name+'Column(i,j,div(k,24)) elseif site==2 then '+sites[1].name+'Column(i,j,div(k,24)) else '+sites[2].name+'Column(i,j,div(k,24));',
+ '      value:=mod(div(bits,bit[mod(k,24)+1]),2)==1;','    end if;','    annotation(Inline=false);','  end occupied;','end ScanOccupancy;','');
+writeFileSync(new URL('../Wreck/ScanOccupancy.mo',import.meta.url),lines.join('\n'));

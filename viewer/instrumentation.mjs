@@ -1,4 +1,4 @@
-export function forceDisplay(T,scene,sub,yacht,cat,model){
+export function forceDisplay(T,scene,sub,yacht,cat,model,observe){
   function makeArrow(parent,origin,color){
     const glyph=new T.ArrowHelper(new T.Vector3(1,0,0),new T.Vector3(...origin),1,color);
     for(const mesh of [glyph.line,glyph.cone]){
@@ -36,6 +36,7 @@ export function forceDisplay(T,scene,sub,yacht,cat,model){
   let stamp;
   function draw(glyph,vector){
     const n=vector.length();
+    if(observe&&glyph.name)observe(glyph.parent,glyph.name,false,glyph.position.toArray(),vector.toArray());
     glyph.visible=n>.03;
     if(!glyph.visible)return;
     const len=.24*Math.log1p(n);
@@ -51,6 +52,9 @@ export function forceDisplay(T,scene,sub,yacht,cat,model){
     boatForces.visible=Boolean(enabled&&!showSub&&b);
     subForces.visible=Boolean(enabled&&showSub&&f?.thrust);
     if(boatForces.visible){
+      sails.forEach((a,i)=>{a.glyph.name=i?'Jib · wind':'Mainsail · wind';});
+      foils.forEach((a,i)=>{a.glyph.name='Foil '+(i+1)+' · water';});
+      buoyancy.glyph.name='Hull · buoyancy';
       if(time!==stamp){
         // Modelica reports loads and wet-foil arms in a level heading frame.
         // Undo pitch and heel once per sample. The hull supplies the display pose.
@@ -68,6 +72,11 @@ export function forceDisplay(T,scene,sub,yacht,cat,model){
         if(stamp===undefined)buoyancy.start.copy(buoyancy.end);
         stamp=time;
       }
+      if(model.has?.('origin')){
+        const ends=model.get('origin');
+        inverse.setFromEuler(angles.set(b[4],b[5],0,'ZYX')).invert();
+        sails.forEach((a,i)=>a.glyph.position.fromArray(ends,3*i).applyQuaternion(inverse));
+      }
       for(const a of sails)draw(a.glyph,direction.lerpVectors(a.start,a.end,blend));
       for(const a of foils){
         a.glyph.position.lerpVectors(a.startArm,a.endArm,blend);
@@ -78,12 +87,16 @@ export function forceDisplay(T,scene,sub,yacht,cat,model){
       draw(buoyancy.glyph,direction.lerpVectors(buoyancy.start,buoyancy.end,blend).applyQuaternion(inverse));
     }else stamp=undefined;
     if(subForces.visible){
+      thrusters.forEach((g,i)=>{g.name='Thruster '+(i+1)+' · thrust';});
+      contact.name='Hull · resultant contact force';subBuoyancy.name='Hull · buoyancy';
       subForces.position.copy(sub.position);
       subForces.quaternion.copy(sub.quaternion);
       thrusters.forEach((glyph,i)=>draw(glyph,direction.copy(sub.userData.rotors[i].axis).multiplyScalar(f.thrust[i])));
       draw(subBuoyancy,direction.fromArray(f.buoyancy));
       draw(contact,direction.fromArray(f.contact).applyQuaternion(inverse.copy(sub.quaternion).invert()));
     }
+    // The diagnostic overlay also handles picking and moment arcs.
+    if(observe)boatForces.visible=subForces.visible=false;
   };
 }
 export function sonarPlot(ctx,frame,az){
@@ -142,7 +155,8 @@ export function firstPersonInstruments(canvas){
     }
     const focal=height/(2*Math.tan(fov*deg/2));
     ctx.save();ctx.beginPath();ctx.rect(-w*.31,-h*.25,w*.62,h*.5);ctx.clip();ctx.rotate(-roll);
-    for(let angle=-80;angle<=80;angle+=5){
+    const ladderLimit=sub?90:80;
+    for(let angle=-ladderLimit;angle<=ladderLimit;angle+=5){
       if(Math.abs(angle*deg+pitch)>Math.PI/3)continue;
       const y=-focal*Math.tan(angle*deg+pitch),span=w*(angle===0?.23:angle%10===0?.13:.075);
       ctx.setLineDash(angle<0?[4,3]:[]);

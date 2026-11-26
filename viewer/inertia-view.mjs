@@ -51,9 +51,7 @@ async function wildlifeInertia(model){
     return {gull:{mass,moments:[roll,pitch]}};
   }
   const [mass,tailMass,pitch,tailPitch,bx,tx]=read.getMany(['mb','mt','ib','it','bx','tx'].map(name=>'swimmer.'+name));
-  const [sharkMass,yaw]=read.getMany(['whiteShark.mass','whiteShark.yawInertia']);
-  return {whale:{mass,moments:[0,pitch],tail:{mass:tailMass,moments:[0,tailPitch]},bx,tx},
-    shark:{mass:sharkMass,moments:[190,720,yaw]}};
+  return {whale:{mass,moments:[0,pitch],tail:{mass:tailMass,moments:[0,tailPitch]},bx,tx}};
 }
 
 // Orthogonalize a symmetric inertia tensor in its body coordinates.
@@ -78,7 +76,7 @@ function principalAxes(tensor){
   return {moments:[a[0],a[4],a[8]],axes:[[v[0],v[3],v[6]],[v[1],v[4],v[7]],[v[2],v[5],v[8]]]};
 }
 
-export function inertiaOverlay(T){
+export function inertiaOverlay(T,selection){
   const painter=collisionOverlay(T,'Inertia shapes',1024);
   const cyan='#8df2ff',massMarker='#f4ffff',principal={matrixWorld:new T.Matrix4()},tailFrame={matrixWorld:new T.Matrix4()};
   const basis=new T.Matrix4(),axes=Array.from({length:3},()=>new T.Vector3()),pos=new T.Vector3(),euler=new T.Euler();
@@ -135,6 +133,16 @@ export function inertiaOverlay(T){
 
   function drawWildlife(group,kind){
     if(!group?.visible)return;
+    const bodies=group.userData.physicsBodies;
+    if(bodies){
+      group.updateWorldMatrix(true,true);
+      const part=selection?.(group);
+      for(const body of bodies){
+        if(!body.frame||body.mass<=0||part?.kind==='body'&&part.frame!==body.frame)continue;
+        shape(body.frame,body);
+      }
+      return;
+    }
     const model=kind==='gull'?'HerringGull':'HarborTraffic';
     if(!requested.has(model)){
       requested.add(model);

@@ -1,0 +1,187 @@
+--- a/crates/rumoca-phase-codegen/src/codegen/pure_call_families.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/pure_call_families.rs
+@@ -57,7 +57,15 @@
+ }
+ 
+ impl PureCallFamilies {
++    #[cfg(test)]
+     pub(super) fn new(table: &solve::SolvePureCallTable) -> Result<Self, CodegenError> {
++        Self::for_problem(table, None)
++    }
++
++    pub(super) fn for_problem(
++        table: &solve::SolvePureCallTable,
++        problem: Option<&solve::SolveProblem>,
++    ) -> Result<Self, CodegenError> {
+         let views = table
+             .owners()
+             .iter()
+@@ -77,7 +85,7 @@
+             }
+         }
+         let forwards_assertions = owners.iter().chain(&directional).any(forwards_assertion);
+-        let repeated_calls = repeated_calls(table, &symbols);
++        let repeated_calls = repeated_calls(table, &symbols, problem);
+         let repeated_symbols = repeated_calls.iter().map(|call| call.symbol).collect();
+         Ok(Self {
+             repeated_calls,
+@@ -136,7 +144,43 @@
+     predicates: Vec<usize>,
+ }
+ 
+-fn repeated_calls(table: &solve::SolvePureCallTable, symbols: &[u32]) -> Vec<RepeatedCall> {
++fn repeated_calls(
++    table: &solve::SolvePureCallTable,
++    symbols: &[u32],
++    problem: Option<&solve::SolveProblem>,
++) -> Vec<RepeatedCall> {
++    // A tuple used by several event equations is lowered to multiple value
++    // calls. Track only calls that actually exist in the compiled solve.
++    struct ValueUses<'a> {
++        symbols: &'a [u32],
++        counts: Vec<usize>,
++    }
++    impl solve::SolveVisitor for ValueUses<'_> {
++        type Error = std::convert::Infallible;
++        fn visit_linear_op(
++            &mut self,
++            _: solve::LinearOpSliceKind,
++            _: usize,
++            op: &solve::LinearOp,
++        ) -> Result<(), Self::Error> {
++            if let solve::LinearOp::PureCall { site, .. } = op {
++                self.counts[self.symbols[site.owner().index() as usize] as usize] += 1;
++            }
++            Ok(())
++        }
++    }
++    let mut uses = ValueUses {
++        symbols,
++        counts: vec![0; symbols.len()],
++    };
++    if let Some(problem) = problem {
++        // Ignore initialization-only use. Continuous, discrete and event
++        // programs can interleave repeated uses on the same input state.
++        use solve::SolveVisitor;
++        let Ok(()) = uses.visit_continuous_system(&problem.continuous);
++        let Ok(()) = uses.visit_discrete_system(&problem.discrete);
++        let Ok(()) = uses.visit_event_partition(&problem.events);
++    }
+     let mut candidates: Vec<_> = table
+         .owners()
+         .iter()
+@@ -165,7 +209,12 @@
+             // A long computation can be expensive to replay even if it only
+             // returns a few scalars. Bound each cache before budgeting all families.
+             let short_call = outputs < 256 && owner.body().operations().len() < 64;
+-            if short_call || inputs.checked_add(outputs)? > 65536 || predicates.is_empty() {
++            let width = inputs.checked_add(outputs)?;
++            let repeated_value = predicates.is_empty()
++                && owner.outputs().len() > 1
++                && (128..=2048).contains(&width)
++                && uses.counts[symbol as usize] >= 4;
++            if !repeated_value && (short_call || width > 65536 || predicates.is_empty()) {
+                 return None;
+             }
+             Some(RepeatedCall {
+@@ -178,7 +227,11 @@
+             })
+         })
+         .collect();
+-    candidates.sort_by_key(|call| std::cmp::Reverse(call.outputs));
++    // Keep the assertion families' existing storage priority. A value-only
++    // family gets one entry within a separate small ceiling.
++    candidates.sort_by_key(|call| (call.predicates.is_empty(), std::cmp::Reverse(call.outputs)));
++    let value_only =
++        candidates.split_off(candidates.partition_point(|call| !call.predicates.is_empty()));
+     // Cache high-volume call families independently. The compile-time bound
+     // covers the sum of all input and output arrays in one model instance.
+     let mut remaining = 96 * 1024;
+@@ -200,6 +253,15 @@
+             remaining -= width;
+         }
+     }
++    let mut value_budget = remaining.min(4096);
++    candidates.extend(value_only.into_iter().filter(|call| {
++        let width = call.inputs + call.outputs;
++        if width > value_budget {
++            return false;
++        }
++        value_budget -= width;
++        true
++    }));
+     candidates
+ }
+ 
+--- a/crates/rumoca-phase-codegen/src/codegen/solve_renderer.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/solve_renderer.rs
+@@ -130,7 +130,10 @@
+         require_builtin_fmi_template_domain(component.problem())?;
+         let me_refresh = super::me_projection::me_refresh_value(&component)?;
+         let fmi_tangents = super::fmi_tangents::value(&component)?;
+-        let pure_calls = super::pure_call_families::PureCallFamilies::new(component.pure_calls())?;
++        let pure_calls = super::pure_call_families::PureCallFamilies::for_problem(
++            component.pure_calls(),
++            Some(component.problem()),
++        )?;
+         let assertion_observations =
+             super::fmi_c_assertions::observations(component.problem(), component.pure_calls())?;
+         let assertion_messages = super::fmi_c_assertions::messages(component.problem())?;
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+@@ -301,7 +301,8 @@
+ }
+ {% for memo in memos %}
+ static inline int rmc_repeated_pure_call_{{ memo.symbol }}(ModelInstance* m, bool predicates_only, const double* const in[], double* out, const RmcAssertionObserver* observer) {
+-    static const size_t widths[] = { {% for width in memo.widths %}{{ width }}, {% else %}0{% endfor %} };
++{% if not memo.predicates %}    if (predicates_only) return 1; /* No predicate outputs are declared for this owner. */
++{% endif %}    static const size_t widths[] = { {% for width in memo.widths %}{{ width }}, {% else %}0{% endfor %} };
+     for (unsigned probe = 0; probe < {{ memo.slots }}; ++probe) {
+         unsigned slot = (m->rmc_pure_recent_{{ memo.symbol }} + probe) % {{ memo.slots }};
+         if (!m->rmc_pure_valid_{{ memo.symbol }}[slot]) continue;
+@@ -319,7 +320,8 @@
+             return 0;
+         }
+     }
+-    if (predicates_only) return rumoca_scalar_observe_{{ memo.symbol }}(in, out, observer);
++{% if memo.predicates %}    if (predicates_only) return rumoca_scalar_observe_{{ memo.symbol }}(in, out, observer);
++{% endif %}
+     RmcPureCallObservation record = {observer, false};
+     const RmcAssertionObserver forwarded = {&record, rmc_record_pure_observation};
+     int status = rumoca_scalar_pure_{{ memo.symbol }}(in, out, &forwarded);
+--- a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/repeated_call.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/tests/repeated_call.rs
+@@ -29,10 +29,9 @@
+ }
+ static int other_calls;
+ static int rumoca_scalar_pure_10(const double* const in[],double* out,const RmcAssertionObserver* o){
+-    (void)o;++other_calls;out[0]=in[0][0]+7;out[1]=1;out[2]=0;return 0;
+-}
+-static int rumoca_scalar_observe_10(const double* const in[],double* out,const RmcAssertionObserver* o){
+-    (void)in;(void)o;out[0]=1;return 0;
++    ++other_calls;
++    if(in[1][0]<0){o->observe(o->context,0,NULL,0);if(in[1][0]<-1)return 3;}
++    out[0]=in[0][0]+7;out[1]=1;out[2]=0;return 0;
+ }
+ {{ repeated_call_kernel(memos) }}
+ int main(void){
+@@ -57,6 +56,11 @@
+     flag=-2;
+     assert(rmc_repeated_pure_call_9(&a,false,in,out,&log)==2&&notices==3);
+     assert(rmc_repeated_pure_call_9(&a,true,in,out,&log)==2&&notices==4);
++    assert(rmc_repeated_pure_call_10(&a,false,in,out,&log)==3&&notices==5);
++    assert(rmc_repeated_pure_call_10(&a,false,in,out,&log)==3&&notices==6);
++    flag=-1;
++    assert(!rmc_repeated_pure_call_10(&a,false,in,out,&log)&&notices==7);
++    assert(!rmc_repeated_pure_call_10(&a,false,in,out,&log)&&notices==8&&other_calls==5);
+     return 0;
+ }"#).unwrap();
+     let memo =
+@@ -64,6 +68,7 @@
+     let mut other = memo.clone();
+     other["slots"] = serde_json::json!(1);
+     other["symbol"] = serde_json::json!(10);
++    other["predicates"] = serde_json::json!([]);
+     let memos = [memo, other];
+     let source = environment
+         .get_template("repeated_call_control")

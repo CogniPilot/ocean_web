@@ -4,7 +4,7 @@
 
 In an offline vehicle, open **Settings** and choose **Test simulation headroom (15 s)**. The test advances the vehicle as quickly as possible and includes wildlife throughput when the session has wildlife. With wildlife active, the result uses the slower clock. The regular frame-rate test keeps normal pacing. Changing quality, pausing or hiding the tab interrupts the measurement.
 
-The requested desktop targets are 20× on Low, 10× on Medium and 5× on High. With 10 ms physics steps, these correspond to average wall-time budgets of 0.5, 1 and 2 ms per advance. Field updates, readbacks and other work due at lower frequencies also count. A run at 60 FPS can still miss all three targets.
+The requested desktop targets are 20× on Low, 10× on Medium and 5× on High, with a 10× High target for the Hobie 16. With 10 ms physics steps, these correspond to average wall-time budgets of 0.5, 1 and 2 ms per advance. Field updates, readbacks and other work due at lower frequencies also count. A run at 60 FPS can still miss all three targets.
 
 A 1024 × 650 Chromium run used hardware Vulkan rendering on the workstation’s RTX 3090 and Ryzen 9 5950X, at device scale 1. The sea was set to Swell. Both the whale and shark were active. Values below are measured simulated seconds per wall second. Each row used consecutive Low, Medium and High samples, so these runs sampled different points along the trajectories. Other builds were running on the workstation.
 
@@ -678,9 +678,8 @@ visible jumps in this case.
 ## Mobile Hobie with waves enabled
 
 On touch devices, Medium and High use dynamic drawing-buffer and planar
-capture resolution. Reflection uses its own projection and normally updates
-at 15 Hz. Each displayed frame still captures refraction from its own camera
-and presented boat pose. The water shader uses four depth-tested refraction
+capture resolution. Each displayed above-water frame captures both reflection and
+refraction with the current camera and presented boat pose. The water shader uses four depth-tested refraction
 samples. Above the surface, the caustics pass traces a 96 × 96 ray grid
 instead of 224 × 224 and updates at up to 5 Hz.
 
@@ -843,3 +842,670 @@ The paired replay applied helm reversals and changed downhaul. All 29
 sampled channels matched exactly at 800 steps on both presets. All 4,096
 wake heights and all coordinates of the 64 sail vertices also matched at
 each of 16 snapshots per preset.
+
+
+## Hobie at 10× requested playback
+
+On a Ryzen 9 5950X and RTX 3090, the packaged Hobie (`10b29f8f6e5ccd03`)
+advanced 29.10 simulated seconds in 15.00 wall seconds, or **1.94×**.
+Chromium used NVIDIA Vulkan through ANGLE at 1920 × 1080, High graphics,
+5.14 m/s wind and sea state 0.45. The normal High preset retained its wakes
+and reflections. The HUD drew at 29.5–30.0 FPS. Host builds were active.
+
+In a second, instrumented 20.11 s run the sailing worker spent 19.64 s on
+CPU and 0.035 s runnable off CPU. Linux `perf stat` counted 65.27 billion
+user cycles. The profiler run advanced at 1.41× while drawing at 30 FPS.
+To profile the same solver without renderer or playback pacing, run
+`bash scripts/profile-physics-perf.sh build/fleet-menu-preview sailing /tmp/hobie-perf 650`.
+After 200 warmup ticks the mean 10 ms step cost 6.41 ms plus 0.42 ms for
+the bound output read. The median step cost 4.26 ms and the 95th percentile
+cost 18.15 ms. Memory moves accounted for 21.2% of cycle samples, the
+sectional hull calculation for 8.8% directly, and sine, cosine and shared
+trigonometric range reduction for a further 15.8%. Sustained 10× requires
+an average budget of 1 ms per 10 ms of simulated time.
+
+To locate the memory cost, byte counters at every WebAssembly `memory.copy`
+site measured 54.45 MB per 10 ms tick over 200 ticks in the producer-clock
+trial. Individual ticks ranged from about 28 MB to more than 240 MB. The
+64² wave kernel accounted for 13.09 MB per tick, the two sail membrane
+kernels for 15.17 MB together, and integration endpoint/history work for
+9.54 MB. One 312,000-byte history span was copied 3,692 times. These
+counts measure logical copies, including transfers served from CPU caches.
+
+The shipped sailing component (`a5be17f93ae5dcd3`) samples the three race
+water grids at the clocks of their producers. The FMI code generator also
+reuses the complete tuple from a repeated pure calculation when every
+input bit matches. All 41 call sites for the Hobie's sectional hydrostatics
+use this per-instance cache.
+
+| Full High sailing, same course segment (9–39 simulated seconds) | First run | Second run |
+| --- | ---: | ---: |
+| Previous component | 1.63× | 1.41× |
+| Updated component | 1.87× | 2.23× |
+
+Chromium ran the four trials in previous / updated / updated / previous
+order while other jobs were building. FPS stayed near 30. In a separate
+interleaved solver run on one pinned CPU, 600 ticks after 150 warmup
+ticks cost 6.62 ms each previously, 6.28 ms with the producer-clock
+change alone, and 5.58 ms with both changes. That is an 18.6% increase
+in solver throughput. A 271-tick replay compared both sail meshes,
+vessel state, race water grids, incoming peer wakes, sail trim changes
+and a 5.26 kN peer collision. All compared values matched exactly.
+The current configuration remains above the 1 ms physics budget for 10×.
+
+## Hobie reflection cadence
+
+At 1440 × 800 on an RTX 3090, the 30 FPS cap left time to refresh the planar mirror every draw. Reusing a reflection on Low held the mast and hull reflection for two frames as the boat and camera moved. These measurements are from two runs per configuration with GPU timer queries around the mirror pass.
+
+| Preset | Previous mirror updates / draws | Every-draw updates / draws | Previous FPS | Every-draw FPS | Median GPU time per mirror pass across runs |
+| --- | --- | --- | --- | --- | --- |
+| Low | 38/74, 37/75 | 76/76, 74/74 | 29.6, 29.9 | 30.3, 29.6 | 0.09–0.14 ms |
+| Medium | 75/75, 69/74 | 75/75, 75/75 | 29.9, 29.6 | 29.9, 29.9 | 0.25–0.44 ms |
+
+Low and Medium keep their reduced capture sizes. The timings cover GPU execution for this scene and hardware. Browser draw submission and mobile GPU costs can differ.
+
+## Piccard manual FPV and onboard sensors
+
+The manual FPV draws the wreck scene directly. Opening the onboard sonar panel requests a 5 Hz ping. Showing the sonar map enables the full navigation camera, sonar and SLAM update. Autonomous survey requests those measurements even with both displays closed. In manual mode with both closed, the navigation update still uses pressure, inertial data and the four Doppler beams.
+
+In a paired test of the packaged OceanSubmarine Wasm on the Ryzen 9 5950X, closing both displays used to leave the full survey acquisition running. Sixteen alternating 0.4-second groups per configuration used identical manual inputs, wakes and a 10 ms FMI step. Full acquisition took 681 ms per group (0.59× real time). Suppressing the unused survey acquisition took 550 ms (0.73×). Repeating with 20 ms communication steps produced 679 ms and 552 ms respectively. The viewer keeps 10 ms steps. These timings exclude rendering and include host load during the run.
+
+A separate Linux perf capture with acquisition enabled attributed 29.4%, 12.8% and 8.2% of sampled cycles to the generated singleton, complete and block algebraic projection routines. Memory copying accounted for 16.4%. This capture of the older packaged model explains how physics could run below real time while the GPU continued drawing at 30 FPS.
+
+To compare survey cost in a built runtime, run `node scripts/profile-physics.mjs build/pages submarine 500 --manual` with and without `--idle-sensors`. The flags reproduce the two acquisition modes. This harness reads bound outputs each step.
+
+### Piccard contact near the original box wreck and seabed
+
+In a Linux perf recording taken 32 seconds into the autonomous survey, the
+most frequently sampled generated function selected a single hull primitive
+from a tree of constant arrays. The old lookup constructed and copied
+intermediate arrays for each of 126 pieces. The contact kernels now load the
+geometry tables once before iterating over parts and keep the same narrow-phase
+collision calculations.
+
+| Initial position in ENU metres | Previous CPU ms per 10 ms step | Table lookup CPU ms per 10 ms step |
+| --- | ---: | ---: |
+| Open-water approach (−5, 0, −10) | 1.37 | 1.60 |
+| Inside the wreck (6.3, −1.87, −9.43) | 33.22 | 2.60 |
+| At the seabed (−5, 0, −13.55) | 40.93 | 4.42 |
+
+The test alternated both standalone Wasm plants through 220 fixed steps per
+initial pose and timed the last 200. Position, quaternion, velocity, contact
+forces and moments, tank levels, propeller loads and survey telemetry matched
+bit for bit throughout each run. The seabed run reached a measured 119.84 N
+contact reaction. These timings cover the plant and output reads. The coupled
+sensor, wake, rendering and network costs are additional.
+
+On the packaged OceanSubmarine component, 500 timed 10 ms steps after 32
+seconds of warm-up went from 0.135× to 1.60× real time (11.9× speedup).
+The run included the autonomous controller, all onboard perception, navigation,
+full wakes and bound output reads. After 2 seconds of warm-up on approach,
+the same test went from 1.47× to 1.53×. Both runs exclude rendering and
+networking. Use the following command on each historical packaged revision.
+
+```sh
+node scripts/profile-physics.mjs build/pages submarine 500 --warmup=3200
+```
+
+### Piccard survey and sensor costs
+
+At the compact Piccard's Yatush launch, the coupled davit build ran the
+autopilot, optical survey, imaging sonar, navigation and shared wakes at
+1.33× real time on one pinned CPU. That run used 850 timed 10 ms steps after
+150 warmup steps. Each step and bound output read took 7.53 ms wall time and
+7.33 ms on the calling thread. Manual mode with optical and sonar acquisition
+idle took 3.62 ms wall time and 3.51 ms on the thread. These figures exclude
+rendering and networking. Concurrent builds and CPU frequency affect comparisons.
+
+Counters inserted in a scratch copy of the release WebAssembly module counted
+130 executions of the complete acquisition function across 10 physical sensor
+samples in two simulated seconds. The solver evaluated the same pure function
+for event iteration and assertion predicates. It executed 3,291 adaptive
+integrations, including root searches, and 34,053 derivative evaluations across
+those 200 communication steps. Bulk memory-copy instructions moved 14.33 GB in
+the survey and 7.64 GB with manual controls and idle imaging.
+
+For comparison, the standalone navigation FMU took 9.16–9.19 CPU ms per
+200 ms acquisition over 230 moving frames alternating between the two wrecks
+and open water. Moving the immutable integer lookup tables into static compiler
+storage reduced this to 4.63–5.26 ms. The seven full sensor and navigation
+outputs, including the image and keyframe feedback, matched byte for byte. This
+ratio describes sensor acquisition alone.
+
+A five-second finite-stop FMI experiment used the same instrumented browser
+archive, 100 warmup steps and 400 timed survey steps. Declaring the actual stop
+time reduced searches for the next event from 4,316 to 498 and derivative
+evaluations from 55,438 to 51,920. Both runs localized 35 roots and reached the
+same waypoint. The largest component-wise difference in physical position was
+13.4 nm and in estimated position was 25.3 nm. Thread CPU time fell from 8.11
+to 7.35 ms per tick. The open-ended game still uses its normal event scan interval.
+
+The matched magnetic Piccard release included the 6S battery, six thrusters,
+all survey sensors, SLAM, surface wakes and the standard 10 ms solver step.
+Two interleaved runs per compiler used 150 warmup steps and 650 timed steps on
+one CPU. The previous compiler took 7.30–7.57 ms of thread CPU per step.
+Per-instance reuse of large pure functions and static integer lookup tables
+reduced that to 4.12–4.27 ms, a 1.77× speedup. Wall-clock throughput increased
+from 1.22–1.31× to 2.13–2.21× real time. The 95th-percentile step fell from
+76–87 ms to 25–26 ms. Every position, waypoint and environment readback matched
+at each of the 650 steps. The full optical image, acoustic returns, estimator,
+mapping graph, vehicle motion, thrust and battery also matched bit for bit
+at 20 sensor acquisition times.
+
+### Piccard contact on the abyss floor
+
+At the flooded Piccard start at ENU (−32, −30, −45.7) m, the sloping bed
+lies 1.693 m below the body origin. The old contact routine visited the
+viewport and all 131 boxes, with two terrain queries per shape, whenever the
+origin was within 4.1 m of the bed. The terrain patch constructs the
+triangles under the vehicle's 0.359 m bounding sphere once per evaluation.
+It first tests the sphere against their planes and uses the same triangles
+for each individual support point when contact is possible.
+
+With the standalone browser Plant on one pinned CPU, steps 21–100 of that
+flooded descent took 198.88 ms of thread CPU per 10 ms step before the change
+and 4.45 ms with the terrain patch. Both runs produced the same sampled
+poses and flood states. In separate paired WebAssembly contact-kernel runs,
+286 poses covered the grid edges, flat harbor and sloping abyss, with 165
+producing contact. Maximum difference across the six force and moment
+components after the flat-facet specialization was 1.2e−11. The standalone
+timings exclude navigation, wakes, graphics and multiplayer.
+
+Over the entire 35 simulated seconds, including the slide and repeated
+contacts on the sloped floor, the 131-box Plant took 10.57 ms of thread CPU
+per tick. Seven finite cylinders, six plates and a viewport sphere on the
+same terrain patch took 4.41 ms per tick. The simplified collision geometry
+changes the resting attitude. At the wrecks the worker checks finite
+triangles against plates and 24-sided circumscribed cylinders. Over 6,000
+near-hull queries per run, Yatush took 0.168–0.194 ms versus 0.099–0.139 ms
+with the former sphere guards. Satil took 0.035–0.039 versus 0.091–0.094 ms.
+
+With the coupled submarine, full sonar, optical mapping, flooded dynamics and
+wakes enabled, the first 40 steps at that same abyss position ran at 0.023×
+real time before the terrain patch and 0.448× after it. Sampled position and
+flood state agreed at steps 1, 20 and 40. Over 1,000 steps, including first
+ground contact, the patched 131-box run averaged 0.747×. These are worker
+physics measurements using the released WASI component with a local file
+loader. The timing includes reading the position, damage, contact and sensor
+outputs on every step.
+
+With the 13 compact primitives, the same 1,000-step coupled abyss descent
+averaged 1.02×, including ground contact. A separate 650-step open-water
+survey with all acquisition and wakes enabled reached 2.72× after 150 warmup
+steps (3.61 ms of thread CPU per 10 ms step). Neither number includes drawing.
+
+### Piccard impact against the scanned wrecks
+
+`scripts/check-piccard-impact.mjs` drives the free submarine into registered
+panels at Satil and Yatush at 0.2 and 0.5 m/s, bow first and at a 34° angle.
+The low-speed bow impacts previously returned at 0.231 m/s and generated
+0.164 J of contact work. The previous force filter continued to push after
+the vehicle started to separate. The solver now applies the scan wrench
+directly at the witness and chooses normal damping from the directional wet
+mass, contact arm and principal moments of inertia. Normal force is
+repulsive and tangential friction opposes slip.
+
+In standalone tests with the same mass and inertia, bow impacts returned at
+0.026 m/s and 0.072–0.073 m/s respectively. All eight cases dissipated
+energy (0.29–2.77 J of work removed by the contact wrench). The scan proxy
+represents the measured hull. Its contact stiffness, friction and damping
+are simulation assumptions.
+
+### Piccard rotational response
+
+The assumed 18 kg dry vehicle distributes its mass among the loaded barrel,
+two side plates, battery tray and six thrusters. Submerged principal moments
+also include ballast and axis-specific water added inertia. Rotational drag
+includes a linear term, cross-flow drag from the frame and ducts, and resistance
+from water moving past the hull. The mass distribution and drag coefficients
+are geometry estimates. Tank measurements for this vehicle are unavailable.
+
+The coast test releases the unpowered vehicle from a level carrier at 8 m
+depth, moving with the local water, at ±1 rad/s about each axis. The table gives
+the first time the speed falls to 0.5 rad/s, sampled every 5 ms. Roll and
+pitch include hydrostatic restoring torque. Both directions agreed to one sample.
+
+| Body axis | Dry moment (kg·m²) | Submerged moment at release (kg·m²) | Previous half-speed time (s) | Current half-speed time (s) |
+| --- | ---: | ---: | ---: | ---: |
+| Roll | 0.193 | 0.255 | 0.090 | 0.185 |
+| Pitch | 0.499 | 0.854 | 0.190 | 0.310 |
+| Yaw | 0.560 | 0.853 | 0.365 | 0.730 |
+
+The six outboard ducts use their individual water-relative velocities, including
+the tangential velocity from rotation. Their incremental drag contributes a
+moment about the hull datum. The frame model uses the same local-velocity
+principle in its strip estimate. [Smogeli et al., cross-flow drag formulation](https://www.fossen.biz/publications/2005%20Smogeli%20et%20al%20IMAM.pdf).
+
+At 1 m/s forward through the water and an initial
+yaw rate of ±1 rad/s, the revised split plant retained 0.671 rad/s after 0.25 s.
+The earlier still-water duct approximation retained 0.922 rad/s in the same
+test. The ducts alone initially supplied about 1.41 N·m opposing yaw. Run the
+coast test with `--through-flow` to reproduce this case. At full helm the pilot
+now requests 18°/s yaw in either direction.
+
+On the same split plant the Acro gyro loop settled within 4% of the commanded
+rate after returning the sticks to neutral in 1.17 s roll, 1.26 s pitch and
+1.43 s yaw (0.35, 0.35 and 0.55 rad/s commands). During a full station-keeping
+turn with the navigation FMU the maximum horizontal offset was 0.099 m, depth
+error 0.022 m and pitch 0.34°. All eight registered wreck impact cases
+continued to dissipate energy.
+
+Run `scripts/check-piccard-angular-coast.mjs`, `scripts/check-piccard-manual-damping.mjs`,
+`scripts/check-piccard-station.mjs` and `scripts/check-piccard-impact.mjs` with
+Node and the standalone FMI directory as their first argument.
+
+### Linux perf on the live Piccard survey
+
+Chromium used Vulkan on a GeForce RTX 3090 with a Ryzen 9 5950X. The split
+Yatush survey ran at 1280 × 720 on High, with 11 m/s wind, waves, the local
+sailboat, wildlife, sonar, optical acquisition and the sonar map active.
+After startup, Linux perf sampled user-space CPU cycles at 199 Hz across the
+renderer and GPU-process threads for 20 seconds. The 7,179 samples had no
+loss. This measures CPU execution, including Chromium's compositor. GPU
+execution time requires a separate GPU trace.
+
+The sub advanced 11.29 simulated seconds in 20.44 elapsed seconds during that
+capture. Dedicated workers accounted for 18.2% of sampled cycles. Raster
+worker and compositor threads spent appreciable time painting gradients,
+dithering and scaling. A same-session comparison isolated the fullscreen CRT
+overlay. Each pass retained the same filter appearance, active wind and
+survey sensors.
+
+| Twelve-second pass | Sampled CPU cycles (billions) | Gradient function share | Simulated seconds per elapsed second |
+| --- | ---: | ---: | ---: |
+| Original overlay | 79.5 | 5.46% | 0.87 |
+| Overlay on a compositor layer | 63.8 | Below 0.25% reporting threshold | 0.85 |
+| Original overlay again | 78.5 | 5.96% | 0.88 |
+
+The layer saves approximately 19% of renderer and GPU-process CPU cycles in
+this test. A static 800 × 540 pixel comparison produced identical RGB values.
+Simulation throughput was similar across these passes. These are single
+workstation measurements during concurrent builds.
+
+With the final Microduck halftone, vignette and scanline styling, the same
+12-second baseline/layer/baseline protocol produced 96.6, 65.5 and 100.0
+billion sampled CPU cycles. The three simulation rates were 0.94×, 0.90×
+and 0.91×. Caching the layer saved about one third of sampled CPU cycles
+in that run. Desktop (1280 × 720, DPR 1) and phone (390 × 844, DPR 2)
+reference fixtures matched Microduck in every RGB channel. [Microduck scene stylesheet](https://github.com/CogniPilot/microduck_web/blob/f567b8c452d5c759436a568ffad5632dc1046916/site/pollen/scene.css#L64-L66)
+
+A separate perf trace of the split worker at Yatush used the same Modelica
+equations compiled with function names, a 10 ms plant step and acquisitions
+every 200 ms. Memory movement accounted for 10.5% of cycles in libc plus
+3.5% in V8's WASM memory-copy helper. Stacks led back to generated Modelica
+assignment and pure-function evaluation. Turning on WASM SIMD and compiling
+at O3 produced identical output hashes but inconsistent timing across
+Yatush and the abyss. The shipping split compiler flags remain unchanged.
+
+### Split Piccard scheduling
+
+The split Piccard previously accumulated one simulated second per wall second
+regardless of the offline speed setting. It advanced the harbor only during
+draws. It now uses the selected rate and runs bounded 10 ms step batches
+between draws when work remains. Multiplayer fixes the requested rate at 1×.
+
+Chromium ran a Yatush survey in a 980 × 620 window at High with the optical
+view, sonar, DVL display and map enabled. Separate 6.5 s captures measured
+the Piccard worker's completed simulation time. The browser and FMUs were the
+same for each pair. Concurrent workstation load varied.
+
+| Requested speed | Per-draw scheduling | Interleaved scheduling |
+| --- | ---: | ---: |
+| 1× | 0.69× | 0.88× |
+| 10× | 0.42× | 1.38× |
+
+At the 10× setting, the displayed frame rates at the end of those runs were
+25.0 and 16.7 FPS. The sailboat solver took 47.5% of wall time on the main
+thread after the scheduling change. Isolating the Piccard worker gave 1.68 ms
+per 10 ms step (5.96×), including 1.19 ms for the plant and 0.28 ms averaged
+over steps for navigation acquisition. The full scene still exceeds the 1 ms
+budget needed for 10×.
+
+A separate two-window Hobie/Piccard test verified that a host wind setting of
+8 m/s reached the other player. Both windows advanced wind four times, the
+regatta twenty times and their surface hull one hundred times per simulated
+second. The Piccard progressed at 0.28× before and 0.43× after the scheduling
+change in this shared-machine test.
+
+### Split Piccard terrain lookup
+
+On 25 November 2026 the split Piccard worker spent 2.31–2.47 ms of main-thread
+CPU time per 10 ms physics step at the abyss cave. A flat constant table of
+positive depths reduced this to 1.62–1.63 ms. The two runs per version
+averaged **4.18× and 6.16× real time**, a 1.47× speedup. At the Yatush
+approach the original took 1.38–1.40 ms and the new version 1.36–1.39 ms.
+The change helps most where terrain rays and contact points query the
+non-flat abyss bathymetry frequently.
+
+Linux `perf record -e cpu-clock:u -F 997` on the previous deployed split pair
+collected about 12,000 samples with no loss. The terrain lookup accounted for
+9.93% of exclusive samples in the Plant and 9.36% in Navigation. Native
+`memmove` and V8's WebAssembly memory-copy wrapper accounted for a further
+12.00% and 5.90% across the worker. Previously the generated routine
+constructed rows of signed millimetre elevations at each query. The new
+Modelica source indexes a constant north-fast vector of positive millimetre
+depths and converts just the two selected values to elevations. The generated
+C can place the literal in read-only storage. All 2,115 tested grid index
+pairs returned identical floating-point values or the same bounds error.
+
+Run `node scripts/bench-piccard-split.mjs <fmi3-directory> cave 2400` and
+repeat with `wreck` to reproduce the worker paths. The benchmark uses the
+normal split worker with 80 warmup steps, four steps per message, 11 m/s wind,
+active helm, 5 Hz survey, optical mapping and sonar. The recorded control and
+candidate used identical current model sources apart from the terrain
+generator, the same RC compiler with both downstream code-generation patches,
+and the same Emscripten optimization level. The comparison used an A/B/B/A
+order. The digest covers all posted telemetry and sensor frames, and matched
+for every run at each site. The measurement excludes browser rendering and
+inter-thread message delivery.
+
+### Split Piccard generated memory traffic
+
+A second Linux `perf` capture on the flat-depth-table worker attributed 18.91%
+of samples to generated assignments, 10.76% to native memory copies and 4.09%
+to the six-by-six Cholesky solve for rigid-body acceleration. Instrumenting
+the generated C identified a 14,792-byte copy of the 1,849 integer depths
+on each terrain lookup. Across 21 simulated seconds it accounted for about
+8 GB of source-level copies. This byte count includes copies LLVM can remove.
+
+The FMI C emitter can give an immutable table its own static register when
+the checked storage plan owns that register and no other register reuses it.
+Shared, caller-visible or subsequently updated storage retains its existing
+copy behavior. On a 24-second cave replay, the A/B/B/A code-generation
+experiment took 1.410 and 1.414 ms per physics step with the copy and 1.246
+and 1.200 ms with the static register. The complete telemetry digest matched
+for all four runs. These are single-worker CPU times on a shared workstation.
+
+### Sloop cost during a split Piccard survey
+
+The split harbor advances a surface sloop alongside the submarine. Linux perf
+on its WASM solver identified the pressure integration and the sailcloth
+evaluation as major CPU costs. The centered monohull now reuses its first
+hydrostatic result when both sample lines have identical input water levels.
+Offset hulls and unequal levels receive separate integrations. Rumoca's bounded
+pure-function cache can now retain two small argument sets, so the mainsail and
+jib can each reuse results when evaluating assertions.
+
+In paired isolated runs the old sloop used 3.84–3.85 ms of thread CPU per 10 ms
+step, and the optimized sloop used 2.08 ms. With the current Modelica source,
+451,980 output values matched bit for bit across calm water, changing wind with
+cross seas and nearby traffic, and independently driven water lines. The older
+shipped model preceded other source changes. Against that artifact the largest
+change in the test was 0.00343 N of contact load.
+
+Four 6.5 s Chromium passes in baseline, candidate, candidate, baseline order
+ran the full High split Piccard survey at Yatush with 10× selected. They
+measured **0.33×, 0.82×, 0.47× and 0.52×** respectively. Both versions kept
+the same wave and wind solvers, sailboat, Piccard plant and navigation, sensor
+displays and simulation steps. Compiles were running concurrently on the
+workstation. Separate six-second Linux perf captures of the scene advanced
+at 0.59× and 0.89×. These results apply to `runtime=split`.
+
+The production split pair was then rebuilt from the pinned `7107c18` compiler
+and all four downstream patches. Its complete replay hashes matched the
+previously deployed release-candidate build at both sites. During an A/B/B/A
+run with concurrent builds, the earlier cave worker took 1.85 and 1.69 ms
+per 10 ms tick and the new worker took 1.53 and 1.57 ms. At Yatush the
+respective times were 1.30 and 0.98 ms versus 0.98 and 0.99 ms. The new
+pair sustained about 6.45× worker CPU real time in the cave and 10.1× at
+Yatush. The cave needs less than 1 ms per tick to sustain 10×. The latter
+benchmark omits rendering and message delivery.
+
+The existing 600 s standalone sloop autopilot test stayed on leg 1 with one
+tack on the previously shipped artifact, the current source without these
+optimizations and the optimized release. The two current-source runs agreed
+exactly on all twelve sampled positions, headings, speeds and sail forces.
+
+As competing builds wound down, repeating the same High survey in candidate,
+baseline, baseline, candidate order produced **2.86×, 2.21×, 2.10× and
+2.82×**. The corresponding surface-hull times were 1.26, 2.43, 2.43 and
+1.29 ms per step. The optimized passes ended at 30.0 and 28.5 FPS.
+
+### Articulated manta contact with craft
+
+The manta uses ten articulated capsules. Each craft supplies one hull segment
+or two for a catamaran. A bounding sphere rejects distant pairs. For nearby
+pairs, the Modelica contact function also checks whether a capsule's projected
+intervals overlap a hull segment expanded by the combined radii. It tests
+the same hull frame and vertical scale as the closest-points solver. A
+roundoff allowance keeps grazing candidates in the exact calculation. This
+follows the two-stage bounding-volume approach described by Cohen et al.
+and used for compound queries in Parry. [I-COLLIDE, 1995](https://www.cs.princeton.edu/courses/archive/spr01/cs598b/papers/cohen95.pdf).
+[Parry bounding volumes](https://parry.rs/docs/user_guide/bounding_volumes/).
+
+The table gives median thread CPU time per query in V8 for C emitted by
+the pinned Rumoca compiler and built with Emscripten `-O2`. Both kernels
+were warmed before six interleaved measurements each. Each row used 4,096
+deterministic poses across single-hull, twin-hull and submersible craft. All
+twelve force and moment components and the generated assertion flag agreed
+bit-for-bit across the 20,480 cases.
+
+| Pose set | Cases with force | Earlier, ns/query | With interval pruning, ns/query |
+| --- | ---: | ---: | ---: |
+| Distant | 0 | 50 | 49 |
+| Direct encounter | 3,293 | 1,378 | 1,394 |
+| Nearby flyby | 42 | 1,378 | 1,013 |
+| Mixed nearby craft | 371 | 1,529 | 1,169 |
+| Grazing contact | 1,221 | 1,269 | 1,057 |
+
+These measurements cover a single contact pair. They exclude scene rendering
+and integration of the rest of the simulation.
+
+## Dedicated Piccard, current Yatush survey and collision profiling
+
+The dedicated runtime on port 18416 advanced from 28.49 s to 116.27 s in 20.4581 wall seconds, **4.29×**. This was a 1280×720 High-quality Chromium survey at requested 10× with 11 m/s wind, optical camera, sonar and map active. Linux perf sampled user-space cycles at 199 Hz. Restricting the report and denominator to `DedicatedWorker` put 19.66% in libc memory moves, 4.61% in WASM `memcmp`, 3.93% in `rmc_discrete_owners`, 3.44% in `rmc_guarded_rhs_23` and 2.83% in `rmc_assign`. These are exclusive CPU samples. They do not assign every copy to a particular source array. The recorded start and finish HUD ratios were 4.86× and 3.31×, illustrating why elapsed simulated time is preferable to a single HUD sample.
+
+An earlier instrumented run of the same role measured 3.68% of worker wall time in the JavaScript scan query bridge and 89.06% in FMI stepping, including Modelica contact forces. The split preview's additional sailboat is absent from this runtime. The split-only wave replay now takes 5.68 ms per 100 ms update in the solo case, and 11.45 ms with a live injected peer wake. A solo wave result cannot establish multiplayer or full-scene throughput. The asynchronous optical readback reduced the typical main-thread readback from 9.25 ms to about 0.70 ms in separate measurements.
+
+The [collision review and workload definitions](COLLISION.md) cover the native primitive comparisons and a separate replay against both actual scans. The OpenModelica profile there uses CPU-clock samples on the native query process, a different compiler and denominator from this browser trace.
+
+A second replay instrumented each WASM `memory.copy` instruction on the same deployed artifact (build `ecea1715abbcf6ef`). It counted copies only during `doStep`, following 40 warm-up steps, with wind, waves, wakes, sensors and the automatic survey active. Across the next 200 × 10 ms steps it counted 4.168 GB of logical copy traffic. The median was 7.61 MB/step and the maximum was 279.50 MB. Those counts do not imply an equal number of bytes reached DRAM. They also use a separate replay from the browser cycle profile.
+
+The largest individual function by bytes was the imaging sonar's `formEcho` (1.017 GB, 24.4% of all copied bytes). Its inner loop adds energy to a range bin in a local array of 128 doubles. At two compiled sites alone, a one-bin update moved the whole 1,024-byte buffer 827,664 times. Across the two simulated seconds those two sites copied 847,527,936 bytes. The algorithm has 65 bearings and 15 elevation samples per bearing. The extra traffic is introduced by lowering the indexed update through a temporary. Whole-array copies elsewhere include event-entry snapshots and integration history with separate correctness requirements. The original and copy-instrumented runs produced matching sampled-output hashes.
+
+In a private WASM experiment, replacing that buffer round trip with a same-bin load/store preserved the complete sonar raster, camera images, navigation observations and vehicle state across an 800-step moving Yatush replay. There were 46 distinct sonar frames. Two paired trials in opposite orders reduced sonar-acquisition CPU time from 20.63 to 19.49 ms and from 17.12 to 15.21 ms. Across **all** steps the changes were 2.592 to 2.597 ms and 2.094 to 2.017 ms respectively. This is evidence for reducing the sonar spikes. It does not justify projecting a 20.65% speedup from eliminating 20.65% of logical copy bytes.
+
+Separate measured event overhead comes from preserving the full 156,024-double value array. In the 200-step replay it was copied 120 times to an event-entry snapshot and 121 times to the repeated-event detection history, totaling 300,814,272 bytes for those two sites alone. Keeping the Modelica event semantics requires capturing the right pre-event values and independently owned history. A compiler experiment should restrict snapshots to proven live/writable ranges or maintain a changed-page journal, then verify event roots, simultaneous events, rollback, peer wake, collisions and every sonar frame against the original.
+
+The private single-bin change also ran through the full High-quality browser scene in alternating A/B/B/A order. The original ran at 4.30× and 4.56×, and the experimental version at 4.06× and 4.59×. These short samples overlap. The experiment supports improving individual acquisition ticks, with no demonstrated improvement to sustained browser throughput.
+
+For the fresh browser trace, the nearest identifiable WASM frames above sampled libc copy routines were the FMI step entry including inlined callees (35.6% of those copy cycles), discrete equation evaluation (12.9%), the full imaging sonar ping (10.9%), event update (9.2%), and the full sensor frame (6.1%). These percentages use only sampled copy cycles as their denominator. The worker's 3.44% exclusive `rmc_guarded_rhs_23` sample share belongs to packaging the eight outputs of the 10 Hz wave update. It cannot be assigned entirely to the Fourier transform itself.
+
+There is also a bounded-loop optimization in the Modelica source. The sonar joins adjacent returns only when their range changes by less than 1.8 m. With 128 bins across 18 m, that interval spans less than 12.8 bin widths and can include at most 13 bin centers. Enumerating at most those 13 candidate cells prevents the compiler from expanding the dynamic loop over all 128 possible indices. The exact range endpoints, accumulation order, ray count, update clock and source amplitude are preserved.
+
+In an isolated V8 benchmark of the Ocean compiler's generated WASM, the mixed `formEcho` workload took 1.681 ms before and 0.820 ms after, dense returns took 3.602 and 1.319 ms, and near the maximum patch width took 4.202 and 1.092 ms. With no returns the result was 0.464 and 0.470 ms. All 255,480 output doubles from 120 frames agreed bit for bit. These timings cover the echo kernel only.
+
+The dedicated Piccard FMU compared the baseline `ecea1715abbcf6ef` with candidate `2ac6370e5c9e1d5a`. Each run warmed up for 120 steps and timed the next 1,200 steps at 10 ms of simulation time per step. Both components ran on one pinned CPU in V8 with wind, waves, wakes, camera, sonar and navigation active. The harness alternated execution order every 40 steps, then repeated the trajectory with the order reversed. Values below are mean solver thread CPU milliseconds per step. The acquisition column includes the entire step when the 5 Hz sonar sample was due.
+
+| Trajectory | First component in initial block | All steps, baseline → candidate | Acquisition steps, baseline → candidate |
+| --- | --- | ---: | ---: |
+| Autonomous survey | Baseline | 3.611 → 3.579 | 30.834 → 29.035 |
+| Autonomous survey | Candidate | 2.144 → 2.056 | 17.982 → 16.574 |
+| Manual Yatush dive | Baseline | 1.990 → 1.908 | 15.816 → 14.619 |
+| Manual Yatush dive | Candidate | 1.817 → 1.713 | 14.789 → 13.235 |
+
+Each replay produced 66 distinct sonar frames including warmup. The complete packed sonar raster, camera image, elevation samples, features, keyframes, navigation estimate, sensor channels and sampled vehicle motion matched the baseline byte for byte. A separate wake replay matched the wave fields sample for sample. Coupling a sailing sender's wake to the candidate Piccard produced a 0.0005082 m peak receiver-height perturbation. The candidate also includes the manta contact filter described above. The baseline and candidate both produced a peak Piccard contact force of 829.4 N and zero force on separation. These checks address solver cost and behavior. Browser rendering and wall-clock pacing are measured separately.
+
+A private compiler experiment narrowed the outer repeated-event history from 1,248,192 to 38,304 bytes per sample using the values that can change across those passes. A separate event-entry specialization retained two disjoint ranges totaling 606,792 bytes. Together they saved 243 MB of the 4.168 GB of measured bulk copies per two simulated seconds. In eight paired runs all observed poses, sonar and camera frames, keyframes and navigation outputs matched. The autonomous survey used 2.6–4.6% less thread CPU. The moving manual dive ranged from 2.1% faster to 5.5% slower across run orders. During a separate 1,000-step audit the original and specialized comparisons returned the same result for both comparisons that occurred in 606 outer snapshots. Neither comparison found a cycle. The preview uses the original history logic. A general compiler implementation needs a true repeated-cycle regression and must preserve full rollback when a right-limit event can restore the whole vector.
+
+The bounded sonar runtime is available in the local preview as `2ac6370e5c9e1d5a`. High-quality Chromium runs over survey time 23–83 s used 11 m/s wind and active sonar, camera and map. In candidate/baseline/baseline/candidate order they ran at 5.04×, 4.91×, 4.70× and 3.25× respectively on the shared host. These browser runs did not resolve a sustained speedup. Promotion was based on the paired solver CPU measurements, reduced acquisition cost, matched sensor data and passing contact/wake regressions. The 10× end-to-end target remains open.
+
+### Hobie High offshore on the coupled sailing worker
+
+With 10× playback requested, Chromium on this workstation advanced the Hobie
+18.50 simulated seconds in 16.04 wall seconds (**1.15×**). The High preset
+used a 1920 × 1080 viewport, 5.14 m/s wind, sea state 0.45 and the normal
+wind and wake models. The served sailing core was `cbe1bd8f914c4460`.
+Other builds were running. The HUD ranged from 14 to 27 FPS at the two
+measurement endpoints.
+
+A second warmed run used Linux `perf record -e cycles:u -F 169` on the
+browser process tree and a concurrent V8 CPU profile on the particular
+sailing worker. A trace marker in that worker identified its Linux thread.
+Filtering hardware samples to that TID, using percentages relative to the
+selected thread, gave 25.9% in libc memory movement, 6.6% directly in
+sectional hull hydrostatics, 6.3% in trigonometric argument reduction,
+3.8% and 3.4% in the cosine and sine kernels, 3.7% in the 64² wake step
+and 3.1% in the mainsail cloth kernel. Flat hardware percentages exclude
+time in callees. In the V8 stacks, 18.3% of samples included sectional
+hydrostatics and 9.6% included the wake step. Of 1,387 samples containing
+sine, cosine or their reduction kernels, 943 were under hull hydrostatics.
+
+The sampled run advanced 22.40 simulated seconds in 20.14 wall seconds
+(**1.11×**). The sailing worker consumed 17.00 CPU seconds and spent
+2.21 seconds runnable off CPU. Its measured cost was 7.59 ms on CPU per
+10 ms simulated, compared with the 1 ms budget at 10×. This is an offshore
+sailing run. A wreck impact or a multi-vessel encounter needs its own
+collision profile.
+
+Conservative wet/dry bounds now skip the individual waterline sine evaluations
+only for sections guaranteed dry or entirely submerged across the integration
+strip. A direct kernel comparison returned identical loads for 8,000 randomized
+poses. A 271-step coupled replay also matched bit-for-bit through changes in
+sail trim, a peer's wake, and hull contact. On the same desktop, alternating
+warmed browser runs measured 2.363× and 2.358× before, and 2.385× and 2.396×
+after. A pinned component replay measured 4.211 vs 4.139 ms per 10 ms step.
+A proposed symmetric wake lookup increased step time, and a different
+trigonometric reduction changed an impact trajectory. Neither trial shipped.
+
+Instruction counters in the offshore High component recorded 11.03 GB of
+logical WASM copies in 200 steps after 40 warm-up steps. That is 55.15 MB
+per step on average, with a 28.24 MB median. The instrumented and control
+runs produced the same sampled-output SHA-256. These counts measure bytes
+requested by memory.copy. Hardware samples above measure the CPU cost.
+
+### Hobie hull contact during multiplayer replay
+
+A pinned Linux hardware-cycle profile refreshed a nine-field peer packet at
+the same 100 ms interval in each High sailing run. With the peer 300 m away,
+the simulation consumed 5.68–6.11 ms CPU per 10 ms step, with zero contact
+force. Sustained bow-on contact consumed 8.65–10.23 ms. It generated force
+on 1,194 of 1,200 steps, peaking at 14.4 kN. The triangle distance kernel
+then accounted for 24.0% of flat cycles.
+
+The pontoon mesh has 12 ordered transverse rings. A vertex of the nearest
+ring supplies an upper distance bound. Only skin triangles in ring intervals
+that can beat this bound and the two end caps need exact triangle projection.
+The original triangle order resolves ties. Meshes with a different face
+order retain the full search. Signed distances and normals agreed bit-for-bit
+with exhaustive search at 16,072 points. Coupled replays matched every
+sampled boat pose and peer force through 1,680 steps, plus the separate wake
+and sail trim replay.
+
+Two alternating comparisons of the final build measured a mean of 7.80 ms
+before and 6.63 ms after per 10 ms of simulated sustained contact, including
+the rest of the sailing model. The optimized contact kernel used 9.6% of flat
+cycles in a fresh Linux profile. This sustained overlap intentionally stresses
+the narrow phase. Offshore the triangle search is already rejected.
+
+A separate 20 ms desktop communication-step experiment agreed with 10 ms
+to within 24 nanometres offshore but diverged by over a metre in repeated
+contact. Desktop continues to use 10 ms communication steps.
+
+### Dormand–Prince endpoint history
+
+The endpoint of each integration interval copied the whole Modelica `pre()`
+history when even one source was continuous. The FMI solver now reuses each
+independent parameter-backed range between events. Continuous history,
+sources written by other history transfers, and destinations with multiple
+writers still update in their original order. The first interval of a new
+communication step and the interval after an event refresh the reusable ranges.
+
+During 200 warmed High steps with a pose read, logical copies attributed to
+the integrator fell from **1.907 GB to 0.279 GB**. Across the component they
+fell from 11.031 GB to 9.402 GB. The output checksum was identical. Over
+1,800 offshore steps, alternating Linux `perf stat` runs retired 67.0 vs
+66.1 billion instructions and used 25.9 vs 24.1 billion cycles on average.
+A shorter pinned timing replay measured 4.08 vs 4.15 ms per step, and a
+separate sustained-contact replay measured 5.36 vs 4.96 ms. The High
+browser A/B runs varied with host load (1.50×/2.36× control and
+2.10×/1.92× candidate). Both served the coupled sailing component at 1080p.
+The 10× target remains open. The next largest copy sites are the wake step
+(2.62 GB) and mainsail fabric (2.54 GB per 200 steps).
+
+The patch applies on top of the pinned Rumoca fixes in `build.sh`. The
+pinned IR suite passed 1,359 tests. Native FMI 2 and FMI 3 replays also
+matched through changing inputs, periodic samples, and a state crossing.
+
+### Wake spectrum row writes on Hobie High
+
+Each complex wake mode and directional wind mode now writes its row element
+once after computing both components. Moving the scalar work outside the
+array updates lets Rumoca avoid copying several 64-element temporary rows.
+The mode count, wind spectrum, water depth, hull sources, FFT and peer wake
+inputs are unchanged.
+
+Across 200 steps the wake kernel copied 1.98 GB, down from 2.62 GB.
+All instrumented kernels together copied 8.76 GB, down from 9.40 GB.
+The 271-step replay matched every sail, force, contact, pose and water tile
+bit for bit. The standalone wake regression also passed for wind waves,
+off-center probes, asymmetric hull immersion and the tow case.
+
+Across four alternating Linux perf runs of 1,800 steps each, average
+instructions fell from 66.11 to 64.51 billion. Average cycles were essentially
+flat at 22.65 billion. In the 1080p desktop High browser, the baseline ran
+at 2.53× and 2.57×, and the new component ran at 2.65× and 2.62× with
+wind and peer wakes active. The largest remaining measured copy site is
+the mainsail fabric solver at 2.54 GB per 200 steps.
+
+### Sailcloth contact with the shrouds
+
+Each wire pass moves sail vertices in the transverse direction. The X
+and Z bounds of each mesh row therefore stay fixed for the three passes.
+A row and its neighbor bound all the horizontal, vertical and diagonal
+edges starting at that row. The new broad phase checks this bound before
+running the original edge intersection and contact reaction.
+
+The mainsail kernel copied 2.11 GB per 200 steps, down from 2.54 GB.
+The coupled 271-step replay matched all wire reactions, including a 47.06 N
+peak, both sails' vertices, wave fields and vessel contact bit for bit.
+An ordered list of candidate wire crossings increased array-copy traffic,
+and a packed mask produced almost identical browser rates. Both trials
+were discarded.
+
+Four alternating 1,800-step Linux perf runs in the repeat measurement gave
+22.30 billion cycles and 64.49 billion instructions before row rejection,
+and 22.20 billion cycles and 63.54 billion instructions afterward. In the
+1080p High browser, two control runs measured 2.62× and 2.27×, and the two
+candidate runs measured 2.69× and 2.70×. The spread between control runs
+was larger than the standalone CPU improvement.
+
+A fresh Linux perf recording on the published component covered 53.03
+simulated seconds in 20.06 wall seconds (**2.64×**). The sailing worker
+spent 19.83 seconds on CPU and 0.014 seconds runnable off CPU. That is
+3.74 ms of CPU per 10 ms simulated in this offshore run. Sampling that
+worker alone put 18.44% of cycles in the host memory-move routine, 7.43%
+directly in sectional hydrostatics and 4.25% directly in trigonometric
+argument reduction. Of 9,710 V8 samples, 22.85% included sectional
+hydrostatics, 11.00% included the 64² wake, 6.43% included the mainsail
+fabric and 2.49% included the jib. Of 1,792 stacks containing trigonometric
+calls or argument reduction, 1,120 included sectional hydrostatics. The
+browser held 30 FPS. The dedicated contact replay above covers sustained
+vessel contact separately.
+
+### Guard unused trigonometric work in sectional hydrostatics
+
+The generated scalar kernel evaluated a sine before selecting one branch
+of a Modelica conditional expression. Explicit guarded statements now
+avoid the crest calculation when an entire integration column is certainly
+dry, and skip the deck sine when the bounding water level already excludes
+overtopping. The bow still computes the reported maximum foredeck depth.
+Instrumenting the generated native kernels over 8,000 deterministic poses
+counted 926,727 sine evaluations, down from 1,077,624. Every one of the
+23 output values matched across these poses, including extreme phases and
+inverted attitudes. The 271-step coupled High replay matched bit for bit.
+
+Across two four-run alternating Linux perf blocks of 1,800 steps, median
+cycles went from 22.65 to 22.47 billion and median instructions from 63.53
+to 61.98 billion. The four High 1080p browser runs per build had medians
+of 2.68× and 2.74×, with means of 2.66× and 2.67×. This version still uses
+all the High wave modes, sail dynamics, contact and multiplayer inputs.
+
+The published-route smoke fetched component index
+`OceanSailing.fmu.c702c2121402669f.json` and ran at 2.37× over 20 seconds
+at 30 FPS. The standalone hydrostatics, peer-surface and fleet-contact
+checks passed. The existing windless surf-speed assertion still fails on
+the earlier ring-contact build, the row-bounds build and this build. All
+three produce the same six-second following-sea velocity of 6.1573 m/s
+against the test threshold of 6.45 m/s, with identical recorded speed,
+phase, force and ballast for all three headings/sea cases.

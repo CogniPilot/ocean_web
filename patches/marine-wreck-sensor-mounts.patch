@@ -1,0 +1,159 @@
+diff --git a/Marine/Wreck/ImagingSonar.mo b/Marine/Wreck/ImagingSonar.mo
+index 079a101..94cb016 100644
+--- a/Marine/Wreck/ImagingSonar.mo
++++ b/Marine/Wreck/ImagingSonar.mo
+@@ -17,6 +17,7 @@ package ImagingSonar "Forward imaging sonar, bearing and two-way travel-time bin
+   function formEcho "Convert slant ranges in metres to packed intensities and a navigation profile"
+     input Real t,pos[3],T[3,3];
+     input Real samples[bearings,verticalSamples];
++    input Real sensorMount[3]=mount;
+     output Real intensity[bearings,32] "Four unsigned 8-bit range cells per word, near cell first";
+     output Real profile[49] "Dominant echo slant range per navigation bearing; zero is no detection";
+ 
+@@ -31,7 +32,7 @@ package ImagingSonar "Forward imaging sonar, bearing and two-way travel-time bin
+     for channel in 1:(bins+3*bearings) loop
+       floorNoise[channel]:=2*(1+Perception.noise(t,channel));
+     end for;
+-    o:=pos+transpose(T)*mount;
++    o:=pos+transpose(T)*sensorMount;
+     for b in 1:bearings loop
+       ranges:=samples[b,:];
+       power:=zeros(bins);
+diff --git a/Marine/Wreck/Perception.mo b/Marine/Wreck/Perception.mo
+index f2cde46..7f40db8 100644
+--- a/Marine/Wreck/Perception.mo
++++ b/Marine/Wreck/Perception.mo
+@@ -90,12 +90,13 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
+   function instruments
+     input Real t,pos[3],T[3,3],v[3],rates[3],accel[3],pressure,depth[rays],d[rays,3];
+     input Boolean camera=true;
++    input Real dopplerOffset[3]=dvlMount,cameraOffset[3]={.62,0,.09};
+     output Real raw[195] "149 sonar ranges, four DVL ranges and radial velocities, pressure, inertial measurements";
+     output Real image[864];
+   protected
+     Real p[3],r,texture,rayWorld[3],eye[3],signalLevel;
+   algorithm
+-    raw:=zeros(195);eye:=pos+transpose(T)*{.62,0,.09};
++    raw:=zeros(195);eye:=pos+transpose(T)*cameraOffset;
+     for i in 1:153 loop
+       r:=depth[i];
+       raw[i]:=if r>.08 and noise(t,1000+i)>(if i<5 then -.976 else -.93) then max(.08,r+noise(t,i)*(.012+.0015*r)) else 0;
+@@ -103,7 +104,7 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
+     for i in 1:4 loop
+       // Bottom-track Doppler measures transducer velocity along the acoustic axis.
+       // Residual scale and random errors are illustrative standard-unit settings.
+-      r:=1.006*(d[i,:]*(v+cross(rates,dvlMount)))+.009*noise(t,160+i);
++      r:=1.006*(d[i,:]*(v+cross(rates,dopplerOffset)))+.009*noise(t,160+i);
+       if abs(r)>3.75 then raw[i]:=0;end if;
+       raw[153+i]:=if raw[i]>0 then .0001*floor(r/.0001+.5) else 0;
+     end for;
+@@ -203,13 +204,14 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
+   end registration;
+   function dvlWorldPoints "Measured bottom-lock intercepts in world ENU, including the DVL mounting offset"
+     input Real position[3], roll, pitch, yaw, ranges[4], beams[4,3];
++    input Real sensorMount[3]=dvlMount;
+     output Real points[4,3];
+   protected
+     Real cr=cos(roll),sr=sin(roll),cp=cos(pitch),sp=sin(pitch),cy=cos(yaw),sy=sin(yaw);
+     Real body[3],forwardLevel,portLevel;
+   algorithm
+     for beam in 1:4 loop
+-      body:=dvlMount+ranges[beam]*beams[beam,:];
++      body:=sensorMount+ranges[beam]*beams[beam,:];
+       forwardLevel:=cp*body[1]+sp*(sr*body[2]+cr*body[3]);
+       portLevel:=cr*body[2]-sr*body[3];
+       points[beam,:]:=position+{cy*forwardLevel-sy*portLevel,sy*forwardLevel+cy*portLevel,
+@@ -252,6 +254,7 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
+     input Real t,raw[195],d[rays,3],image[864],previousImage[864],previous[21],history[keys,stride];
+     input Boolean camera=true,mapping=true;
+     input Real initialPosition[3]={-5,0,-10},pressureDatum=.29;
++    input Real dopplerOffset[3]=dvlMount,cameraOffset[3]={.62,0,.09},sonarOffset[3]=ImagingSonar.mount;
+     output Real s[21],graph[keys,stride],sensor[91],ft[24,5];
+   protected
+     Real ring[16],opticalRate,cloud[48,3],r,roll,pitch,cp,sp,cr,sr,x,y,z,kg,fix[3],rms,best,chosenFix[3],innovation[4],oldPose[4];
+@@ -260,6 +263,8 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
+     Integer rateCount;
+     Boolean lock,newKey,validHeight;
+     Real dvlFix,oldRoll,oldPitch;
++    Real gyro[3],leverVelocity[3],upPrevious[3],upPredicted[3],forwardPredicted[3];
++    Real spin,angle,firstOrder,secondOrder,predictedRoll,predictedPitch,yawIncrement;
+     Integer tiltCode,rollIndex,pitchIndex;
+   algorithm
+     s:=previous;graph:=history;sensor:=zeros(91);dt:=if t==0 then 0 else .2;
+@@ -273,13 +278,28 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
+       ft:=fill(-1,24,5);ring:=zeros(16);opticalRate:=0;nf:=0;nm:=0;
+     end if;
+     lock:=min(raw[1:4])>0;
+-    if raw[1]>0 and raw[2]>0 then s[5]:=(raw[154]-raw[155])/(2*sin(pi/8));end if;
+-    if raw[3]>0 and raw[4]>0 then s[6]:=(raw[156]-raw[157])/(2*sin(pi/8));end if;
+-    s[7]:=.85*(s[7]+dt*raw[159])+.15*atan2(raw[163],raw[164]);
+-    s[8]:=.85*(s[8]+dt*raw[160])+.15*atan2(-raw[162],sqrt(raw[163]^2+raw[164]^2));
++    gyro:={raw[159],raw[160],raw[161]-s[21]};
++    leverVelocity:=cross(gyro,dopplerOffset);
++    if raw[1]>0 and raw[2]>0 then s[5]:=(raw[154]-raw[155])/(2*sin(pi/8))-leverVelocity[1];end if;
++    if raw[3]>0 and raw[4]>0 then s[6]:=(raw[156]-raw[157])/(2*sin(pi/8))-leverVelocity[2];end if;
++    // Rotate the previous gravity direction and forward axis through the measured
++    // three-axis gyro increment. The body-z gyro alone is yaw only for a level vehicle.
++    oldRoll:=s[7];oldPitch:=s[8];spin:=sqrt(gyro*gyro);angle:=dt*spin;
++    firstOrder:=if angle>1e-6 then sin(angle)/spin else dt;
++    secondOrder:=if angle>1e-6 then 2*(sin(.5*angle)/spin)^2 else .5*dt^2;
++    upPrevious:={-sin(oldPitch),cos(oldPitch)*sin(oldRoll),cos(oldPitch)*cos(oldRoll)};
++    upPredicted:=upPrevious-firstOrder*cross(gyro,upPrevious)+secondOrder*cross(gyro,cross(gyro,upPrevious));
++    forwardPredicted:={1,0,0}+firstOrder*cross(gyro,{1,0,0})+secondOrder*cross(gyro,cross(gyro,{1,0,0}));
++    yawIncrement:=atan2(cos(oldRoll)*forwardPredicted[2]-sin(oldRoll)*forwardPredicted[3],
++      cos(oldPitch)*forwardPredicted[1]+sin(oldPitch)*(sin(oldRoll)*forwardPredicted[2]+cos(oldRoll)*forwardPredicted[3]));
++    predictedRoll:=atan2(upPredicted[2],upPredicted[3]);
++    predictedPitch:=atan2(-upPredicted[1],sqrt(upPredicted[2]^2+upPredicted[3]^2));
++    r:=atan2(raw[163],raw[164])-predictedRoll;
++    s[7]:=predictedRoll+.15*atan2(sin(r),cos(r));
++    s[8]:=.85*predictedPitch+.15*atan2(-raw[162],sqrt(raw[163]^2+raw[164]^2));
+     roll:=s[7];pitch:=s[8];cr:=cos(roll);sr:=sin(roll);cp:=cos(pitch);sp:=sin(pitch);
+-    correctedRate:=raw[161]-s[21];
+-    s[4]:=s[4]+dt*correctedRate;s[12]:=s[12]+dt^2*.003^2;
++    correctedRate:=if dt>0 then yawIncrement/dt else gyro[3];
++    s[4]:=s[4]+yawIncrement;s[12]:=s[12]+dt^2*.003^2;
+     // A forward translation produces optical flow even with zero yaw. Use
+     // the measured forward sonar profile and DVL to predict the old bearing
+     // of each matched corner in the absence of rotation.
+@@ -288,7 +308,7 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
+       if dt>0 and lock and ft[k,3]>=0 then
+         bearing:=atan((17.5-ft[k,1])/cameraFx);oldBearing:=atan((17.5-ft[k,3])/cameraFx);
+         beam:=29+integer(floor(bearing*24/ImagingSonar.halfFan+.5));
+-        axialRange:=raw[beam]*cos(ImagingSonar.depression)*cos(bearing)+ImagingSonar.mount[1]-.62;
++        axialRange:=raw[beam]*cos(ImagingSonar.depression)*cos(bearing)+sonarOffset[1]-cameraOffset[1];
+         if axialRange>.4 then
+           r:=(oldBearing-atan2(axialRange*tan(bearing)+dt*s[6],axialRange+dt*s[5]))/dt;
+           if abs(r-correctedRate)<.16 then rateSum:=rateSum+r;rateCount:=rateCount+1;end if;
+@@ -299,7 +319,7 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
+     if rateCount>=3 then
+       kg:=s[12]/(s[12]+.012);s[4]:=s[4]+kg*dt*(opticalRate-correctedRate);s[12]:=(1-kg)*s[12];
+     end if;
+-    bodyHeave:=if lock then -sum(raw[154:157])/(4*cos(pi/8)) else 0;
++    bodyHeave:=if lock then -sum(raw[154:157])/(4*cos(pi/8))-leverVelocity[3] else 0;
+     levelSurge:=cp*s[5]+sp*(sr*s[6]+cr*bodyHeave);
+     levelSway:=cr*s[6]-sr*bodyHeave;
+     s[1]:=s[1]+dt*(levelSurge*cos(s[4])-levelSway*sin(s[4]));
+@@ -317,9 +337,9 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
+       if r>0 then
+         // A fan echo has unknown elevation. Use its beam centre for the
+         // horizontal registration; depth remains pressure-aided.
+-        x:=ImagingSonar.mount[1]+r*cos(ImagingSonar.depression)*d[beam,1];
+-        y:=r*cos(ImagingSonar.depression)*d[beam,2];
+-        z:=ImagingSonar.mount[3]-r*sin(ImagingSonar.depression);
++        x:=sonarOffset[1]+r*cos(ImagingSonar.depression)*d[beam,1];
++        y:=sonarOffset[2]+r*cos(ImagingSonar.depression)*d[beam,2];
++        z:=sonarOffset[3]-r*sin(ImagingSonar.depression);
+       else x:=0;y:=0;z:=0;end if;
+       cloud[i,:]:={cp*x+sp*(sr*y+cr*z),cr*y-sr*z,-sp*x+cp*(sr*y+cr*z)};
+     end for;
+@@ -334,8 +354,8 @@ package Perception "Acoustic/optical acquisition and pressure- and gravity-aided
+         oldRoll:=(div(tiltCode,2048)-1800)*pi/1800;
+         oldPitch:=(mod(tiltCode,2048)-900)*pi/1800;
+         (dvlFix,validHeight):=dvlHeightCorrection(
+-          dvlWorldPoints(s[1:3],roll,pitch,s[4],raw[1:4],d[1:4,:]),
+-          dvlWorldPoints(graph[nearest,1:3],oldRoll,oldPitch,graph[nearest,4],graph[nearest,177:180],d[1:4,:]));
++          dvlWorldPoints(s[1:3],roll,pitch,s[4],raw[1:4],d[1:4,:],dopplerOffset),
++          dvlWorldPoints(graph[nearest,1:3],oldRoll,oldPitch,graph[nearest,4],graph[nearest,177:180],d[1:4,:],dopplerOffset));
+         if validHeight then
+           kg:=s[11]/(s[11]+.15^2);s[3]:=s[3]+kg*dvlFix;s[11]:=(1-kg)*s[11];
+         end if;

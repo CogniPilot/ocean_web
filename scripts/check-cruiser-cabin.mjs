@@ -53,6 +53,13 @@ for(const [name,[position,look]] of Object.entries(cruiserUnderwaterViews)){
   ray.set(lens.clone().addScaledVector(direction,.5),direction.clone().negate());
   const face=ray.intersectObjects(fixedMeshes,false)[0];
   assert(face&&Math.abs(face.distance-.503)<.001,name+' optical port is missing or misplaced');
+  if(name==='motorBow'){
+    ray.set(lens,new T.Vector3(0,0,1));
+    const gap=ray.intersectObjects(plating,false)[0]?.distance;
+    assert(gap>.015&&gap<.05,'Bow port should sit within 5 cm of the plating');
+    ray.set(lens.clone().addScaledVector(direction,-.12),new T.Vector3(0,0,-1));
+    assert(ray.intersectObjects(plating,false)[0],'Rear of the bow housing must be embedded in the hull');
+  }
   ray.set(lens,direction);
   assert.equal(ray.intersectObjects(fixedMeshes,false).length,0,name+' optical axis is obstructed');
 }

@@ -1,1 +1,1 @@
-export {joinRoom,selfId} from '@trystero-p2p/nostr';
+export {joinRoom,selfId,refreshRelaySubscriptions,createEvent,subscribe} from '@trystero-p2p/nostr';

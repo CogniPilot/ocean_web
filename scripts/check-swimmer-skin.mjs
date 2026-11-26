@@ -21,13 +21,13 @@ for(const name of ['whale','shark']){
  const point=n=>bone(n).getWorldPosition(new T.Vector3()),head=point('Root'),tail=point('Tail_end');
  a.rotation.z=-Math.atan2(head.y-tail.y,head.x-tail.x);const scale=(whale?10:4.8)/Math.max(size.x,size.y);
  model.scale.setScalar(scale);if(!whale)model.position.copy(box.getCenter(new T.Vector3())).multiplyScalar(-scale);g.updateMatrixWorld(true);
- const names=whale?['Spine3','Spine4','Tail','TopFlipper.L','TopFlipper.R']:['Spine2','Spine3','Tail'];
- const joints=names.map(n=>{const b=bone(n);return {b,axis:(whale?new T.Vector3(0,-1,0):new T.Vector3(0,0,1)).applyQuaternion(b.getWorldQuaternion(new T.Quaternion()).invert()),rest:b.quaternion.clone()};});
+ const names=whale?['Spine3','Spine4','Tail','TopFlipper.L','TopFlipper.R']:['Spine2','Spine3','Tail','Bone','Bone001'];
+ const joints=names.map((n,i)=>{const b=bone(n);return {b,axis:(whale||i>2?new T.Vector3(0,-1,0):new T.Vector3(0,0,1)).applyQuaternion(b.getWorldQuaternion(new T.Quaternion()).invert()),rest:b.quaternion.clone()};});
  for(const active of [false,true]){
-  const angles=whale?[.28,-.12,.22,-.30]:[.1,.33,.45,0];
+  const angles=whale?[.28,-.12,.22,-.30]:[.1,.33,.45,.22];
   m.set('joints',active?angles:[0,0,0,0]);
   if(active){
-   const amount=whale?[.6*angles[0],.4*angles[0],...angles.slice(1)]:[angles[0],angles[1]-angles[0],angles[2]-angles[1]];
+   const amount=whale?[.6*angles[0],.4*angles[0],...angles.slice(1)]:[angles[0],angles[1]-angles[0],angles[2]-angles[1],angles[3],angles[3]];
    joints.forEach(({b,axis,rest},i)=>b.quaternion.copy(rest).multiply(new T.Quaternion().setFromAxisAngle(axis,amount[i])));
    g.updateMatrixWorld(true);
   }
@@ -49,3 +49,26 @@ for(const name of ['whale','shark']){
   }
  }
 }
+
+// Shared JS sweeps are used by divers. Check signed contact against the Modelica
+// shape sampler in a moving pose, including both actively rotating pecs.
+const {sharkCollision}=await import('../viewer/shark-contact.mjs');
+const {pieces}=await import('../viewer/shark-contact-data.mjs');
+assert(pieces.length>=18&&new Set(pieces.map(p=>p.joint)).size===6);
+const jointAngles=[-.06,.43,-.35,.61],actor={x:0,y:0,z:0,joints:jointAngles};
+const shell=sharkCollision(actor),sample=await loadInstance('SkinProbe',{whale:0,radius:.03,joints:jointAngles},read);
+let inside=0,seed=1;
+const random=()=>{seed=(Math.imul(1664525,seed)+1013904223)>>>0;return seed/4294967296;};
+for(let i=0;i<460;i++){
+  const p=[5*random()-2.5,2.5*random()-1.25,1.7*random()-.85];
+  sample.set('p',p);const gap=sample.get('hit')[3],hit=shell.sweep(p,p,.03,0,0);
+  if(hit)inside++;
+  assert.equal(Boolean(hit),gap<=0,'Shark surface mismatch at '+p);
+}
+assert(inside>40);
+const t=performance.now();let triangles=0;
+for(let i=0;i<1000;i++)shell.triangles([-.08,.88,-.7,.03,1.04,-.53],0,.1,()=>triangles++);
+const ms=(performance.now()-t)/1000;
+let full=0;shell.triangles([-5,-5,-5,5,5,5],0,.1,()=>full++);
+assert(triangles/1000<full/2);
+console.log('Posed shark',pieces.length,'pieces;',full,'surface triangles;',inside,'positive contacts in 460 cross-engine samples. Pectoral query',triangles/1000,'candidates in',ms.toFixed(3),'ms.');

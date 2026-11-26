@@ -35,6 +35,6 @@ patch('core/dist/strategy.mjs',[
   ['ctx.requeueAnnounce = () => {','ctx.requeueAnnounce = () => {\n\t\t\t\tannounceGeneration++;'],
   ['}, roomOptions);','}, roomOptions);\n\t\tjoinedRoom.reannounce = () => ctx.requeueAnnounce?.();']
 ]);
-writeFileSync(work+'/entry.mjs',"export {joinRoom,selfId,refreshRelaySubscriptions} from '@trystero-p2p/nostr';\n");
+writeFileSync(work+'/entry.mjs',readFileSync('tools/peers/entry.mjs'));
 JS
 "$work/node_modules/.bin/esbuild" "$work/entry.mjs" --bundle --minify --format=esm --outfile=viewer/vendor/trystero.mjs

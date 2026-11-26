@@ -1,0 +1,305 @@
+{
+  "format": "trimmed-wreck-v1",
+  "sourceOriginGltfXYZMetres": [
+    0.5800000000000001,
+    -1.6,
+    -0.10499999999999998
+  ],
+  "preTrimSimplification": {
+    "inputFaces": 9889448,
+    "metresPerSourceUnit": 1.0,
+    "sourceToBlenderZUp": [
+      [
+        1.0,
+        0.0,
+        0.0,
+        -0.5315747261047363
+      ],
+      [
+        0.0,
+        0.0,
+        -1.0,
+        0.017716407775878906
+      ],
+      [
+        0.0,
+        1.0,
+        0.0,
+        2.239840030670166
+      ],
+      [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    ],
+    "sampleCountPerDirection": 30000,
+    "dive": {
+      "faces": 144743,
+      "bytes": 5392708,
+      "atlas": [
+        2048,
+        2048
+      ],
+      "boundsGltf": [
+        [
+          -11.116955757141113,
+          0.002474665641784668,
+          -5.133118629455566
+        ],
+        [
+          11.114995002746582,
+          5.456437110900879,
+          5.130982875823975
+        ]
+      ],
+      "sourceToLodDistanceM": {
+        "median": 0.0021940668812021613,
+        "p95": 0.011274040443822742,
+        "p99": 0.019067734498530615,
+        "maxSample": 0.04634680226445198
+      },
+      "lodToSourceDistanceM": {
+        "median": 0.002155607333406806,
+        "p95": 0.011482669319957492,
+        "p99": 0.0204266311973333,
+        "maxSample": 0.04499068856239319
+      }
+    },
+    "far": {
+      "faces": 3884,
+      "bytes": 85188,
+      "atlas": null,
+      "boundsGltf": [
+        [
+          -10.805059432983398,
+          0.03444910794496536,
+          -5.086090087890625
+        ],
+        [
+          11.04666805267334,
+          5.398477077484131,
+          5.010210990905762
+        ]
+      ],
+      "sourceToLodDistanceM": {
+        "median": 0.0489489883184433,
+        "p95": 0.1850234620273113,
+        "p99": 0.2500091430544852,
+        "maxSample": 0.9322087168693542
+      },
+      "lodToSourceDistanceM": {
+        "median": 0.0380647499114275,
+        "p95": 0.15398080721497534,
+        "p99": 0.21166927099227903,
+        "maxSample": 0.32641908526420593
+      }
+    }
+  },
+  "hullProfile": "yatush-profile.json",
+  "closure": {
+    "pairedEdges": 1017,
+    "triangles": 678,
+    "syntheticLowerHull": true
+  },
+  "islandCleanup": {
+    "sourceArchiveMd5": "4425e28a8097b742284a90b13da965c3",
+    "sourceTriangles": 9890999,
+    "geometricWeldToleranceM": 1e-05,
+    "sourceIslands": 302,
+    "discardedIslandsBeforeSimplification": 11,
+    "discardedTrianglesBeforeSimplification": 1548,
+    "largestDiscardedBoundingBoxM": [
+      0.10517,
+      0.07848,
+      0.10592
+    ],
+    "largestDiscardedIslandTriangles": 294,
+    "largestDiscardedNearestReferenceVertexM": 0.22106,
+    "closestDiscardedToReferenceVertexM": 0.12377,
+    "referenceMinimumFaces": 500
+  },
+  "far": {
+    "faces": 7673,
+    "surveyFaces": 6995,
+    "bytes": 312320,
+    "boundsGltf": [
+      [
+        -8.670000076293945,
+        0.0,
+        -2.3935508728027344
+      ],
+      [
+        8.670000076293945,
+        4.816596984863281,
+        2.5438125133514404
+      ]
+    ],
+    "method": "meshoptimizer v0.25 attribute-aware edge collapse on the final dive surface",
+    "normalizedSimplificationError": 0.0061621591448783875,
+    "atlasPixels": 512,
+    "undersideVerification": {
+      "watertightVolumeM3": 39.12349520081833,
+      "nearCutHorizontalRayHits": 240,
+      "upwardRayHits": 7560,
+      "upwardRayCount": 7560,
+      "openEdgesInSurvey": 354,
+      "surveyLowerCutEdges": 217,
+      "maxCutLateralOverhangM": 0.0
+    }
+  },
+  "uvCheck": {
+    "clippedCorners": 9819,
+    "maxUvDeviation": 1.1102230246251565e-16
+  },
+  "dive": {
+    "faces": 77162,
+    "surveyFaces": 76484,
+    "bytes": 3164616,
+    "boundsGltf": [
+      [
+        -8.67,
+        0.0,
+        -2.4112014961242676
+      ],
+      [
+        8.67,
+        4.8165970802307125,
+        2.5444318809124526
+      ]
+    ],
+    "undersideVerification": {
+      "watertightVolumeM3": 39.12349520081833,
+      "nearCutHorizontalRayHits": 240,
+      "upwardRayHits": 7560,
+      "upwardRayCount": 7560,
+      "openEdgesInSurvey": 3549,
+      "surveyLowerCutEdges": 2443,
+      "maxCutLateralOverhangM": 3.820000000098744e-06
+    }
+  },
+  "collision": {
+    "faces": 7978,
+    "surveyFaces": 7300,
+    "bytes": 103748,
+    "boundsGltf": [
+      [
+        -8.67,
+        0.0,
+        -2.3940522047698742
+      ],
+      [
+        8.67,
+        4.803761482515769,
+        2.544432
+      ]
+    ],
+    "undersideVerification": {
+      "watertightVolumeM3": 39.12349520081833,
+      "nearCutHorizontalRayHits": 240,
+      "upwardRayHits": 7560,
+      "upwardRayCount": 7560,
+      "openEdgesInSurvey": 830,
+      "surveyLowerCutEdges": 267,
+      "maxCutLateralOverhangM": 0.0
+    }
+  },
+  "collisionSurfaceDistanceM": {
+    "areaSamplesPerDirection": 10000,
+    "diveToCollision": {
+      "median": 0.002216,
+      "p95": 0.022044,
+      "p99": 0.038961,
+      "maxSample": 0.23524
+    },
+    "collisionToDive": {
+      "median": 0.002123,
+      "p95": 0.02027,
+      "p99": 0.036145,
+      "maxSample": 0.103745
+    }
+  },
+  "piccardCabinRoute": {
+    "envelopeDimensionsGltfXYZM": [
+      0.4223881376210918,
+      0.28625,
+      0.6552500000000001
+    ],
+    "routeGltfXYZM": [
+      [
+        -0.4284,
+        3.9002,
+        3.6427
+      ],
+      [
+        -0.4284,
+        3.9002,
+        0.6427
+      ],
+      [
+        -0.4284,
+        3.4202,
+        0.6427
+      ],
+      [
+        -0.4284,
+        3.4202,
+        0.5227
+      ],
+      [
+        -0.4284,
+        3.0602,
+        0.5227
+      ],
+      [
+        0.4116,
+        3.0602,
+        0.5227
+      ],
+      [
+        0.4116,
+        3.0602,
+        0.2827
+      ]
+    ],
+    "dive": {
+      "extraClearanceEachAxisM": 0.2852,
+      "endpointUpDownSideRangesM": [
+        1.6335,
+        1.9553,
+        1.3973,
+        1.9793
+      ]
+    },
+    "collision": {
+      "extraClearanceEachAxisM": 0.2819,
+      "endpointUpDownSideRangesM": [
+        1.6231,
+        1.9585,
+        1.3962,
+        1.9647
+      ]
+    }
+  },
+  "distantRoofCheck": {
+    "wheelhouseRoof": {
+      "rays": 1680,
+      "closedOpenRays": 0,
+      "lostRoofOrDepthOver20cm": 0,
+      "p95HeightErrorMetres": 0.0
+    },
+    "aftCabinRoof": {
+      "rays": 2562,
+      "closedOpenRays": 0,
+      "lostRoofOrDepthOver20cm": 2,
+      "p95HeightErrorMetres": 0.020719381805557012
+    },
+    "foreHatchOpening": {
+      "rays": 156,
+      "closedOpenRays": 0,
+      "lostRoofOrDepthOver20cm": 0,
+      "p95HeightErrorMetres": null
+    }
+  }
+}

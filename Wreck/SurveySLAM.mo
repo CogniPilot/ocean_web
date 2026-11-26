@@ -17,7 +17,8 @@ equation
     {gaugePressure},bodyRate,specificForce,zeros(31));
   when sample(0,.2) then
     (state,keyframes,telemetry,features)=Perception.estimate(time,packet,Perception.directions(),grayscale,
-      pre(previousImage),pre(state),pre(keyframes),imageValid,sonarValid,initialPosition,pressureDatum);
+      pre(previousImage),pre(state),pre(keyframes),imageValid,sonarValid,initialPosition,pressureDatum,
+      Perception.dvlMount,Perception.cameraMount,ImagingSonar.mount);
     previousImage=if imageValid then grayscale else zeros(864);
   end when;
 end SurveySLAM;

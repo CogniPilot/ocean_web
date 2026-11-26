@@ -1,4 +1,5 @@
-// The estimator stores 48 leveled sonar endpoints in each optimized keyframe.
+// Fan echoes have measured slant range and bearing. Four-beam DVL lock also
+// supplies height-resolved intersections from the calibrated downward beams.
 export function sonarMap(T, scene) {
   const maxKeys = 48, rays = 48, stride = 180, capacity = maxKeys * rays;
   const centers = new Float32Array(capacity * 3);
@@ -6,6 +7,16 @@ export function sonarMap(T, scene) {
   const colors = new Float32Array(capacity * 3);
   const widths = new Float32Array(capacity);
   const track = new Float32Array(maxKeys * 3);
+  const dvlPoints = new Float32Array(maxKeys * 4 * 3);
+  const dvlGeometry = new T.BufferGeometry();
+  dvlGeometry.setAttribute('position', new T.BufferAttribute(dvlPoints, 3).setUsage(T.DynamicDrawUsage));
+  dvlGeometry.setDrawRange(0, 0);
+  const dvl = new T.Points(dvlGeometry, new T.PointsMaterial({
+    color: 0xecfcff, size: .12, fog: false, depthTest: false, depthWrite: false
+  }));
+  const tilt = new T.Euler(0, 0, 0, 'ZYX'), ray = new T.Vector3();
+  const sinBeam = Math.sin(Math.PI / 8), cosBeam = Math.cos(Math.PI / 8);
+  const dvlAxes = [[sinBeam,0],[-sinBeam,0],[0,sinBeam],[0,-sinBeam]];
   const splatGeometry = new T.InstancedBufferGeometry();
   const quad = new T.PlaneGeometry(2, 2);
   splatGeometry.index = quad.index;
@@ -53,21 +64,35 @@ export function sonarMap(T, scene) {
     color: 0xffaf53, fog: false, depthTest: false, depthWrite: false, transparent: true
   }));
   const group = new T.Group();
-  splats.frustumCulled = path.frustumCulled = false;
+  splats.frustumCulled = path.frustumCulled = dvl.frustumCulled = false;
   splats.renderOrder = 10;
   path.renderOrder = 11;
   group.visible = false;
-  group.add(splats, path);
+  dvl.renderOrder = 12;
+  group.add(splats, path, dvl);
   scene.add(group);
   return {
     group,
     update(rows) {
-      let hits = 0;
+      let hits = 0, dvlCount = 0;
       const count = Math.min(maxKeys, Math.floor(rows.length / stride));
       for (let key = 0; key < count; key++) {
         const base = key * stride, x = rows[base], y = rows[base+1], z = rows[base+2];
         const c = Math.cos(rows[base+3]), s = Math.sin(rows[base+3]);
         track.set([x, y, z], 3*key);
+        const packedTilt = rows[base + 175];
+        if (packedTilt > 0) {
+          const code = packedTilt - 1;
+          const roll = (Math.floor(code / 2048) - 1800) * Math.PI / 1800;
+          const pitch = (code % 2048 - 900) * Math.PI / 1800;
+          tilt.set(roll, pitch, rows[base+3], 'ZYX');
+          for (let beam = 0; beam < 4; beam++) {
+            const range = rows[base + 176 + beam];
+            const [forward, port] = dvlAxes[beam];
+            ray.set(range * forward, range * port, -.075 - range * cosBeam).applyEuler(tilt);
+            dvlPoints.set([x + ray.x, y + ray.y, z + ray.z], 3*dvlCount++);
+          }
+        }
         for (let ray = 0; ray < rays; ray++) {
           const offset = base + 8 + ray*3;
           const dx = rows[offset], dy = rows[offset+1], dz = rows[offset+2];
@@ -84,6 +109,8 @@ export function sonarMap(T, scene) {
       for (const name of ['center', 'beam', 'echoColor', 'width']) {
         splatGeometry.attributes[name].needsUpdate = true;
       }
+      dvlGeometry.attributes.position.needsUpdate = true;
+      dvlGeometry.setDrawRange(0, dvlCount);
       trackGeometry.attributes.position.needsUpdate = true;
       splatGeometry.instanceCount = hits;
       trackGeometry.setDrawRange(0, count);

@@ -194,9 +194,9 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
     ({scene,surface,windAt,race,incidentSea,onError,onFinish}=bindings);
     for(const entry of craft.values())if(entry.visual)scene.add(entry.visual.group);
   }
-  const droneWakes=[],droneContactRows=[],deckRows=[];
-  return {contacts,tilts,cruisers,droneWakes,droneContactRows,deckRows,attachView,draw(rows,time,utc,displayUtc,nearby,trackDecks=false){
-    contacts.fill(0);tilts.fill(0);cruisers.length=0;droneWakes.length=0;droneContactRows.length=0;deckRows.length=0;
+  const droneWakes=[],droneContactRows=[],deckRows=[],observations=[];
+  return {contacts,tilts,cruisers,observations,droneWakes,droneContactRows,deckRows,attachView,draw(rows,time,utc,displayUtc,nearby,trackDecks=false){
+    observations.length=0;contacts.fill(0);tilts.fill(0);cruisers.length=0;droneWakes.length=0;droneContactRows.length=0;deckRows.length=0;
     for(const [id,entry] of craft){
       const row=rows[Number(id.slice(4))-1];
       if(!row||row.started!==entry.started||row.kind!==entry.kind||row.raceId!==entry.raceId)remove(id,entry);
@@ -259,6 +259,8 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
           }
           visual.group.userData.orbitDistance=12;
         }
+        observations.push({id,kind:row.kind,hull:1,x:snapshot[0],y:snapshot[1],z:snapshot[2],yaw:snapshot[3],
+          ve:snapshot[5],vn:snapshot[6],yawRate:snapshot[7],heel:snapshot[18],pitch:snapshot[19]});
         contacts.set([1,snapshot[0],snapshot[1],snapshot[3],snapshot[5],snapshot[6],snapshot[7],snapshot[2],1],i*9);
         tilts.set([snapshot[18],snapshot[19]],i*2);
         continue;
@@ -273,7 +275,6 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
         heading=Math.atan2(b*Math.cos(angle),-a*Math.sin(angle));
         speed=patrolSpeed;orbit=patrolOrbit;height=patrolHeight;
       }
-      if(!visual)continue;
       let z=height,roll=0,pitch=0;
       if(height===undefined){
         const dx=Math.cos(heading),dy=Math.sin(heading);
@@ -283,6 +284,10 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       }else if(row.kind==='drone'){
         z+=.8*Math.sin(angle*2);roll=.14;pitch=.13;
       }
+      const rate=speed/(.5*(routes[row.kind].radius[0]+routes[row.kind].radius[1]));
+      observations.push({id,kind:row.kind,hull:({sloop:2,motorboat:3})[row.kind]??0,x:east,y:north,z,yaw:heading,
+        heel:roll,pitch,ve:-routes[row.kind].radius[0]*Math.sin(angle)*rate,vn:routes[row.kind].radius[1]*Math.cos(angle)*rate});
+      if(!visual)continue;
       const kind=contactClass[row.kind];
       if(kind!==undefined)contacts.set([1,east,north,heading,speed*Math.cos(heading),speed*Math.sin(heading),0,z,kind],i*9);
       tilts.set([roll,pitch],2*i);

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {hullWashMix,waveAmbience} from '../viewer/regatta.mjs';
+import {hoistWaterEntry,hullLappingMix,hullWashMix,waveAmbience} from '../viewer/regatta.mjs';
 
 const silent={swell:0,crest:0,wake:0};
 const probes=waveAmbience();
@@ -65,4 +65,21 @@ for(let speed=1.35;speed<=4.5;speed+=.01){
   const {gurgle,rush}=hullWashMix(speed,0,0);
   assert(Math.hypot(gurgle,rush)>.35,'Hull wash stays audible throughout the blend');
 }
+assert.equal(hullLappingMix(true,0,undefined),1);
+for(const z of [-10,-.30,.26,.73])assert.equal(hullLappingMix(true,z,undefined),0);
+for(const z of [-.15,.15])assert(hullLappingMix(true,z,undefined)>0&&hullLappingMix(true,z,undefined)<1);
+assert.equal(hullLappingMix(false,0,0),1);
+assert(hullLappingMix(false,0,1)<1&&hullLappingMix(false,0,1)>0);
+assert.equal(hullLappingMix(false,0,2),0);
+assert.equal(hullLappingMix(false,0,-1),hullLappingMix(false,0,1));
 console.log({calm,rough,wake,crestPeak});
+
+const entry=hoistWaterEntry(),lower={rider:'p',goal:0},recover={rider:'p',goal:1};
+assert.equal(entry(lower,-.02),false,'Joining a wet launch must be silent');
+assert.equal(entry(recover,.5),false);
+assert.equal(entry(lower,.075),false);
+assert.equal(entry(lower,-.002),true);
+for(const z of [.13,-.06,.09,-.09])assert.equal(entry(lower,z),false,'Waves must not replay a launch');
+assert.equal(entry(recover,.3),false);
+assert.equal(entry(lower,-.02),true,'A recovered sub can make another entry');
+assert.equal(entry({rider:null},-.4),false);

@@ -5,7 +5,8 @@ import {openFmuSession} from './fmu-session.js';
 import {scalarNames} from './fmu-page-contract.js';
 import {loadInstance} from '../fmi3/instance.mjs';
 
-let session,observations,inputs,surveyMap;
+let updateMappedCurrent;
+let session,observations,inputs,surveyMap,updateScanContact,transferPose,hoistOffset,hoistQOffset,pendingContactPose;
 let bowField,bowFields,breakingBows=false,singleBow=false,bowLength=8;
 let sampledGroups=[],stepCount=0,stepTicks=1;
 // These discrete outputs share sample events in OceanWorld. The initial
@@ -24,6 +25,7 @@ function expand(names,variables){
   return {layout,elements};
 }
 async function handle(request){
+  const started=performance.now();
   let layout;
   if(request.type==='open'){
     if(session)throw Error('World already initialized');
@@ -44,6 +46,7 @@ async function handle(request){
     if(variables.has('sailingManual'))initial.sailingManual=1;
     if(variables.has('subManual'))initial.subManual=1;
     if(variables.has('flightManual'))initial.flightManual=1;
+    if(variables.has('sternLiftGoal'))initial.sternLiftGoal=1;
     if(variables.has('omitWake')&&request.omitWake!==undefined)initial.omitWake=request.omitWake;
     const initialInputs=Object.entries({...initial,...request.initial}).flatMap(([name,value])=>
       Array.isArray(value)?scalarNames(name,variables.get(name).dimensions).map((key,i)=>[key,value[i]]):[[name,value]]);
@@ -58,6 +61,33 @@ async function handle(request){
         session.step(.01*stepTicks);
       session.reset();
       session.set_inputs(startupInputs);
+    }
+    if(variables.has('mappedCurrent')){
+      const module=new URL('../harbor-current.mjs',import.meta.url);
+      module.search=new URL(import.meta.url).search;
+      try{
+        const {loadHarborCurrent}=await import(module.href),field=await loadHarborCurrent();
+        const pos=session.bind_outputs(JSON.stringify(expand(['sub.position'],variables).elements));
+        const input=session.bind_inputs(JSON.stringify(expand(['mappedCurrent'],variables).elements));
+        const local=new Float64Array(4),mean=local.subarray(1);
+        updateMappedCurrent=()=>{
+          local[0]=Number(field.sample(session.read_bound(pos),mean));
+          session.write_bound(input,local);
+        };
+      }catch(error){console.warn('Using background water current',error);}
+    }
+    if(variables.has('scanConstraints')){
+      const contactModule=new URL('../wreck-contact.mjs',import.meta.url);
+      contactModule.search=new URL(import.meta.url).search;
+      const {loadWreckContacts,contactStepper,hoistTransferPose}=await import(contactModule.href);
+      const select=await loadWreckContacts();
+      transferPose=hoistTransferPose?.();
+      const pose=session.bind_outputs(JSON.stringify(expand(['sub.position','sub.orientation'],variables).elements));
+      const constraintInput=session.bind_inputs(JSON.stringify(expand(['scanConstraints'],variables).elements));
+      updateScanContact=contactStepper(select,()=>{
+        const values=session.read_bound(pose);
+        return [values.subarray(0,3),values.subarray(3,7)];
+      },rows=>session.write_bound(constraintInput,rows));
     }
     let names=[...request.outputs,...(request.optionalOutputs??[]).filter(name=>variables.has(name))];
     if(request.sampledFields){
@@ -76,6 +106,7 @@ async function handle(request){
         [waveDt*100,['boat.stationGeometry','boat.beamFraction','boat.halfSpacing','boat.sectionVolume','boat.sectionWater','boat.stationX','boat.beamHalf',
           'boat.hydroStationGeometry','boat.hydroSectionVolume','hydroSurfaceProbes','sectionStamp',
           'stripEast','stripNorth','stripZ','stripForce','stripVolume','panelSea',...battenFields],'physics'],
+        [5,['boat.origin','boat.rigMoment','sub.contactMoment','sub.wetTorque','propulsion.propellerCenter','propulsion.rudderCenter','propulsion.propellerForce','propulsion.rudderForce','propulsion.shaftReaction'],'loads'],
         [20,['boatWater.tile']],[20,['sensor'],'dvl'],[20,['ping'],'camera'],[windDt*100,['wind.field']]
       ];
       for(const [interval,candidates,subscription] of schedules){
@@ -104,11 +135,27 @@ async function handle(request){
         binding:session.bind_outputs(JSON.stringify(keys.elements)), count:-1, closures:-1};
     }
     inputs=session.bind_inputs(JSON.stringify(writes.elements));
+    hoistOffset=writes.layout.find(field=>field.name==='subHoist')?.offset;
+    hoistQOffset=writes.layout.find(field=>field.name==='subHoistQuaternion')?.offset;
     layout={outputs:reads.layout,inputs:writes.layout,sampled:sampledGroups.map(group=>group.layout)};
   }else if(request.type==='advance'){
     if(!Number.isSafeInteger(request.steps)||request.steps<0||request.steps%stepTicks!==0)throw Error('Expected whole communication steps');
-    if(request.values)session.write_bound(inputs,request.values);
-    for(let i=0;i<request.steps;i+=stepTicks)session.step(.01*stepTicks);
+    if(request.values){
+      session.write_bound(inputs,request.values);
+      if(transferPose&&hoistOffset!==undefined&&hoistQOffset!==undefined){
+        const pose=transferPose(request.values.subarray(hoistOffset,hoistOffset+8),
+          request.values.subarray(hoistQOffset,hoistQOffset+4));
+        if(pose)pendingContactPose=pose;
+      }
+    }
+    for(let i=0;i<request.steps;){
+      updateMappedCurrent?.();
+      if(updateScanContact)updateScanContact(pendingContactPose);
+      pendingContactPose=undefined;
+      const ticks=updateScanContact?1:stepTicks;
+      session.step(.01*ticks);
+      i+=ticks;
+    }
     stepCount+=request.steps;
   }else if(request.type==='close'){
     session?.free();self.close();return;
@@ -160,7 +207,7 @@ async function handle(request){
       surveyMap.closures=closures;
     }
   }
-  self.postMessage({id:request.id,time:session.time(),values,layout,mapRows,sampled,bowHeight,bowFoam,bowSpray},transfer);
+  self.postMessage({id:request.id,time:session.time(),values,layout,mapRows,sampled,bowHeight,bowFoam,bowSpray,serviceMs:performance.now()-started},transfer);
 }
 // Opening the guest is asynchronous. Process later control packets in order.
 let queue=Promise.resolve();

@@ -15,7 +15,11 @@ export OCEAN_PHYSICS_TRACE="$out/trace.json"
 perf_bin=${PERF:-perf}
 node_bin=${NODE:-node}
 wasm_flags=(--no-liftoff)
-if [[ ${OCEAN_WASM_LAZY:-0} != 1 ]]; then wasm_flags+=(--no-wasm-lazy-compilation); fi
+# Eager compilation of these larger guests can leave Node's module open
+# unsettled before warmup. Keep optimized code and compile their functions lazily.
+lazy_default=0
+if [[ $role == submarine || $role == sailing ]]; then lazy_default=1; fi
+if [[ ${OCEAN_WASM_LAZY:-$lazy_default} != 1 ]]; then wasm_flags+=(--no-wasm-lazy-compilation); fi
 "$perf_bin" record -o "$out/perf.data" -e cycles:u -k mono -F 499 --no-inherit --mmap-pages 16 \
     --delay=-1 --control="fifo:$pipes/control,$pipes/ack" \
     -- "$node_bin" --perf-prof --perf-prof-path="$out" --logfile="$out/v8.log" "${wasm_flags[@]}" \

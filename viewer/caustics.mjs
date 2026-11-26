@@ -1,5 +1,5 @@
 // The periodic flux texture is ray-traced offline. Reuse a shadow depth map
-// for each sun angle so the static wreck still occludes transmitted sunlight.
+// for each sun angle for the underwater terrain.
 export function wreckCaustics(T,renderer,water){
   const flux=new T.TextureLoader().load(new URL('./assets/caustic-flux.png',import.meta.url).href);
   flux.wrapS=flux.wrapT=T.RepeatWrapping;
@@ -30,7 +30,7 @@ export function wreckCaustics(T,renderer,water){
     };
     material.customProgramCacheKey=()=>'submerged-skin-flux';
   }
-  return {uniforms:u,lightSkin,occluders:shadowScene,setWreck(group){shadowScene.add(group.clone(true));},update(t,enabled=true){
+  return {uniforms:u,lightSkin,occluders:shadowScene,update(t,enabled=true){
     const sun=water.U.sunDir.value;
     u.sunStrength.value=enabled?Math.max(0,sun.z)*(1-.8*water.U.storm.value):0;
     if(u.sunStrength.value<=.001)return;

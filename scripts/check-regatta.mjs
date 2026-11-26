@@ -126,6 +126,7 @@ finishes.settle(3000,1100,award);
 assert.equal(awards.length,1);
 const [record]=finishes.history();
 const guest=fleetFinishes();
+assert.equal(guest.accept(record.heat,record.at,'Unreviewed display name'),false);
 assert.equal(guest.accept(record.heat,record.at,record.name),true);
 assert.equal(guest.accept(record.heat,record.at,record.name),false);
 assert.deepEqual(guest.get(300),finishes.get(300));

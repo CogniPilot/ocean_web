@@ -98,6 +98,16 @@ for(let i=0;i<300;i++){
   assert(cruiserMiss.get('vesselDeckWrenches').every(force=>force===0));
 }
 
+// The retired cruiser swim platform must leave the water behind the transom clear.
+const sternWater=await loadInstance('Rdd2Survey',{
+  waterLevel:-15,motorCut:1,vesselDecks:vesselRows(-1.08,0)
+},read);
+for(let i=0;i<350;i++){
+  sternWater.advance(.005);
+  assert(sternWater.get('vesselDeckWrenches').every(force=>force===0));
+}
+assert(sternWater.get('position')[2]<0,'retired platform still supports the drone');
+
 for(const [ground,origin,minHeight,maxHeight] of [
   ['sand',[36,40],3.9,4.3],
   // Sand beneath this boulder is only ~0.5 m high.

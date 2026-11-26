@@ -1,10 +1,10 @@
 import {readFile} from 'node:fs/promises';
-import {loadInstance} from '../viewer/fmi3/instance.mjs';
+import {loadInstance as defaultLoad} from '../viewer/fmi3/instance.mjs';
 const read=async url=>new Response(await readFile(url));
 
-export async function subHarness(){
+export async function subHarness(parameters={},loadInstance=defaultLoad){
   const [plant,nav]=await Promise.all([
-    loadInstance('Wreck_Plant',{windSpeed:11,windDirection:.45},read),loadInstance('Wreck_Navigation',{},read)
+    loadInstance('Wreck_Plant',{windSpeed:11,windDirection:.45,...parameters},read),loadInstance('Wreck_Navigation',{},read)
   ]);
   let tick=0,lastGyro=[0,0,0];
   function sample(){
@@ -17,6 +17,7 @@ export async function subHarness(){
       'sensor','elev','image','estimate','features','keyframes'
     ]);
     plant.set('sensor',sensor);plant.set('elevationRanges',elev);
+    plant.set('navigationUp',estimate[2]);plant.set('navigationUpValid',1);
     nav.set('priorImage',image);nav.set('prior',estimate);nav.set('keyHistory',history);
     return {pos,q,sensor,elev,image,estimate,features,history};
   }

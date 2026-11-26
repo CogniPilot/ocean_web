@@ -352,13 +352,41 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
   function pontoonGap "Signed distance and normal of the nearest face of the closed triangle mesh"
     input Real p[3],vertices[96,3],margin;
     input Integer faces[188,3];
+    input Boolean orderedRings=false "Vertices and faces follow pontoonVertices and pontoonFaces order";
     output Real result[4];
+  protected
+    Integer nearest,firstRing,lastRing;
+    Real bound2,dx,delta[3],distance;
   algorithm
     result:={1e3,0,0,0};
     if abs(p[2])>.2+margin or p[1]< -2.52-margin or p[1]>2.52+margin or p[3]< -.38-margin or p[3]>.24+margin then
       return;
     end if;
-    result:=hullMeshGap(p,vertices,faces);
+    if not orderedRings then
+      result:=hullMeshGap(p,vertices,faces);
+      return;
+    end if;
+    // Any hull vertex is an upper bound for the nearest point. A section
+    // outside this longitudinal search interval cannot contain that point.
+    nearest:=1;
+    for station in 2:12 loop
+      if abs(vertices[8*(station-1)+1,1]-p[1])<abs(vertices[8*(nearest-1)+1,1]-p[1]) then
+        nearest:=station;
+      end if;
+    end for;
+    bound2:=1e6;
+    for vertex in 1:8 loop
+      delta:=vertices[8*(nearest-1)+vertex,:]-p;
+      bound2:=min(bound2,delta*delta);
+    end for;
+    distance:=sqrt(bound2)+1e-9;
+    firstRing:=1;lastRing:=11;
+    for station in 2:11 loop
+      dx:=vertices[8*(station-1)+1,1]-p[1];
+      if dx< -distance then firstRing:=station;end if;
+      if dx>distance then lastRing:=min(lastRing,station-1);end if;
+    end for;
+    result:=hullMeshGap(p,vertices,faces,false,16*(firstRing-1)+1,16*lastRing,177);
   end pontoonGap;
 
   function cruiserGap "Signed gap to the cruiser's triangulated hull with local broad phase"
@@ -408,30 +436,33 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     input Real p[3],vertices[:,3];
     input Integer faces[:,3];
     input Boolean twoSided=false;
+    input Integer firstFace=1,lastFace=size(faces,1),firstCap=size(faces,1)+1;
     output Real result[4];
   protected
     Real a[3],b[3],c[3],n[3],q[3],edge[3],delta[3],gap,best,d2,sgn,normal[3];
   algorithm
     best:=1e6;sgn:=1;normal:={0,0,1};
     for i in 1:size(faces,1) loop
-      a:=vertices[faces[i,1],:];b:=vertices[faces[i,2],:];c:=vertices[faces[i,3],:];
-      gap:=max(0,max(min(a[1],min(b[1],c[1]))-p[1],p[1]-max(a[1],max(b[1],c[1]))));
-      if gap*gap<best then
-        n:=cross(b-a,c-a);
-        n:=n/sqrt(max(1e-12,n*n));
-        gap:=(p-a)*n;
-        q:=p-gap*n;
-        if cross(b-a,q-a)*n<0 or cross(c-b,q-b)*n<0 or cross(a-c,q-c)*n<0 then
-          q:=closestEdge(p,a,b);
-          edge:=closestEdge(p,b,c);
-          if (p-edge)*(p-edge)<(p-q)*(p-q) then q:=edge;end if;
-          edge:=closestEdge(p,c,a);
-          if (p-edge)*(p-edge)<(p-q)*(p-q) then q:=edge;end if;
-        end if;
-        delta:=p-q;d2:=delta*delta;
-        if d2<best then
-          best:=d2;sgn:=if twoSided or gap>=0 then 1 else -1;
-          normal:=if d2>1e-10 then sgn*delta/sqrt(d2) else n;
+      if (i>=firstFace and i<=lastFace) or i>=firstCap then
+        a:=vertices[faces[i,1],:];b:=vertices[faces[i,2],:];c:=vertices[faces[i,3],:];
+        gap:=max(0,max(min(a[1],min(b[1],c[1]))-p[1],p[1]-max(a[1],max(b[1],c[1]))));
+        if gap*gap<best then
+          n:=cross(b-a,c-a);
+          n:=n/sqrt(max(1e-12,n*n));
+          gap:=(p-a)*n;
+          q:=p-gap*n;
+          if cross(b-a,q-a)*n<0 or cross(c-b,q-b)*n<0 or cross(a-c,q-c)*n<0 then
+            q:=closestEdge(p,a,b);
+            edge:=closestEdge(p,b,c);
+            if (p-edge)*(p-edge)<(p-q)*(p-q) then q:=edge;end if;
+            edge:=closestEdge(p,c,a);
+            if (p-edge)*(p-edge)<(p-q)*(p-q) then q:=edge;end if;
+          end if;
+          delta:=p-q;d2:=delta*delta;
+          if d2<best then
+            best:=d2;sgn:=if twoSided or gap>=0 then 1 else -1;
+            normal:=if d2>1e-10 then sgn*delta/sqrt(d2) else n;
+          end if;
         end if;
       end if;
     end for;
@@ -454,14 +485,14 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     z:=-13.7+max(0,height)*smoothStep(height/.8)*smoothStep((29-abs(x))/7)*smoothStep((23-abs(y))/7);
   end terrain;
 
-  function seabed "Upper surface of the sand mesh and surrounding level bottom"
+  function seabed "Upper surface of the island sand mesh or the harbor bed"
     input Real east,north;
     output Real height;
   protected
-    Real x,y,h,t,u,v;
+    Real x,y,h,t,u,v,normal[3];
     constant Real dx=58/74,dy=46/62;
   algorithm
-    x:=east-36;y:=north-40;height:=-13.7;
+    x:=east-36;y:=north-40;(height,normal):=Wreck.Bathymetry.plane(east,north);
     if abs(x)<=29 and abs(y)<=23 then
       h:=-29+dx*floor((x+29)/dx);t:=-23+dy*floor((y+23)/dy);
       u:=(x-h)/dx;v:=(y-t)/dy;
@@ -509,7 +540,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     constant Real dx=58/74,dy=46/62;
     Real surface[4],normal[3],n[3],slip[3],force[3],east,north,h,t,u,v,height,clearance,load,support,normalSpeed;
   algorithm
-    east:=pos[1]-36;north:=pos[2]-40;height:=-13.7;normal:={0,0,1};
+    east:=pos[1]-36;north:=pos[2]-40;(height,normal):=Wreck.Bathymetry.plane(pos[1],pos[2]);
     if abs(east)<=29 and abs(north)<=23 then
       h:=-29+dx*floor((east+29)/dx);t:=-23+dy*floor((north+23)/dy);
       u:=(east-h)/dx;v:=(north-t)/dy;
@@ -541,6 +572,160 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     end if;
     contact:={force[1],force[2],force[3],load,clearance};
   end skinContact;
+  function rockTriangle "Clip a real contact triangle to a convex boulder and return its contact point"
+    input Real tri[3,3] "Vertices in the vessel body frame",face[80,4] "Unit boulder planes in that frame";
+    output Real hit[7] "Penetration, surface normal, body contact point";
+  protected
+    Real polygon[83,3],clipped[83,3],a[3],b[3],n[3],pa,pb,point[3],depth;
+    Integer count,newCount;
+    Boolean allInside,allOutside;
+  algorithm
+    hit:=zeros(7);
+    polygon:=zeros(83,3);clipped:=zeros(83,3);
+    count:=3;polygon[1:3,:]:=tri;
+    for f in 1:80 loop
+      n:=face[f,1:3];newCount:=0;
+      allInside:=true;allOutside:=true;
+      for i in 1:count loop
+        pb:=polygon[i,:]*n-face[f,4];
+        allInside:=allInside and pb<=0;allOutside:=allOutside and pb>0;
+      end for;
+      if allOutside then return;end if;
+      if not allInside then
+        a:=polygon[count,:];pa:=a*n-face[f,4];
+        for i in 1:count loop
+          b:=polygon[i,:];pb:=b*n-face[f,4];
+          if (pa<0 and pb>0) or (pa>0 and pb<0) then
+            newCount:=newCount+1;
+            clipped[newCount,:]:=a+(b-a)*(pa/(pa-pb));
+          end if;
+          if pb<=0 then
+            newCount:=newCount+1;clipped[newCount,:]:=b;
+          end if;
+          a:=b;pa:=pb;
+        end for;
+        if newCount<3 then return;end if;
+        count:=newCount;
+        for i in 1:count loop polygon[i,:]:=clipped[i,:];end for;
+      end if;
+    end for;
+    point:=zeros(3);
+    for i in 1:count loop point:=point+polygon[i,:];end for;
+    point:=point/count;
+    hit[1]:=1e6;hit[5:7]:=point;
+    for f in 1:80 loop
+      depth:=face[f,4]-face[f,1:3]*point;
+      if depth<hit[1] then hit[1]:=depth;hit[2:4]:=face[f,1:3];end if;
+    end for;
+    annotation(Inline=false);
+  end rockTriangle;
+
+  function hobiePlatform "Tessellated trampoline underside, crowned crossbeams and side rails"
+    output Real corners[32,4,3];
+  protected Real a,b,x0,x1,y,crown,sag;
+    Integer k,index;
+  algorithm
+    corners:=zeros(32,4,3);
+    // Four cloth panels each side follow the crown, central lacing and maximum 24 mm sag.
+    for side in 1:2 loop
+      for j in 1:2 loop
+        for i in 1:2 loop
+          index:=(side-1)*4+(j-1)*2+i;
+          for corner in 1:4 loop
+            a:=(i-1+(if corner==2 or corner==3 then 1 else 0))/2;
+            b:=(j-1+(if corner>=3 then 1 else 0))/2;
+            y:=(3-2*side)*(.04+.87*b);crown:=max(0,1-(y/1.02)^2);
+            x0:=-1.225+(if b==1 then .105 else 0);
+            x1:=.405+.035*crown-.047-(if b==1 then .105 else 0);
+            sag:=.024*sin(Modelica.Constants.pi*a)*sin(Modelica.Constants.pi*b);
+            corners[index,corner,:]:={x0+(x1-x0)*a,y,.414+a^3*.033*crown-sag};
+          end for;
+        end for;
+      end for;
+    end for;
+    // Square-ring approximations of the elliptical frame extrusions. Opposite faces
+    // remain separate so the open water forward and aft of the platform stays clear.
+    for beam in 1:4 loop
+      for side in 1:4 loop
+        for section in 1:(if beam<=2 then 2 else 1) loop
+          index:=if beam<=2 then 8+(beam-1)*8+(side-1)*2+section else 24+(beam-3)*4+side;
+          for corner in 1:4 loop
+            a:=if corner>=3 then 1 else 0;
+            k:=mod(side-1+(if corner==2 or corner==3 then 1 else 0),4);
+            b:=k*Modelica.Constants.pi/2;
+            if beam<=2 then
+              y:=-1.075+1.075*(section-1+a);crown:=if beam==1 then max(0,1-(y/1.02)^2) else 0;
+              corners[index,corner,:]:={(if beam==1 then .405+.035*crown else -1.4)+.056*cos(b),y,.41+.033*crown+.05*sin(b)};
+            else
+              corners[index,corner,:]:={-1.4+1.805*a,(if beam==3 then .938 else -.938)+.042*cos(b),.413+.034*sin(b)};
+            end if;
+          end for;
+        end for;
+      end for;
+    end for;
+  end hobiePlatform;
+
+  function hobieRockContact "Finite boulder faces against both hulls and the bridging platform"
+    input Real pos[3],heading,rotation[3,3],velocity[3],spin[3],spacing;
+    input Real platform[32,4,3],vertices[96,3];
+    input Integer faces[188,3];
+    input Real boulders[46,13],facets[80,4];
+    output Real wrench[6];
+  protected
+    Real bodyToWorld[3,3],inv[3,3],bodyNormals[3,3],face[80,4],tri[3,3],radius;
+    Real delta[3],center[3],gradient[3],normal[3],arm[3],v[3],slip[3],force[3],distance;
+    Real hit[7],best[7],support,scale;
+    Integer corner;
+  algorithm
+    wrench:=zeros(6);
+    tri:=zeros(3,3);face:=zeros(80,4);
+    bodyToWorld:=[cos(heading),-sin(heading),0;sin(heading),cos(heading),0;0,0,1]*rotation;
+    for r in 1:46 loop
+      delta:=boulders[r,1:3]-pos;radius:=boulders[r,4];
+      if delta*delta<(2.85+radius)^2 then
+        center:=transpose(bodyToWorld)*delta;
+        inv:=[boulders[r,5],boulders[r,6],boulders[r,7];boulders[r,8],boulders[r,9],boulders[r,10];boulders[r,11],boulders[r,12],boulders[r,13]];
+        bodyNormals:=transpose(inv*bodyToWorld);
+        for f in 1:80 loop
+          gradient:=bodyNormals*facets[f,1:3];scale:=sqrt(gradient*gradient);
+          face[f,1:3]:=gradient/scale;
+          face[f,4]:=(facets[f,4]+gradient*center)/scale;
+        end for;
+        best:=zeros(7);
+        for surface in 1:3 loop
+          if surface==1 or abs(center[2]-(5-2*surface)*spacing)<=radius+.20 then
+            for j in 1:(if surface==1 then 64 else 188) loop
+              for k in 1:3 loop
+                if surface==1 then
+                  corner:=if mod(j,2)==1 or k==1 then k else k+1;
+                  tri[k,:]:=platform[div(j+1,2),corner,:];
+                else
+                  tri[k,:]:=vertices[faces[j,k],:]+{0,(5-2*surface)*spacing,0};
+                end if;
+              end for;
+              distance:=0;
+              for axis in 1:3 loop
+                distance:=distance+max(0,max(min(tri[:,axis])-center[axis],center[axis]-max(tri[:,axis])))^2;
+              end for;
+              if distance<radius^2 then
+                hit:=rockTriangle(tri,face);
+                if hit[1]>best[1] then best:=hit;end if;
+              end if;
+            end for;
+          end if;
+        end for;
+        if best[1]>0 then
+          normal:=rotation*best[2:4];arm:=rotation*best[5:7];
+          v:=velocity+cross(spin,arm);slip:=v-(v*normal)*normal;
+          support:=max(0,100000*best[1]-1800*min(1,best[1]/.012)*(v*normal));
+          force:=support*(normal-.42*slip/sqrt(.08^2+slip*slip));
+          wrench[1:3]:=wrench[1:3]+force;wrench[4:6]:=wrench[4:6]+cross(arm,force);
+        end if;
+      end if;
+    end for;
+    annotation(Inline=false);
+  end hobieRockContact;
+
   function contact
     input Real pos[3],heading,rotation[3,3],velocity[3],spin[3],xs[7],widths[7],spacing;
     output Real wrench[6] "Force and moment in the level heading frame";

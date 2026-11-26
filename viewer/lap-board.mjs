@@ -21,7 +21,9 @@ export function fleetFinishes(){
       pending.set(heat,{heat,at,id,name,since:prior?.since??now});
   }
   function accept(heat,at,name){
-    if(!valid(heat,at)||typeof name!=='string'||!name||name.length>80||results.has(heat))return false;
+    if(!valid(heat,at)||typeof name!=='string'||name.length>40||results.has(heat))return false;
+    if(!playerNumber.test(name)&&!npcNumber.test(name)&&!isCaptainName(name)&&
+      name!=='Player'&&name!=='NPC'&&!/^NPC [1-5]$/.test(name))return false;
     results.set(heat,{heat,at,name});pending.delete(heat);
     if(results.size>8)results.delete(Math.min(...results.keys()));
     return true;
@@ -91,11 +93,6 @@ export function lapTable(storage,scope,hull){
 export function lapLeaderboard(hull,roomName,panel){
   let storage;
   try{storage=window.localStorage;}catch{}
-  const panelKey='ocean.racePanel.open';
-  try{panel.open=storage.getItem(panelKey)!=='false';}catch{}
-  panel.addEventListener('toggle',()=>{
-    try{storage.setItem(panelKey,String(panel.open));}catch{}
-  });
   const details=panel.querySelector('#bestLaps');
   const personal=new Map(Object.keys(classes).map(kind=>[kind,lapTable(storage,'personal',kind)]));
   const roomTables=name=>new Map(Object.keys(classes).map(kind=>[kind,lapTable(storage,'room/'+name,kind)]));

@@ -19,15 +19,20 @@ for(const kind of ['turn','lobby']){
 }
 const hash=createHash('sha256');
 for(const source of sources)hash.update(source).update('\0');
-hash.update(await readFile(join(root,'vendor/trystero.mjs'))).update('\0');
+for(const name of ['trystero.mjs','names.js'])
+  hash.update(await readFile(join(root,'vendor',name))).update('\0');
 for(const asset of ['hobie-hulls','whale','shark'])hash.update(await readFile(join(root,'assets',asset+'.glb')));
-for(const asset of (await readdir(join(root,'assets','island'))).sort())
-  hash.update(await readFile(join(root,'assets','island',asset)));
+for(const surface of ['island','subsea','chart'])for(const asset of (await readdir(join(root,'assets',surface))).sort())
+  hash.update(await readFile(join(root,'assets',surface,asset)));
+for(const site of ['yatush','satil'])for(const asset of ['far.glb','dive.glb','collision.json'])
+  hash.update(await readFile(join(root,'assets','red-sea',site,asset)));
+for(const name of ['harbor-hud.css','harbor-aux.css'])hash.update(await readFile(join(root,name)));
 const version=hash.digest('hex').slice(0,16);
 for(const [index,name] of files.entries()){
   const source=sources[index];
   const updated=name.endsWith('.html')
     ? source.replace(/(<script\b[^>]*\bsrc=")([^"?]+\.m?js)(?:\?[^"]*)?"/g,'$1$2?v='+version+'"')
+      .replace(/(href=")(harbor-(?:hud|aux)\.css)(?:\?[^"]*)?"/g,'$1$2?v='+version+'"')
     : source.replace(/(['"])(\.{1,2}\/[^'"\s?]+\.m?js)(?:\?[^'"\s]*)?\1/g,'$1$2?v='+version+'$1');
   if(updated!==source)await writeFile(join(root,name),updated);
 }

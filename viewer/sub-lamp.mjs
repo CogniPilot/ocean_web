@@ -5,6 +5,14 @@ export function underwaterLamp(T,renderer,occluders,hullGlowLobes=[]){
   const color=new T.WebGLRenderTarget(1,1,{type:T.HalfFloatType});
   color.depthTexture=new T.DepthTexture(1,1,T.UnsignedIntType);
   const preview=color.clone();preview.depthTexture=new T.DepthTexture(1,1,T.UnsignedIntType);
+  // The fullscreen scattering pass samples this color buffer. Canvas MSAA alone
+  // cannot recover silhouette coverage already lost here.
+  const gl=renderer.getContext();
+  if(renderer.capabilities.isWebGL2&&gl.getContextAttributes()?.antialias){
+    const colorCounts=gl.getInternalformatParameter(gl.RENDERBUFFER,gl.RGBA16F,gl.SAMPLES);
+    const depthCounts=gl.getInternalformatParameter(gl.RENDERBUFFER,gl.DEPTH_COMPONENT24,gl.SAMPLES);
+    color.samples=Math.max(0,...Array.from(colorCounts).filter(n=>n<=4&&depthCounts.includes(n)));
+  }
   const maxLamps=5,tileSize=128;
   const shadow=new T.WebGLRenderTarget(maxLamps*tileSize,tileSize);
   shadow.scissorTest=true;
@@ -40,8 +48,7 @@ export function underwaterLamp(T,renderer,occluders,hullGlowLobes=[]){
         float integral=smoothstep(-2.,2.,(span.y-middle)/sigma)-smoothstep(-2.,2.,(span.x-middle)/sigma);
         return 2.507*sigma*integral*exp(-.5*dot(nearest,nearest)-.105*clamp(middle,span.x,span.y));
       }
-      void main(){
-        vec3 rgb=texture2D(image,p).rgb;
+      vec3 scatterLights(vec3 rgb){
         vec4 surface=inverseProjection*vec4(p*2.-1.,texture2D(depth,p).r*2.-1.,1.);
         vec3 endpoint=surface.xyz/surface.w;
         vec3 sight=normalize(endpoint);float visibleDistance=length(endpoint);
@@ -72,10 +79,18 @@ export function underwaterLamp(T,renderer,occluders,hullGlowLobes=[]){
             clipPlane(-beamSlope*origin.z+side*origin.y,-beamSlope*ray.z+side*ray.y,span);
           }
           if(span.y>span.x){
-            float ds=(span.y-span.x)/float(steps);
+            // Sample in proportion to inverse-square irradiance. Equal-distance
+            // steps skip the bright water near the camera when looking down a
+            // long beam, leaving a rectangular seam at the light frustum.
+            float closest=-dot(origin,ray);
+            vec3 perpendicular=origin+closest*ray;
+            float width=sqrt(.18+dot(perpendicular,perpendicular));
+            float first=atan((span.x-closest)/width);
+            float last=atan((span.y-closest)/width);
+            float weight=(last-first)/(width*float(steps));
             for(int i=0;i<16;i++){
               if(i>=steps)break;
-              float t=span.x+(float(i)+.5)*ds;
+              float t=closest+width*tan(mix(first,last,(float(i)+.5)/float(steps)));
               vec3 q=origin+t*ray;
               float r=max(.07,length(q));
               float angular=smoothstep(cone.z,cone.w,-q.z/r);
@@ -84,11 +99,22 @@ export function underwaterLamp(T,renderer,occluders,hullGlowLobes=[]){
               vec2 uv=clamp(shadow.xy,.5/${tileSize}.,1.-.5/${tileSize}.);
               uv.x=(float(slot)+uv.x)/${maxLamps}.;
               float exposed=step(shadow.z-.00012,texture2D(shadowDepth,uv).r);
-              float gain=ds*strength[slot]*angular*exposed*(1.-smoothstep(.65*beamRange,beamRange,r))/(.18+r*r);
+              // Suspended grains scatter preferentially forward. The onboard
+              // camera beside a lamp receives the weaker backscattered light.
+              const float g=.55;
+              float mu=clamp(dot(q/r,-ray),-1.,1.);
+              float phaseBase=1.+g*g-2.*g*mu;
+              float phase=(1.-g*g)/(phaseBase*sqrt(phaseBase));
+              float gain=weight*strength[slot]*angular*phase*exposed*(1.-smoothstep(.65*beamRange,beamRange,r));
               rgb+=gain*lampColor[slot]*exp(-vec3(.29,.16,.13)*(r+t));
             }
           }
         }
+        return rgb;
+      }
+      void main(){
+        vec3 rgb=texture2D(image,p).rgb;
+        if(lampCount>0 || glowCount>0)rgb=scatterLights(rgb);
         if(frame>=0.){
           vec2 pixel=gl_FragCoord.xy+frame*vec2(31.,71.);
           float a=fract(52.9829189*fract(dot(pixel,vec2(.06711056,.00583715))));
@@ -105,8 +131,11 @@ export function underwaterLamp(T,renderer,occluders,hullGlowLobes=[]){
     u.lampCount.value=Math.min(maxLamps,lights.length);
     u.glowCount.value=glowingHulls.length;
     for(const [i,hull] of glowingHulls.entries())u.eyeToHull.value[i].copy(hull.matrixWorld).invert().multiply(eye.matrixWorld);
-    if(frame<0 && !lights.length && !glowingHulls.length){renderer.render(scene,eye);return;}
     const destination=renderer.getRenderTarget();
+    // Three applies mesh fog after tone mapping when drawing to the canvas.
+    // Match the water shader and onboard optics by blending in scene-linear
+    // space first. A waterline target already supplies that linear buffer.
+    if(destination && frame<0 && !lights.length && !glowingHulls.length){renderer.render(scene,eye);return;}
     eye.updateMatrixWorld();
     for(let slot=0;slot<u.lampCount.value;slot++){
       const light=lights[slot],cone=u.beam.value[slot];
@@ -143,5 +172,6 @@ export function underwaterLamp(T,renderer,occluders,hullGlowLobes=[]){
     await renderer.compileAsync(occluders,lightCamera);
     await renderer.compileAsync(pass,screen);
   };
+  draw.dispose=()=>{color.dispose();preview.dispose();shadow.dispose();pass.children[0].geometry.dispose();material.dispose();};
   return draw;
 }

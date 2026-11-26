@@ -1,0 +1,1 @@
+{"token":"2890fe1d-59ce-45c5-94e1-b6eb00472841","vars":{"time":[0,1],"feature":[1,24],"noise":[2,24],"reward":[3,24],"weight":[4,1],"moment":[5,1],"variance":[6,1],"step":[7,1],"sigma":[8,1],"learningRate":[9,1],"previousGradient":[10,1],"groupCount":[11,1],"advantage":[12,12],"gradient":[13,1],"nextMoment":[14,1],"nextVariance":[15,1],"newWeight":[16,1],"update":[17,4]}}

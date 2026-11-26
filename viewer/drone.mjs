@@ -72,7 +72,19 @@ export async function surveyDrone(T,scene,world){
     const sigma=v=>Math.sqrt(Math.max(0,v));
     return {position:position.map(sigma),velocity:velocity.map(sigma),wind:sigma(wind)};
   }
-  return {group,instruments,hasNavigation,covariance,bladeCount,hasRotorWake,hasDroneContact,hasVesselDecks,wakeGeometry,
+  function drawLoads(display){
+    if(hasRotorSpeeds&&flight.has('aircraft.thrustCoefficient_N_s2')){
+      const [speeds,k]=flight.getMany(['rotorSpeed','aircraft.thrustCoefficient_N_s2']);
+      props.forEach((hub,i)=>display.load(hub,'Rotor '+(i+1)+' · thrust',false,null,[0,0,k*speeds[i]**2]));
+    }
+    if(flight.has('dragBody'))display.load(group,'Airframe · aerodynamic drag',false,null,flight.get('dragBody'));
+    if(flight.has('rotorWakeWrench')){
+      const w=flight.get('rotorWakeWrench');
+      display.load(group,'Airframe · wake force',false,null,w.slice(0,3),true);
+      display.load(group,'Airframe · wake moment',true,null,w.slice(3),true);
+    }
+  }
+  return {group,instruments,drawLoads,hasNavigation,covariance,bladeCount,hasRotorWake,hasDroneContact,hasVesselDecks,wakeGeometry,
     contactGeometry(){
       const names=['droneContactParts','droneContactFaces'];
       return names.every(name=>flight.has(name))?flight.getMany(names):null;

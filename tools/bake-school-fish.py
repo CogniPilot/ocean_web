@@ -36,4 +36,7 @@ out={'index':indices,'colors':np.round(colors,3).tolist(),'frames':[]}
 for frame in frames:
     v=(frame-center)/np.ptp(p,axis=0)[axis]*.48
     out['frames'].append(np.round(np.stack((v[:,axis]*sign,v[:,y],v[:,z]),axis=1),4).flatten().tolist())
-Path('viewer/assets/fish.json').write_text(json.dumps(out,separators=(',',':')))
+from runpy import run_path
+finish = run_path(str(Path(__file__).with_name('baitfish-surface.py')))['finish']
+swim=run_path(str(Path(__file__).with_name('school-swim.py')))['finish']
+Path('viewer/assets/fish.json').write_text(json.dumps(swim(finish(out),'bait'),separators=(',',':')))

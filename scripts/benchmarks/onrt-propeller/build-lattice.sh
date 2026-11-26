@@ -5,7 +5,7 @@ source_dir="$root/scripts/benchmarks/onrt-propeller"
 dest="${1:?Pass build directory}"
 mkdir -p "$dest"
 dest=$(realpath "$dest")
-"${RUMOCA:-$root/.deps/rumoca-upstream/target/debug/rumoca}" compile "$source_dir/PropellerFlow.mo" -m PropellerFlow --target fmi3 -o "$dest"
+"${RUMOCA:-$root/.deps/rumoca-upstream/target/debug/rumoca}" compile "$source_dir/PropellerFlow.mo" -m PropellerFlow --source-root "$root/.deps/marine-models" --source-root "$root/.deps/msl" --target fmi3 -o "$dest"
 python3 - "$dest" <<'PY'
 import sys
 from pathlib import Path

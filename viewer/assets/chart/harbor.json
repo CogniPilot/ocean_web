@@ -1,0 +1,26 @@
+[
+  {
+    "id": "island",
+    "file": "island.webp",
+    "west": 7,
+    "east": 65,
+    "south": 17,
+    "north": 63
+  },
+  {
+    "id": "yatush",
+    "file": "yatush.webp",
+    "west": -33,
+    "east": -15,
+    "south": 23,
+    "north": 29
+  },
+  {
+    "id": "satil",
+    "file": "satil.webp",
+    "west": 33,
+    "east": 79,
+    "south": -54,
+    "north": -46
+  }
+]

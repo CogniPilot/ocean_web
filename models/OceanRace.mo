@@ -52,12 +52,12 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     wakeEast=waves.waveLoad[1],wakeNorth=waves.waveLoad[2],wakeYaw=waves.waveLoad[3]);
   MarineWind wind(phaseOffset=seaClockOffset,advectionAnchor=windAnchor,meanEast=windSpeed*cos(windBearing),meanNorth=windSpeed*sin(windBearing),
     east=boat.east,north=boat.north,droneEast=windProbe[1],droneNorth=windProbe[2]);
-  WakeSpectrum waves(sharedDrift=true,separatePeerSurface=true,omitWake=omitWake,peers=peerWake,seaClockOffset=seaClockOffset,east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
+  inner WakeSpectrum waves(sharedDrift=true,separatePeerSurface=true,omitWake=omitWake,peers=peerWake,seaClockOffset=seaClockOffset,east=boat.east,north=boat.north,heading=boat.heading,heel=boat.heel,pitch=boat.pitch,
     stations=boat.stationX,separation=boat.halfSpacing,volume=boat.sectionVolume,beamHalf=boat.beamHalf,
     currentEast=boatWater.profile[1,2],currentNorth=boatWater.profile[1,3],windEast=0,windNorth=0,seaAmplitude=0);
-  Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,seaState=seaState,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
-  Regatta race(mooringWind=windSpeed*{cos(windBearing),sin(windBearing)},mooringCurrent=boatWater.meanFlow[1:2],racerState={1,boat.heading,boat.heel,boat.pitch,boat.heave,boat.ve,boat.vn,boat.yawRate,boat.vertical,boat.rollRate,boat.pitchRate},
-    hullStations=boat.stationX,hullWidths=boat.beamHalf,hullOffset=boat.halfSpacing,seaClockOffset=seaClockOffset,swellK=swellK,swellBearing=swellBearing,swellOmega=swellOmega,landingReaction=committeeLandingWrench+{boat.committeeReaction[1],boat.committeeReaction[2],0,0,0,boat.committeeReaction[3]},wakeTile=waves.height,hullWaveTile=waves.wakeHeight,backgroundTile=boatWater.tile,driftEast=waves.driftE,driftNorth=waves.driftN,
+  inner Wreck.Ocean boatWater(seaClockOffset=seaClockOffset,seaState=seaState,pos={boat.east,boat.north,boat.heave},windSpeed=windSpeed,windDirection=windBearing);
+  SharedRegatta race(mooringWind=windSpeed*{cos(windBearing),sin(windBearing)},mooringCurrent=boatWater.meanFlow[1:2],racerState={1,boat.heading,boat.heel,boat.pitch,boat.heave,boat.ve,boat.vn,boat.yawRate,boat.vertical,boat.rollRate,boat.pitchRate},
+    hullStations=boat.stationX,hullWidths=boat.beamHalf,hullOffset=boat.halfSpacing,seaClockOffset=seaClockOffset,swellK=swellK,swellBearing=swellBearing,swellOmega=swellOmega,landingReaction=committeeLandingWrench+{boat.committeeReaction[1],boat.committeeReaction[2],0,0,0,boat.committeeReaction[3]},driftEast=waves.driftE,driftNorth=waves.driftN,
     tide=boatWater.tide,swellHeight=boat.swellAmplitude,windBearing=prevailingBearing,utc=epoch+time,raceStart=raceStart,finishAllowed=finishAllowed,east=boat.east,north=boat.north,
     bowSources=bowSources,bowFrame=bowFrame,bowSpeed=bowSpeed);
   discrete output Real bowSources[14,6](each start=0,each fixed=true) "Bound near-hull flow from immersed cross sections";

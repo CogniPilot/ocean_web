@@ -3,12 +3,15 @@ import argparse
 import csv
 import json
 import math
-import re
+import sys
 import time
 from pathlib import Path
 
 import numpy as np
 import pyopencl as cl
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lattice_collision import build_lattice
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("fmu", type=Path, help="unpacked PropellerFlow FMI source directory")
@@ -25,39 +28,8 @@ if not devices:
 ctx = cl.Context([devices[0]])
 queue = cl.CommandQueue(ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
 print("Compute device:", devices[0].name, flush=True)
-# This FMU has one checked algebraic assignment issuing the collision call.
-# Reuse its generated arithmetic and bounds checks. The device supplies the
-# C integer and private-memory operations used by the generated pure functions.
-source = args.fmu / "sources"
-calls = set(re.findall(r'int status=(rumoca_scalar_pure_\d+)\(', (source/"rmc_assign.c").read_text()))
-if len(calls)!=1:
-    raise ValueError("Expected one Rumoca collision function")
-c = (source/"rmc_functions.c").read_text()
-c = c[c.index('static int rumoca_pure_'):c.index('static int rumoca_pure_directional_')]
-preamble = """
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
-#pragma OPENCL FP_CONTRACT OFF
-typedef ulong uint64_t;
-typedef long int64_t;
-typedef int RmcAssertionObserver;
-#define UINT64_C(v) v##UL
-#define INT64_C(v) v##L
-#define INT64_MIN LONG_MIN
-#define INT64_MAX LONG_MAX
-#define RMC_API static inline
-#define rumoca_real64(v) as_double((ulong)(v))
-#define memcpy(d,s,n) __builtin_memcpy((d),(s),(n))
-#define memset(d,v,n) __builtin_memset((d),(v),(n))
-static inline void memmove_private(void *d, const void *s, size_t n){
-    uchar *a=(uchar*)d; const uchar *b=(const uchar*)s;
-    if(a==b)return;
-    if((size_t)a<(size_t)b)for(size_t i=0;i<n;i++)a[i]=b[i];
-    else for(size_t i=n;i--;)a[i]=b[i];
-}
-#define memmove memmove_private
-"""
 domain = Path(__file__).with_name("lattice-device.cl").read_text()
-program = cl.Program(ctx, preamble+c.replace('(void)rumoca_real64;', '')+domain.replace('COLLISION', calls.pop())).build(options=['-cl-std=CL1.2'])
+program = build_lattice(ctx, args.fmu, domain)
 kernel = program.advance
 out = args.output
 out.mkdir(parents=True, exist_ok=True)

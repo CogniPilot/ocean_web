@@ -1,0 +1,146 @@
+diff --git a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/integer_tables.rs b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/integer_tables.rs
+index 73e2217..65b4a8c 100644
+--- a/crates/rumoca-phase-codegen/src/codegen/pure_call_families/integer_tables.rs
++++ b/crates/rumoca-phase-codegen/src/codegen/pure_call_families/integer_tables.rs
+@@ -1,15 +1,22 @@
+ //! Keep immutable aggregate literals in read-only C storage. This lets LLVM
+ //! lower indexed Modelica tables to loads instead of reconstructing every
+ //! element on the WASM stack at each lookup.
+-use std::collections::BTreeMap;
++use std::collections::{BTreeMap, BTreeSet};
+ 
+ use serde_json::Value;
+ 
+ pub(super) fn annotate(node: &mut Value) {
+     match node {
+         Value::Object(fields) => {
+-            if let Some(operations) = fields.get_mut("operations").and_then(Value::as_array_mut) {
+-                annotate_region(operations);
++            if fields.contains_key("operations") {
++                let owners = read_only_owners(fields.get("storage"));
++                if let Some(operations) = fields.get_mut("operations").and_then(Value::as_array_mut)
++                {
++                    let tables = annotate_region(operations, &owners);
++                    if !tables.is_empty() {
++                        fields.insert("read_only_integer_tables".into(), Value::from(tables));
++                    }
++                }
+             }
+             fields.values_mut().for_each(annotate);
+         }
+@@ -18,7 +25,30 @@ pub(super) fn annotate(node: &mut Value) {
+     }
+ }
+ 
+-fn annotate_region(operations: &mut [Value]) {
++// A last-use update or a fold can coalesce with its input. Storage backing
++// such a mutable view must remain writable even when initialized by a literal.
++fn read_only_owners(storage: Option<&Value>) -> BTreeSet<u64> {
++    let Some(homes) = storage.and_then(|s| s["aliases"]["homes"].as_array()) else {
++        return BTreeSet::new();
++    };
++    let views: BTreeSet<_> = homes
++        .iter()
++        .filter(|home| home["home"] == "register")
++        .filter_map(|home| home["register"].as_u64())
++        .collect();
++    homes
++        .iter()
++        .enumerate()
++        .filter(|(id, home)| home["home"] == "own" && !views.contains(&(*id as u64)))
++        .map(|(id, _)| id as u64)
++        .collect()
++}
++
++fn annotate_region(
++    operations: &mut [Value],
++    owners: &BTreeSet<u64>,
++) -> serde_json::Map<String, Value> {
++    let mut tables = serde_json::Map::new();
+     let mut literals = BTreeMap::new();
+     for issued in operations {
+         let op = &mut issued["operation"];
+@@ -43,12 +73,21 @@ fn annotate_region(operations: &mut [Value]) {
+                     .map(|reg| literals.get(&reg.as_u64()?).copied())
+                     .collect();
+                 if let Some(values) = values {
+-                    op["integer_literals"] = Value::from(values);
++                    if let Some(dst) = op["destination"]
++                        .as_u64()
++                        .filter(|dst| owners.contains(dst))
++                    {
++                        tables.insert(dst.to_string(), Value::from(values));
++                        op["read_only_integer_table"] = Value::Bool(true);
++                    } else {
++                        op["integer_literals"] = Value::from(values);
++                    }
+                 }
+             }
+             _ => {}
+         }
+     }
++    tables
+ }
+ 
+ #[cfg(test)]
+@@ -70,4 +109,29 @@ mod tests {
+         assert!(program["operations"][2]["operation"]["integer_literals"].is_null());
+         assert!(program["body"]["operations"][0]["operation"]["integer_literals"].is_null());
+     }
++    #[test]
++    fn immutable_tables_require_own_storage_with_no_mutable_view() {
++        let homes = json!([
++            {"home":"scalar"}, {"home":"own"}, {"home":"own"},
++            {"home":"register","register":2}, {"home":"output_slot","slot":0},
++        ]);
++        let make_table = |id| json!({"operation":{"operation":"construct_aggregate","destination":id,"elements":[0,0,0,0,0,0,0,0]}});
++        let c = json!({"operation":{"operation":"constant","destination":0,"value":{"kind":{"kind":"integer","bits":-17}}}});
++        let mut program = json!({"storage":{"aliases":{"homes":homes}},"operations":[c, make_table(1), make_table(2), make_table(4)]});
++        annotate(&mut program);
++        assert_eq!(
++            program["read_only_integer_tables"],
++            json!({"1":vec![-17; 8]})
++        );
++        assert_eq!(
++            program["operations"][1]["operation"]["read_only_integer_table"],
++            true
++        );
++        for index in [2, 3] {
++            assert_eq!(
++                program["operations"][index]["operation"]["integer_literals"],
++                json!(vec![-17; 8])
++            );
++        }
++    }
+ }
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+index cb48539..f2510b2 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_functions.jinja
+@@ -181,7 +181,10 @@ const {{ ctype(slot.value_type) }}* s{{ slot.id }} = in[{{ placement.argument }}
+ {% for ty in program.assigned_states.types|default([]) %}bool present{{ loop.index0 }}=false; (void)present{{ loop.index0 }}; {{ declaration("v" ~ loop.index0, ty) }}{% endfor %}
+ {#- Declare owned cells before their views, independently of register numbering. -#}
+ {% for ty in program.register_types -%}
+-{% if program.storage.aliases.homes[loop.index0].home in ["own","scalar"] %}{{ declaration("r" ~ loop.index0, ty) }}{% endif %}
++{% set reg=loop.index0 -%}
++{% if program.read_only_integer_tables is defined and (reg ~ "") in program.read_only_integer_tables -%}
++static const int64_t r{{ reg }}[] = { {% for value in program.read_only_integer_tables[reg ~ ""] %}{{ integer(value) }},{% endfor %} }; (void)r{{ reg }};
++{% elif program.storage.aliases.homes[reg].home in ["own","scalar"] %}{{ declaration("r" ~ reg, ty) }}{% endif %}
+ {% endfor -%}
+ {% for ty in program.register_types -%}
+ {% set reg=loop.index0 -%}
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
+index 6119bbe..3558b98 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/typed_tensors.jinja
+@@ -45,7 +45,9 @@ memcpy(&{{ dst }}[{{ row }}{{ cursor.value }}], &r{{ operand }}[{{ src }}], {{ w
+ {% endif -%}
+ {% endif -%}
+ {% elif op.operation == "construct_aggregate" -%}
+-{% if op.integer_literals is defined -%}
++{% if op.read_only_integer_table is defined -%}
++{#- Initialized once at its register declaration. -#}
++{% elif op.integer_literals is defined -%}
+ { static const int64_t literal[] = { {% for value in op.integer_literals %}{{ integer(value) }},{% endfor %} };
+   memcpy({{ dst }}, literal, sizeof(literal)); }
+ {% else -%}

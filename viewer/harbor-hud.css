@@ -1,0 +1,100 @@
+/* Small stable HUD in the world view. Vehicle-specific details open on demand. */
+body > header,body > footer {
+  --hud-edge:color-mix(in srgb,#a2d6d0 33%,transparent);
+  border:1px solid var(--hud-edge);
+  background:#06232eed;
+  box-shadow:0 2px 9px #03141c36;
+  border-radius:8px;
+}
+body > header,body > header:has(#dial:not([hidden])) {
+  top:max(12px,env(safe-area-inset-top));left:max(var(--hud-gutter),env(safe-area-inset-left));
+  width:fit-content;min-width:0;max-width:min(390px,60vw);padding:8px 12px;
+}
+body > header>small:first-child {display:none}
+body > header h1,body > header:has(#dial:not([hidden])) h1 {font:normal 21px/1.12 Georgia,serif;margin:0 0 3px;color:#f2f8f5}
+header :is(#hudBrief,#readout,#runStats,#subBattery,#subAim) {font:12px/1.4 ui-monospace,monospace;color:#b6e1db}
+header #hudBrief:not(:empty) {display:block}
+header #hudBrief:empty {display:none}
+body[data-hud-telemetry=true] header #hudBrief {display:none}
+body[data-hud-telemetry=false] header:has(#hudBrief:not(:empty)) #readout,
+body[data-hud-telemetry=false] header :is(#subBattery,#subAim,#droneCovariance),
+body[data-hud-performance=false] #runStats,
+body[data-hud-fpv=false] #flightHud {display:none}
+body[data-hud-telemetry=true] header #readout {display:block}
+header #dial {width:205px}
+body > footer {left:max(var(--hud-gutter),env(safe-area-inset-left));right:auto;bottom:max(12px,env(safe-area-inset-bottom));width:fit-content;max-width:calc(100vw - 2 * var(--hud-gutter))}
+body > footer:has(#vehiclePanel:not([hidden])) {width:min(450px,calc(100vw - 2 * var(--hud-gutter)))}
+.control-toolbar {padding:3px}
+.control-toolbar .control-row {display:flex;gap:2px;flex-wrap:nowrap}
+.control-toolbar #collapsePanel {margin:0}
+.control-toolbar .control-row button {background:transparent;border:1px solid transparent;min-height:38px;padding:6px 12px;color:#eaf7f2}
+.control-toolbar .control-row button:hover,.control-toolbar .control-row button[aria-expanded=true] {background:#19434d;border-color:#3b656b}
+body > footer .control-toolbar {position:relative;z-index:2;order:1;flex-shrink:0;border-bottom:0}
+body > footer:has(#vehiclePanel:not([hidden])) .control-toolbar {border-top:1px solid var(--hud-edge)}
+#vehiclePanel {scroll-padding-top:56px;isolation:isolate}
+#vehiclePanel .hud-drawer-head {position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 10px;background:#0b2b37;border-bottom:1px solid var(--hud-edge)}
+#hudMenuTitle {margin:0;font:normal 20px/1.2 Georgia,serif}
+#hudDone {min-width:48px;min-height:38px}
+#hudCustomize,#hudActions {padding:9px 10px 12px}
+#hudActions {display:grid;grid-template-columns:1fr 1fr;gap:6px}
+#hudCustomize fieldset {margin:0 0 10px;border:0;padding:0}
+#hudCustomize legend {color:#9fd3c9;font-weight:650;font-size:13px;margin:3px 0}
+#hudWidgets,#hudPanels {display:grid}
+#hudCustomize label {display:flex;align-items:center;gap:.65em;min-height:32px;cursor:pointer}
+#hudCustomize input {accent-color:#83d4c2;width:16px;height:16px;margin:0}
+#hudActions button,#hudReset {min-height:36px}
+@media(prefers-reduced-motion:no-preference){
+  #vehiclePanel > :is(#vehicleControls,#setup,#hudCustomize,#hudActions):not([hidden]) {animation:hud-drawer-enter 140ms ease-out}
+  @keyframes hud-drawer-enter {from{opacity:.55;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+}
+body aside:not(:has(details[open]:not([hidden]),#mastPanel:not([hidden]))),
+body :is(#subPanel,#motorSensors,#animalSensors):not(:has(details[open]:not([hidden]))),
+body #roomChat:not([open]) {display:none}
+:is(#subPanel,#motorSensors,#animalSensors,aside) > details:not([open]) {display:none}
+body #subPanel:has(details[open]) {top:max(12px,env(safe-area-inset-top));right:max(var(--hud-gutter),env(safe-area-inset-right));max-height:calc(100dvh - 90px);overflow:auto}
+@media(max-width:650px){
+  body > header,body > header:has(#dial:not([hidden])),body:has(#motorSensors:not([hidden])) > header {top:max(6px,env(safe-area-inset-top));max-width:calc(100vw - 2 * var(--hud-gutter));padding:6px 10px}
+  body > header h1,body > header:has(#dial:not([hidden])) h1 {font-size:18px}
+  header #dial {width:162px}
+  body > footer {bottom:max(6px,env(safe-area-inset-bottom))}
+  .control-toolbar .control-row button {min-height:44px;padding:6px 10px}
+  body #subPanel:has(details[open]),body #motorSensors:has(details[open]),body #animalSensors:has(details[open]),body aside:has(details[open]) {top:max(calc(var(--hud-header-bottom,54px) + 6px),env(safe-area-inset-top));max-height:min(42dvh,calc(100dvh - var(--panel-height,54px) - var(--hud-header-bottom,54px) - 20px));max-width:calc(100vw - 2 * var(--hud-gutter));width:min(300px,calc(100vw - 2 * var(--hud-gutter)));overflow:auto}
+  #hudCustomize label,#hudActions button,#hudDone,#hudReset {min-height:44px}
+}
+#hudShortcutSettings {margin:4px 0 14px}
+#hudShortcutSettings summary {cursor:pointer;padding:.35em 0;color:#9fd3c9;font-size:13px;font-weight:650}
+#hudShortcuts {display:grid;grid-template-columns:1fr 1fr;padding-top:4px}
+.control-toolbar {min-width:0;max-width:100%;overflow-x:auto;scrollbar-width:thin}
+.control-toolbar .control-row {width:max-content}
+body > footer:has(#vehiclePanel[hidden]) .control-toolbar {border-bottom:0}
+@media(pointer:coarse){
+  .control-toolbar .control-row button,#hudCustomize label,#hudActions button,#hudDone,#hudReset {min-height:44px}
+}
+
+@media(max-width:390px){
+  .control-toolbar .control-row button {font-size:13px;padding-inline:5px;min-width:44px}
+}
+@media(max-width:350px){
+  .control-toolbar .control-row {gap:1px}
+  .control-toolbar .control-row button {font-size:12px;padding-inline:3px}
+}
+
+.hud-instrument-panel {position:relative}
+.hud-instrument-panel > summary output {pointer-events:none}
+:is(#subPanel,#motorSensors,#animalSensors,aside) .hud-instrument-panel[open] > summary {padding-inline-end:54px;min-height:30px}
+.hud-instrument-panel > .hud-instrument-close {position:absolute;right:0;top:0;min-height:28px;padding:3px 7px;font:12px system-ui,sans-serif}
+#mastClose {float:right;margin-inline-start:8px}
+#hudCustomize :is(#showCompass,#mastCapture) {margin-top:4px}
+@media(pointer:coarse){
+  :is(#subPanel,#motorSensors,#animalSensors,aside) .hud-instrument-panel[open] > summary,
+  .hud-instrument-panel > .hud-instrument-close,#mastClose {min-height:44px}
+  .hud-instrument-panel > .hud-instrument-close,#mastClose {min-width:44px}
+}
+
+.hud-heading {display:flex;align-items:center;justify-content:space-between;gap:10px}
+#hudAudio {display:flex;gap:2px;pointer-events:auto;flex:none}
+#hudAudio:empty {display:none}
+#hudAudio button {display:grid;place-items:center;min-width:32px;min-height:32px;padding:0;border:1px solid transparent;background:transparent;color:#bed9da;font:19px/1 system-ui,sans-serif}
+#hudAudio button:is(:hover,:focus-visible),#hudAudio button[aria-pressed=true] {background:#19434d;border-color:#3b656b;color:#edfff9}
+#hudActions #hudMusic::after {content:" Music"}
+@media(pointer:coarse){#hudAudio button {min-width:44px;min-height:44px}}

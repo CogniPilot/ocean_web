@@ -1,0 +1,41 @@
+--- a/Marine/Wreck/ImagingSonar.mo
++++ b/Marine/Wreck/ImagingSonar.mo
+@@ -2,6 +2,9 @@
+ package ImagingSonar "Forward imaging sonar, bearing and two-way travel-time bins"
+   constant Integer bearings=65,bins=128,verticalSamples=15;
+   constant Real halfFan=65*pi/180,rangeMax=18, depression=6*pi/180;
++  constant Real maxPatchRangeChange(unit="m")=1.8 "Largest slant range change allowed across a continuous return";
++  constant Integer maxPatchBins=1+integer(floor(maxPatchRangeChange*bins/rangeMax))
++    "Maximum number of integer bin centers in a continuous return of that width";
+   constant Real mount[3]={.60,0,.02};
+ 
+   function rayDirection "Beam direction in sonar mount axes"
+@@ -24,7 +27,7 @@
+   protected
+     Real o[3],dir[3],r,ranges[verticalSamples],power[bins],strongest,word,value;
+     Real grazing,scatter,weight,bin,fraction,spacing,amplitude,speckle,localSeed,slant[bearings];
+-    Integer k,peak,first,last;
++    Integer k,peak,first,last,cellIndex;
+     Real row[32] "One bearing of packed range cells";
+     Real floorNoise[bins+3*bearings] "Additive noise shared by range cells with the same channel";
+   algorithm
+@@ -49,12 +52,17 @@
+           k:=min(bins-1,max(1,integer(floor(bin))));fraction:=min(1,max(0,bin-k));
+           power[k]:=power[k]+amplitude*(1-fraction);
+           power[k+1]:=power[k+1]+amplitude*fraction;
+-          if j>1 and ranges[max(1,j-1)]<rangeMax and abs(r-ranges[max(1,j-1)])<min(1.8,.14*r) then
++          if j>1 and ranges[max(1,j-1)]<rangeMax and abs(r-ranges[max(1,j-1)])<min(maxPatchRangeChange,.14*r) then
+             // Spread a continuous patch across slant range. A depth jump
+             // ends the patch, leaving the acoustic shadow behind its edge.
+             first:=max(1,integer(ceil(min(r,ranges[max(1,j-1)])*bins/rangeMax+.5)));
+             last:=min(bins,integer(floor(max(r,ranges[max(1,j-1)])*bins/rangeMax+.5)));
+-            for cell in first:last loop power[cell]:=power[cell]+amplitude/max(1,last-first+1);end for;
++            for offset in 0:maxPatchBins-1 loop
++              cellIndex:=first+offset;
++              if cellIndex<=last then
++                power[cellIndex]:=power[cellIndex]+amplitude/max(1,last-first+1);
++              end if;
++            end for;
+           end if;
+         end if;
+       end for;

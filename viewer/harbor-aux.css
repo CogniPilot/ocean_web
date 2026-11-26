@@ -1,0 +1,111 @@
+/* Non-modal panels leave the water visible and the helm available. */
+#harborMap {
+  --edge:max(12px,env(safe-area-inset-right));
+  inset:auto var(--edge) max(12px,env(safe-area-inset-bottom)) auto;
+  box-sizing:border-box;width:min(620px,calc(100vw - var(--edge) - 12px));
+  max-height:calc(100dvh - 30px);padding:0 14px 12px;
+  overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;
+  background:#0a2834;color:#edf6f4;border:1px solid #5a7e85;
+  border-radius:12px;box-shadow:0 6px 26px #02182070;
+}
+#harborMap > div:first-child {
+  position:sticky;top:0;z-index:1;min-height:54px;gap:10px;
+  margin-inline:-14px;padding-inline:14px;background:#0a2834;
+  border-bottom:1px solid #375662;
+}
+#harborMap h2 {font:normal 22px/1.2 Georgia,serif}
+#harborMapCanvas {
+  width:100%;height:clamp(170px,40dvh,380px);max-height:none;
+  object-fit:fill;border-radius:5px;margin:8px 0;
+}
+#harborMap :is(button,select),#roomChat :is(input,button) {font:inherit;touch-action:manipulation;min-height:38px}
+#harborMap :is(button,select,canvas):focus-visible,#roomChat :is(input,button,summary):focus-visible {
+  outline:2px solid #f5cc89;outline-offset:2px;
+}
+#spawnForm:not([hidden]) {
+  display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr) auto;
+  align-items:end;gap:8px;margin:12px 0 10px;
+}
+#spawnForm label {min-width:0;font:600 13px/1.4 system-ui;color:#c1e4dd}
+#spawnForm select {display:block;width:100%;margin-top:3px}
+#spawnForm > output {grid-column:1/-1;margin:0}
+#spawnForm > output:empty {display:none}
+#spawnForm > button {background:#9edfd4;color:#092c35;font-weight:650;border-color:transparent}
+#spawnForm > button:disabled {background:#334f57;color:#c2cfcf}
+#harborMapLegend {margin-top:8px;color:#cbe0df}
+#harborMapRoster {color:#afe0d8}
+body #roomChat[open] {
+  box-sizing:border-box;width:min(345px,calc(100vw - var(--hud-gutter)*2));max-height:calc(100dvh - var(--hud-header-bottom,66px) - 21px);
+  overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;background:#0a2936;
+  border:1px solid #5a7e85;border-radius:9px;box-shadow:0 4px 18px #02182055;
+}
+#roomChat[open]>summary {
+  box-sizing:border-box;min-height:46px;padding:12px 76px 10px 12px;color:#ecf6f1;
+  font:normal 19px/1.2 Georgia,serif;
+}
+#roomChat #chatClose {position:absolute;right:5px;top:4px;padding-inline:10px}
+#chatLog {max-height:min(27dvh,200px);padding:6px 10px;font:14px/1.45 system-ui}
+#chatMessage {padding-inline:8px}
+#chatStatus:not(:empty) {line-height:1.4}
+@media(max-width:720px), (max-height:540px) {
+  #harborMap {
+    --edge:max(6px,env(safe-area-inset-right));
+    bottom:max(6px,env(safe-area-inset-bottom));width:min(490px,calc(100vw - var(--edge) - 6px));
+    max-height:calc(100dvh - max(12px,env(safe-area-inset-top)) - max(6px,env(safe-area-inset-bottom)));
+  }
+  #harborMapCanvas {height:clamp(150px,32dvh,295px)}
+  #harborMap:has(#spawnForm:not([hidden])) #harborMapCanvas {height:clamp(120px,24dvh,240px)}
+  #spawnForm:not([hidden]) {grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr)}
+  #spawnForm > button {grid-column:1/-1}
+  #roomChat #chatMessage {font-size:16px}
+}
+@media(pointer:coarse) {
+  #harborMap :is(button,select),#roomChat :is(button,input){min-height:44px}
+  #roomChat[open]>summary {min-height:52px}
+}
+@media(prefers-reduced-motion:no-preference) {
+  #harborMap[open],#roomChat[open] {animation:harbor-panel-enter 145ms ease-out}
+  @keyframes harbor-panel-enter {from {opacity:.5;transform:translateY(7px)}}
+}
+#keyboardHelp .control-fields p {font:14px/1.5 system-ui;color:#d0e3e3;max-width:62ch}
+#keyboardHelp #closeKeyboardHelp {width:fit-content;min-height:38px;margin-top:4px}
+@media(pointer:coarse){#keyboardHelp #closeKeyboardHelp{min-height:44px}}
+/* The chat belongs to the header's stacking context. Keep its controls
+   reachable when a narrow viewport puts the race clock behind the chat. */
+body > header:has(#roomChat[open]:not([hidden])) {z-index:4}
+#harborMap[open] {z-index:5}
+@media(min-width:540px) and (max-height:470px) {
+  #spawnForm:not([hidden]) {grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr) auto}
+  #spawnForm > button {grid-column:auto}
+  #harborMap:has(#spawnForm:not([hidden])) #harborMapCanvas {height:clamp(92px,26dvh,120px)}
+}
+
+#harborMap .chart-tools {
+  display:flex;align-items:center;justify-content:space-between;gap:8px;margin:4px 0;
+}
+#harborMap .chart-zoom {display:flex;gap:3px;margin-left:auto}
+#harborMap .chart-tools button {min-width:38px;cursor:pointer}
+#harborMap:has(#spawnForm:not([hidden])) #mapChooseSpawn {display:none}
+#harborMapCanvas {cursor:grab;touch-action:none;background:#234957}
+#mapSpawnDepth {margin-left:.3em;font:11px ui-monospace,monospace;color:#b9ddd4;white-space:nowrap}
+#mapSpawnDepth:empty {display:none}
+@media(pointer:coarse) {
+  #harborMap .chart-tools button {min-width:44px;min-height:44px}
+}
+#vehiclePicker .entry-spawn-row {display:flex;align-items:center;gap:6px;margin-bottom:9px}
+#vehiclePicker .entry-spawn-row select {flex:1;min-width:0;width:0;margin:0}
+#vehiclePicker #entryMapOpen {flex:none;min-height:44px;margin:0;font-size:14px}
+#entryMap {box-sizing:border-box;width:min(650px,calc(100vw - 16px));max-height:calc(100dvh - 16px);padding:14px;overflow:auto;overscroll-behavior:contain;background:#0a2834;color:#ecf5f2;border:1px solid #688b8e;border-radius:12px}
+#entryMap::backdrop {background:#061c29bf}
+#entryMap :is(button,select) {font:inherit;min-height:44px;touch-action:manipulation}
+#entryMap .entry-map-header,#entryMap .entry-map-footer {display:flex;align-items:center;justify-content:space-between;gap:10px}
+#entryMap h2 {margin:0;font:normal clamp(19px,4vw,25px)/1.2 Georgia,serif}
+#entryMapCanvas {position:static;display:block;width:100%;height:clamp(165px,48dvh,400px);margin:9px 0;touch-action:none;cursor:grab;border-radius:6px;background:#234957}
+#entryMap nav {justify-content:flex-end;margin:0 0 8px;gap:4px}
+#entryMap nav button {min-width:44px}
+#entryMap label {display:grid;min-width:0;flex:1;gap:3px;color:#bbe1db}
+#entryMap select {width:100%}
+#entryMapUse {align-self:flex-end;background:#a0dfd5;color:#0a2b34;font-weight:650}
+#entryMap :focus-visible {outline:2px solid #f5cc89;outline-offset:2px}
+@media(max-height:470px){#entryMapCanvas{height:clamp(98px,32dvh,150px)}}
+@media(prefers-reduced-motion:no-preference){#entryMap[open]{animation:harbor-panel-enter 145ms ease-out}}

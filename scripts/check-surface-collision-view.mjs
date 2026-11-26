@@ -16,7 +16,7 @@ function table(source,name){
   return match[1].split(';').map(row=>row.split(',').map(Number));
 }
 const rocks=table(shore,'rocks'),pontoon=table(shore,'pontoon');
-const scene=new T.Scene(),scope={T,scene,islandTextures:()=>({}),islandPalms:()=>()=>{},islandScrub:()=>{}};
+const scene=new T.Scene(),scope={T,scene,harborBed:require('../viewer/bathymetry.js'),islandTextures:()=>({}),islandPalms:()=>()=>{},islandScrub:()=>{}};
 runInNewContext(visuals+'\nbatchScenery=()=>{}; land=coast(T,scene,true);',scope);
 const island=scope.land,committee=new T.Group(),marks=Array.from({length:3},()=>new T.Group());
 const hobie=new T.Group(),motor=new T.Group(),drone=new T.Group();
@@ -74,7 +74,7 @@ for(const [i,[frame,local]] of wires.slice(46,49).entries()){
   assert.equal(frame,marks[i]);
   assert.equal(local.length,36);
   for(let n=0;n<local.length;n+=3){
-    const [x,y,z]=local.slice(n,n+3),lateral=.85/(2*1.75)*(z-1.65);
+    const [x,y,z]=local.slice(n,n+3),lateral=1.34/(2*1.75)*(z-1.65);
     const outside=Math.max(y+lateral,Math.sqrt(3)/2*x-.5*y+lateral,-Math.sqrt(3)/2*x-.5*y+lateral,-z-.10);
     assert(Math.abs(outside)<1e-9);
   }

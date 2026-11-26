@@ -1,4 +1,6 @@
-import {animalSticks} from './keyboard-sticks.mjs';
+import {legacyFloodFraction,floodedMass,legacyFloodHeave} from './piccard-flood.mjs';
+import {wreckApproach} from './red-sea-sites.mjs';
+import {showInLowWaterCapture} from './render-layers.mjs';
 import {vehicleShell} from './vehicle-assets.mjs';
 import {imagingSonar} from './imaging-sonar.mjs';
 import {sonarMap} from './sonar-map.mjs';
@@ -7,7 +9,7 @@ import {sonarMap} from './sonar-map.mjs';
 export function dopplerDisplay(T,vehicle){
   const group=new T.Group();
   group.name='Piccard DVL beams and returns';group.visible=false;
-  group.position.set(0,0,-.15);
+  group.position.set(0,0,-.075);
   vehicle.add(group);
   const lines=new Float32Array(24),geometry=new T.BufferGeometry();
   const positions=new T.BufferAttribute(lines,3).setUsage(T.DynamicDrawUsage);geometry.setAttribute('position',positions);
@@ -44,38 +46,84 @@ export function dopplerDisplay(T,vehicle){
   };
 }
 
-export function submarinePilot(axis,mode=0){
-  const {pitch,roll,yaw,throttle}=animalSticks(axis);
-  if(mode===3)return {pilot:[pitch,-.35*roll,yaw,throttle],attitude:[0,0]};
-  return {pilot:[mode===0?pitch:0,0,yaw,throttle],
-    attitude:mode===0?[0,0]:[roll,pitch]};
+// The FPV camera is fixed to the hull. Positive FLU pitch points the bow down.
+export function piccardAim(){
+  let trim=0,previousMode,last;
+  return {
+    update(mode,axis,now,enabled){
+      if(!enabled||mode!==previousMode){trim=0;last=now;}
+      previousMode=enabled?mode:undefined;
+      const dt=last===undefined?0:Math.max(0,Math.min(.1,(now-last)/1000));
+      last=now;
+      if(!enabled)return 0;
+      const noseDown=axis('AimDown','AimUp');
+      if(mode===2)return noseDown;
+      trim=Math.max(-1,Math.min(1,trim+dt*.8*noseDown));
+      return trim;
+    }
+  };
 }
 
-export function submarine(T,scene,world,signal){
-  const mesh=surveyVehicle(T,vehicleShell('survey-pressure-housing'));scene.add(mesh);mesh.position.set(-5,0,-10);
-  const bubbles=bubbleWake(T,scene,mesh), map=sonarMap(T,scene);
+export function submarinePilot(axis,mode=0,pitchCommand=0,fastTravel=false){
+  const position=mode===0||mode===3;
+  const travel=(a,b,gain)=>fastTravel?gain*axis(a,b,1):axis(a,b);
+  const surge=travel('ArrowUp','ArrowDown',1.2),port=travel('ArrowLeft','ArrowRight',2);
+  // Full keyboard or touch deflection requests a ten-second half turn.
+  const heave=travel('KeyW','KeyS',2),yaw=Math.PI/10*axis('KeyA','KeyD');
+  return {pilot:[surge,position ? .35*port : 0,yaw,heave],
+    attitude:[position?0:axis('ArrowRight','ArrowLeft'),pitchCommand]};
+}
+
+export function submarine(T,scene,world,signal,spawn=wreckApproach()){
+  const mesh=surveyVehicle(T,vehicleShell('survey-pressure-housing'));scene.add(mesh);
+  mesh.position.fromArray(spawn.position);mesh.rotation.z=spawn.heading;
+  mesh.traverse(part=>{if(part.isMesh)showInLowWaterCapture(part);});
+  const bubbles=bubbleWake(T,scene,mesh,showInLowWaterCapture), map=sonarMap(T,scene);
   const doppler=dopplerDisplay(T,mesh);
   const drawPing=imagingSonar(document.getElementById('sonarFan'));
-  let worker;
-  let frame,displayedMap,busy=false,error,previous=0;
+  let worker,breached=false,legacyFraction=0,hasFloodPhysics=world?.hasSubFlood??false,isolatedBattery;
+  const aim=piccardAim();
+  let pitchCommand=0;
+  let frame,displayedMap,busy=false,error,previous=0,submittedTime=0,completedTime=0;
   const fromPosition=new T.Vector3(),toPosition=new T.Vector3();
   const fromAttitude=new T.Quaternion(),toAttitude=new T.Quaternion();
-  let receivedAt=0,blendMs=1,fromTime=0,shownTime=0;
+  let receivedAt=0,blendMs=1,fromTime=0,shownTime=0,waitingForRelease=false;
   function receive(data){
     busy=false;
     if(data.error){error=data.error;return;}
+    completedTime=Math.max(completedTime,submittedTime);
+    if(data.flood){hasFloodPhysics=true;breached ||= data.flood[0]>.5;}
+    if(breached){
+      if(!hasFloodPhysics){
+        data.flood=[1,legacyFraction,floodedMass(legacyFraction),0];
+        data.rpm=Array(6).fill(0);
+        data.thrust=Array(6).fill(0);
+        data.cavitation=Array(6).fill(0);
+        if(isolatedBattery)data.battery=isolatedBattery;
+      }
+      // Preserve the last fix used by the map and peer. Powered instruments
+      // stop producing new measurements when the vehicle bus opens.
+      data.estimate=frame?.estimate??data.estimate;
+      data.image=undefined;data.features=undefined;data.dvl=undefined;data.ping=undefined;
+      data.mapRows=undefined;
+    }
     if(data.mapRows)map.update(data.mapRows);
     const now=performance.now();
     fromPosition.copy(mesh.position);fromAttitude.copy(mesh.quaternion);fromTime=shownTime;
-    toPosition.fromArray(data.position);
-    const [w,x,y,z]=data.q;toAttitude.set(x,y,z,w);
+    if(data.hoistCommand===-1)waitingForRelease=false;
+    if(!waitingForRelease){
+      toPosition.fromArray(data.position);
+      const [w,x,y,z]=data.q;toAttitude.set(x,y,z,w);
+    }
     doppler.acquire(data.dvl);
     blendMs=frame?Math.max(16,Math.min(800,now-receivedAt)):1;
     // The plant publishes poses between camera acquisitions. Retain the last
     // sensor frame until the navigation clock supplies the next image.
-    if(frame && !data.image){data.image=frame.image;data.features=frame.features;}
-    data.dvl??=frame?.dvl;
-    data.ping??=frame?.ping;
+    if(!breached){
+      if(frame && !data.image){data.image=frame.image;data.features=frame.features;}
+      data.dvl??=frame?.dvl;
+      data.ping??=frame?.ping;
+    }
     data.estimate??=frame?.estimate;
     receivedAt=now;frame=data;
   };
@@ -85,43 +133,90 @@ export function submarine(T,scene,world,signal){
     worker.onerror=e=>{error=e.message;busy=false;};
     (signal??window).addEventListener(signal?'abort':'pagehide',()=>worker.terminate(),{once:true});
   }
-  return {manual:true,mode:0,active:false,mapVisible:false,mapGroup:map.group,get frame(){return frame;},get error(){return error;},mesh,
-    drawDvl(show,now){doppler.draw(this.active&&show,now);},
-    update(time,axis,wind,bearing,showSensorImage,showDvl){
-      map.group.visible=this.active&&this.mapVisible;
-      world?.setSurveyView(this.active,showSensorImage,map.group.visible,showDvl);
+  return {peerCruisers:undefined,peerLiftStates:undefined,seatedOnLift:false,hoist:Array(8).fill(0),hoistUp:[0,0,1],hoistQuaternion:[0,0,0,0],hoistAngularVelocity:[0,0,0],manual:true,mode:0,active:false,mapVisible:false,mapGroup:map.group,get frame(){return frame;},get error(){return error;},mesh,
+    get breached(){return breached;},
+    get completedTime(){return completedTime;},
+    get pitchCommand(){return pitchCommand;},
+    get pitchLimit(){return world?.get('sub.pilotPitchLimit')??frame?.pitchLimit??Math.PI/4;},
+    breach(){
+      if(breached||this.seatedOnLift||this.hoist[0]>.5)return false;
+      breached=true;
+      if(frame?.battery){isolatedBattery=Array.from(frame.battery);isolatedBattery[2]=0;isolatedBattery[4]=0;}
+      if(world?.hasSubFlood)world.set('subFlood',1);
+      return true;
+    },
+    get releasePending(){return waitingForRelease;},
+    writeHoist(){
+      if(world?.hasSubHoist)world.set('subHoist',this.hoist);
+      if(world?.hasSubHoistUp)world.set('subHoistUp',this.hoistUp);
+      if(world?.hasHoistHandoff){
+        world.set('subHoistQuaternion',this.hoistQuaternion);
+        world.set('subHoistAngularVelocity',this.hoistAngularVelocity);
+      }
+    },
+    releaseMount(){
+      this.hoist[0]=-1;this.manual=true;this.seatedOnLift=false;
+      waitingForRelease=!world||world.hasSubHoist;
+      this.writeHoist();
+      fromPosition.copy(mesh.position);toPosition.copy(mesh.position);
+      fromAttitude.copy(mesh.quaternion);toAttitude.copy(mesh.quaternion);
+    },
+    drawDvl(show,now){doppler.draw(this.active&&!breached&&show,now);},
+    update(time,axis,wind,bearing,showSonar,showDvl,surfaceAt,fastTravel=false){
+      map.group.visible=this.active&&!breached&&this.mapVisible;
+      showSonar=showSonar&&!breached;
+      showDvl=showDvl&&!breached;
+      // The RGB camera is rendered separately. Only mapping and survey guidance
+      // consume the simulated optical frames and maintain the keyframe graph.
+      // The boat owns motion while the sub is aboard. Measuring and viewing
+      // remain independent of helm authority, including in the split runtime.
+      const carried=this.seatedOnLift||this.hoist[0]>.5;
+      const manual=breached||carried||this.manual;
+      const driving=this.active&&this.manual&&!carried&&!breached;
+      const mode=breached?2:this.mode;
+      pitchCommand=aim.update(mode,axis,performance.now(),driving);
+      this.writeHoist();
+      const acquireSurvey=map.group.visible||!manual;
+      world?.setSurveyView(acquireSurvey,showSonar,map.group.visible,showDvl);
       if(frame){
-        if(showSensorImage)drawPing(frame.ping);
+        if(showSonar)drawPing(frame.ping);
         const blend=Math.min(1,(performance.now()-receivedAt)/blendMs);
         mesh.position.lerpVectors(fromPosition,toPosition,blend);
         mesh.quaternion.slerpQuaternions(fromAttitude,toAttitude,blend);
         const interpolatedTime=fromTime+(frame.time-fromTime)*blend;
-        bubbles(interpolatedTime-shownTime,frame.rpm,frame.cavitation,frame.flow,innerHeight);
+        bubbles(interpolatedTime-shownTime,frame.rpm,frame.cavitation,frame.flow,innerHeight,surfaceAt);
         shownTime=interpolatedTime;
       }
       // An unoccupied manual submarine in the split runtime has no commands.
       // Keep its local simulation clock parked, including across vehicle switches.
-      if(!world && !this.active && this.manual){previous=time;return;}
+      if(!world && !this.active && this.manual){previous=time;completedTime=time;return;}
       if(error||busy||time<previous+.049)return;
       busy=true;
-      const {pilot,attitude}=submarinePilot(this.active?axis:()=>0,this.mode);
+      const {pilot,attitude}=submarinePilot(driving?axis:()=>0,mode,pitchCommand,fastTravel);
+      if(breached&&!hasFloodPhysics){
+        const depth=(surfaceAt?.(mesh.position.x,mesh.position.y)??0)-mesh.position.z;
+        legacyFraction=legacyFloodFraction(legacyFraction,depth,time-previous);
+        pilot[3]=legacyFloodHeave(floodedMass(legacyFraction));
+      }
       if(world){
         previous=time;
-        world.set('subManual',Number(this.manual));world.set('subPilot',pilot);
-        if(world.hasSubMode){world.set('subMode',this.mode);world.set('subAttitudePilot',attitude);}
+        world.set('subManual',Number(manual));world.set('subPilot',pilot);
+        if(world.hasSubMode){world.set('subMode',mode);world.set('subAttitudePilot',attitude);}
         const survey=world.get('sub.surveyTelemetry'),estimate=world.get('estimate');
         const rows=map.group.visible?world.get('keyframes'):undefined;
-        receive({time,position:world.get('sub.position'),q:world.get('sub.orientation'),rpm:world.get('sub.propellerRPM'),
+        receive({time,hoistCommand:world.appliedHoistCommand,position:world.get('sub.position'),q:world.get('sub.orientation'),rpm:world.get('sub.propellerRPM'),
+          flood:world.get('subFloodState'),battery:world.get('sub.batteryTelemetry'),
           currentEnvironment:['tide','wind','bearing','tidalEast'].map(name=>world.get('sub.ocean.'+name)),
           cavitation:world.get('sub.cavitation'),flow:world.get('sub.current'),estimate,ping:world.get('ping'),dvl:world.get('sensor'),
           mapRows:rows!==displayedMap?rows:undefined,
-          waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,thrust:survey.slice(3,9),buoyancy:survey.slice(9,12),contact:survey.slice(12,15)});
+          waypoint:survey[0],waypointCount:survey[1],surveyDone:survey[2]>.5,surveySite:survey[15]??0,thrust:survey.slice(3,9),buoyancy:survey.slice(9,12),contact:survey.slice(12,15),contactMoment:world.get('sub.contactMoment'),wetTorque:world.get('sub.wetTorque')});
         if(rows)displayedMap=rows;
         return;
       }
       if(!worker)startWorker();
       const steps=Math.min(20,Math.floor((time-previous)*100+1e-6));
       previous+=steps*.01;
-      worker.postMessage({active:this.active,manual:this.manual,pilot,mode:this.mode,attitude,wind,bearing,showSensorImage,steps});
+      submittedTime=previous;
+      worker.postMessage({spawn,inspectLoads:this.inspectLoads,animalTraffic:this.animalTraffic,animalJoints:this.animalJoints,peerCruisers:this.peerCruisers,peerLiftStates:this.peerLiftStates,hoist:this.hoist,hoistUp:this.hoistUp,hoistQuaternion:this.hoistQuaternion,hoistAngularVelocity:this.hoistAngularVelocity,acquireSurvey,manual,pilot,mode,breached,attitude,wind,bearing,showSonar,steps});
     }};
 }

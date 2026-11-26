@@ -1,0 +1,164 @@
+diff --git a/crates/rumoca-ir-solve/src/fmi/c_codegen.rs b/crates/rumoca-ir-solve/src/fmi/c_codegen.rs
+index 048358b..d3b39e1 100644
+--- a/crates/rumoca-ir-solve/src/fmi/c_codegen.rs
++++ b/crates/rumoca-ir-solve/src/fmi/c_codegen.rs
+@@ -434,11 +434,12 @@ impl FmiCCodegenView {
+                     .problem()
+                     .projection_valid_after_history_copy(&self.artifacts().continuous.structural)),
+         )?;
++        let history_runs = self.problem().solve_layout.history_runs();
+         entries.serialize_entry(
+             "reuse_interval_history",
+-            &(no_assertion_memories && self.problem().solve_layout.repeatable_parameter_history()),
++            &(no_assertion_memories && history_runs.iter().any(|run| run.reusable_between_events)),
+         )?;
+-        entries.serialize_entry("history_runs", &self.problem().solve_layout.history_runs())?;
++        entries.serialize_entry("history_runs", &history_runs)?;
+         entries.serialize_entry("update_order", &self.update_order)?;
+         entries.serialize_entry("binding_execution", self.binding_execution.programs())?;
+         entries.serialize_entry("discrete_equations", &self.discrete_order.equations)?;
+diff --git a/crates/rumoca-ir-solve/src/refresh/history.rs b/crates/rumoca-ir-solve/src/refresh/history.rs
+index a5e691d..8d6ad5f 100644
+--- a/crates/rumoca-ir-solve/src/refresh/history.rs
++++ b/crates/rumoca-ir-solve/src/refresh/history.rs
+@@ -7,10 +7,18 @@ pub(crate) struct HistoryRun {
+     dst: usize,
+     count: usize,
+     from_y: bool,
++    pub(crate) reusable_between_events: bool,
+ }
+ 
+ impl SolveLayout {
+     pub(crate) fn history_runs(&self) -> Vec<HistoryRun> {
++        let mut destinations = std::collections::BTreeSet::new();
++        let mut shared_destinations = std::collections::BTreeSet::new();
++        for binding in &self.pre_param_bindings {
++            if !destinations.insert(binding.dest_p_index) {
++                shared_destinations.insert(binding.dest_p_index);
++            }
++        }
+         let mut runs: Vec<HistoryRun> = Vec::new();
+         for binding in &self.pre_param_bindings {
+             let (from_y, src) = match binding.source {
+@@ -20,8 +28,13 @@ impl SolveLayout {
+             let dst = binding.dest_p_index;
+             // An in-place forward copy may read an earlier destination. Split
+             // before that dependency so each run observes the ordered scalar semantics.
++            // P sources are stable within the integrator interval unless an
++            // ordered pre() transfer also owns the source or destination.
++            let reusable_between_events =
++                !from_y && !destinations.contains(&src) && !shared_destinations.contains(&dst);
+             if let Some(run) = runs.last_mut()
+                 && run.from_y == from_y
++                && run.reusable_between_events == reusable_between_events
+                 && run.dst.checked_add(run.count) == Some(dst)
+                 && run.src.checked_add(run.count) == Some(src)
+                 && (from_y || run.dst <= run.src || run.count < run.dst - run.src)
+@@ -33,6 +46,7 @@ impl SolveLayout {
+                     dst,
+                     count: 1,
+                     from_y,
++                    reusable_between_events,
+                 });
+             }
+         }
+@@ -76,3 +90,51 @@ fn overlapping_history_runs_replay_the_ordered_scalar_copies() {
+         }
+     }
+ }
++
++#[test]
++fn repeated_interval_preserves_live_and_chained_history_in_order() {
++    use crate::PreParamBinding;
++    let pairs = [
++        (6, PreParamSource::P { index: 0 }),
++        (7, PreParamSource::P { index: 1 }),
++        (8, PreParamSource::Y { index: 0 }),
++        (9, PreParamSource::P { index: 8 }),
++        (10, PreParamSource::P { index: 2 }),
++        (10, PreParamSource::Y { index: 1 }),
++    ];
++    let layout = SolveLayout {
++        pre_param_bindings: pairs
++            .into_iter()
++            .map(|(dest_p_index, source)| PreParamBinding {
++                dest_p_index,
++                source,
++                clock_schedule: None,
++            })
++            .collect(),
++        ..Default::default()
++    };
++    let runs = layout.history_runs();
++    let reusable: Vec<_> = runs
++        .iter()
++        .filter(|run| run.reusable_between_events)
++        .map(|run| (run.dst, run.count))
++        .collect();
++    assert_eq!(reusable, vec![(6, 2)]);
++    let mut full = [0.; 11];
++    full[..3].copy_from_slice(&[11., 12., 13.]);
++    let mut reused = full;
++    for step in 0..4 {
++        let y = [step as f64, (step + 1) as f64];
++        for run in &runs {
++            for lane in 0..run.count {
++                let src = run.src + lane;
++                let dst = run.dst + lane;
++                full[dst] = if run.from_y { y[src] } else { full[src] };
++                if step == 0 || !run.reusable_between_events {
++                    reused[dst] = if run.from_y { y[src] } else { reused[src] };
++                }
++            }
++        }
++        assert_eq!(reused, full);
++    }
++}
+diff --git a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
+index 1757314..eae4d0f 100644
+--- a/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
++++ b/crates/rumoca-phase-codegen/src/templates/fmi3/scalar_kernel.jinja
+@@ -661,9 +661,9 @@ void rmc_finish_assertion_observation(RmcModelAssertionContext* context, int sta
+ {% endmacro %}
+ 
+ 
+-{%- macro copy_history(runs, dest, y, p, compare=false) %}
++{%- macro copy_history(runs, dest, y, p, compare=false, conditional=false) %}
+ {%- for run in runs %}
+-    { const double* source = {{ y if run.from_y else p }} + {{ run.src }};
++    {% if conditional and run.reusable_between_events %}if (update_stable) {% endif %}{ const double* source = {{ y if run.from_y else p }} + {{ run.src }};
+       double* target = {{ dest }} + {{ run.dst }};
+ {%- if compare %}
+       if (!history && memcmp(target, source, {{ run.count }} * sizeof(double)) != 0)
+@@ -750,10 +750,10 @@ static {{ prefix }}Status update_discrete_equations(ModelInstance* m) {
+ }
+ /* The condition memories after the algebraic refresh, then the event commit:
+    every pre() history takes the value its source settled to. */
+-static {{ prefix }}Status update_assertion_memory(ModelInstance* m) {
+-    (void)m;
++static {{ prefix }}Status update_assertion_memory(ModelInstance* m, bool update_stable) {
++    (void)m; (void)update_stable;
+ {{- discrete_rows(solve, fmi.discrete_memories, prefix) }}
+-{{- copy_history(fmi.history_runs, "m->p", "m->y", "m->p") }}
++{{- copy_history(fmi.history_runs, "m->p", "m->y", "m->p", false, true) }}
+     return {{ prefix }}OK;
+ }
+ {%- endmacro %}
+@@ -784,7 +784,7 @@ static {{ prefix }}Status settle_derivative_values(ModelInstance* m) {
+ }
+ {%- if not scalar_events %}
+ static {{ prefix }}Status initialize_assertions(ModelInstance* m) {
+-    if (refresh_algebraics(m) != {{ prefix }}OK || update_assertion_memory(m) != {{ prefix }}OK) return {{ prefix }}Error;
++    if (refresh_algebraics(m) != {{ prefix }}OK || update_assertion_memory(m, true) != {{ prefix }}OK) return {{ prefix }}Error;
+     m->assertions_initialized = true;
+     if (check_assertions(m) != {{ prefix }}OK) return {{ prefix }}Error;
+     return report_warnings(m);
+@@ -793,7 +793,7 @@ static {{ prefix }}Status initialize_assertions(ModelInstance* m) {
+ static {{ prefix }}Status settle_assertion_event(ModelInstance* m, bool update_history) {
+     if (settle_values(m) != {{ prefix }}OK) return {{ prefix }}Error;
+     if (m->assertions_initialized && report_warnings(m) != {{ prefix }}OK) return {{ prefix }}Error;
+-    return update_history ? update_assertion_memory(m) : {{ prefix }}OK;
++    return update_assertion_memory(m, update_history);
+ }
+ {%- endmacro %}
+ 

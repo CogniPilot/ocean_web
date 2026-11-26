@@ -1,27 +1,43 @@
 within Wreck;
-function swimmerContact "Wreck reaction on a rounded swimmer probe in level heading axes"
+function swimmerContact "Reaction between a rounded swimmer probe and nearby scan surfaces"
   import MultiBodyLie.Collision;
   input Real p[3],cy,sy,v[3],radius,damping;
   output Real contact[5] "Forward, port, up, compressive load and signed gap";
 protected
-  Integer ids[WreckSolids.maxCandidates];
-  Real box[18],axes[3,3],n[3],speed,load;
+  Real n[3],speed,load,origin[3],centre[3];
+  Integer low[3],high[3],ix,iy,iz;
   Collision.ContactPoint hit;
 algorithm
   contact:={0,0,0,0,1e6};
-  if min(p-WreckSolids.wreckLow)<0 or min(WreckSolids.wreckHigh-p)<0 then return;end if;
-  // The broad phase includes all boxes within 0.8 m of each probe centre.
-  ids:=WreckSolids.contactCandidates(p);
   n:=zeros(3);
-  for i in 1:WreckSolids.maxCandidates loop
-    if ids[i]>1 then
-      box:=WreckSolids.getBox(ids[i]);
-      for j in 1:3 loop axes[j,:]:=box[4+3*j:6+3*j];end for;
-      hit:=Collision.sphereBox(p,zeros(3),radius,box[1:3],zeros(3),axes,box[4:6]);
-      if hit.gap<contact[5] then
-        contact[5]:=hit.gap;
-        n:={cy*hit.n[1]+sy*hit.n[2],-sy*hit.n[1]+cy*hit.n[2],hit.n[3]};
-      end if;
+  for site in 1:2 loop
+    origin:=ScanOccupancy.low[site,:];
+    if min(p-origin)>=-radius and min(ScanOccupancy.high[site,:]-p)>=-radius then
+      for j in 1:3 loop
+        low[j]:=max(0,integer(floor((p[j]-radius-origin[j])/ScanOccupancy.spacing)));
+        high[j]:=min(ScanOccupancy.dims[site,j]-1,integer(floor((p[j]+radius-origin[j])/ScanOccupancy.spacing)));
+      end for;
+      // The largest wildlife probe has radius 0.78 m (at most eight cells per axis).
+      for dx in 0:7 loop
+      ix:=low[1]+dx;
+      if ix>high[1] then break;end if;
+        for dy in 0:7 loop
+        iy:=low[2]+dy;
+        if iy>high[2] then break;end if;
+          for dz in 0:7 loop
+          iz:=low[3]+dz;
+          if iz>high[3] then break;end if;
+            if ScanOccupancy.occupied(site,ix,iy,iz) then
+              centre:=origin+ScanOccupancy.spacing*({ix,iy,iz}+fill(.5,3));
+              hit:=Collision.sphereBox(p,zeros(3),radius,centre,zeros(3),identity(3),fill(.5*ScanOccupancy.spacing,3));
+              if hit.gap<contact[5] then
+                contact[5]:=hit.gap;
+                n:={cy*hit.n[1]+sy*hit.n[2],-sy*hit.n[1]+cy*hit.n[2],hit.n[3]};
+              end if;
+            end if;
+          end for;
+        end for;
+      end for;
     end if;
   end for;
   if contact[5]<0 then
