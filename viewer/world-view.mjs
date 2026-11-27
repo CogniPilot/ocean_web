@@ -49,9 +49,10 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    pending.delete(data.id);
    reply?.resolve(data);
  };
- worker.onerror=e=>fail(Error(e.message));
+ worker.onerror=e=>fail(Error(e.message || `The ${mode} simulator worker failed to load or run (${workerUrl.pathname}).`));
  function send(message){
    return new Promise((resolve,reject)=>{
+     if(error){reject(error);return;}
      pending.set(++id,{resolve,reject});
      worker.postMessage({...message,id});
    });
