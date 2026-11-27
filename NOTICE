@@ -139,3 +139,14 @@ https://quaternius.com/packs/universalbasecharacters.html
 https://creativecommons.org/publicdomain/zero/1.0/
 
 Diver regulator audio uses an excerpt of the user-supplied “Acid Bubble.wav”, tagged “005 Bubbling Water”, Joseph Krebs (2013).
+
+The masks in viewer/assets/whitecap-coverage.png were created with OpenAI ImageGen.
+Red stores residual foam, green the active crest and blue the procedural shoreline mask.
+The field photographs in Figure 6 of Yang and Potter (2021) guided the shading.
+https://doi.org/10.3390/rs13204051
+
+Residual foam generation prompt
+A square seamless tileable grayscale coverage mask for dissipating ocean whitecap foam in a real-time ocean shader. Orthographic top-down material scan of a 4 metre patch immediately after a small breaker has passed. On pure black water, broken wind-combed wisps and irregular soft rafts of tiny pale bubbles trail roughly horizontally, interrupted by open water. Some denser off-white froth clumps unravel into isolated grains. Many sizes and gaps, gently curving and branching, natural varied density edge to edge. Gray values encode bubble coverage only. No outlined cells, fish scales, Voronoi, closed networks, repeated scallops, waves, crest, shadows, reflections, horizon, boat or text. Opposite edges wrap.
+
+Breaking crest generation prompt
+Create a square grayscale coverage texture for the fresh breaking lip of an offshore whitecap in a sailing simulator. Based on the shape of a wind-driven ocean spilling breaker seen at sea: a long irregular crest runs left to right in a shallow curving arc, with a dense rolling white edge, a few higher frothy tufts and feathered ends. View directly overhead in orthographic projection, flatten the real photographed shape into a grayscale opacity mask over pure black. Make ONE horizontal band centered vertically, about one fifth the image height. Carry its irregular centerline across both left and right edges so it tiles horizontally. Water on either side pure black. Rich natural scale variation along the crest, connected bright core with some thin gaps, lumpy asymmetrical edge with fine spindrift locally. This is a coverage mask for surface foam, flat unlit, black to white. No fish scales, cell outlines, horizon, visible blue water, drawn lines or text.

@@ -273,53 +273,11 @@ function sailingFoam(uniforms,field){
  }
  return {clear,sample};
 }
-// Mipmapped noise keeps subpixel foam bubbles from flashing in the distance.
+// R contains drifting foam, G the cross-section along a breaking lip and B shoreline noise.
 function makeFoamTexture(T){
- const size=256,data=new Uint8Array(size*size*4);
- let seed=59233;
- function noiseGrid(cells){
-   const values=Float32Array.from({length:cells*cells},()=>{
-     seed=(Math.imul(1664525,seed)+1013904223)>>>0;
-     return seed/4294967296;
-   });
-   return (u,v)=>{
-     const x=u*cells,y=v*cells,i=Math.floor(x),j=Math.floor(y);
-     const px=x-i,py=y-j,fx=px*px*(3-2*px),fy=py*py*(3-2*py);
-     const right=(i+1)%cells,bottom=(j+1)%cells;
-     const a=values[j*cells+i],b=values[j*cells+right];
-     const c=values[bottom*cells+i],d=values[bottom*cells+right];
-     return (a+(b-a)*fx)*(1-fy)+(c+(d-c)*fx)*fy;
-   };
- }
- const gust=noiseGrid(11),strand=noiseGrid(29),bubble=noiseGrid(73),grain=noiseGrid(127);
- // Bake periodic cell boundaries for the lace left as a breaking crest drains.
- // The texture mip chain averages unresolved filaments without per-pixel cell searches.
- const cells=11,sites=Float32Array.from({length:2*cells*cells},()=>{
-   seed=(Math.imul(1664525,seed)+1013904223)>>>0;
-   return .15+.70*seed/4294967296;
- });
- function lace(u,v){
-   const x=cells*u+.63*(gust(u,v)-.5),y=cells*v+.5*(gust(v,u)-.5);
-   let first=Infinity,second=Infinity;
-   for(let j=Math.floor(y)-1;j<=Math.floor(y)+1;j++)for(let i=Math.floor(x)-1;i<=Math.floor(x)+1;i++){
-     const k=2*(((j+cells)%cells)*cells+(i+cells)%cells);
-     const dx=i+sites[k]-x,dy=j+sites[k+1]-y,d=dx*dx+dy*dy;
-     if(d<first){second=first;first=d;}else if(d<second)second=d;
-   }
-   const edge=Math.min(1,(Math.sqrt(second)-Math.sqrt(first))/.21);
-   return 1-edge*edge*(3-2*edge);
- }
- for(let y=0;y<size;y++)for(let x=0;x<size;x++){
-   const u=x/size,v=y/size,offset=(y*size+x)*4;
-   data[offset]=Math.round(255*gust(u,v));
-   data[offset+1]=Math.round(255*strand(u,v));
-   data[offset+2]=Math.round(255*(.7*bubble(u,v)+.3*grain(u,v)));
-   data[offset+3]=Math.round(255*lace(u,v));
- }
- const texture=new T.DataTexture(data,size,size);
+ const texture=new T.TextureLoader().load('./assets/whitecap-coverage.png');
  texture.wrapS=texture.wrapT=T.RepeatWrapping;
- texture.magFilter=T.LinearFilter;texture.minFilter=T.LinearMipmapLinearFilter;
- texture.generateMipmaps=true;texture.needsUpdate=true;
+ texture.minFilter=T.LinearMipmapLinearFilter;
  return texture;
 }
 const windTextureRange=32;
@@ -355,9 +313,10 @@ function whitecapField(T,U){
    return `{
      const vec2 direction=vec2(${x},${y});
      float angle=${k}*dot(local,direction)-${angularSpeed}*tm+${phase};
-     float compression=${steepness}*cos(angle);
+     float resolved=1.-smoothstep(1.,3.14,fwidth(angle));
+     float compression=resolved*${steepness}*cos(angle);
      strain+=compression*vec3(direction.x*direction.x,direction.y*direction.y,direction.x*direction.y);
-     gradient-=${steepness}*sin(angle)*direction;
+     gradient-=resolved*${steepness}*sin(angle)*direction;
      orbital+=compression*${(Math.sqrt(9.80665*k)/k).toFixed(7)}*direction;
    }`;
  }).join('');
@@ -420,9 +379,9 @@ function whitecapField(T,U){
        float spilling=smoothstep(onset-.25-.42*lightBreeze,onset+.26,severity);
        // A spilling crest is a ridge. Limit emission to the narrow band where
        // the along-wind slope crosses its upper shoulder, filtering to atlas resolution.
-       float lipDistance=abs(gradient.x+.039+.12*gradient.y);
+       float lipDistance=abs(gradient.x+.035+.12*gradient.y);
        float lipAA=clamp(.45*fwidth(gradient.x),.012,.085);
-       float front=1.-smoothstep(.021,.055+lipAA,lipDistance);
+       float front=1.-smoothstep(.026,.088+lipAA,lipDistance);
        float source=smoothstep(3.4,5.0,wind10)*spilling*front;
        // Semi-Lagrangian advection. Foam moves with the water and wind
        // drift while the dispersive crest moves away at phase speed.
@@ -435,7 +394,7 @@ function whitecapField(T,U){
          vec2 crestBack=foamPatchUV(world-elapsed*(surfaceCurrent+2.4*downwind)-previousCenter);
          float previous=all(greaterThan(crestBack,vec2(0.)))&&all(lessThan(crestBack,vec2(1.)))
            ?texture2D(history,crestBack).r:0.;
-         float response=1.-exp(-elapsed/(source>previous?.10:1.05));
+         float response=1.-exp(-elapsed/(source>previous?.32:1.35));
          freshSource=mix(previous,source,response);
          // Residual bubbles disperse preferentially downwind as the lip moves on.
          vec2 metresPerUV=foamPatchNearWidth+2.*foamPatchCurvature*abs(back-.5);
@@ -926,16 +885,17 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    float breakingWind=mix(wind,localSpeed,windFieldActive);
    float roughSea=smoothstep(3.,13.,breakingWind);
    vec2 driftCoord=p-vec2(.025*breakingWind*tm,0.);
-   vec4 trace=texture2D(foamTexture,driftCoord*vec2(.16,.32));
-   vec3 flecks=trace.rgb;
-   float scum=dot(flecks,vec3(.60,.29,.11));
+   vec2 driftUV=driftCoord*vec2(.22,.25);
+   vec4 trace=texture2D(foamTexture,driftUV);
+   float scum=trace.b;
    vec2 atlas=foamPatchUV(wp.xy-whitecapBounds.xy);
    float atlasWeight=1.-smoothstep(.36,.49,length(atlas-.5));
-   vec2 whitecap=vec2(0.);
+   vec2 whitecap=vec2(0.),seaSlope=vec2(0.);
    if(under<.5&&whitecapBounds.z>0.&&atlasWeight>0.){
      vec4 seaFoam=texture2D(whitecapMap,atlas);
      whitecap=seaFoam.rg*atlasWeight;
-     d+=atlasWeight*(seaFoam.ba-vec2(128./255.));
+     seaSlope=atlasWeight*(seaFoam.ba-vec2(128./255.));
+     d+=seaSlope;
    }
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    if(under>.5){
@@ -1102,15 +1062,16 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      color+=vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);
      // Fresh foam travels with the crest. Older foam travels with the surface
      // drift and stretches downwind into streaks separated by clear water.
-     vec2 crestCoord=(p-vec2(2.4*tm,0.))*vec2(.47,.14);
-     vec4 crestFroth=texture2D(foamTexture,crestCoord);
-     float detail=1.-smoothstep(.08,.50,length(fwidth(wp.xy)));
-     float edge=.10+.22*crestFroth.r;
-     float lip=smoothstep(edge,edge+.24,whitecap.x)*(.32+.68*max(crestFroth.a,crestFroth.g));
-     float fresh=mix(.85*whitecap.x,lip,detail);
-     float film=smoothstep(.022,.38,whitecap.y);
-     float streak=trace.a*(.45+.55*trace.g)+.34*smoothstep(.48,.76,trace.r);
-     float residue=mix(.65*whitecap.y,film*clamp(.07+streak,0.,1.),detail);
+     float detail=1.-smoothstep(.08,.55,length(fwidth(wp.xy)));
+     // Across the crest, use the windward slope of the breaking wave. Along
+     // it, the same pieces of froth travel with the lip as it rolls forward.
+     float slope=dot(seaSlope,baseDir);
+     vec2 lipUV=vec2(.19*p.y+.06*sin(.57*p.y+.22*(p.x-2.4*tm)),.48+.70*clamp(slope,-.28,.28));
+     float core=texture2D(foamTexture,lipUV).g;
+     float density=1.-exp(-2.65*whitecap.x);
+     float fresh=density*mix(.86,.62+.38*core,detail);
+     float film=1.-exp(-2.7*whitecap.y);
+     float residue=film*(.07+.90*trace.r);
      float foam=1.-(1.-fresh)*(1.-.80*residue);
      if(bowFoamAvailable>.5&&nearBowField(wp.xy,4.)){
        vec2 local=bowLocal(wp.xy);
