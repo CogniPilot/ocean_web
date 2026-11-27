@@ -12,7 +12,7 @@ fetch() {
   fi
   git -C ".deps/$1" checkout -q --detach "$3"
 }
-fetch marine-models https://github.com/CogniPilot/modelica_models 54509b833bbd47153e4c9739c1ab5210c455157b
+fetch marine-models https://github.com/CogniPilot/modelica_models 68818e807a347f325f35560ce87c7980bdbeefe9
 solver_patch="$root/compiler/modelica-column-cholesky.patch"
 if ! git -C .deps/marine-models apply --reverse --check "$solver_patch" 2>/dev/null; then
   git -C .deps/marine-models apply "$solver_patch"
