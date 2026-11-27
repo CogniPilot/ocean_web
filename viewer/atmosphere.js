@@ -1066,14 +1066,24 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      color=mix(waterColor,reflected,fres);
      #else
      vec3 levelNormal=vec3(0.,0.,1.);
-     // Anchor the capture to the reflected viewing ray. Using the displaced
-     // point itself here folds the planar projection over each crest when
-     // viewed near the horizon, duplicating or reversing silhouettes.
-     vec3 mirrorPoint=vec3(wp.xy,2.*tide-wp.z);
-     vec4 clip=mirrorMatrix*vec4(mirrorPoint,1.);
-     vec3 reflectedDeflection=ref-reflect(-eye,levelNormal);
-     float objectDistortion=.037*eyeDistance*(1.-smoothstep(12.,55.,eyeDistance));
-     vec4 mirrorRay=clip+mirrorMatrix*vec4(objectDistortion*reflectedDeflection,0.);
+     // Start the optical ray on the displaced water surface. At a hull
+     // touching the water the reflection and the real hull have the same
+     // projection. The sail is farther from the surface and bends more.
+     vec4 clip=mirrorMatrix*vec4(wp,1.);
+     vec4 rayDir=mirrorMatrix*vec4(ref,0.);
+     float probeLength=clamp(.16*eyeDistance,.20,2.);
+     vec4 mirrorRay=clip+rayDir*probeLength;
+     vec2 probeUV=mirrorRay.xy/max(.001,mirrorRay.w)*.5+.5;
+     if(mirrorRay.w>.001&&all(greaterThan(probeUV,vec2(0.)))&&all(lessThan(probeUV,vec2(1.)))){
+       float probeDepth=texture2D(reflectionDepth,probeUV).r;
+       if(probeDepth<1.){
+         vec4 probeHit=mirrorInverse*vec4(2.*probeUV-1.,2.*probeDepth-1.,1.);
+         if(abs(probeHit.w)>.00001){
+           float travel=clamp(dot(probeHit.xyz/probeHit.w-wp,ref),0.,100.);
+           mirrorRay=clip+rayDir*travel;
+         }
+       }
+     }
      vec2 uv=mirrorRay.xy/max(.001,mirrorRay.w)*.5+.5;
      vec2 mirrorMargin=min(uv,1.-uv);
      float mirrorVisible=step(.001,mirrorRay.w)*smoothstep(0.,.018,min(mirrorMargin.x,mirrorMargin.y));
@@ -1085,7 +1095,9 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
        vec4 hit=mirrorInverse*vec4(2.*uv-1.,2.*depth-1.,1.);
        if(depth<1. && abs(hit.w)>.00001){
          vec3 worldHit=hit.xyz/hit.w;
-         objects*=smoothstep(-.015,.015,worldHit.z-heightAt(worldHit.xy));
+         float forward=dot(worldHit-wp,ref);
+         objects*=smoothstep(-.015,.015,worldHit.z-heightAt(worldHit.xy))
+           *smoothstep(-.045,-.005,forward);
        }
      }
      vec3 reflected=reflectedSky*(1.-objects.a)+objects.rgb;
@@ -1301,10 +1313,10 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  const viewPlane=new THREE.Plane(),clip=new THREE.Vector4(),corner=new THREE.Vector4();
  const clearThrough=new THREE.Color(0x144958);
  let simpleCapture=false,captureScale=1,baseThroughWidth=320,baseThroughHeight=200;
- function clipReflectionAtTide(){
+ function clipReflectionAtSurface(){
    // Replace the reflected camera's near plane. Geometry is clipped in the
    // rasterizer, so the reflection uses the regular material programs.
-   if(mirrorCamera.position.z>=U.tide.value)return false;
+   if(mirrorClip.distanceToPoint(mirrorCamera.position)>=0)return false;
    const matrix=mirrorCamera.projectionMatrix,projection=matrix.elements;
    viewPlane.copy(mirrorClip).applyMatrix4(mirrorCamera.matrixWorldInverse);
    clip.set(viewPlane.normal.x,viewPlane.normal.y,viewPlane.normal.z,viewPlane.constant);
@@ -1327,11 +1339,18 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
      if(simpleCapture)mirrorCamera.layers.set(waterCaptureLayer);
-     const twiceTide=2*U.tide.value;
-     mirrorCamera.position.z=twiceTide-camera.position.z;mirrorLook.z=twiceTide-mirrorLook.z;
+     const surfaceZ=sampleSurface(water.position.x,water.position.y,true);
+     const twiceHeight=2*surfaceZ;
+     mirrorCamera.position.z=twiceHeight-camera.position.z;mirrorLook.z=twiceHeight-mirrorLook.z;
      mirrorCamera.up.setFromMatrixColumn(camera.matrixWorld,1);mirrorCamera.up.z*=-1;mirrorCamera.lookAt(mirrorLook);mirrorCamera.updateMatrixWorld();
-     mirrorClip.constant=-U.tide.value;
-     const obliqueClip=clipReflectionAtTide();
+     // A crest between two hulls can be higher than their waterlines. Keep
+     // their lowest local surface in the capture. The depth sample in the
+     // water shader clips each hit to its wave at the actual hit position.
+     const bx=water.position.x,by=water.position.y,r=3;
+     const floor=Math.min(surfaceZ,sampleSurface(bx-r,by,true),sampleSurface(bx+r,by,true),
+       sampleSurface(bx,by-r,true),sampleSurface(bx,by+r,true));
+     mirrorClip.constant=-floor+.035;
+     const obliqueClip=clipReflectionAtSurface();
      U.mirrorMatrix.value.multiplyMatrices(mirrorCamera.projectionMatrix,mirrorCamera.matrixWorldInverse);
      U.mirrorInverse.value.copy(U.mirrorMatrix.value).invert();
      scene.background=null;
