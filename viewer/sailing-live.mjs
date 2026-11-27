@@ -26,7 +26,7 @@ import {sailPanelFields,readSailPanels} from './board/sail-battens.mjs';
 import {bowFoamGrid,cruiserBowLength} from './bow-grid.mjs';
 import {viewport as piccardPort,piccardScale} from './piccard-geometry.mjs';
 import {splitCamera} from "./waterline.mjs";
-import {drawCompass,drawDroneCompass} from './compass.mjs';
+import {drawCompass,drawDroneCompass,drawSailingDial} from './compass.mjs';
 import {forceDisplay,firstPersonInstruments} from './instrumentation.mjs?hud=2';
 import {mastCamera} from "./mast-camera.mjs";
 import {cameraCones} from './camera-cones.mjs';
@@ -3810,29 +3810,18 @@ async function run(saved=readReset(),carried){
       if(now-lastDial>=100&&(!$('dial').hidden||!covarianceOutput.hidden)){
         lastDial=now;
         if(!$('dial').hidden){
+          $('dial').classList.toggle('sailing-wind',targetSelect.value==='boat');
           if(drone?.active)drawDroneCompass($('dial'),drone.instruments(true),courseTarget);
           else if(animalId&&animalKind()==='diver'){
             const f=visitors.frame(animalId);
             const flow=f&&sampleActorCurrents([f.slice(1,4)])?.[0];
             if(flow)drawCompass($('dial'),Math.hypot(...wind),Math.atan2(wind[1],wind[0]),flow,f[7],'diver');
-          }else if(s||subFrame){
-            const flow=sub?.active&&subFrame?subFrame.flow:[model?.get('currentEast')??0,model?.get('currentNorth')??0];
-            const apparent=Boolean(s&&!sub?.active&&compassWind.value==='apparent');
-            const heading=sub?.active&&subFrame?subFrame.estimate[3]:s?.[2]??0;
-            const measuredWind=s&&!apparent&&!sub?.active&&model.has('sailWind')?model.get('sailWind'):wind;
-            const speed=apparent?model.get('cupSpeed'):Math.hypot(...measuredWind);
-            const bearing=apparent?heading+s[30]+Math.PI:Math.atan2(measuredWind[1],measuredWind[0]);
-            let noGoBearing=speed>.01?bearing:null;
-            if(apparent){
-              // Same wind estimate as the sailing pilot. Convert the measured
-              // relative flow to true wind using the navigation velocity.
-              const [course,east,north]=model.getMany(['courseEstimate','speedE','speedN']);
-              const vaneFrom=course+s[30];
-              const windEast=east-speed*Math.cos(vaneFrom),windNorth=north-speed*Math.sin(vaneFrom);
-              noGoBearing=Math.hypot(windEast,windNorth)>.25?Math.atan2(windNorth,windEast):null;
-            }
-            drawCompass($('dial'),speed,bearing,flow,heading,sub?.active?'sub':'surface',noGo,courseTarget,
-              extra?Math.hypot(extra[4],extra[5]):0,apparent,noGoBearing);
+          }else if(sub?.active&&subFrame){
+            drawCompass($('dial'),Math.hypot(...wind),Math.atan2(wind[1],wind[0]),subFrame.flow,subFrame.estimate[3],'sub');
+          }else if(s){
+            drawSailingDial($('dial'),{heading:s[2],boatSpeed:Math.hypot(extra[4],extra[5]),
+              trueWind:model.has('sailWind')?model.get('sailWind'):wind,cupSpeed:model.get('cupSpeed'),vane:s[30],
+              pointer:compassWind.value,noGo,target:courseTarget});
           }
         }
         if(!covarianceOutput.hidden){

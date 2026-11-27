@@ -22,6 +22,7 @@ body[data-hud-performance=false] #runStats,
 body[data-hud-fpv=false] #flightHud {display:none}
 body[data-hud-telemetry=true] header #readout {display:block}
 header #dial {width:205px}
+header #dial.sailing-wind {width:270px}
 body > footer {left:max(var(--hud-gutter),env(safe-area-inset-left));right:auto;bottom:max(12px,env(safe-area-inset-bottom));width:fit-content;max-width:calc(100vw - 2 * var(--hud-gutter))}
 body > footer:has(#vehiclePanel:not([hidden])) {width:min(450px,calc(100vw - 2 * var(--hud-gutter)))}
 .control-toolbar {padding:3px}
@@ -56,6 +57,7 @@ body #subPanel:has(details[open]) {top:max(12px,env(safe-area-inset-top));right:
   body > header,body > header:has(#dial:not([hidden])),body:has(#motorSensors:not([hidden])) > header {top:max(6px,env(safe-area-inset-top));max-width:calc(100vw - 2 * var(--hud-gutter));padding:6px 10px}
   body > header h1,body > header:has(#dial:not([hidden])) h1 {font-size:18px}
   header #dial {width:162px}
+  header #dial.sailing-wind {width:238px}
   body > footer {bottom:max(6px,env(safe-area-inset-bottom))}
   .control-toolbar .control-row button {min-height:44px;padding:6px 10px}
   body #subPanel:has(details[open]),body #motorSensors:has(details[open]),body #animalSensors:has(details[open]),body aside:has(details[open]) {top:max(calc(var(--hud-header-bottom,54px) + 6px),env(safe-area-inset-top));max-height:min(42dvh,calc(100dvh - var(--panel-height,54px) - var(--hud-header-bottom,54px) - 20px));max-width:calc(100vw - 2 * var(--hud-gutter));width:min(300px,calc(100vw - 2 * var(--hud-gutter)));overflow:auto}
