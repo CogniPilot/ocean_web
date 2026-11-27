@@ -24,6 +24,7 @@ package DiverTree "Free torso and bilateral limbs of the fitted diver"
     input Real current[3],level,vestVolume,neutralVolume,standing;
     input Real hit[4],arm[3],hitVelocity[3],hitLink;
     input Real selfHit[9],witness[9],clockTime;
+    input Boolean collisionEnabled=true;
     output Real result[392] "Base and joint accelerations; site fluid loads, link weights, axial accelerations and contact reaction magnitude";
   protected
     constant Integer parent[19]={0,1,2,3,4,5,6,1,8,9,1,11,12,13,14,15,1,17,18};
@@ -125,14 +126,14 @@ package DiverTree "Free torso and bilateral limbs of the fitted diver"
       if i==1 then inertia:=rig*inertia*transpose(rig);end if;
       moi[b,:,:]:=MultiBodyLie.Math.spatialInertia(mass[i]+added,com[b,:],inertia);
     end for;
-    if hit[4]>0 and witness[1]<.5 then
+    if collisionEnabled and hit[4]>0 and witness[1]<.5 then
       b:=physical[max(1,min(15,integer(hitLink)))];
       centre:=origin+arm;r:=centre-p[b,:];
       deltaV:=velocity+hitVelocity;
       force:=max(0,3600*hit[4]-650*(hit[1:3]*deltaV))*hit[1:3];
       df[b,:]:=df[b,:]+force;dw[b,:]:=dw[b,:]+cross(r,force);
     end if;
-    if selfHit[6]>0 then
+    if collisionEnabled and selfHit[6]>0 then
       a:=physical[max(1,min(15,integer(selfHit[1])))];b:=physical[max(1,min(15,integer(selfHit[2])))];
       centre:=origin+selfHit[7:9];
       deltaV:=v[a,:]+cross(w[a,:],centre-p[a,:])-v[b,:]-cross(w[b,:],centre-p[b,:]);
@@ -149,7 +150,7 @@ package DiverTree "Free torso and bilateral limbs of the fitted diver"
     result[35:37]:=rotation*load[4:6];result[38:40]:=load[1:3];
     speed:=cat(1,omega,transpose(rotation)*velocity,vTree);
     (matrix,bias,acc):=MultiBodyLie.Math.floatingTreeDynamics(parent,offset,mount,axis,qTree,speed,moi,armature,zeros(3),load);
-    if hit[4]>0 and witness[1]>.5 then
+    if collisionEnabled and hit[4]>0 and witness[1]>.5 then
       // The swept mesh nominates a point before impact. Re-evaluate it on
       // the actual link each 5 ms, including motion of the opposing surface.
       b:=physical[max(1,min(15,integer(hitLink)))];

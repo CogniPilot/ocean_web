@@ -179,6 +179,7 @@ model ScubaDiver "Neutrally trimmed recreational diver swimming in a current"
     end for;
   end selfLoads;
 
+  constant Boolean collisionEnabled=true "Resolve self, obstacle and seabed contact";
   parameter Real selfContactStiffness=18000 "Compliant body and gear contact stiffness (N/m)";
   output Real selfContactTorque[10] "Internal contact moments (N m)";
   output Real selfContactLateralTorque[4] "Internal reaction at hip sweep and blade cant joints (N m)";
@@ -319,7 +320,7 @@ protected
 equation
   // Resolve internal contacts at 200 Hz; reuse their moments between contact samples.
   when sample(0,.005) then
-    selfResult=if meshCollision>.5 then zeros(22) else selfLoads(jointAngles,jointRates,lateralAngles,lateralRates,axialAngles,axialRates,selfContactStiffness);
+    selfResult=if collisionEnabled and meshCollision<=.5 then selfLoads(jointAngles,jointRates,lateralAngles,lateralRates,axialAngles,axialRates,selfContactStiffness) else zeros(22);
   end when;
   // All joints and the six floating coordinates share one CRBA/RNEA solve.
   // Hold acceleration across the 5 ms contact/control sample; positions and
@@ -327,7 +328,7 @@ equation
   when sample(0,.005) then
     tree=DiverTree.forwardDynamics(state[1:3],basis,treeRig,state[4:6],omega,treeQ,treeSpeed,treeShaft,axialAngles,axialRates,axialShaft,
       rootMoment,rootForce,currentVelocity,waterLevel,.001*vestLitres,.001*neutralVestLitres,standing,
-      contact,contactMomentArm,contactRelativeVelocity,contactLink,meshSelfContact,contactWitness,state[15]);
+      contact,contactMomentArm,contactRelativeVelocity,contactLink,meshSelfContact,contactWitness,state[15],collisionEnabled);
   end when;
   // Swimming uses the free torso pose. Only the ground gait has a prescribed mount.
   treeRig=MultiBodyLie.Math.axisRotation({0,-1,0},1.5707963267948966*upright);
@@ -354,9 +355,9 @@ equation
   course=routeTangent+.65*routeError/max(1,sqrt(sum(routeError[i]^2 for i in 1:2))/1.5)
     -currentVelocity[1:2]+avoidance[1:2];
   turn=if pilot[1]>.5 then pilot[2] else max(-1,min(1,2*atan2(sin(atan2(course[2],course[1]+1e-8)-state[7]),cos(atan2(course[2],course[1]+1e-8)-state[7]))));
-  cruiseZ=max(bedHeight+1.25,min(waterLevel-.85,patrolOrigin[3]));
+  cruiseZ=if collisionEnabled then max(bedHeight+1.25,min(waterLevel-.85,patrolOrigin[3])) else min(waterLevel-.85,patrolOrigin[3]);
   climb=if pilot[1]>.5 then 0 else max(-.40,min(.40,.56*(cruiseZ-state[3])+avoidance[3]));
-  standing=max(0,min(1,(1.50-(waterLevel-bedHeight))/.85))*max(0,min(1,(1.40-(state[3]-bedHeight))/.30));
+  standing=if collisionEnabled then max(0,min(1,(1.50-(waterLevel-bedHeight))/.85))*max(0,min(1,(1.40-(state[3]-bedHeight))/.30)) else 0;
   der(stanceProgress)=(standing-stanceProgress)/.7;
   upright=standing*stanceProgress;
   glideWeight=(1-standing)*(if policyMode>.5 then min(1,max(0,glideAssist)) else if pilot[1]>.5 then
@@ -512,7 +513,7 @@ equation
     footVelocity[k,:]=state[4:6]+basis*treeRig*(footMotion[k,:]+cross(rigOmega,footLocal[k,:]));
     penetration[k]=bedHeight-state[3]-footLever[k,3]+bedSlope[1]*footLever[k,1]+bedSlope[2]*footLever[k,2]+.06;
     normalV[k]=sum(footVelocity[k,j]*normal[j] for j in 1:3);
-    footContact[k]=if penetration[k]>0 then max(0,13000*penetration[k]-630*normalV[k]) else 0;
+    footContact[k]=if collisionEnabled and penetration[k]>0 then max(0,13000*penetration[k]-630*normalV[k]) else 0;
     slip[k,:]=footVelocity[k,:]-normalV[k]*normal;
     groundForce[k,:]=footContact[k]*normal-min(850,.72*footContact[k]/sqrt(.0001+sum(slip[k,j]^2 for j in 1:3)))*slip[k,:];
     rigPosition[k,:]=footLocal[k,:]+bladeArm*(1-standing)*chord[k,:];
@@ -590,9 +591,9 @@ equation
     waterFlow[k,:]=relative+cross(omega,positionBody[k,:])+jointVelocity[k,:];
     limbForces[k,:]=basis*localForce[k,:];
   end for;
-  contactForce=if contactWitness[1]>.5 then tree[392] else if contact[4]>0 then max(0,3600*contact[4]-650*sum(contact[i]*(state[i+3]+contactRelativeVelocity[i]) for i in 1:3)) else 0;
+  contactForce=if not collisionEnabled then 0 else if contactWitness[1]>.5 then tree[392] else if contact[4]>0 then max(0,3600*contact[4]-650*sum(contact[i]*(state[i+3]+contactRelativeVelocity[i]) for i in 1:3)) else 0;
   // Body immersion: full neutral displacement below trim depth; loss of buoyancy above it.
-  torsoReaction=if bedHeight+.25>state[3] then max(0,14000*(bedHeight+.25-state[3])-900*sum(state[j+3]*normal[j] for j in 1:3)) else 0;
+  torsoReaction=if collisionEnabled and bedHeight+.25>state[3] then max(0,14000*(bedHeight+.25-state[3])-900*sum(state[j+3]*normal[j] for j in 1:3)) else 0;
   // An isothermal flexible bladder displaces more water as pressure falls.
   // The inflator transfers gas from the cylinder; the dump and relief vent to sea.
   vestLitres=min(vestCapacity,max(0,vestGas/ambient));

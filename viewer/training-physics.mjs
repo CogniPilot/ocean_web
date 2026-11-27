@@ -106,7 +106,7 @@ function workerLane(variables){
 }
 
 function cpuPhysics(name){
-  let limit=name==='ScubaDiver'?cpuWorkerLimit():1;
+  let limit=(name==='ScubaDiver'||name==='ScubaDiverOpenWater')?cpuWorkerLimit():1;
   let local=[],workers=[],shards=[],factory,metadata;
   function releaseLocal(){for(const instance of local)instance.close();local=[];}
   function close(){
