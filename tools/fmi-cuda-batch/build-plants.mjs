@@ -8,6 +8,7 @@ const here=dirname(fileURLToPath(import.meta.url));
 const root=resolve(here,'../..'),runtime=join(root,'viewer/fmi3');
 const [output,...names]=process.argv.slice(2);
 if(!output||!names.length||names.some(n=>!/^\w+$/.test(n)))throw Error('Usage: node build-plants.mjs OUTPUT PLANT [PLANT ...]');
+const blockCopies=process.env.RUMOCA_CUDA_BLOCK_COPIES==='1';
 const out=resolve(output);
 mkdirSync(out,{recursive:true});
 const work=mkdtempSync(join(out,'build-'));
@@ -42,7 +43,7 @@ for(const name of new Set(names)){
   const xml=readFileSync(join(source,'modelDescription.xml'),'utf8');
   if(xml.match(/instantiationToken="([^"]+)"/)?.[1]!==token)throw Error('Browser and source archive FMI tokens differ for '+name);
   const entry=join(source,'sources/rmc_cuda_step.c.inc');
-  if(!existsSync(entry)){
+  if(!existsSync(entry)||(blockCopies&&!readFileSync(entry,'utf8').includes('rmc_fmi3_step_block'))){
     // Early source archives predate the optional CUDA entry. Supply the same
     // template from the CUDA compiler, leaving the archived model equations intact.
     const template=readFileSync(join(templates,'fmi3/cuda_step.c.jinja'),'utf8');
@@ -61,8 +62,11 @@ for(const name of new Set(names)){
     writeFileSync(builder,tuned);
     compilerEnv.PTXAS_OPT_LEVEL='1';
   }
-  execFileSync(process.execPath,[builder,source,device],{stdio:'inherit',env:compilerEnv});
+  execFileSync(process.execPath,[builder,source,device,...(blockCopies?['--block-copies']:[])],{stdio:'inherit',env:compilerEnv});
   const deviceBuild=JSON.parse(readFileSync(join(device,'ensemble.json'),'utf8'));
+  if(blockCopies && (deviceBuild.kernel!=='rmc_fmi3_step_block' || deviceBuild.threadsPerBlock!==33)){
+    throw Error('Selected Rumoca checkout does not provide cooperative CUDA copies');
+  }
   const defines=deviceBuild.hostDefines ?? [];
   if(!Array.isArray(defines)){
     throw Error('Unsupported CUDA host ABI for '+name);

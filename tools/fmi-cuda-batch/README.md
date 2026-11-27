@@ -24,6 +24,8 @@ The memory-based maximum accounts for free VRAM, per-lane arena, instance storag
 
 The runner reserves a 24,576-byte CUDA thread stack by default. Set `RUMOCA_CUDA_STACK_BYTES` in the training service environment to use a stack size validated for the specific CUBIN. The packaged sm_86 diver built with ptxas O3 passed four-lane trajectory and 64-lane event checks with 16,384 bytes. This leaves more device memory available for the browser renderer.
 
+Set `RUMOCA_CUDA_BLOCK_COPIES=1` when building plants with a Rumoca checkout that supports cooperative copies. The runner selects the launch shape from the kernel exported by each module.
+
 ## Model training service
 
 Build a multi-plant registry from the source FMUs in `viewer/fmi3`. Supply the CUDA-enabled Rumoca checkout containing `examples/codegen/cuda-fmi3` (`2d40a553f186bf9d05890cd8878ad3ca46092f91` on Rumoca PR #755 reproduced the shipped Hobie 16 CUDA kernel from its source FMU). Choose the CUDA architecture for the GPU that will run the service. The build uses Node.js, `unzip`, the host dependencies above, NVPTX-enabled LLVM/Clang, CUDA libdevice and ptxas.

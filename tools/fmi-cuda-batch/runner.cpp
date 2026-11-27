@@ -87,6 +87,7 @@ class Batch {
     CUcontext context{};
     CUmodule module{};
     CUfunction kernel{};
+    unsigned threadsPerBlock = 1;
     CUevent kernelBegin{}, kernelEnd{};
     double kernelSeconds{};
     CUdeviceptr instances{}, status{}, scratch{};
@@ -206,7 +207,7 @@ class Batch {
         void *args[] = {&instances,&time,&dt,&status,&count};
         // One independent FMI solve per block; separate schedulable lanes across SMs.
         GPU(cuEventRecord(kernelBegin,nullptr));
-        GPU(cuLaunchKernel(kernel,count,1,1,1,1,1,0,nullptr,args,nullptr));
+        GPU(cuLaunchKernel(kernel,count,1,1,threadsPerBlock,1,1,0,nullptr,args,nullptr));
         GPU(cuEventRecord(kernelEnd,nullptr));
         GPU(cuMemcpyDtoH(results.data(),status,count * sizeof(int)));
         float elapsedMs; GPU(cuEventElapsedTime(&elapsedMs,kernelBegin,kernelEnd));
@@ -237,8 +238,14 @@ public:
         GPU(cuEventCreate(&kernelEnd,CU_EVENT_DEFAULT));
         GPU(cuModuleLoad(&module,path));
         verifyModule();
-        if (cuModuleGetFunction(&kernel,module,"rmc_fmi3_step") != CUDA_SUCCESS)
-            GPU(cuModuleGetFunction(&kernel,module,"diverStep"));
+        const auto blockStep = cuModuleGetFunction(&kernel,module,"rmc_fmi3_step_block");
+        if (blockStep == CUDA_SUCCESS) {
+            threadsPerBlock = 33;
+        } else {
+            if (blockStep != CUDA_ERROR_NOT_FOUND) GPU(blockStep);
+            if (cuModuleGetFunction(&kernel,module,"rmc_fmi3_step") != CUDA_SUCCESS)
+                GPU(cuModuleGetFunction(&kernel,module,"diverStep"));
+        }
         refreshCapacity();
     }
     ~Batch() {
