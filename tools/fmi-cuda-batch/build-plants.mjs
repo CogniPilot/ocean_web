@@ -61,7 +61,8 @@ for(const name of new Set(names)){
   const runner=join(host,'runner'),cubin=join(device,'ensemble.cubin');
   const entryConfig={runner:relative(out,runner),cubin:relative(out,cubin),metadata:relative(out,metadata)};
   if(name==='OceanMotorboat'){
-    entryConfig.stackBytes=34816;
+    // The cruiser kernel uses a 30,928-byte entry frame on SM 86.
+    entryConfig.stackBytes=32768;
     entryConfig.arenaBytes=8*1024*1024;
   }
   const options={...env};
