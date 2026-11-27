@@ -1584,3 +1584,53 @@ earlier candidate drew 2.2 FPS at 0.96× twice, versus 3.0–3.1 FPS at
 0.97–0.99× on main. Restricting the renderer and physics together produced
 very slow display updates on both builds. Sustained measurements on actual
 phone hardware are still needed to characterize the reported slowdown.
+
+## Hobie 16 controller comparison
+
+In Controls, choose Manual, VMG autopilot or RL policy. To enter all four automated helms in one regatta, open Settings → Spawn NPC, choose Hobie 16, then select **Race all four controllers**. The boats share the course, wind and start signal. The camera selector identifies each boat by controller.
+
+| Controller | Decisions |
+| --- | --- |
+| VMG autopilot | Scores candidate headings by progress toward the mark, tack cost and traffic. A heading controller drives the rudder and the boat trims the sails. |
+| RL policy | The actor commands ten helm, sail and crew settings. A locally applied checkpoint takes precedence over the bundled policy. |
+| Scenario NMPC | Searches three successive target headings using a nonlinear Modelica predictor of surge and yaw. Forecasts include four possible wind histories over 15 seconds. |
+| Path integral (MPPI) | Samples heading sequences around a rolling plan and updates that plan using importance weights. It uses the same Modelica predictor, wind scenarios, low-level helm and trim as scenario NMPC. |
+
+Both predictive helms use observed wind to estimate the mean direction and speed. Their forecasts include correlated shifts and speed changes. The forecast time constants and variance are engineering assumptions. The full boat physics determines the race outcome. The smaller prediction model makes replanning feasible inside a browser worker.
+
+### Research informing the comparison
+
+Wu and colleagues studied constrained nonlinear MPC for a simulated sailing yacht with a sail controller and separate rudder loop. Their formulation illustrates how actuator limits and heel enter a sail optimization. A closer comparison to that work would give the predictive helms direct sail authority alongside the learned helm. [Wu et al., OCEANS 2024](https://www.gipsa-lab.grenoble-inp.fr/~emmanuel.witrant/papers/24_Oceans_JWu.pdf)
+
+Williams and colleagues derived a predictive controller that samples perturbed input sequences and weights them by trajectory cost. This supplies the basis for the MPPI challenger. Miles and Vladimirsky studied how wind uncertainty and the cost of switching tack change optimal sailing routes. This motivates testing controllers with the same observed wind and hidden future shifts. [Williams et al., 2017](https://doi.org/10.2514/1.G001921) · [Miles and Vladimirsky](https://arxiv.org/abs/2109.08260)
+
+Bink, Düz and Weymouth evaluated learned sailboat maneuvering with physical basin experiments. Their work makes latency and generalization relevant test conditions for a learned helm. Transferring a policy to a Hobie 16 would still require measurements on that boat. [Bink et al., 2026](https://doi.org/10.1016/j.engappai.2026.115804)
+
+### Paired short-course check
+
+Run `node scripts/compare-hobie-helms.mjs` from the repository root. Each boat starts at 2 m/s and sails to the same 30 m eastward finish gate in the Hobie16 WASM plant. Times below are simulated seconds.
+
+| Wind and launch condition | VMG | Bundled RL | Scenario NMPC | MPPI |
+| --- | ---: | ---: | ---: | ---: |
+| Steady | 7.05 | 7.29 | 5.95 | 5.94 |
+| Shifting | 6.94 | 5.90 | 5.44 | 5.45 |
+| Shifting, opposite tack | 9.30 | 7.07 | 5.98 | 5.93 |
+
+These checks exercise acceleration and heading acquisition over a few seconds. They cannot establish which controller wins a multi-mark regatta. For that comparison, pair runs by held-out wind history, alternate starting slots and tacks, and report finish times, missed marks, penalties, non-finishes and planning latency alongside actuator limits. That distinguishes a fast individual maneuver from consistent performance around the course.
+
+### Collision timing scope
+
+`tools/collision-benchmark/run.sh` compared the generated Rumoca narrow-phase function with MuJoCo 4.0.1 on 8,192 identical sphere–oriented-box poses. Median batch means were **46.0 ns/query for Rumoca** and **22.8 ns/query for MuJoCo**. The respective p95 batch means were 55.5 and 27.1 ns. Both produced the same signed gap on this corpus. These timings exclude mesh traversal, broad phase, contact solving and rendering. They do not measure a cabin cruiser grounding on the island.
+
+### Cabin cruiser at the island
+
+The packaged harbor FMU was measured in calm water with zero throttle, wake off and a 10 ms simulation step. Each row is median wall time per step. The reef case had zero hull contact force throughout.
+
+| Position | Previous build | Updated build |
+| --- | ---: | ---: |
+| Offshore | 2.41 ms | 1.31 ms |
+| Reef | 37.31 ms | 1.34 ms |
+| Shoal | 106.88 ms | 4.79 ms |
+| Beach | 80.67 ms | 4.36 ms |
+
+The hull checks previously evaluated four quadrature samples on each of 234 triangles, including repeated vertices. The updated model combines coincident vertex weights, rejects clear portions of the hull before terrain and rock evaluation, and samples contact wrenches at 100 Hz. Peak loads on the shoal and beach differed by 1.4% and 2.0% respectively. The full island approach produced 15.58 kN peak support. The rebuild used a newer compiler, so the offshore speedup includes compiler effects. Reproduce the positional comparison with `node scripts/bench-cruiser-shore.mjs`.

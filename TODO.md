@@ -2,10 +2,28 @@
 
 A checked item records the specific result described. Open items include partially implemented requests and identify the remaining check.
 
-## Harbor scoreboards
+## Current work · 2026-11-26
 
+- [ ] Keep reusable Modelica vehicle, animal, controller and fluid equations in modelica_models. Pin their revision, preserve browser FMU interfaces, and identify the remaining world assembly, generated geometry and fixtures in MODEL-SOURCES.md.
+- [x] Fix the moving gap between the Hobie hulls and their water reflections. Chromium coverage includes calm water, wave crests and troughs at three quality settings.
+- [x] Select Manual, VMG autopilot and learned helm on a Hobie. Spawn VMG, RL, scenario NMPC and MPPI opponents in one heat. Short-course timings and research references are in PERFORMANCE.md.
+- [ ] Compare full regatta outcomes over held-out wind shifts and gusts, including non-finishes, penalties and controller latency. Keep wind forecasts probabilistic.
+- [x] Profile island collision on the cabin cruiser. Verified contact loads and offshore, reef, shoal and beach step times in PERFORMANCE.md.
+- [ ] Compare convex/mesh collision with MuJoCo, Rapier/Parry and Pinocchio/Coal on identical geometry.
+- [x] Reproduce the diver freeze while moving onto the beach and fix the buoyancy-valve solver discontinuity. Keep the beach regression in scripts/check-diver-island.mjs.
+- [ ] Resolve the remaining diver pitch and self-contact regression fixtures. Check anatomical limits, mesh/inertia alignment, neutral glide, hand and fin motion, BCD gas use, flashlight stow/equip and real-time rate on a phone.
+- [x] Replace the mobile Crew & trim buttons with five touch sliders. Verified crew fore–aft and port–starboard, jib sheet and both travelers take over their controls at a 390 px touch viewport.
+- [ ] Draw sail resultants near the working cloth, preserving any residual couple. Check the wrench under heel, during a tack and when forces cancel.
+- [ ] Correct the Hobie shock cord lead and model two-way contact between the independent forestay and the jib. Check both tacks and eased and tensioned halyards.
+- [ ] Use the same articulated shark surface for obstacle response and collision diagnostics. Verify glancing fin and midbody encounters.
+- [ ] Verify simultaneous steering and trim on a physical phone.
+- [x] Show production meshes and rollout poses for all ten general training tasks in the browser, alongside the existing diver view. Tested one CPU round for each general task.
+- [ ] Support both CPU and GPU choices across deployed hardware. Validate real rollout poses, controller inputs, training progress and applied checkpoints on each supported plant. Maintain pretrained/scratch initialization and auto/manual count.
+- [ ] Provide browser WebGPU **physics** separately from browser WebGPU policy updates and local CUDA physics. Preserve CPU/GPU agreement, display the actual backend, and compare speed before switching compilers. Track Rumoca PR #755 and contribute verified compiler improvements.
 - [x] Rank the ten harbor models by triangle-course lap time and shark, manta ray and whale by observed catches per completed five-minute heat. Keep personal and individual room boards separate.
 - [ ] Define a course and its finish criteria for the standalone ONR Tumblehome towing basin before adding a basin leaderboard.
+- [ ] Future milestone: GitHub controller submissions, reproducible automatic scoring and a public results site. For now, share competition standings within the current server.
+- [ ] Follow up on earlier physics and visual work: Hobie 10× headroom and physical phone timing, trained shark turning/breach speed, gull wing/tail/wind and feather detail, per-body diver/shark/manta forces and inertia, and cached wreck-resolving ocean currents. Existing checks below record individual verified changes.
 
 ## Current simulator requests · 2026-11-21
 

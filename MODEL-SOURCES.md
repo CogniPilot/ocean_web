@@ -84,3 +84,25 @@ Fish et al. recorded nine swimming mantas and found different upstroke and downs
 Animal-borne camera footage records white sharks making tight turns during prey pursuits. In bonnethead sharks, tracked turns link body curvature and pectoral fin motion to changes of direction. The latter provides a mechanism to test across species. It does not provide measured white shark joint limits or muscle stiffness. [White shark camera observations](https://connectsci.au/wr/article/53/10/WR25072/275839/Through-the-camera-lens-a-window-into-the) · [Bonnethead turning kinematics](https://doi.org/10.1093/iob/obz014)
 
 The simulator recruits a coupled rear-trunk and peduncle bending mode during a hard turn. A passive end-range spring resists excessive peduncle motion. Local flow over the bent rear body, caudal fin and paired pectorals generates loads and turning moments. The compliant range and muscle gains are modeling assumptions. Run `node scripts/check-shark-turn.mjs` to measure elapsed time and effective radius for a 90° change in the direction of travel on both sides from 2.4 m/s in still water.
+
+## Package structure for multiple fidelities
+
+The proposed public catalog gives each supported vehicle or animal one stable family name. The domain libraries supply reusable components. An example composes a particular plant, controller, environment and task. The catalog namespace is a design choice for this repository. The Modelica Standard Library uses both reusable components and complete system examples, including RobotR3. [Modelica Standard Library RobotR3](https://doc.modelica.org/Modelica%204.0.0/Resources/helpDymola/Modelica_Mechanics_MultiBody_Examples_Systems_RobotR3.html)
+
+A possible root is `Systems`, with families such as `Watercraft.Hobie16`, `Aircraft.Rdd2`, `Robots.Microduck` and `Animals.GreatWhite`. These are proposed names. Existing library paths remain live. For example, a Hobie family could contain the following classes:
+
+| Relative class | Purpose |
+| --- | --- |
+| Interfaces.PartialPlant | Shared physical interface with units, ENU and body-frame conventions, control limits, initial conditions and observations. |
+| Models.Polar | Fast maneuver prediction within the measured sailing polar. |
+| Models.Multibody | Hull and rig dynamics, control actuators and instrument outputs. |
+| Controllers | Helms which declare the inputs and actuators they require. |
+| Examples | Runnable compositions such as a tack in shifting wind and a paired controller race. |
+
+A scenario can select a replaceable plant constrained by the family interface, or replace a single subsystem such as a sail or hydrodynamic load model. Put common geometry and mass properties in shared parameter records. Expose additional capabilities through explicit interfaces when a detailed plant supports a maneuver or sensor absent from the reduced plant. Keep physical fidelity, numerical solver, CPU/GPU backend and rendering detail as independent choices.
+
+A scored evaluation should record the concrete plant and component redeclarations, parameter set, controller and checkpoint, task version, weather seed, solver, step size and numeric precision. Publish records for the same event and evaluation configuration together. This allows a controller to train against a faster model and compete against a fixed reference model. The existing Hobie course-cost predictor accepts headings and forecasts and returns a loss. It is not a drop-in simulation plant.
+
+During migration preserve existing public class paths through short aliases and retain thin browser FMU names where saved controllers depend on them. The upstream Marine.Sailing.Hobie16 and Ocean Web's Hobie16 have different dynamics and controls. Explicit comparison of interfaces and trajectories is required before sharing a single implementation.
+
+The reference shape, body-local attachment frames, collision surfaces and asset licenses belong with the supported model in its Modelica library. Use a package resource URI such as `modelica://Marine/Resources/Shapes/Hobie16/Hull.glb` for a portable visual asset. A physics variant can reference its own collision mesh and inertia data while several variants share one visual mesh. Record units, axis conventions, mesh-to-body transform and mesh revision. Rendering LOD, shaders and scene effects belong to the consuming viewer. Keep a headless build free of rendering dependencies. [Modelica package resources](https://specification.modelica.org/maint/3.6/packages.html#external-resources)
