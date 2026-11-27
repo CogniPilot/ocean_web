@@ -11,4 +11,4 @@ for class in OnrtWake OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFl
   cp "$output/$model.fmu" "$stage/"
 done
 cp "$stage"/* viewer/fmi3/
-scripts/package-pages.sh
+scripts/package-pages.sh build/pages --world
