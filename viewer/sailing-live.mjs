@@ -26,7 +26,7 @@ import {sailPanelFields,readSailPanels} from './board/sail-battens.mjs';
 import {bowFoamGrid,cruiserBowLength} from './bow-grid.mjs';
 import {viewport as piccardPort,piccardScale} from './piccard-geometry.mjs';
 import {splitCamera} from "./waterline.mjs";
-import {drawCompass,drawDroneCompass,drawSailingDial} from './compass.mjs';
+import {drawRaceDial,raceClock,raceGroundTrack} from './compass.mjs';
 import {forceDisplay,firstPersonInstruments} from './instrumentation.mjs?hud=2';
 import {mastCamera} from "./mast-camera.mjs";
 import {cameraCones} from './camera-cones.mjs';
@@ -1756,7 +1756,7 @@ async function run(saved=readReset(),carried){
   }
   const loads=loadVectors(T,scene,$('view'),$('loadProbe'),signal);
   const drawForces=forceDisplay(T,scene,sub?.mesh,boat?.group,cat,model,loads.load);
-  $('showCompass').setAttribute('aria-pressed',String(hud.enabled('compass-'+selectedRole,selectedRole==='boat'||selectedRole==='drone')));
+  $('showCompass').setAttribute('aria-pressed',String(hud.enabled('compass-'+selectedRole,true)));
   const covarianceOutput=$('droneCovariance'),showCovariance=$('showDroneCovariance');
   function covarianceVisibility(){
     const enabled=Boolean(drone?.active&&drone.hasNavigation&&!animalId);
@@ -2356,10 +2356,7 @@ async function run(saved=readReset(),carried){
     }
 
 
-    const hideCompass=Boolean((animalId&&animalKind()!=='diver')||motor);
-
-    $('showCompass').hidden=hideCompass;
-    $('dial').hidden=hideCompass||$('showCompass').getAttribute('aria-pressed')!=='true';
+    $('dial').hidden=$('showCompass').getAttribute('aria-pressed')!=='true';
     covarianceVisibility();
     if(sub?.active)updateSurveyButton();
     else $('helm').textContent=manualSelected()?'Engage race autopilot':'Take the helm';
@@ -3460,7 +3457,8 @@ async function run(saved=readReset(),carried){
       creatures.traverse(object=>{if(object.isInstancedMesh)object.dispose();});
     }
   }
-  let physicsTimer,courseTarget,drawDeadline,appliedRaceStart=0;
+  const groundSpeed=raceGroundTrack();
+  let physicsTimer,courseTarget,courseDial,drawDeadline,appliedRaceStart=0;
   let firstWarmFrame,lastWarmFrame;
   const warmIntervals=[];
   function finishStartup(){
@@ -3565,19 +3563,26 @@ async function run(saved=readReset(),carried){
         const controlled=(!animalId||ownsAnimal())&&(!sub?.active||!sub.seatedOnLift&&!sub.breached);
         const identity=[roomScope,scoreEpoch,animalId??raceClass,controlled,start].join('/');
         const separate=Boolean(animalId||sub?.active||drone?.active&&mode!=='flight');
-        let racer,trajectoryTime;
+        let racer,trajectoryTime,heading,speed,droneNav;
         if(animalId){
           const frame=visitors.frame(animalId),offset=flyingGull()?0:raceClass==='whale'?17:['manta','diver'].includes(raceClass)?1:9;
           if(frame){
             racer=[frame[offset],frame[offset+1]];
+            heading=frame[raceClass==='diver'||raceClass==='manta'?7:offset+3];
             trajectoryTime=flyingGull()?remote.npc.habitat.time:frame[0];
           }
         }else if(sub?.active){
-          racer=sub.frame?.position;trajectoryTime=sub.frame?.time;
+          const frame=sub.frame;racer=frame?.position;trajectoryTime=frame?.time;
+          if(frame?.q){const [w,x,y,z]=frame.q;heading=Math.atan2(2*(w*z+x*y),1-2*(y*y+z*z));}
         }
-        else if(drone?.active)racer=drone.position;
-        else if(motor)racer=world.get('boatPose');
-        else if(model)racer=model.getMany(['east','north']);
+        else if(drone?.active){
+          racer=drone.position;droneNav=drone.instruments(true);heading=droneNav.yaw;speed=droneNav.speed;
+        }else if(motor){
+          racer=world.get('boatPose');heading=racer[5];
+        }else if(model){
+          const [east,north,yaw,ve,vn]=model.getMany(['east','north','heading','ve','vn']);
+          racer=[east,north];heading=yaw;speed=Math.hypot(ve,vn);
+        }
         const scorer=separate?roleRace.sample(identity,controlled?racer:null,sceneryTime,utc,start,()=>raceCoursePoints(race),trajectoryTime):race;
         if(!separate)roleRace.reset();
         const attempt=identity+'/'+roleRace.generation;
@@ -3617,6 +3622,11 @@ async function run(saved=readReset(),carried){
         let cue=!scorer?'Waiting for controlled position':scorer.has('earlyStart')&&scorer.get('earlyStart')?'Over early · Return behind the start line':
           ['Wait for start','Cross upwind','Mark 1','Mark 2','Cross finish downwind','Finished'][stage];
         courseTarget=racer?raceTarget(race,stage,racer[0],racer[1]):null;
+        const measured=groundSpeed(identity,racer,trajectoryTime??sceneryTime);
+        courseDial=Number.isFinite(heading)?{heading,boatSpeed:speed??measured,droneNav,
+          speedLabel:sailing||raceClass==='motorboat'?'Boat speed':'Ground speed',
+          timing:raceClock(stage,left,scorer?.get('elapsed')??0,utc-(heat??Math.max(start,race.get('nextStart')-300)),Boolean(scorer?.has('earlyStart')&&scorer.get('earlyStart')),
+            Boolean(remote.connected||start>0))}:null;
         if(courseTarget && (drone?.active || stage===2 || stage===3)){
           cue+=' · '+courseTarget.bearing+' · '+Math.round(courseTarget.range)+' m';
         }
@@ -3809,17 +3819,22 @@ async function run(saved=readReset(),carried){
         lastDial=now;
         if(!$('dial').hidden){
           $('dial').classList.toggle('sailing-wind',targetSelect.value==='boat');
-          if(drone?.active)drawDroneCompass($('dial'),drone.instruments(true),courseTarget);
-          else if(animalId&&animalKind()==='diver'){
-            const f=visitors.frame(animalId);
-            const flow=f&&sampleActorCurrents([f.slice(1,4)])?.[0];
-            if(flow)drawCompass($('dial'),Math.hypot(...wind),Math.atan2(wind[1],wind[0]),flow,f[7],'diver');
-          }else if(sub?.active&&subFrame){
-            drawCompass($('dial'),Math.hypot(...wind),Math.atan2(wind[1],wind[0]),subFrame.flow,subFrame.estimate[3],'sub');
-          }else if(s){
-            drawSailingDial($('dial'),{heading:s[2],boatSpeed:Math.hypot(extra[4],extra[5]),
-              trueWind:model.has('sailWind')?model.get('sailWind'):wind,cupSpeed:model.get('cupSpeed'),vane:s[30],
-              pointer:compassWind.value,noGo,target:courseTarget,detailed:compassDetails.checked});
+          if(courseDial){
+            const sailing=targetSelect.value==='boat'&&!animalId&&s&&!motor&&!drone?.active&&!sub?.active;
+            const diver=animalId&&animalKind()==='diver';
+            let flow=sub?.active?subFrame?.flow:undefined;
+            if(diver){
+              const frame=visitors.frame(animalId);
+              if(frame)flow=sampleActorCurrents([frame.slice(1,4)])?.[0];
+            }
+            drawRaceDial($('dial'),{...courseDial,target:courseTarget,
+              trueWind:sailing?(model.has('sailWind')?model.get('sailWind'):wind):courseDial.droneNav?.wind??(diver||sub?.active?wind:undefined),
+              cupSpeed:sailing?model.get('cupSpeed'):undefined,vane:sailing?s[30]:undefined,
+              pointer:sailing?compassWind.value:'true',noGo:sailing?noGo:undefined,
+              detailed:sailing&&compassDetails.checked,drone:Boolean(courseDial.droneNav),flow});
+          }else{
+            const dial=$('dial');dial.getContext('2d').clearRect(0,0,dial.width,dial.height);
+            dial.setAttribute('aria-label','Waiting for racer position');
           }
         }
         if(!covarianceOutput.hidden){

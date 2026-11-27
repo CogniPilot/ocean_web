@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {drawSailingDial} from '../viewer/compass.mjs';
+import {drawRaceDial,raceClock,raceGroundTrack} from '../viewer/compass.mjs';
 
 function render(data){
   const canvas={height:192},text=[],rotations=[];
@@ -9,7 +9,7 @@ function render(data){
   },{get:(obj,key)=>obj[key]??(()=>{})});
   canvas.getContext=()=>ctx;
   canvas.setAttribute=(_key,value)=>{canvas.label=value;};
-  drawSailingDial(canvas,{noGo:Math.PI/4,...data});
+  drawRaceDial(canvas,{noGo:Math.PI/4,...data});
   return {text,rotations,label:canvas.label};
 }
 const near=(a,b)=>assert(Math.abs(a-b)<1e-10);
@@ -33,7 +33,7 @@ for(const tack of [-1,1]){
   const simple=render({...data,pointer:'apparent'});
   assert(simple.text.includes('Boat speed  6.1 kn'));
   assert(simple.text.includes('Apparent wind')&&!simple.text.includes('True wind'));
-  assert(simple.text.includes('Mark 1  254 m')&&!simple.text.includes('000°T'));
+  assert(simple.text.includes('Mark 1  090°T  254 m')&&!simple.text.includes('000°T'));
   assert.equal(simple.label,measured.label);
   near(measured.rotations[0],environment.rotations[0]); // no-go sector remains on true wind
   near(measured.rotations[1],Math.atan2(Math.sin(-vane),Math.cos(-vane))-Math.PI/2);
@@ -53,3 +53,15 @@ for(const [trueWind,cupSpeed,vane,direction] of [
   }
 }
 console.log('Both wind readouts, bow-relative angles, pointer selection and the true-wind no-go sector passed.');
+
+assert.deepEqual(raceClock(0,21.4,0,0),{phase:'',next:'Starts in 0:22'});
+assert.deepEqual(raceClock(1,264,0,36),{phase:'Start open · Race 0:36',next:'Next start 4:24'});
+assert.deepEqual(raceClock(0,264,0,36,false,true),{phase:'Current heat 0:36',next:'Next start 4:24'});
+assert.deepEqual(raceClock(3,256,344,44),{phase:'Leg 2/3 · Race 5:44',next:'Next start 4:16'});
+assert.deepEqual(raceClock(5,10,305,290),{phase:'Finished · 5:05',next:'Next start 0:10'});
+const ground=raceGroundTrack();
+assert.equal(ground('a',[0,0],3),undefined);
+assert.equal(ground('a',[3,4],4),5);
+assert.equal(ground('a',[3,4],4),5);
+assert.equal(ground('b',[0,0],4),undefined);
+assert.equal(ground('b',[500,0],5),undefined);

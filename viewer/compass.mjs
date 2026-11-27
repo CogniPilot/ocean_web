@@ -1,72 +1,38 @@
-// Bearings on the dial are clockwise from true north. Model vectors are east/north.
-export function drawCompass(canvas,wind,bearing,current,heading,location){
-  const ctx=canvas.getContext('2d'),windColor='#ffc46e',currentColor='#71dce4';
-  const currentSpeed=Math.hypot(current[0],current[1]);
-  const flow=Math.atan2(current[1],current[0]);
-  const degrees=ang=>String(((Math.round(90-ang*180/Math.PI)%360)+360)%360).padStart(3,'0')+'°';
-  ctx.setTransform(2,0,0,2,0,0);ctx.clearRect(0,0,canvas.width/2,canvas.height/2);
-  ctx.save();ctx.translate(42,48);
-  ctx.strokeStyle='#52717b';ctx.lineWidth=1;ctx.beginPath();ctx.arc(0,0,27,0,2*Math.PI);ctx.stroke();
-  ctx.fillStyle='#bdd2d5';ctx.font='9px monospace';ctx.textAlign='center';ctx.textBaseline='middle';
-  for(const [name,x,y] of [['N',0,-34],['E',34,0],['S',0,34],['W',-34,0]])ctx.fillText(name,x,y);
-  function arrow(angle,radius,color){
-    ctx.save();ctx.rotate(-angle);ctx.strokeStyle=color;ctx.fillStyle=color;ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(radius-4,0);ctx.stroke();
-    ctx.beginPath();ctx.moveTo(radius,0);ctx.lineTo(radius-7,-3);ctx.lineTo(radius-7,3);ctx.closePath();ctx.fill();ctx.restore();
-  }
-  if(wind>.01)arrow(bearing,26,windColor);
-  if(currentSpeed>.005)arrow(flow,19,currentColor);
-  if(heading!==null)arrow(heading,11,'white');
-  ctx.restore();
-  ctx.font='10px monospace';ctx.fillStyle=windColor;ctx.fillText('WIND TO',87,17);
-  ctx.fillText(wind.toFixed(1)+' m/s  '+(wind>.01?degrees(bearing):'—'),87,31);
-  ctx.fillStyle=currentColor;ctx.fillText(location.toUpperCase()+' FLOW TO',87,48);
-  ctx.fillText(currentSpeed.toFixed(2)+' m/s '+(currentSpeed>.005?degrees(flow):'—'),87,62);
-  ctx.fillStyle='#ecf4f5';ctx.fillText(heading===null?'TRUE NORTH UP':'HDG '+degrees(heading),87,84);
-  canvas.setAttribute('aria-label','Wind toward '+degrees(bearing)+' at '+wind.toFixed(1)+' metres per second. '+location+' flow toward '+degrees(flow)+' at '+currentSpeed.toFixed(2)+' metres per second.');
-}
-
-export function drawDroneCompass(canvas,{yaw,wind},target){
-  const ctx=canvas.getContext('2d'),radius=36,windColor='#ffc46e',markColor='#ffade3';
-  const bearing=angle=>String((Math.round(90-angle*180/Math.PI)%360+360)%360).padStart(3,'0')+'°T';
-  const windSpeed=wind?Math.hypot(...wind):0;
-  const windFrom=windSpeed>.05?Math.atan2(-wind[1],-wind[0]):null;
-  if(canvas.height!==192)canvas.height=192;
-  ctx.setTransform(2,0,0,2,0,0);
-  ctx.clearRect(0,0,canvas.width/2,canvas.height/2);
-  ctx.save();ctx.translate(46,47);
-  ctx.beginPath();ctx.arc(0,0,radius,0,2*Math.PI);
-  ctx.fillStyle='#112a34';ctx.strokeStyle='#52717b';ctx.lineWidth=1;ctx.fill();ctx.stroke();
-  ctx.font='bold 10px monospace';ctx.fillStyle='#dcebef';ctx.textAlign='center';ctx.textBaseline='middle';
-  for(const [i,name] of ['E','N','W','S'].entries()){
-    const angle=yaw-i*Math.PI/2;
-    ctx.fillText(name,26*Math.sin(angle),-26*Math.cos(angle));
-  }
-  function pointer(angle,color,tip){
-    ctx.save();ctx.rotate(yaw-angle);ctx.fillStyle=color;
-    ctx.beginPath();ctx.moveTo(0,-tip);ctx.lineTo(5,-tip+9);ctx.lineTo(0,-tip+7);
-    ctx.lineTo(-5,-tip+9);ctx.closePath();ctx.fill();ctx.restore();
-  }
-  pointer(yaw,'#f0f8f6',13);
-  if(windFrom!==null)pointer(windFrom,windColor,radius+1);
-  if(target)pointer(target.angle,markColor,radius-16);
-  ctx.restore();
-  const windText=wind?windSpeed.toFixed(1)+' m/s  '+(windFrom===null?'Calm':'from '+bearing(windFrom)):'Acquiring estimate';
-  const markText=target?target.label+'  '+target.bearing+'  '+Math.round(target.range)+' m':'';
-  ctx.textAlign='left';ctx.textBaseline='alphabetic';ctx.font='bold 11px monospace';
-  ctx.fillStyle='#dcebef';ctx.fillText('HDG '+bearing(yaw),96,21);
-  ctx.fillStyle=windColor;ctx.fillText('EST. TRUE WIND',96,39);ctx.fillText(windText,96,55);
-  ctx.fillStyle=markColor;ctx.fillText(markText,96,78);
-  canvas.setAttribute('aria-label','Heading '+bearing(yaw)+'. Estimated true wind '+windText+'. '+markText);
-}
-
 // Angles from the model are east-zero and counterclockwise. The sailing dial
 // is bow-up and clockwise, with zero at twelve o'clock.
-export function drawSailingDial(canvas,{heading,boatSpeed,trueWind,cupSpeed,vane,pointer,noGo,target,detailed=false}){
+export function raceClock(stage,next,elapsed,heatAge,early=false,roomHeat=false){
+  const clock=seconds=>Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0');
+  const countdown=clock(Math.max(0,Math.ceil(next)));
+  const race=clock(Math.max(0,Math.floor(elapsed)));
+  if(stage>=2)return {phase:stage===5?'Finished · '+race:'Leg '+(stage-1)+'/3 · Race '+race,next:'Next start '+countdown};
+  if(stage===1)return {phase:(early?'Over early':'Start open')+' · Race '+clock(Math.max(0,Math.floor(heatAge))),next:'Next start '+countdown};
+  if(roomHeat&&heatAge>=0)return {phase:'Current heat '+clock(Math.floor(heatAge)),next:'Next start '+countdown};
+  return {phase:early?'Return behind line':'',next:'Starts in '+countdown};
+}
+
+export function raceGroundTrack(){
+  let key,last,speed;
+  return (id,position,time)=>{
+    if(key!==id||!position||!Number.isFinite(time)||!last||time<last.time){
+      key=id;last=null;speed=undefined;
+    }
+    if(position&&Number.isFinite(time)&&(!last||time>last.time)){
+      if(last){
+        const dt=time-last.time,distance=Math.hypot(position[0]-last.x,position[1]-last.y);
+        speed=distance<=12+80*Math.min(dt,.5)?distance/dt:undefined;
+      }
+      last={x:position[0],y:position[1],time};
+    }
+    return speed;
+  };
+}
+
+export function drawRaceDial(canvas,{heading,boatSpeed,trueWind,cupSpeed,vane,pointer,noGo,target,detailed=false,
+  timing,speedLabel='Boat speed',flow,drone=false}){
   const ctx=canvas.getContext('2d');
   const centerX=51,centerY=48,r=39;
   const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
-  const trueSpeed=Math.hypot(trueWind[0],trueWind[1]);
+  const trueSpeed=trueWind?Math.hypot(trueWind[0],trueWind[1]):0;
   // The environmental vector points downwind in east/north. The vane points
   // upwind in hull axes, counterclockwise from the bow (positive to port).
   const sector=trueSpeed>.01?wrap(heading-Math.atan2(-trueWind[1],-trueWind[0])):null;
@@ -78,7 +44,7 @@ export function drawSailingDial(canvas,{heading,boatSpeed,trueWind,cupSpeed,vane
   ctx.setTransform(2,0,0,2,0,0);ctx.clearRect(0,0,274,132);
   ctx.save();ctx.translate(centerX,centerY);
   ctx.beginPath();ctx.arc(0,0,r,0,2*Math.PI);ctx.fillStyle='#112a34';ctx.fill();
-  if(sector!==null){
+  if(sector!==null&&Number.isFinite(noGo)){
     ctx.save();ctx.rotate(sector-Math.PI/2);
     ctx.fillStyle='rgba(242,104,81,.28)';ctx.beginPath();ctx.moveTo(0,0);
     ctx.arc(0,0,r,-noGo,noGo);ctx.closePath();ctx.fill();
@@ -125,15 +91,15 @@ export function drawSailingDial(canvas,{heading,boatSpeed,trueWind,cupSpeed,vane
     ctx.fillStyle=color;ctx.font=font;ctx.textAlign=align;ctx.fillText(msg,x,y);
   }
   const knots=speed=>(speed*1.94384449).toFixed(1)+' kn';
-  text('Boat speed  '+knots(boatSpeed),98,18,'#fff','bold 13px system-ui');
-  if(detailed)text(compass(heading)+'T',271,18,'#e2eff0','bold 12px system-ui','right');
+  text(speedLabel+'  '+(Number.isFinite(boatSpeed)?knots(boatSpeed):'—'),98,14,'#fff','bold 13px system-ui');
+  if(detailed)text(compass(heading)+'T',271,14,'#e2eff0','bold 12px system-ui','right');
   function windRow(label,speed,angle,y,selected){
     const degrees=angle===null?null:Math.round(Math.abs(angle)*180/Math.PI);
     const side=angle<0?'port':'starboard';
     const direction=degrees===null?'Calm':degrees===0?'Bow':degrees===180?'Aft':degrees+'° '+(angle<0?'P':'S');
     const color=selected?'#ffd091':'#c9dfe1';
     if(detailed||selected){
-      const row=detailed?y:46;
+      const row=detailed?y:32;
       text(label+' wind',98,row,color,'bold 12px system-ui');
       text(knots(speed),detailed?226:266,row,color,'bold 12px system-ui','right');
       if(detailed)text(direction,271,row,color,'bold 12px system-ui','right');
@@ -141,9 +107,22 @@ export function drawSailingDial(canvas,{heading,boatSpeed,trueWind,cupSpeed,vane
     const from=degrees===null?'':degrees===0?' from the bow':degrees===180?' from astern':' from '+degrees+' degrees '+side;
     return label+' wind '+knots(speed)+from+'.';
   }
-  const trueText=windRow('True',trueSpeed,sector,41,pointer==='true');
-  const apparentText=windRow('Apparent',cupSpeed,apparentFrom,62,pointer==='apparent');
-  if(target)text(target.label+'  '+(detailed?target.bearing+'  ':'')+Math.round(target.range)+' m',98,84,targetColor,'bold 12px system-ui');
-  const noGoText=sector===null?'':inside?' Heading inside the no-go sector.':' Heading clear of the no-go sector.';
-  canvas.setAttribute('aria-label','Heading '+compass(heading)+' true. Speed over ground '+knots(boatSpeed)+'. '+trueText+' '+apparentText+noGoText+(target?' '+target.label+' bearing '+target.bearing+', '+Math.round(target.range)+' metres.':''));
+  let windText='';
+  if(trueWind)windText=windRow(drone?'Est. true':'True',trueSpeed,sector,28,pointer!=='apparent');
+  else if(drone)text('Wind estimate pending',98,32,'#c9dfe1','11px system-ui');
+  if(Number.isFinite(cupSpeed))windText+=' '+windRow('Apparent',cupSpeed,apparentFrom,42,pointer==='apparent');
+  if(flow){
+    const speed=Math.hypot(flow[0],flow[1]),direction=speed>.005?compass(Math.atan2(flow[1],flow[0]))+'T':'—';
+    const current='Current to '+direction+'  '+speed.toFixed(1)+' m/s';
+    text(current,98,45,'#71dce4','11px system-ui');windText+=' '+current+'.';
+  }
+  if(target)text(target.label+'  '+target.bearing+'  '+Math.round(target.range)+' m',98,61,targetColor,'bold 12px system-ui');
+  if(timing){
+    if(timing.phase)text(timing.phase,98,77,'#e2eff0','bold 12px system-ui');
+    text(timing.next,98,timing.phase?92:80,'#a5e5e0','bold 12px system-ui');
+  }
+  const noGoText=sector===null||!Number.isFinite(noGo)?'':inside?' Heading inside the no-go sector.':' Heading clear of the no-go sector.';
+  canvas.setAttribute('aria-label','Heading '+compass(heading)+' true. '+(Number.isFinite(boatSpeed)?'Speed over ground '+knots(boatSpeed)+'. ':'')+windText+noGoText+
+    (target?' '+target.label+' bearing '+target.bearing+', '+Math.round(target.range)+' metres.':'')+
+    (timing?' '+[timing.phase,timing.next].filter(Boolean).join('. ')+'.':''));
 }
