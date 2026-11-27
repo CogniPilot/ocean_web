@@ -533,6 +533,28 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
   algorithm
     clear:=z-radius> -13.7 and (abs(east-36)>29+radius or abs(north-40)>23+radius);
   end aboveFlatBottom;
+  function clearOfShore "Conservative clearance for a footprint with known lowest elevation"
+    input Real east,north,lowest,radius;
+    output Boolean clear;
+  protected
+    Real x,y,dx,dy,r;
+  algorithm
+    clear:=false;
+    if lowest<=-13.7 then return;end if;
+    if abs(east-36)>29+radius or abs(north-40)>23+radius then clear:=true;return;end if;
+    // Every point on the sand triangle is bounded by its highest vertex. Extend
+    // the footprint by a grid cell to include the vertices used for interpolation.
+    x:=max(0,abs(east-36)-radius-58/74);y:=max(0,abs(north-40)-radius-46/62);
+    if lowest<=4.31-4.2*((x/17)^2+(y/11)^2) then return;end if;
+    for i in 1:46 loop
+      r:=rocks[i,4];
+      if lowest<=rocks[i,3]+r then
+        dx:=east-rocks[i,1];dy:=north-rocks[i,2];
+        if dx*dx+dy*dy<=(radius+r)^2 then return;end if;
+      end if;
+    end for;
+    clear:=true;
+  end clearOfShore;
   function skinContact "Compressive terrain force on one swimmer skin point, in level heading axes"
     input Real pos[3],cy,sy,velocity[3],damping,radius=0;
     output Real contact[5] "Force XYZ, normal load, signed clearance";

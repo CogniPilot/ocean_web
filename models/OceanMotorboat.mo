@@ -60,33 +60,48 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
       trail[i,:]:={previous[i-1,1],previous[i-1,2],coverage,width};
     end for;
   end aeratedWake;
-  function hullContact "Integrate terrain contact pressure over the cruiser shell triangles"
-    input Real pos[3],cy,sy,rotation[3,3],velocity[3],spin[3],vertices[:,3];
+  function contactQuadrature "Unique triangle vertices and centroids with summed tributary damping"
+    input Real vertices[:,3];
     input Integer faces[:,3];
+    output Real sites[size(vertices,1)+size(faces,1),4];
+  protected
+    Real a[3],b[3],c[3],area[3],weight;
+    Integer centroid;
+  algorithm
+    sites:=zeros(size(vertices,1)+size(faces,1),4);
+    sites[1:size(vertices,1),1:3]:=vertices;
+    for face in 1:size(faces,1) loop
+      a:=vertices[faces[face,1],:];b:=vertices[faces[face,2],:];c:=vertices[faces[face,3],:];
+      area:=cross(b-a,c-a);weight:=75*sqrt(area*area);
+      centroid:=size(vertices,1)+face;
+      sites[centroid,:]:=cat(1,(a+b+c)/3,{weight});
+      // All terms in skinContact's force law scale linearly with damping.
+      for corner in 1:3 loop
+        sites[faces[face,corner],4]:=sites[faces[face,corner],4]+weight;
+      end for;
+    end for;
+  end contactQuadrature;
+  final parameter Real contactSites[368,4]=contactQuadrature(cruiserShellVertices,cruiserShellFaces);
+  function hullContact "Integrate terrain contact pressure over the cruiser shell triangles"
+    input Real pos[3],cy,sy,rotation[3,3],velocity[3],spin[3],sites[:,4];
     output Real wrench[6];
   protected
-    Real a[3],b[3],c[3],areaVector[3],damping,local[3],arm[3],point[3],contact[5];
+    Real arm[3],point[3],contact[5],lowest;
   algorithm
     wrench:=zeros(6);
-    if not Shore.aboveFlatBottom(pos[1],pos[2],pos[3],4) then
-      for face in 1:size(faces,1) loop
-        a:=vertices[faces[face,1],:];b:=vertices[faces[face,2],:];c:=vertices[faces[face,3],:];
-        areaVector:=cross(b-a,c-a);
-        // Sample each triangular patch at its vertices and centre. The
-        // contact stiffness and damping scale with tributary surface area.
-        damping:=75*sqrt(areaVector*areaVector);
-        for j in 1:4 loop
-          local:=if j==1 then a elseif j==2 then b elseif j==3 then c else (a+b+c)/3;
-          arm:=rotation*local;
-          point:=pos+{cy*arm[1]-sy*arm[2],sy*arm[1]+cy*arm[2],arm[3]};
-          if not Shore.aboveFlatBottom(point[1],point[2],point[3],0) then
-            contact:=Shore.skinContact(point,cy,sy,velocity+cross(spin,arm),damping);
-            wrench[1:3]:=wrench[1:3]+contact[1:3];
-            wrench[4:6]:=wrench[4:6]+cross(arm,contact[1:3]);
-          end if;
-        end for;
-      end for;
-    end if;
+    // Project the local bounds of the hull and pilothouse into vertical ENU.
+    lowest:=pos[3]-3.81*abs(rotation[3,1])-1.36*abs(rotation[3,2])+
+      min(-.80*rotation[3,3],2.18*rotation[3,3]);
+    if Shore.clearOfShore(pos[1],pos[2],lowest,4.5) then return;end if;
+    for site in 1:size(sites,1) loop
+      arm:=rotation*sites[site,1:3];
+      point:=pos+{cy*arm[1]-sy*arm[2],sy*arm[1]+cy*arm[2],arm[3]};
+      if not Shore.clearOfShore(point[1],point[2],point[3],0) then
+        contact:=Shore.skinContact(point,cy,sy,velocity+cross(spin,arm),sites[site,4]);
+        wrench[1:3]:=wrench[1:3]+contact[1:3];
+        wrench[4:6]:=wrench[4:6]+cross(arm,contact[1:3]);
+      end if;
+    end for;
   end hullContact;
   final parameter Real stripArea[6]={(cruiserStations[j+1]-cruiserStations[j])*(halfStripBeam[j]+halfStripBeam[j+1]) for j in 1:6};
   final parameter Real stripX[6]={.5*(cruiserStations[j]+cruiserStations[j+1]) for j in 1:6};
@@ -183,7 +198,7 @@ model OceanMotorboat "Single inboard cabin cruiser with a shaft propeller and ru
   output Real driveGeometry[11] "Wheel diameter [m], P/D, center [m], shaft slope [rad], rudder stock [m], chord and span [m]";
   discrete output Real peerForce[3](each start=0,each fixed=true),peerContact[4](each start=0,each fixed=true);
   discrete output Real sceneForce[3](each start=0,each fixed=true),sceneContact[6](each start=0,each fixed=true),committeeReaction[3](each start=0,each fixed=true);
-  output Real shoreWrench[6] "Terrain force and moment in level heading axes";
+  discrete output Real shoreWrench[6](each start=0,each fixed=true) "Terrain force and moment in level heading axes";
 initial equation
   z=boatWater.tide;
 equation
@@ -318,9 +333,12 @@ equation
   damagePanels=encounter.bodyPoints;
   encounterHealth=encounter.victimHealth;
   boatDamage={encounter.hullHealth,encounter.waterMass,encounter.sinkState};
-  shoreWrench=hullContact(focus,cos(yaw),sin(yaw),rotation,
+  // A 100 Hz contact sample resolves the compliant bed independently of solver stages.
+  when sample(0,.01) then
+    shoreWrench=hullContact(focus,cos(yaw),sin(yaw),rotation,
     {surge+cos(yaw)*boatWater.profile[1,2]+sin(yaw)*boatWater.profile[1,3],
-    sway-sin(yaw)*boatWater.profile[1,2]+cos(yaw)*boatWater.profile[1,3],vertical},spin,cruiserShellVertices,cruiserShellFaces);
+    sway-sin(yaw)*boatWater.profile[1,2]+cos(yaw)*boatWater.profile[1,3],vertical},spin,contactSites);
+  end when;
   when sample(0,.02) then
     (peerForce,peerContact)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},traffic,2,{roll,pitch},trafficTilt);
     (sceneForce,sceneContact,committeeReaction)=Sailboat.contactWrench({east,north,yaw,der(east),der(north),yawRate,z},
