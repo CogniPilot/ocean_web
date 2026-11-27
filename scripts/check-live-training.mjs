@@ -16,6 +16,10 @@ async function run(task,lanes,checkpoint){
   let firstRound;
   await trainLivePolicy({task:task.id,lanes,rounds:1,checkpoint,backend:'cpu',physics:'cpu',seed:19450727,
     initialization:checkpoint?'current':task.pretrained?'pretrained':'scratch'},message=>{
+    if(message.type==='frames'&&task.rigPose){
+      assert.equal(message.rig.length,message.frames.length);
+      assert(message.rig.every(row=>row.length>0&&row.every(Number.isFinite)),task.id+' rig per lane');
+    }
     if(message.type==='frames'&&message.phase==='exploration'&&message.tick%message.total===0)firstPoses.push(...message.frames);
     if(message.type==='progress'){
       const best=validateTrainingCheckpoint(task,message.checkpoint);

@@ -17,15 +17,18 @@ export function trainingDeviceFor(capabilities,name){
   if(!capabilities?.plants?.includes(name))return undefined;
   return capabilities.byPlant?.[name]??(capabilities.plants.length===1?capabilities:undefined);
 }
-export async function trainingDevices(){
-  const devices={plants:[],byPlant:{},errors:{},activePlants:[]};
+export async function trainingDevices(plant){
+  const devices={plants:[],byPlant:{},errors:{},activePlants:[],local:false};
   try{
-    const response=await fetch('/api/training/capabilities',{cache:'no-store'});
+    const suffix=plant?'?plant='+encodeURIComponent(plant):'';
+    const response=await fetch('/api/training/capabilities'+suffix,{cache:'no-store'});
     if(!response.ok||!response.headers.get('content-type')?.includes('application/json'))return devices;
     const info=await response.json();
+    if(!Array.isArray(info.plants))return devices;
+    devices.local=true;
     Object.assign(devices.errors,info.errors);
     devices.activePlants=info.activePlants??[];
-    for(const result of await Promise.all((info.plants??[]).map(async name=>{
+    for(const result of await Promise.all(info.plants.filter(name=>!plant||name===plant).map(async name=>{
       const device=trainingDeviceFor(info,name);
       try{
         if(!device||!Number.isSafeInteger(device.maxCount)||device.maxCount<1)throw Error('CUDA capacity unavailable');

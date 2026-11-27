@@ -1,7 +1,10 @@
+import {requestTrainingAdapter} from './diver-training-update.mjs';
 import {trainingChart} from './training-chart.mjs';
 import {trainingPaths} from './model-training-paths.mjs';
 import {trainingDevices,trainingDeviceFor,releaseTrainingDevice} from './training-physics.mjs';
 import {trainingTasks,getTrainingTask,validateTrainingCheckpoint,getAppliedPolicy,setAppliedPolicy} from './live-training-tasks.mjs';
+
+let openedLinkedTask=false;
 
 export function modelTraining(signal,openDiver){
   const element=suffix=>document.getElementById('modelTraining'+suffix);
@@ -12,7 +15,8 @@ export function modelTraining(signal,openDiver){
   const plots=element('Plots'),chart=element('Chart'),focus=element('Focus');
   const paths=trainingPaths(element('Paths'),focus);
   const reward=trainingChart(element('Reward'),new Map([['score','#f9bd7c'],['candidate','#76ddcf']]));
-  const checkpoints=new Map(),controls=[model,init,physics,backend,lanes,load];
+  const refresh=element('Refresh'),local=element('Local');
+  const checkpoints=new Map(),controls=[model,init,physics,backend,lanes,load,refresh];
   const on=(target,event,fn)=>target.addEventListener(event,fn,{signal});
   const option=(select,value)=>select.querySelector('[value="'+value+'"]');
   const selected=()=>getTrainingTask(model.value);
@@ -21,15 +25,46 @@ export function modelTraining(signal,openDiver){
   for(const menu of [model,diverModel])menu.replaceChildren(...entries.map(task=>new Option(task.label,task.id)));
   diverModel.value='diver';
   let devices={},devicesPending=true,gpuAvailable=false,gpuPending=true;
-  let worker,sessionId,stopTimer,stopping=false,probe=0,backendSummary='';
+  const linkedTask=openedLinkedTask?null:new URLSearchParams(location.search).get('training');
+  let preferredPhysics=linkedTask?'cuda':physics.value,preferredBackend=linkedTask?'gpu':backend.value;
+  let worker,sessionId,stopTimer,stopping=false,probe=0,adapterProbe=0,backendSummary='';
+
+  const viewport=element('Viewport'),viewStatus=element('ViewStatus');
+  let fleet,viewPending=false,viewGeneration=0,latestFrame;
+  function closeView(){
+    ++viewGeneration;viewPending=false;latestFrame=null;
+    fleet?.dispose();fleet=null;viewport.hidden=true;viewStatus.textContent='';
+  }
+  async function showFleet(data){
+    if(!dialog.open)return;
+    const task=selected();
+    latestFrame=data;
+    if(fleet){fleet.frames(data);return;}
+    if(viewPending)return;
+    const generation=viewGeneration;viewPending=true;viewport.hidden=false;
+    viewStatus.textContent='Loading '+task.label+' model…';
+    try{
+      const {trainingFleetView}=await import('./training-fleet-view.mjs');
+      if(viewGeneration!==generation)return;
+      const view=await trainingFleetView(element('Fleet'),task.id);
+      if(viewGeneration!==generation){view.dispose();return;}
+      fleet=view;fleet.frames(latestFrame);fleet.focus(Number(focus.value));
+      viewStatus.textContent='';
+    }catch(error){if(viewGeneration===generation)viewStatus.textContent='Live view unavailable · '+error.message;}
+  }
+  on(element('ZoomIn'),'click',()=>fleet?.magnify(.78));
+  on(element('ZoomOut'),'click',()=>fleet?.magnify(1/.78));
 
   function limits(){
     const task=selected(),device=trainingDeviceFor(devices,task.plant);
-    option(physics,'cuda').disabled=!device;
-    if(!device)physics.value='cpu';
-    option(backend,'gpu').disabled=!gpuAvailable;
-    if(!gpuAvailable)backend.value='cpu';
-    const maximum=physics.value==='cuda'?device.maxCount:256;
+    if(!worker){
+      option(physics,'cuda').disabled=!device;
+      physics.value=device?preferredPhysics:'cpu';
+      option(backend,'gpu').disabled=!gpuAvailable;
+      backend.value=gpuAvailable?preferredBackend:'cpu';
+      run.disabled=(preferredPhysics==='cuda'&&devicesPending)||(preferredBackend==='gpu'&&gpuPending);
+    }
+    const maximum=physics.value==='cuda'?(device?.maxCount??Number(count.max)):256;
     count.max=maximum;
     for(const choice of lanes.options)if(Number(choice.value)>0)choice.disabled=Number(choice.value)>maximum;
     if(lanes.selectedOptions[0]?.disabled)lanes.value='auto';
@@ -37,14 +72,31 @@ export function modelTraining(signal,openDiver){
     element('CountLabel').hidden=lanes.value!=='manual';
     const availability=[];
     if(devicesPending)availability.push('Checking CUDA…');
+    else if(!devices.local)availability.push('CUDA physics uses the training service on your computer');
     else if(!device)availability.push('CUDA unavailable for '+task.plant+(devices.errors?.[task.plant]?' · '+devices.errors[task.plant]:''));
     else{
       const capacity=device.busy?'GPU in use · last measured capacity '+device.maxCount:'up to '+device.maxCount;
       availability.push('CUDA · '+(device.device??task.plant)+' · '+capacity+' instances');
     }
     if(gpuPending)availability.push('Checking WebGPU…');
-    else if(!gpuAvailable)availability.push('WebGPU unavailable');
+    else availability.push(gpuAvailable?'WebGPU policy updates available':'WebGPU unavailable');
+    element('LocalLinks').hidden=devicesPending||Boolean(devices.local);
+    local.href='http://127.0.0.1:18588/?training='+encodeURIComponent(task.id);
     element('Availability').textContent=availability.join(' · ');
+  }
+  async function checkPlant(){
+    const ticket=++probe;
+    devicesPending=true;limits();
+    const result=await trainingDevices(selected().plant);
+    if(ticket!==probe||!dialog.open||signal.aborted)return;
+    devices=result;devicesPending=false;limits();
+  }
+  async function checkAdapter(){
+    const ticket=++adapterProbe;
+    gpuPending=true;limits();
+    const adapter=await requestTrainingAdapter();
+    if(ticket!==adapterProbe||!dialog.open||signal.aborted)return;
+    gpuAvailable=Boolean(adapter);gpuPending=false;limits();
   }
   function showCheckpoint(){
     const applied=getAppliedPolicy(model.value);
@@ -61,7 +113,7 @@ export function modelTraining(signal,openDiver){
   }
   function clearPlots(){
     plots.hidden=chart.hidden=progress.hidden=true;
-    step.textContent=metrics.textContent='';paths.clear();reward.clear();
+    closeView();step.textContent=metrics.textContent='';paths.clear();reward.clear();
   }
   function selectTask(){
     const task=selected();
@@ -69,7 +121,7 @@ export function modelTraining(signal,openDiver){
     option(init,'pretrained').disabled=!task.pretrained;
     init.value=checkpoints.has(task.id)?'current':task.pretrained?'pretrained':'scratch';
     element('Objective').textContent=task.summary??'';
-    status.textContent='Ready';limits();
+    status.textContent='Ready';void checkPlant();
   }
   function finish(message){
     clearTimeout(stopTimer);worker?.terminate();worker=null;
@@ -109,7 +161,7 @@ export function modelTraining(signal,openDiver){
         }
         case 'frames':
           if(backendSummary&&status.textContent!==backendSummary)status.textContent=backendSummary;
-          plots.hidden=false;paths.add(data);
+          plots.hidden=false;paths.add(data);void showFleet(data);
           step.textContent='Round '+data.round+' · '+data.phase+' · step '+data.tick+' / '+data.total;
           if(data.total>0){progress.hidden=false;progress.max=data.total;progress.value=data.tick;}
           break;
@@ -144,8 +196,11 @@ export function modelTraining(signal,openDiver){
     diverModel.value='diver';document.getElementById('diverTraining').close();
     open(task);
   });
-  on(physics,'change',limits);on(lanes,'change',limits);
-  on(focus,'change',paths.draw);
+  on(physics,'change',()=>{preferredPhysics=physics.value;limits();});
+  on(backend,'change',()=>{preferredBackend=backend.value;limits();});
+  on(lanes,'change',limits);
+  on(refresh,'click',()=>{void checkPlant();void checkAdapter();});
+  on(focus,'change',()=>{paths.draw();fleet?.focus(Number(focus.value));});
   on(load,'click',()=>file.click());
   on(file,'change',async()=>{
     const source=file.files[0];file.value='';
@@ -178,10 +233,10 @@ export function modelTraining(signal,openDiver){
   const observer=new ResizeObserver(()=>{paths.draw();reward.draw();});observer.observe(plots);
   on(element('Close'),'click',()=>dialog.close());
   for(const name of ['keydown','keyup'])on(dialog,name,event=>event.stopPropagation());
-  on(dialog,'close',()=>{if(!dialog.open){probe++;stop();}});
+  on(dialog,'close',()=>{if(!dialog.open){probe++;stop();closeView();}});
   on(window,'pagehide',()=>{if(worker)finish('Training stopped');});
   signal.addEventListener('abort',()=>{
-    probe++;observer.disconnect();if(worker)finish('Training stopped');if(dialog.open)dialog.close();
+    probe++;observer.disconnect();closeView();if(worker)finish('Training stopped');if(dialog.open)dialog.close();
   },{once:true});
 
   function open(vehicle){
@@ -192,16 +247,11 @@ export function modelTraining(signal,openDiver){
     if(worker)return;
     const suggested=({hobie:'hobie16',sloop:'sailboat',sub:'submarine'})[vehicle]??vehicle;
     if(trainingTasks.some(task=>task.id===suggested))model.value=suggested;
-    devicesPending=gpuPending=true;selectTask();
-    const ticket=++probe;
-    trainingDevices().then(result=>{
-      if(ticket!==probe)return;
-      devices=result;devicesPending=false;limits();
-    });
-    Promise.resolve(navigator.gpu?.requestAdapter({powerPreference:'high-performance'})).catch(()=>null).then(adapter=>{
-      if(ticket!==probe)return;
-      gpuAvailable=Boolean(adapter);gpuPending=false;limits();
-    });
+    gpuPending=true;selectTask();void checkAdapter();
   }
+  if(trainingTasks.some(task=>task.id===linkedTask))queueMicrotask(()=>{
+    if(signal.aborted||openedLinkedTask)return;
+    openedLinkedTask=true;open(linkedTask);
+  });
   return {dialog,open};
 }

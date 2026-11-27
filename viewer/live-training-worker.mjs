@@ -77,12 +77,12 @@ export async function trainLivePolicy(request,send,active=()=>true){
         const group=specs.slice(wave*lanes,(wave+1)*lanes);
         const models=await physics.reset(group.map(({scenario})=>({...fixedInputs,...scenario.inputs})),task.outputs);
         const actors=group.map(({scenario,sign,noiseSeed},i)=>({
-          scenario,sign,noise:generator(noiseSeed),model:models[i],view:observation(models[i],task.outputs),history:[]
+          scenario,sign,noise:generator(noiseSeed),model:models[i],view:observation(models[i],task.outputs),history:[],visual:{}
         }));
         const frames=tick=>{
           const rows=actors.map(a=>task.pose(a.view,a.scenario));
           if(!rows.every(row=>row.length===6&&row.every(Number.isFinite)))throw Error('Invalid rollout pose for '+task.label);
-          publish('frames',{frames:rows,tick:wave*perWave+tick,total:waves*perWave,batchSeconds:models[0].time,round,phase,steps});
+          publish('frames',{frames:rows,rig:task.rigPose?actors.map(a=>task.rigPose(a.view,a.visual)):undefined,tick:wave*perWave+tick,total:waves*perWave,batchSeconds:models[0].time,round,phase,steps});
         };
         frames(0);
         let lastFrame=performance.now();

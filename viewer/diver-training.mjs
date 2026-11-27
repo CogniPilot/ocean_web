@@ -119,7 +119,7 @@ export function diverTraining(T,signal){
     option.textContent=swimmer?.weights()?'My swimmer':'Session policy';option.disabled=!current;
     if(current)init.value='current';else if(init.value==='current')init.value='pretrained';
     if(!navigator.gpu)backend.value='cpu';
-    trainingDevices().then(devices=>{
+    trainingDevices('ScubaDiver').then(devices=>{
       if(active.signal.aborted||worker)return;
       const device=trainingDeviceFor(devices,'ScubaDiver'),option=physics.querySelector('[value=cuda]');
       option.disabled=!device;deviceMaximum=device?.maxCount??0;physics.value=device?'cuda':'cpu';countLimit();

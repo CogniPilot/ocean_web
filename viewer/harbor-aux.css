@@ -120,6 +120,8 @@ body > header:has(#roomChat[open]:not([hidden])) {z-index:4}
 #modelTraining .model-fields :is(select,input){box-sizing:border-box;width:100%;min-width:0}
 #modelTrainingObjective{margin:12px 0;line-height:1.45}
 #modelTraining .model-actions{display:flex;gap:6px;flex-wrap:wrap}
+#modelTrainingLocalLinks{align-self:center}
+#modelTrainingLocalLinks a{color:#a4e4d9}
 #modelTrainingRun{background:#24545e;border-color:#a4e4d9}
 .model-progress{display:grid;gap:4px;background:#08232e;font:13px/1.5 ui-monospace,monospace;font-variant-numeric:tabular-nums}
 .model-progress output:empty{display:none}
@@ -137,3 +139,12 @@ body > header:has(#roomChat[open]:not([hidden])) {z-index:4}
 #modelTraining :is(button,select,input):disabled{opacity:.55;cursor:default}
 #modelTraining .trainingHead{position:sticky;top:0;z-index:1;background:#0b2935}
 #modelTrainingApplied{display:block;margin-top:8px}
+
+#modelTraining{width:min(1080px,100vw);max-height:100dvh}
+#modelTrainingViewport{position:relative;height:clamp(230px,47dvh,580px);overflow:hidden;background:#abcbd8}
+#modelTrainingFleet{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab}
+#modelTrainingFleet:active{cursor:grabbing}
+#modelTrainingViewStatus:not(:empty){position:absolute;background:#0b2935e8;color:white;border-radius:4px;padding:3px 7px;font:13px ui-monospace,monospace;pointer-events:none}
+#modelTrainingViewStatus{left:10px;top:10px}
+.fleet-zoom{position:absolute;bottom:8px;right:8px;display:flex;gap:4px}
+#modelTraining .fleet-zoom button{min-width:38px;min-height:36px}

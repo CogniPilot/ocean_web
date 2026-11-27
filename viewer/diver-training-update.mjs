@@ -39,17 +39,24 @@ async function cpu(layout){
     }};
 }
 
-async function gpu(layout,onStage){
-  onStage('Connecting to WebGPU…');
-  let adapter;
-  if(globalThis.navigator?.gpu){
-    // A freshly started browser can still be bringing up its GPU process.
-    for(const delay of [0,250,750]){
-      if(delay)await new Promise(resolve=>setTimeout(resolve,delay));
-      adapter=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});
-      if(adapter)break;
+export async function requestTrainingAdapter(){
+  if(!globalThis.navigator?.gpu)return null;
+  // Chromium can return null or reject while its GPU process starts. Some
+  // devices expose an adapter only with the browser's default preference.
+  for(const delay of [0,250,750]){
+    if(delay)await new Promise(resolve=>setTimeout(resolve,delay));
+    for(const options of [{powerPreference:'high-performance'},{}]){
+      try{
+        const adapter=await navigator.gpu.requestAdapter(options);
+        if(adapter)return adapter;
+      }catch{}
     }
   }
+  return null;
+}
+async function gpu(layout,onStage){
+  onStage('Connecting to WebGPU…');
+  const adapter=await requestTrainingAdapter();
   if(!adapter)throw Error('WebGPU adapter unavailable. Select CPU training on this device.');
   const device=await adapter.requestDevice();
   let lost='';

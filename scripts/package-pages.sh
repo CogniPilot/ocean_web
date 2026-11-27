@@ -4,9 +4,10 @@ cd "$(dirname "$0")/.."
 out=${1:-build/pages}
 mkdir -p "$out"/{board,fmi3,vendor}
 cp viewer/{index.html,world-view.mjs,sailing-start.mjs,instrumentation.mjs,compass.mjs,sonar-map.mjs,imaging-sonar.mjs,vehicle.js,vehicle-assets.mjs,propulsion.js,sub-worker.mjs,sub-lamp.mjs,submarine.mjs,sailing-live.mjs,wave-worker.mjs,captains.mjs,fleet-numbers.mjs,fleet.mjs,deck-traffic.mjs,fleet-room.mjs,fleet-seat.mjs,fleet-directory.mjs,fleet-menu.mjs,npc-room.mjs,npc-vessels.mjs,npc-sailing-worker.mjs,npc-sailing-frame.mjs,npc-hobie-race.mjs,race-rules.mjs,wildlife-wake.mjs,marine-snow.mjs,water-spray.mjs,whale-effects.mjs,whale-camera.mjs,harbor-map.mjs,harbor-map-input.mjs,harbor-traffic.mjs,harbor-worker.mjs,feeding-harbor.mjs,gull.mjs,fish-finder.mjs,shark-inertia.mjs,shark-contact.mjs,shark-contact-data.mjs,cruiser-sonar.mjs,cruiser-sonar-view.mjs,cruiser-sonar-worker.mjs,cruiser-chart.mjs,motorboat.mjs,keyboard-sticks.mjs,fleet-timeline.mjs,fleet-sea-clock.mjs,drone.mjs,lap-board.mjs,regatta.mjs,inboard-audio.mjs,drone-audio.mjs,piccard-audio.mjs,render-layers.mjs,physics-view.mjs,collision-view.mjs,inertia-view.mjs,surface-collision-view.mjs,sub-collision-view.mjs,waterline.mjs,caustics.mjs,mast-camera.mjs,camera-cones.mjs,atmosphere.js,bow-grid.mjs,fauna.js,island-landscape.js,visuals.js} "$out/"
-cp viewer/model-training{,-paths}.mjs "$out/"
+cp viewer/model-training{,-paths}.mjs viewer/training-fleet-view.mjs viewer/training-model-rig.mjs viewer/onrt-ship.mjs "$out/"
 cp viewer/harbor-hud.{css,mjs} viewer/harbor-aux.css "$out/"
-cp viewer/{sail-training-tasks,sail-training-helm}.mjs "$out/"
+cp viewer/fmi3/HobieCoursePrediction.{json,mjs,wasm,fmu} "$out/fmi3/"
+cp viewer/{sail-training-tasks,sail-training-helm,hobie-race-policies}.mjs "$out/"
 cp viewer/{rig-selection,load-vectors,wildlife-loads}.mjs "$out/"
 cp viewer/onrt{,-propeller}.html viewer/onrt-{view,orbit,facility,materials,trial,worker,basin,playback,wake-display,propeller,volume,mesh,recording,shaft-loads}.mjs "$out/"
 for obsolete in wrecks.html wrecks.mjs wreck.js; do

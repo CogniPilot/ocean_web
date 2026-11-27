@@ -50,10 +50,13 @@ function probe(name,fresh=false){
   probeQueue=runner.pending.catch(()=>{});
   return runner.pending;
 }
-async function capabilities(){
+async function capabilities(plant=null){
   const byPlant=Object.create(null),errors=Object.create(null);
   const activePlants=[...new Set(Array.from(sessions.values(),session=>session.plant))];
-  for(const [name,runner] of runners){
+  const names=plant===null?runners.keys():[plant];
+  for(const name of names){
+    const runner=runners.get(name);
+    if(!runner)continue;
     try{
       // A capability probe reserves another device stack and heap. Leave the
       // running training allocation alone and report its last verified limits.
@@ -111,7 +114,7 @@ async function read(req,maxBytes=2_000_000){
   return JSON.parse(Buffer.concat(chunks).toString());
 }
 const server=http.createServer(async(req,res)=>{
-  const path=req.url.split('?')[0];
+  const [path,query]=req.url.split('?',2);
   if(!path.startsWith(prefix+'/')){
     const upstream=http.request({hostname:viewer.hostname,port:viewer.port||80,path:req.url,method:req.method,headers:{...req.headers,host:viewer.host}},r=>{
       res.writeHead(r.statusCode,r.headers);r.pipe(res);
@@ -123,7 +126,7 @@ const server=http.createServer(async(req,res)=>{
     const host=req.headers.host;
     if(!['127.0.0.1:'+port,'localhost:'+port].includes(host)||(req.headers.origin&&req.headers.origin!=='http://'+host))
       return reply(403,{error:'Local origin required'});
-    if(req.method==='GET'&&path===prefix+'/capabilities')return reply(200,await capabilities());
+    if(req.method==='GET'&&path===prefix+'/capabilities')return reply(200,await capabilities(new URLSearchParams(query).get('plant')));
     if(req.method==='POST'&&req.headers['content-type']!=='application/json')return reply(415,{error:'Expected JSON'});
     if(req.method==='POST'&&path===prefix+'/sessions'){
       const request=await read(req);if(!runners.has(request.plant))return reply(400,{error:'Unknown plant'});

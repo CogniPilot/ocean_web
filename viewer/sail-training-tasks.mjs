@@ -19,7 +19,8 @@ function sailingTask(id,label,plant,cat){
   return {id,label,plant,dt:.01,ticksPerDecision:80,
     summary:cat?"Sail the requested point of sail in changing wind conditions. Control the rudder, both sheets and travelers, luff and foot tension, and crew position.":"Sail the requested point of sail on either tack. Control the rudder, shared sheet winch and boom vang to make progress along the course.",
     actionNames:[...helm,...(cat?hobieTrims:['Boom vang'])],
-    featureNames:features,outputs:fields,
+    featureNames:features,outputs:[...fields,'trim','rudder'],
+    rigPose:model=>[...model.get('trim'),model.get('rudder')],
     scenario(draw){
       const side=draw()<.5?-1:1,pointOfSail=side*(45+135*draw())*rad;
       const from=2*Math.PI*draw(),speed=2+9*draw();
