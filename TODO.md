@@ -14,7 +14,7 @@ A checked item records the specific result described. Open items include partial
 - [ ] Resolve the remaining diver pitch and self-contact regression fixtures. Check anatomical limits, mesh/inertia alignment, neutral glide, hand and fin motion, BCD gas use, flashlight stow/equip and real-time rate on a phone.
 - [x] Replace the mobile Crew & trim buttons with five touch sliders. Verified crew fore–aft and port–starboard, jib sheet and both travelers take over their controls at a 390 px touch viewport.
 - [ ] Draw sail resultants near the working cloth, preserving any residual couple. Check the wrench under heel, during a tack and when forces cancel.
-- [ ] Correct the Hobie shock cord lead and model two-way contact between the independent forestay and the jib. Check both tacks and eased and tensioned halyards.
+- [x] Lead the Hobie shock cord forward and transfer contact forces between the jib panels and the forestay. Check both tacks with eased and tensioned halyards.
 - [ ] Use the same articulated shark surface for obstacle response and collision diagnostics. Verify glancing fin and midbody encounters.
 - [ ] Verify simultaneous steering and trim on a physical phone.
 - [x] Show production meshes and rollout poses for all ten general training tasks in the browser, alongside the existing diver view. Tested one CPU round for each general task.

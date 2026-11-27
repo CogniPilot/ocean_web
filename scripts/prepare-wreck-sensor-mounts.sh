@@ -3,7 +3,9 @@
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 cd "$root/.deps/marine-models"
+# Backport modelica_models PR #44 (6f9a0f3) until the next library pin.
 for patch in \
+  "$root/patches/marine-forestay-crossing.patch" \
   "$root/patches/marine-wreck-sensor-mounts.patch" \
   "$root/patches/marine-sonar-patch-width.patch" \
   "$root/patches/marine-wake-row-updates.patch" \

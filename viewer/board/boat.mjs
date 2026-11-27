@@ -435,6 +435,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
  let travelerCam,coilStart,coilEnd;
  const stayCables=[],chainplates=[];
  const jibTackZ=.87,jibTackX=2.26-(jibTackZ-.75)*1.82/5.1;
+ const cordEye=new T.Vector3(2.43,0,.65);
  const bridlePin=new T.Vector3(2.29,0,.65),jibTackPin=new T.Vector3(jibTackX,0,jibTackZ);
  let mastGeometry,mastRest,mastRestNormal,mastWeights,mastHeel,gooseneckSlider;
  const mastAxis=new T.Vector3(-Math.sin(.112),0,Math.cos(.112));
@@ -470,12 +471,12 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
    const length=cableChord.length();
    if(length<.001)return;
    // Interpolate the cable through the two pins and the Modelica sag point.
-   // The quadratic is straight under tension and smooth through the midpoint.
+   // The forestay follows the two finite segments used for sail contact.
    cableSag.copy(mid).sub(cableCenter.copy(anchor).lerp(head,.50));
    const isSidestay=index<2;
    const inset=terminationLength/length;
    for(let end=0;end<2;end++){
-     connectorAxis.copy(cableChord).addScaledVector(cableSag,end?-4:4).normalize();
+     connectorAxis.copy(cableChord).addScaledVector(cableSag,(isSidestay?4:2)*(end?-1:1)).normalize();
      if(end)connectorAxis.negate();
      connectorRotation.setFromUnitVectors(stayUp,connectorAxis);
      connectorPose.compose(end?head:anchor,connectorRotation,connectorScale);
@@ -484,8 +485,8 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
    }
    for(let i=0;i<cableRings;i++){
      const u=T.MathUtils.lerp(inset,1-inset,i/(cableRings-1));
-     cableCenter.copy(anchor).addScaledVector(cableChord,u).addScaledVector(cableSag,4*u*(1-u));
-     tangent.copy(cableChord).addScaledVector(cableSag,4*(1-2*u)).normalize();
+     cableCenter.copy(anchor).addScaledVector(cableChord,u).addScaledVector(cableSag,isSidestay?4*u*(1-u):2*Math.min(u,1-u));
+     tangent.copy(cableChord).addScaledVector(cableSag,isSidestay?4*(1-2*u):2*Math.sign(.5-u)).normalize();
      side.set(-tangent.y,tangent.x,0);
      if(side.lengthSq()<1e-10)side.set(1,0,0);
      else side.normalize();
@@ -519,8 +520,8 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
    upperBowAdjuster.visible=forestayShockCord.visible=hasTakeup;
    if(hasTakeup){
      positionAdjuster(upperBowAdjuster,tack,forestayPin);
-     connectorAxis.subVectors(forestayPin,bridlePin);
-     forestayShockCord.position.copy(bridlePin).lerp(forestayPin,.5);
+     connectorAxis.subVectors(forestayPin,cordEye);
+     forestayShockCord.position.copy(cordEye).lerp(forestayPin,.5);
      forestayShockCord.scale.y=connectorAxis.length();
      forestayShockCord.quaternion.setFromUnitVectors(stayUp,connectorAxis.normalize());
    }
@@ -761,6 +762,7 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
    group.add(lower,upper);sheetBlocks.push(lower,upper);
    lowerBowAdjuster=bowAdjuster('Jib tack adjuster',bridlePin.distanceTo(jibTackPin));
    upperBowAdjuster=bowAdjuster('Pivoting forestay adjuster',.20);
+   rod(bridlePin.toArray(),cordEye.toArray(),.006,stainless).name='Forward shock cord fairlead';
    forestayShockCord=rod([0,0,0],[0,1,0],.0033,
      new T.MeshStandardMaterial({name:'Braided rubber shock cord',color:0x373331,roughness:.91}));
    forestayShockCord.name='Forestay take-up shock cord';

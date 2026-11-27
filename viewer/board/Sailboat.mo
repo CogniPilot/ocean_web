@@ -315,7 +315,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     end for;
   end contactWrench;
   function forestayAdjusterPin "Quasistatic pin position of the second forestay adjuster"
-    input Real tack[3],head[3],cordAnchor[3],plateLength,wireLength,EA,wireLoad[3];
+    input Real tack[3],head[3],cordAnchor[3],plateLength,wireLength,EA,wireLoad[3],pinLoad[3];
     output Real pin[3];
   protected
     constant Real cordRest(unit="m")=.24;
@@ -339,12 +339,12 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       turn:=-s*axis+c*fold;
       cord:=lead-plateLength*plate;
       cordLength:=sqrt(cord*cord);
-      cordTorque:=cordStiffness*max(0,1-cordRest/cordLength)*(lead*turn);
+      cordTorque:=cordStiffness*max(0,1-cordRest/max(1e-9,cordLength))*(lead*turn);
       wire:=span*axis-plateLength*plate;
       chord:=sqrt(wire*wire);
       wire:=wire/chord;
       transverse:=wireLoad-wire*(wireLoad*wire);
-      axial:=max(1e-6,(cordTorque+.5*(transverse*turn))*chord/(span*s));
+      axial:=max(1e-6,(cordTorque+pinLoad*turn+.5*(transverse*turn))*chord/(span*s));
       tension:=sqrt(axial^2+.25*(transverse*transverse));
       straightLength:=wireLength*(1+tension/EA)*axial/tension;
       if chord>straightLength then hi:=s;else lo:=s;end if;
@@ -358,6 +358,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     input Real dt,EA,preload,entrainedMass,previousSag[4,3],previousSagRate[4,3],apparentAir[3],halyard;
     input Real rigGravityMoment[3],cordAnchor[3];
     input Boolean catamaran;
+    input Real forestayLoad[3,3](each unit="N");
     output Real lean[2],velocity[2],path[4,3,3],tension[4],lateralK[4],midSag[4,3],sagRate[4,3];
   protected
     constant Real adjusterLength(unit="m")=.20;
@@ -377,7 +378,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       rest:=if i==4 then L0+.055 else L0/(1+P/EA)+
         (if i==3 then .123*(.55-halyard)+.058*max(0,.55-halyard) else 0);
       weight:=.045*L0*.5*gravityBody;
-      force:=weight+(if i<=2 then clothReaction[min(i,2),:] elseif i==3 then jibLoad else zeros(3));
+      force:=weight+(if i<=2 then clothReaction[min(i,2),:] elseif i==3 then jibLoad else forestayLoad[2,:]);
       // Resolve wind load and inertia perpendicular to the local wire chord.
       // Once unloaded the wire can move freely until its available length is used.
       crossAir:=apparentAir-direction*(apparentAir*direction);
@@ -385,7 +386,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       force:=force+(if i<>3 then .25*1.225*1.15*.006*L0*sqrt(crossAir*crossAir)*crossAir else zeros(3));
       if catamaran and i==4 then
         rest:=rest-adjusterLength;
-        base:=forestayAdjusterPin(base,head,cordAnchor,adjusterLength,rest,EA,force);
+        base:=forestayAdjusterPin(base,head,cordAnchor,adjusterLength,rest,EA,force,forestayLoad[1,:]);
         direction:=head-base;L:=sqrt(direction*direction);direction:=direction/L;
       end if;
       dragK:=((if i<>3 then 1.85 else 8)+(wireMass+entrainedMass)/dt)/dt;
@@ -407,7 +408,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
       path[i,2,:]:=(head+base)/2+midSag[i,:];
       tension[i]:=EA*max(0,2*halfSpan/rest-1);
       q:=(path[i,2,:]-head)*tension[i]/halfSpan;
-      drive:=drive+q[1:2];
+      drive:=drive+q[1:2]+(if i==4 then forestayLoad[3,1:2] else zeros(2));
       lateralK[i]:=2*tension[i]/halfSpan+2*EA/rest*sag^2/halfSpan^2;
     end for;
     // First fore-aft and athwartship hounds sway mode. Backward damping
@@ -558,7 +559,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real stayEA(unit="N")=520000,shroudPreload(unit="N")=220;
   final parameter Real sideStayX=-.30;
   final parameter Real stayAnchors[3,3]=[sideStayX,1.02,.34;sideStayX,-1.02,.34;footX[2],0,footZ[2]];
-  final parameter Real forestayCordAnchor[3]={2.29,0,.65} "Bottom pin of the lower jib tack adjuster";
+  final parameter Real forestayCordAnchor[3]={2.43,0,.65} "Bow-facing take-up eye on the bridle plate, hull FLU [m]";
   final parameter Real tang[3]={mastStep[1]-(5.85-mastStep[3])*mainMastSlope,0,5.85};
   Real jibStation[6];
   input Real jibHalyardInput=.55 "Halyard adjustment from eased zero to hauled one";
@@ -668,7 +669,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real axisX[2]={-sin(mainMastRake),-jibLuffSlope/sqrt(1+jibLuffSlope^2)},
     axisZ[2]={cos(mainMastRake),1/sqrt(1+jibLuffSlope^2)};
   output Real sheetRotation[2,3,3] "Sail frame to hull frame";
-  SailMembrane cloth[2](each attachedAirflow=catamaran,telltaleCount={if catamaran then 3 else 2,2},
+  Real jibStayLocal[3,3](each unit="m"),forestayLoadBody[3,3](each unit="N");
+  SailMembrane cloth[2](hasForestay={false,catamaran},forestay={zeros(3,3),jibStayLocal},each attachedAirflow=catamaran,telltaleCount={if catamaran then 3 else 2,2},
     battenEI={{3.2,19.2},{1.6,3.0}},telltaleRows={if catamaran then {3,5,9} else {2,3,5},{2,4,5}},cutAngle={footCut,0},footInTrack={catamaran,false},each mastSupport=stayFraction,hasShrouds={true,false},battenCount={if catamaran then 8 else 0,if catamaran then 4 else 0},span=spans,foot=feet,rake={spans[1]*mainMastSlope,spans[2]*jibLuffSlope});
   discrete Integer jibContactSide(start=-1,fixed=true);
   Real jibContactAngle(unit="rad",start=-Modelica.Constants.pi/2,fixed=true);
@@ -683,7 +685,10 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real foilX[4]={0.06,-0.93,0,0},foilY[4]={0,0,0,0},foilArea[4]={0.115,0.044,0,0},aspect[4]={3.5,2.6,1,1};
   output Real sailForward[2], sailPort[2], buoyancy;
   parameter Real fixInterval=0.2, gpsVariance=0.16;
-  Real vane(start=0,fixed=true), vaneRate(start=0,fixed=true), cupSpeed(start=8,fixed=true);
+  Real vane, cupSpeed, vaneRate(start=0,fixed=true);
+  Real vaneTravel(start=0,fixed=true), cupSpeedChange(start=0,fixed=true);
+  discrete Real launchCupSpeed(start=0,fixed=true), launchVane(start=0,fixed=true);
+  discrete Boolean windInstrumentsStarted(start=false,fixed=true);
   Real gyro,magnetic,accelX,accelY,measuredWindE,measuredWindN;
   discrete Real fixE(start=-8,fixed=true),fixN(start=-7,fixed=true);
   discrete Real navE(start=-8,fixed=true),navN(start=-7,fixed=true),speedE(start=0,fixed=true),speedN(start=0,fixed=true);
@@ -908,6 +913,15 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   end hullPairHydrostatics;
 
 equation
+  // Sample the local flow on the first physics tick, after the gust and shadow
+  // fields initialize. Subsequent cup and vane motion uses the sensor dynamics.
+  when sample(0,.01) then
+    windInstrumentsStarted=true;
+    launchCupSpeed=if pre(windInstrumentsStarted) then pre(launchCupSpeed) else sqrt(awx^2+awy^2);
+    launchVane=if pre(windInstrumentsStarted) then pre(launchVane) elseif awx^2+awy^2>1e-12 then beta else 0;
+  end when;
+  cupSpeed=launchCupSpeed+cupSpeedChange;
+  vane=launchVane+vaneTravel;
   // Trampoline rail limits in hull coordinates, centred at the carriage mid-travel.
   waterFraction=min(1,max(0,(time-waterStamp)/.1));
   totalMass=mass+podMass;
@@ -997,9 +1011,9 @@ equation
   magnetic=heading+.015*sin(5.7*time);
   accelX=(fx+sum(foilAxial)+skinDrag)/mass+.025*sin(18*time);
   accelY=(fy+sum(foilSide)-80*sway*abs(sway)-40*sway)/mass+.028*cos(17*time);
-  der(vane)=vaneRate;
+  der(vaneTravel)=vaneRate;
   der(vaneRate)=64*sin(beta-vane)-12*vaneRate;
-  der(cupSpeed)=(sqrt(awx^2+awy^2)-cupSpeed)/0.32;
+  der(cupSpeedChange)=(sqrt(awx^2+awy^2)-cupSpeed)/0.32;
   measuredWindE=speedE-cupSpeed*cos(courseEstimate+vane);
   measuredWindN=speedN-cupSpeed*sin(courseEstimate+vane);
   when sample(0,fixInterval) then
@@ -1262,7 +1276,11 @@ equation
       -downhaulTension*luffTrackOffset*mastHeadSlope else 0)
     -mastLoadedStiffness*mastTip-2*mastDampingRatio*sqrt(mastModalMass*mastLoadedStiffness)*mastTipRate;
   mainMomentBody=sheetRotation[1,:,:]*cloth[1].fluidMoment;
-  jibWireLoad=.5*sheetRotation[2,:,:]*cloth[2].fluidForce;
+  for point in 1:3 loop
+    jibStayLocal[point,:]=transpose(sheetRotation[2,:,:])*(forestayPath[point,:]-stayAnchors[3,:]);
+    forestayLoadBody[point,:]=sheetRotation[2,:,:]*cloth[2].forestayReaction[point,:];
+  end for;
+  jibWireLoad=sheetRotation[2,:,:]*(.5*cloth[2].fluidForce+cloth[2].forestayLuffLoad);
   for wire in 1:2 loop
     contactBody[wire,:]=sheetRotation[1,:,:]*{0,cloth[1].wireReaction[wire],0};
   end for;
@@ -1282,7 +1300,7 @@ equation
     (tangLean,tangRate,standingPaths,standingTension,standingStiffness,midSag,midSagRate)=standingRig(stayAnchors,tang,
       pre(tangLean),pre(tangRate),if catamaran then pre(mainMomentBody) else zeros(3),
       if catamaran then pre(jibWireLoad) else zeros(3),pre(contactBody),transpose(rotation)*{0,0,-9.80665},.01,stayEA,shroudPreload,.5*sum(pre(rigWaterMass)),pre(midSag),pre(midSagRate),
-      transpose(rotation)*{awx,awy,-vertical},halyardSetting,pre(rigGravityMoment),forestayCordAnchor,catamaran);
+      transpose(rotation)*{awx,awy,-vertical},halyardSetting,pre(rigGravityMoment),forestayCordAnchor,catamaran,pre(forestayLoadBody));
   end when;
   mastStations[1,:]=mastStep;
   jibStation=cloth[2].rowLuff*spans[2]/(tang[3]-stayAnchors[3,3]);

@@ -51,8 +51,7 @@ console.log({shortestStrop});
 const headToWind = await loadInstance('Hobie16', {
   launchEast:-500, launchNorth:-500, launchHeading:0, launchSpeed:0, windEast:-5, manualHelm:1
 }, async url => new Response(await readFile(url)));
-assert.deepEqual(headToWind.get('forestayCordAnchor'), [2.29,0,.65],
-  'The shock cord terminates at the bridle pin of the lower adjuster');
+const cordEye=headToWind.get('forestayCordAnchor');
 function standingLoads(halyard, ticks) {
   headToWind.set('jibHalyardInput', halyard);
   for (let i=0; i<ticks; i++) headToWind.advance(.01);
@@ -65,16 +64,19 @@ function standingLoads(halyard, ticks) {
   const length = Math.hypot(...plate);
   const alignment = plate.reduce((dot,x,i) => dot+x*wire[i],0)/(length*Math.hypot(...wire));
   assert(Math.abs(length-.20)<1e-8, 'The pivoting adjuster stays rigid');
-  return {forestay,jib,rake,sag,alignment};
+  const bowPull=cordEye[0]-path[0];
+  assert(bowPull>0, 'Cord tension must pull the moving pin toward the bow');
+  return {forestay,jib,rake,sag,alignment,pinAhead:path[0]-stays[18]};
 }
 const sailingRig = standingLoads(.55, 300);
 const easedHalyard = standingLoads(0, 600);
 const hauledHalyard = standingLoads(.9, 400);
 assert(sailingRig.jib > sailingRig.forestay && sailingRig.sag < .18);
-assert(sailingRig.alignment < Math.cos(Math.PI/6), 'The cord folds the adjuster forward under light load');
+assert(sailingRig.pinAhead>0 && sailingRig.alignment < Math.cos(Math.PI/6), 'The cord folds the adjuster forward under light load');
 assert(easedHalyard.forestay > 25 && easedHalyard.forestay > easedHalyard.jib);
 assert(easedHalyard.sag < .08 && easedHalyard.rake > sailingRig.rake);
-assert(easedHalyard.alignment > Math.cos(Math.PI/36), 'The plate aligns with the loaded stay');
+assert(easedHalyard.alignment > .95 && easedHalyard.alignment>sailingRig.alignment,
+  'The loaded stay straightens the plate against the forward shock cord');
 assert(hauledHalyard.jib > 100 && hauledHalyard.forestay < 16 && hauledHalyard.rake < sailingRig.rake);
 console.log({sailingRig,easedHalyard,hauledHalyard});
 
@@ -94,4 +96,40 @@ for (const tack of [-1,1]) {
   }
   assert(separation > .18, 'The boom rotates independently of the spar');
   console.log({tack,separation,stop});
+}
+
+// The contact solver returns the reaction at each of the three stay points and
+// the opposite load at cloth vertices. Compare the sampled loads on both tacks.
+for(const tack of [-1,1]){
+  let strongest=0;
+  for(const halyard of [0,.9]){
+    const rig=await loadInstance('Hobie16',{launchEast:-500,launchNorth:-500,launchHeading:0,
+      launchSpeed:1.5,windEast:-4.5,windNorth:8*tack,manualHelm:1,jibHalyardInput:halyard,manualJibAssist:0},
+      async url=>new Response(await readFile(url)));
+    let separated=false;
+    try{
+      for(let tick=0;tick<340;tick++){
+        if(tick===180)rig.set('jibTrimInput',.9);
+        rig.advance(.01);
+        const [cloth,wire,body,rotation]=rig.getMany(['cloth[2].contactLoad','cloth[2].forestayReaction','forestayLoadBody','sheetRotation']);
+        const peak=Math.max(...wire.map(Math.abs));
+        strongest=Math.max(strongest,peak);
+        if(peak===0)separated=true;
+        for(let axis=0;axis<3;axis++){
+          let total=0;
+          for(let i=axis;i<cloth.length;i+=3)total+=cloth[i];
+          for(let i=axis;i<wire.length;i+=3)total+=wire[i];
+          assert(Math.abs(total)<1e-9,'wire and cloth contact forces balance');
+          for(let point=0;point<3;point++){
+            const index=point*3,row=9+axis*3;
+            const projected=rotation[row]*wire[index]+rotation[row+1]*wire[index+1]+rotation[row+2]*wire[index+2];
+            assert(Math.abs(projected-body[index+axis])<1e-9,'standing rig receives the rotated reaction at the correct wire point');
+          }
+        }
+      }
+    }finally{rig.close();}
+    assert(separated,'a clear wire exerts no contact force');
+  }
+  assert(strongest>.5,'the jib bears against the forestay on tack '+tack);
+  console.log({tack,peakForestayContactN:strongest});
 }
