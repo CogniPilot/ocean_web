@@ -42,7 +42,7 @@ mkdir -p "$library_root"
 ln -sfn "$root/Wreck" "$library_root/Wreck"
 roots=(--source-root "$root/.deps/msl" --source-root "$root/.deps/marine-models" --source-root "$library_root")
 status=0
-for model in OnrtWake OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot HobieCoursePrediction Rdd2Survey AirflowProbe CurrentProbe HerringGull FishSchool FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray MantaRay ScubaDiver HarborTraffic HullWake WakeSpectrum BowWavePatch MarineWind Regatta Wreck.Plant Wreck.Navigation Wreck.SurveySLAM Wreck.PiccardPositionHold; do
+for model in OnrtWake OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot HobieCoursePrediction Rdd2Survey AirflowProbe CurrentProbe HerringGull FishSchool FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray MantaRay ScubaDiver HarborTraffic MantaRayOpenWater ScubaDiverOpenWater HarborTrafficOpenWater HullWake WakeSpectrum BowWavePatch MarineWind Regatta Wreck.Plant Wreck.Navigation Wreck.SurveySLAM Wreck.PiccardPositionHold; do
   extra=()
   source=Wreck/package.mo
   if [[ $model == Hobie16 ]]; then source=viewer/board/Hobie16.mo; extra=(--source-root "$root/viewer/board/Shore.mo" --source-root "$root/viewer/board/Sailboat.mo" --source-root "$root/viewer/board/SailMembrane.mo" --source-root "$root/viewer/board/SailingTactics.mo"); fi
@@ -51,11 +51,12 @@ for model in OnrtWake OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFl
     source=viewer/board/HobieFleetPilot.mo
     for dep in Shore Sailboat SailMembrane Hobie16 RegattaBase Regatta SailingTactics BowWavePatch; do extra+=(--source-root "$root/viewer/board/$dep.mo"); done
   fi
+  base_model=${model%OpenWater}
   if [[ $model == FishSchool ]]; then source=viewer/board/FishSchool.mo; fi
-  if [[ $model == ScubaDiver ]]; then source=viewer/board/ScubaDiver.mo; extra=(--source-root "$root/viewer/board/DiverTree.mo" --source-root "$root/viewer/board/DiverHydrodynamics.mo"); fi
-  if [[ $model == MantaRay ]]; then source=viewer/board/MantaRay.mo; extra=(--source-root "$root/viewer/board/MantaContact.mo" --source-root "$root/viewer/board/MantaTree.mo"); fi
+  if [[ $base_model == ScubaDiver ]]; then source=viewer/board/ScubaDiver.mo; extra=(--source-root "$root/viewer/board/DiverTree.mo" --source-root "$root/viewer/board/DiverHydrodynamics.mo"); fi
+  if [[ $base_model == MantaRay ]]; then source=viewer/board/MantaRay.mo; extra=(--source-root "$root/viewer/board/MantaContact.mo" --source-root "$root/viewer/board/MantaTree.mo"); fi
   if [[ $model == HullWildlife ]]; then extra=(--source-root "$root/viewer/board/MantaContact.mo" --source-root "$root/viewer/board/SwimmerCollision.mo" --source-root "$root/viewer/board/WildlifeContact.mo"); fi
-  if [[ $model == HarborTraffic ]]; then extra=(--source-root "$root/viewer/board/MantaContact.mo" --source-root "$root/viewer/board/SwimmerCollision.mo" --source-root "$root/viewer/board/WildlifeContact.mo" --source-root "$root/viewer/board/WildlifeGuidance.mo" --source-root "$root/viewer/board/SwimmerSections.mo" --source-root "$root/viewer/board/GreatWhite.mo" --source-root "$root/viewer/board/Humpback.mo" --source-root "$root/viewer/board/Shore.mo"); fi
+  if [[ $base_model == HarborTraffic ]]; then extra=(--source-root "$root/viewer/board/MantaContact.mo" --source-root "$root/viewer/board/SwimmerCollision.mo" --source-root "$root/viewer/board/WildlifeContact.mo" --source-root "$root/viewer/board/WildlifeGuidance.mo" --source-root "$root/viewer/board/SwimmerSections.mo" --source-root "$root/viewer/board/GreatWhite.mo" --source-root "$root/viewer/board/Humpback.mo" --source-root "$root/viewer/board/Shore.mo"); fi
   if [[ $model == Regatta ]]; then extra=(--source-root "$root/viewer/board/RegattaBase.mo" --source-root "$root/viewer/board/BowWavePatch.mo" --source-root "$root/viewer/board/Shore.mo"); fi
   if [[ $model == OnrtWake ]]; then source=viewer/board/OnrtWake.mo; extra=(--source-root "$root/viewer/board/WakeSpectrum.mo"); fi
   if [[ $model == CurrentProbe || $model == OnrTumblehome || $model == HullWildlife || $model == HerringGull || $model == FeedingGround || $model == SwimmerWake || $model == SurfaceSpray || $model == WhaleSpray || $model == BowWavePatch || $model == WakeSpectrum || $model == HullWake || $model == MarineWind || $model == Regatta || $model == HarborTraffic || $model == Rdd2Survey ]]; then source="viewer/board/$model.mo"; fi
@@ -66,6 +67,10 @@ for model in OnrtWake OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFl
   if [[ $model == AirflowProbe ]]; then
     source=viewer/board/AirflowProbe.mo
     extra=(--source-root "$root/viewer/board/Sailboat.mo" --source-root "$root/viewer/board/Rdd2Survey.mo" --source-root "$root/viewer/board/Shore.mo")
+  fi
+  if [[ $model != "$base_model" ]]; then
+    source="viewer/board/$model.mo"
+    extra+=(--source-root "$root/viewer/board/$base_model.mo")
   fi
   "$compiler" compile "$source" -m "$model" "${roots[@]}" "${extra[@]}" --target fmi3 -o "build/fmi3/$model" || status=1
 done

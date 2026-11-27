@@ -29,7 +29,7 @@ async function train(request,id){
   let physics,experiment;
   try{
     stage(request.physics==='cuda'?'Initializing CUDA physics device…':'Loading WebAssembly physics model…');
-    physics=await trainingPhysics(request.physics??'cpu','ScubaDiver',id=>publish('deviceSession',{id}));
+    physics=await trainingPhysics(request.physics??'cpu','ScubaDiverOpenWater',id=>publish('deviceSession',{id}));
     if(!automatic&&lanes>physics.maxLanes)throw Error('Count exceeds the physics backend capacity of '+physics.maxLanes+'.');
     const response=await fetch(new URL(request.initialization==='pretrained'?'swim-pretrained.json':'swim-weights.json',policyDirectory));
     if(!response.ok)throw Error('Cannot load the initial diver policy.');

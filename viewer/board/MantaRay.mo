@@ -1,4 +1,5 @@
 model MantaRay "Mobuliform swimming, gliding and surface breaches in an ENU harbor"
+  parameter Boolean enableContacts=true "Resolve geometric contacts with the environment" annotation(Evaluate=true);
   parameter Real span(unit="m")=5.5,mass(unit="kg")=420,wingArea(unit="m2")=5.8;
   parameter Real fullSwimSpeed(unit="m/s")=3.5, sprintSwimSpeed(unit="m/s")=7;
   parameter Real routeCenter[2]={-12,24},routeRadii[2]={19,9};
@@ -141,7 +142,14 @@ equation
   waterFraction=.8*wet+.1*sum(localWet);
   activity={if glide and state[14]<.015 then 0 else wet*frequency,wingAngle,if glide then 1 else 0,waterFraction,if waterFraction<=.001 then 1 else 0,wingRate};
   when sample(0,.02) then
-    (avoidance,contacts,vesselWrench,contactHinge)=observe(state,wingJoints[1:2],wingJoints[3:4],craft,craftHull);
+    if enableContacts then
+      (avoidance,contacts,vesselWrench,contactHinge)=observe(state,wingJoints[1:2],wingJoints[3:4],craft,craftHull);
+    else
+      avoidance=zeros(4);
+      contacts=zeros(6);
+      vesselWrench=zeros(32,6);
+      contactHinge=zeros(2);
+    end if;
   end when;
   for i in 1:2 loop
     site[i,:]={0,(if i==1 then 1 else -1)*(.48+(wingArm-.48)*cos(wingJoints[i])),(wingArm-.48)*sin(wingJoints[i])};
@@ -199,7 +207,7 @@ equation
   normalDrag=.5*rho*1.9*u[3]*abs(u[3])*wet;
   rootWeight=transpose(R)*{0,0,bodyProperties[1,1]*g*(.986*wet-1)};
   bottom=state[3]-.38-1.20*abs(sin(state[8]));
-  ground=if bottom<bedHeight then max(0,7400*(bedHeight-bottom)-1800*state[6]) else 0;
+  ground=if enableContacts and bottom<bedHeight then max(0,7400*(bedHeight-bottom)-1800*state[6]) else 0;
   for i in 1:2 loop
     hingeLoss[i]=-45*localWet[i]*localStroke[i];
     wingPressureVelocity[i]=hingeLoss[i]/(wingArm-.48);
@@ -210,7 +218,7 @@ equation
     tipVelocity[i,:]=state[4:6]+R*(cross(omega,tip[i,:])+cross({(if i==1 then 1 else -1)*localStroke[i],0,0},
       tip[i,:]-{0,(if i==1 then .48 else -.48),0}));
     tipGap[i]=state[3]+R[3,:]*tip[i,:]-.17-bedHeight;
-    tipBed[i,:]=transpose(R)*{0,0,if tipGap[i]<0 then max(0,-2600*tipGap[i]-300*tipVelocity[i,3]) else 0};
+    tipBed[i,:]=transpose(R)*{0,0,if enableContacts and tipGap[i]<0 then max(0,-2600*tipGap[i]-300*tipVelocity[i,3]) else 0};
     foreMoment[i]=chordArm*(patchLoad[1,i]-patchLoad[2,i]);
     hingeLoad[i]=hingeTorque[i]+contactHinge[i]+(if i==1 then 1 else -1)*(
       cross(site[i,:]-{0,(if i==1 then .48 else -.48),0},wingForce[i,:])+

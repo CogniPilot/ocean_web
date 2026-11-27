@@ -1,4 +1,5 @@
 model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating hydrofoils"
+  parameter Boolean enableContacts=true "Resolve geometric contacts with the environment" annotation(Evaluate=true);
   // ENU metres, radians, seconds. Positive pitch raises the rostrum.
   parameter Real startState[18]={2,-18,-3,1.7,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   input Real boatLoad[3] "Hull reaction in forward and port axes, and yaw moment";
@@ -135,7 +136,11 @@ equation
   // the nearest rock face during an adaptive fluid-force substep otherwise
   // makes the integrator chase a discontinuous normal along facet boundaries.
   when sample(0,.005) then
-    ground=bottomContact(x);
+    if enableContacts then
+      ground=bottomContact(x);
+    else
+      ground={0,0,0,0,0,0,0,0,0,0,1e6};
+    end if;
   end when;
   // Depth pilot schedules quiet breathing and fluke-up dives; one energetic
   // run every four cycles. Targets drive fin incidence and muscle torque only.

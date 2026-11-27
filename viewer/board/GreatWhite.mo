@@ -1,4 +1,5 @@
 model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant caudal foil and paired pectorals"
+  parameter Boolean enableContacts=true "Resolve geometric contacts with the environment" annotation(Evaluate=true);
   parameter Real mass(unit="kg")=870, length(unit="m")=4.8;
   // BEGIN GLB MASS PROPERTIES
   parameter Real segments[6,10]=[
@@ -329,7 +330,11 @@ equation
   // cannot force arbitrarily small adaptive integration steps.
   lockedInertia=articulatedInertia(segments,pivots,mass/870,length/4.8,x[6],trunkRatio,recruit,x[8],if noEvent(directDrive>.5) then portAngle else finAngle,if noEvent(directDrive>.5) then starboardAngle else finAngle);
   when sample(0,.005) then
-    ground=groundContact({east,north,z},heading,x,length,bank,trunkFlex,finAngle,portAngle,starboardAngle,noEvent(directDrive>.5),Wreck.SharkSurface.vertices,Wreck.SharkSurface.faces);
+    if enableContacts then
+      ground=groundContact({east,north,z},heading,x,length,bank,trunkFlex,finAngle,portAngle,starboardAngle,noEvent(directDrive>.5),Wreck.SharkSurface.vertices,Wreck.SharkSurface.faces);
+    else
+      ground={0,0,0,0,0,0,1e6,0};
+    end if;
   end when;
   der(x[1])=(boatLoad[1]+ground[1]+cp*forward-sp*vertical)/mass+x[9]*x[10];
   der(x[2])=(ground[3]+sp*forward+cp*vertical)/mass+9.81*(.992*wet-1);

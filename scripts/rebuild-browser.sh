@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 stage=$(mktemp -d build/browser-release.XXXXXX)
 trap 'rm -rf -- "$stage"' EXIT
-for class in OnrtWake OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot HobieCoursePrediction Rdd2Survey AirflowProbe CurrentProbe HerringGull FishSchool FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray MantaRay ScubaDiver HarborTraffic HullWake WakeSpectrum BowWavePatch MarineWind Regatta Wreck.Plant Wreck.Navigation Wreck.SurveySLAM; do
+for class in OnrtWake OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot HobieCoursePrediction Rdd2Survey AirflowProbe CurrentProbe HerringGull FishSchool FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray MantaRay ScubaDiver HarborTraffic MantaRayOpenWater ScubaDiverOpenWater HarborTrafficOpenWater HullWake WakeSpectrum BowWavePatch MarineWind Regatta Wreck.Plant Wreck.Navigation Wreck.SurveySLAM; do
   model=${class//./_}
   output=build/fmi3/$class
   python3 scripts/browser-fmi3.py "$output/$model" "$stage"

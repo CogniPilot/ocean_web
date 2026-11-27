@@ -4,7 +4,7 @@ const angle=x=>Math.atan2(Math.sin(x),Math.cos(x));
 
 export const sharkTask={
   applicationHint:'Active while you pilot the shark in ordinary cruise as the wildlife host.',
-  id:'shark',label:'Great white shark',plant:'HarborTraffic',
+  id:'shark',label:'Great white shark',plant:'HarborTrafficOpenWater',
   summary:'Tune the deployed cruise controller against speed, turn, pitch and bank commands in changing currents.',
   featureNames:['Cruise coefficient'],actionNames:['Tail amplitude','Speed feedback','Hinge damping','Caudal feather','Tail steering','Pitch feedback','Pitch trim','Roll feedback','Stroke frequency','Cadence gain'],
   outputs:['state','fish','sharkTrunkFlex','sharkFin','whiteShark.portAngle','whiteShark.starboardAngle','sharkBankState','whiteShark.trackingReward'],dt:.01,ticksPerDecision:32,
@@ -56,7 +56,7 @@ function mantaForward(x,current){
 }
 export const mantaTask={
   applicationHint:'Active while you pilot the manta in ordinary cruise as the wildlife host.',
-  id:'manta',label:'Manta ray',plant:'MantaRay',
+  id:'manta',label:'Manta ray',plant:'MantaRayOpenWater',
   summary:'Learn bilateral pectoral stroke cadence, amplitude and twist for commanded swimming speed and attitude.',
   featureNames:['Bias','Speed command','Yaw command','Pitch command','Roll command','Forward speed','Yaw rate','Pitch','Roll','Pitch rate','Roll rate','Stroke sine','Stroke cosine'],
   actionNames:['Cadence','Amplitude','Camber','Twist','Asymmetric stroke'],outputs:['state','musclePower','wingJoints'],dt:.01,ticksPerDecision:26,
@@ -77,7 +77,7 @@ export const mantaTask={
 
 export const whaleTask={
   applicationHint:'Active while you pilot the whale in ordinary cruise as the wildlife host.',
-  id:'whale',label:'Humpback whale',plant:'HarborTraffic',
+  id:'whale',label:'Humpback whale',plant:'HarborTrafficOpenWater',
   summary:'Track cruise, turn, pitch and bank commands with five independent fin, fluke and sculling controls.',
   featureNames:['Bias','Speed command','Turn command','Pitch command','Bank command','Forward speed','Yaw rate','Pitch','Bank','Pitch rate','Roll rate','Stroke sine','Stroke cosine'],
   actionNames:['Port fin','Starboard fin','Peduncle','Fluke feather','Lateral scull'],outputs:['swimmerState','tailPower'],dt:.01,ticksPerDecision:28,

@@ -1,4 +1,5 @@
 model HarborTraffic "Shared background swimmers, sailing pilot and camera drone in ENU metres"
+  parameter Boolean enableContacts=true "Resolve geometric contacts with the environment" annotation(Evaluate=true);
   // The authority transfers the full state vector when it hands over the room.
   parameter Real initialState[17]={0,-28,6,0,2,-25,2,6,0,9,-12,-4,0,-.06,0,0,0};
   input Real wind[2]={0,11};
@@ -32,7 +33,7 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   parameter Real initialFish[10]={1.65,0,0,0,0,0,0,0,0,0};
   output Real sharkTrunkFlex "Anterior trunk flexion in radians";
   parameter Real initialSharkBank[2]={0,0};
-  GreatWhite whiteShark(startState=initialFish,startBank=initialSharkBank,directDrive=sharkDirect,actuators=sharkActuators,
+  GreatWhite whiteShark(enableContacts=enableContacts,startState=initialFish,startBank=initialSharkBank,directDrive=sharkDirect,actuators=sharkActuators,
     swimWeights=sharkPolicyWeights,swimCommand={sharkPilot[3],sharkTurn,sharkPilot[2],sharkBank});
   output Real fish[10],sharkTailForce,sharkTailPower,sharkFin;
   output Real sharkBankState[2] "Roll and roll rate";
@@ -74,7 +75,7 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   parameter Real initialSwimmer[18]={2,-18,-3,1.7,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   input Real whaleWater[3]=zeros(3),sharkWater[3]=zeros(3) "Local field available, east, north (m/s) at each swimmer";
   input Real localSurface=0,currentVelocity[2]={0,0},strokeGain=1;
-  Humpback swimmer(startState=initialSwimmer);
+  Humpback swimmer(enableContacts=enableContacts,startState=initialSwimmer);
   Real whaleJoints[4];
   output Real swimmerState[18],wetSections[6,3],tailForce,tailPower;
   input Real droneSubject=0 "0 alternates, 1 follows the Hobie, 2 follows the whale";
@@ -92,13 +93,18 @@ equation
   whaleJoints={swimmer.x[8]-swimmer.x[6],swimmer.x[16],swimmer.x[17],swimmer.x[18]};
   whaleShapeFrames=SwimmerCollision.whale(whaleJoints[1],whaleJoints[2],whaleJoints[3],whaleJoints[4]);
   when sample(0,.025) then
-    npcContact=WildlifeContact(zeros(2,6),{state[2],state[3],waterLevel+.18,state[17],0,state[4]},
-      {state[5]*cos(state[4])-state[15]*sin(state[4]),state[5]*sin(state[4])+state[15]*cos(state[4]),.58*sin(steer-state[4])},
-      265,5.04,.18,1.02,.25,npcTraffic,npcArticulation);
-    hullReaction=vesselReactions({1,swimmer.x[1],swimmer.x[2],swimmer.x[3],swimmer.x[10],swimmer.x[6],
-      swimmer.x[4]*cos(swimmer.x[10])-swimmer.x[15]*sin(swimmer.x[10]),
-      swimmer.x[4]*sin(swimmer.x[10])+swimmer.x[15]*cos(swimmer.x[10]),swimmer.x[12]},
-      {2,state[10],state[11],state[12],state[13],fish[3],whiteShark.velocity[1],whiteShark.velocity[2],sharkBankState[1]},craft,craftHull,{whaleJoints,{sharkTrunkFlex,fish[6],fish[8],pre(sharkFin)}});
+    if enableContacts then
+      npcContact=WildlifeContact(zeros(2,6),{state[2],state[3],waterLevel+.18,state[17],0,state[4]},
+        {state[5]*cos(state[4])-state[15]*sin(state[4]),state[5]*sin(state[4])+state[15]*cos(state[4]),.58*sin(steer-state[4])},
+        265,5.04,.18,1.02,.25,npcTraffic,npcArticulation);
+      hullReaction=vesselReactions({1,swimmer.x[1],swimmer.x[2],swimmer.x[3],swimmer.x[10],swimmer.x[6],
+        swimmer.x[4]*cos(swimmer.x[10])-swimmer.x[15]*sin(swimmer.x[10]),
+        swimmer.x[4]*sin(swimmer.x[10])+swimmer.x[15]*cos(swimmer.x[10]),swimmer.x[12]},
+        {2,state[10],state[11],state[12],state[13],fish[3],whiteShark.velocity[1],whiteShark.velocity[2],sharkBankState[1]},craft,craftHull,{whaleJoints,{sharkTrunkFlex,fish[6],fish[8],pre(sharkFin)}});
+    else
+      npcContact=zeros(6);
+      hullReaction=zeros(2,3);
+    end if;
   end when;
   swimmer.boatLoad=hullReaction[1,:];whiteShark.boatLoad=hullReaction[2,:];
   der(state[1])=1;

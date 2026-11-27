@@ -1,7 +1,7 @@
 // Adapt the diver's full skeletal frames to the common model training view.
 import {trainingReplay} from './training-replay.mjs';
 
-export const diverTask={id:'diver',label:'Scuba diver',plant:'ScubaDiver',pretrained:true,
+export const diverTask={id:'diver',label:'Scuba diver',plant:'ScubaDiverOpenWater',pretrained:true,
   summary:'Train the swimmer to follow translation and attitude commands while maintaining trim.'};
 
 export function diverCheckpoint(record){
