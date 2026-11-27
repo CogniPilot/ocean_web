@@ -173,8 +173,8 @@ vec4 skyRadiance(vec3 d){
  return vec4(mix(fair,base*(.45+.55*day),storm),(1.-clouds*.81)*(1.-storm));
 }
 `;
-// Cruiser foam is an advected scalar field painted onto the water surface.
-function cruiserSternFoam(uniforms){
+// Rasterize the disturbed stern water in current-relative coordinates.
+function sternFoamField(uniforms){
  const size=128,bytes=new Uint8Array(size*size*4);
  const map=new THREE.DataTexture(bytes,size,size);
  map.minFilter=map.magFilter=THREE.LinearFilter;
@@ -182,10 +182,10 @@ function cruiserSternFoam(uniforms){
  uniforms.sternFoamMap={value:map};uniforms.sternFoamRegion={value:region};
  const ramp=(x)=>{x=Math.min(1,Math.max(0,x));return x*x*(3-2*x);};
  function clear(){region.set(0,0,0,0);}
- function sample(trail){
+ function sample(...trails){
    const segments=[];
    let eastMin=Infinity,northMin=Infinity,eastMax=-Infinity,northMax=-Infinity;
-   for(let i=4;i<(trail?.length??0);i+=4){
+   for(const trail of trails)for(let i=4;i<(trail?.length??0);i+=4){
      const j=i-4,east=trail[j],north=trail[j+1];
      const opacityA=trail[j+2],opacityB=trail[i+2];
      if(opacityA<=0||opacityB<=0||Math.max(opacityA,opacityB)<.015)continue;
@@ -229,60 +229,19 @@ function cruiserSternFoam(uniforms){
  }
  return {sample,clear,dispose:()=>map.dispose()};
 }
-// Render the narrow sailboat trails over their past wet stern sections.
-function hullFoam(scene,uniforms,cruiserHullGLSL){
- const count=52,tracks=[[],[]],geometry=new THREE.BufferGeometry();
- const along=new Float32Array(2*count*2*3);
- const foam=new Float32Array(2*count*2*3);
- const indices=[];
- for(let h=0;h<2;h++)for(let row=0;row<count-1;row++){
-   const v=(h*count+row)*2;indices.push(v,v+1,v+2,v+1,v+3,v+2);
- }
- geometry.setAttribute('position',new THREE.BufferAttribute(along,3).setUsage(THREE.DynamicDrawUsage));
- geometry.setAttribute('foam',new THREE.BufferAttribute(foam,3).setUsage(THREE.DynamicDrawUsage));
- geometry.setIndex(indices);
- const material=new THREE.ShaderMaterial({uniforms,transparent:true,side:THREE.DoubleSide,depthWrite:false,
-   vertexShader:oceanHeightGLSL+`
-     attribute vec3 foam;
-     varying vec3 vFoam;
-     varying vec2 location;varying vec3 foamPoint;
-     void main(){
-       vec2 p=position.xy+spectrumDrift;
-       vFoam=foam;location=position.xy;
-       foamPoint=vec3(p,heightAt(p)+.018);
-       gl_Position=projectionMatrix*viewMatrix*vec4(foamPoint,1.);
-     }`,
-   fragmentShader:skyNoiseGLSL+cruiserHullGLSL+`
-     uniform float tm,under;
-     uniform vec3 sunDir;
-     varying vec3 vFoam;
-     varying vec2 location;varying vec3 foamPoint;
-     void main(){
-       float age=max(0.,tm-vFoam.y);
-       float grain=noise2(location*19.);
-       float edge=1.-smoothstep(.24,.83,abs(vFoam.x)+(grain-.5)*.37);
-       float breakup=smoothstep(.24,.64,noise2(location*5.)*.7+grain*.3);
-       float alpha=vFoam.z*edge*(.48+.52*breakup)*exp(-age*.43)*(1.-smoothstep(3.6,5.,age));
-       if(under>.5 || alpha<.015 || cruiserWaterExcluded(foamPoint))discard;
-       vec3 tint=mix(vec3(.18,.24,.29),vec3(.88,.94,.93),smoothstep(-.12,.22,sunDir.z));
-       gl_FragColor=vec4(tint,alpha);
-       #include <tonemapping_fragment>
-       #include <colorspace_fragment>
-     }`});
- const mesh=new THREE.Mesh(geometry,material);
- mesh.name='Hull foam trails';mesh.frustumCulled=false;mesh.visible=false;
- scene.add(mesh);
+// Each stern feeds an independent track. The water material samples both on its own displaced surface.
+function sailingFoam(uniforms,field){
+ const count=52,tracks=[[],[]],coverage=[new Float32Array(4*count),new Float32Array(4*count)];
  let stamp;
  function clear(){
    for(const track of tracks)track.length=0;
-   mesh.visible=false;stamp=undefined;
+   stamp=undefined;
  }
  function sample(strips,time,speed,cat){
    if(!strips||time===stamp)return;
    const drift=uniforms.spectrumDrift.value,dx=drift.x,dy=drift.y;
    if(stamp!==undefined&&(time<stamp||time-stamp>.26))clear();
    stamp=time;
-   let visible=false;
    for(let h=0;h<tracks.length;h++){
      const track=tracks[h],i=18*h;
      if(h===0||cat){
@@ -299,28 +258,20 @@ function hullFoam(scene,uniforms,cruiserHullGLSL){
        track.unshift([east-dx,north-dy,time,strength,breaking]);
        if(track.length>count)track.pop();
      }
-     for(let j=0;j<count;j++){
-       const p=track[Math.min(j,track.length-1)]??[0,0,0,0,0];
-       const before=track[Math.max(0,j-1)]??p,after=track[j+1]??p;
-       const ux=before[0]-after[0],uy=before[1]-after[1],length=Math.hypot(ux,uy);
-       const age=Math.max(0,time-p[2]);
-       const breaking=p[4];
-       const width=(cat?.16:.20)+.16*p[3]+.08*age
-         +breaking*(.28+.34*(1-Math.exp(-1.6*age)));
-       const strength=j<track.length&&length>.02?p[3]:0;
-       visible||=strength>.025;
-       for(let side=0;side<2;side++){
-         const k=(h*count+j)*6+3*side,sign=2*side-1;
-         const normal=sign*width/Math.max(.02,length);
-         along[k]=p[0]-uy*normal;along[k+1]=p[1]+ux*normal;
-         foam[k]=sign;foam[k+1]=p[2];foam[k+2]=strength;
-       }
+     const values=coverage[h];
+     for(let j=0;j<track.length;j++){
+       const [east,north,born,strength,breaking]=track[j],age=Math.max(0,time-born);
+       const width=(cat?.16:.20)+.16*strength+.08*age+breaking*(.28+.34*(1-Math.exp(-1.6*age)));
+       const fade=Math.min(1,Math.max(0,(age-3.6)/1.4));
+       values[4*j]=east;values[4*j+1]=north;
+       values[4*j+2]=strength*Math.exp(-age*.43)*(1-fade*fade*(3-2*fade));
+       values[4*j+3]=width;
      }
    }
-   geometry.attributes.position.needsUpdate=geometry.attributes.foam.needsUpdate=true;
-   mesh.visible=visible;
+   field.sample(coverage[0].subarray(0,4*tracks[0].length),
+     coverage[1].subarray(0,cat?4*tracks[1].length:0));
  }
- return {mesh,clear,sample};
+ return {clear,sample};
 }
 // Mipmapped noise keeps subpixel foam bubbles from flashing in the distance.
 function makeFoamTexture(T){
@@ -633,7 +584,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  U.bowFoamSpacing={value:fineStep};
  U.bowFoamBounds={value:new THREE.Vector4(fineX,fineY,fineX+(fineColumns-1)*fineStep,fineY+(fineRows-1)*fineStep)};
  let spray;
- function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=U.bowFoamAvailable.value=0;trails?.clear();cruiserFoam?.clear();}
+ function clearWake(){if(U.hullSpectrumOnly.value)U.spectrumPeriod.value=0;swimmerWater.clear();spray?.clear();U.wakeAvailable.value=U.bowAvailable.value=U.bowFoamAvailable.value=0;trails?.clear();sternField.clear();}
  function displayedHeight(data,k,blend){
    const old=(data[k]<<8)+data[k+1],latest=(data[k+2]<<8)+data[k+3];
    return Math.round(old+blend*(latest-old));
@@ -1224,10 +1175,10 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  }`}));
  scene.add(water);
 
- const trails=cruiserSurface?null:hullFoam(scene,U,cruiserHullGLSL);
- const cruiserFoam=cruiserSurface?cruiserSternFoam(U):null,bowSprayArea=new Float64Array(4);
+ const sternField=sternFoamField(U),bowSprayArea=new Float64Array(4);
+ const trails=cruiserSurface?null:sailingFoam(U,sternField);
  function updateHullFoam(strips,time,speed,cat,cruiser=false,jets,frame,sternTrail){
-   if(cruiser)cruiserFoam?.sample(sternTrail);
+   if(cruiser)sternField.sample(sternTrail);
    else trails?.sample(strips,time,speed,cat);
    if(cat||(cruiser&&jets&&frame)){
      spray??=makeSpray(THREE,scene,'Bow spray',4,sampleSurface,{bow:true});
@@ -1331,10 +1282,9 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  function capture(renderer,camera,submergedScenery,terrain){
    camera.updateMatrixWorld();
    const oldBackground=scene.background,oldFog=scene.fog;
-   const foamMesh=trails?.mesh,foamVisible=foamMesh?.visible,sprayVisible=spray?.points.visible;
+   const sprayVisible=spray?.points.visible;
    if(spray)spray.points.visible=false;
    water.visible=false;dome.visible=false;scene.fog=null;
-   if(foamMesh)foamMesh.visible=false;
    {
      camera.getWorldDirection(mirrorLook).add(camera.position);
      mirrorCamera.copy(camera);
@@ -1393,7 +1343,6 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    }
    renderer.setRenderTarget(null);
    scene.fog=oldFog;scene.background=oldBackground;water.visible=true;dome.visible=true;
-   if(foamMesh)foamMesh.visible=foamVisible;
    if(spray)spray.points.visible=sprayVisible;
  }
  // Each submerged view has its own projection, including camera thumbnails.
@@ -1452,7 +1401,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    if(vertexSlope)water.material.defines.DISABLE_BOW_FIELD=1;
    if(mobileWater)water.material.defines.MOBILE_WATER=1;
    if(profile.skipCaptures)water.material.defines.SIMPLE_SURFACE=1;
-   if(profile.omitWake||!cruiserSurface)water.material.defines.DISABLE_STERN_FOAM=1;
+   if(profile.omitWake)water.material.defines.DISABLE_STERN_FOAM=1;
    water.material.needsUpdate=true;
    skyTarget.setSize(Math.round(512*profile.sky),Math.round(192*profile.sky));lastSky=-Infinity;
    if(profile.skipCaptures){reflectRT.dispose();throughRT.dispose();return;}
@@ -1467,7 +1416,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    baseThroughWidth=Math.max(320,width);baseThroughHeight=Math.max(200,height);
    throughRT.setSize(baseThroughWidth,baseThroughHeight);U.transmissionSize.value.set(baseThroughWidth,baseThroughHeight);
  }
- return {U,dome,water,renderThroughAir,updateWhitecaps:whitecaps.update,dispose(){airTargets.forEach(rt=>rt.dispose());whitecaps.dispose();U.foamTexture.value.dispose();cruiserFoam?.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
+ return {U,dome,water,renderThroughAir,updateWhitecaps:whitecaps.update,dispose(){airTargets.forEach(rt=>rt.dispose());whitecaps.dispose();U.foamTexture.value.dispose();sternField.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
 }
 
 // Low maritime cloud banks in world coordinates. Soft particles scatter light
