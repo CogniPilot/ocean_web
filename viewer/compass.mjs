@@ -62,7 +62,7 @@ export function drawDroneCompass(canvas,{yaw,wind},target){
 
 // Angles from the model are east-zero and counterclockwise. The sailing dial
 // is bow-up and clockwise, with zero at twelve o'clock.
-export function drawSailingDial(canvas,{heading,boatSpeed,trueWind,cupSpeed,vane,pointer,noGo,target}){
+export function drawSailingDial(canvas,{heading,boatSpeed,trueWind,cupSpeed,vane,pointer,noGo,target,detailed=false}){
   const ctx=canvas.getContext('2d');
   const centerX=51,centerY=48,r=39;
   const wrap=a=>Math.atan2(Math.sin(a),Math.cos(a));
@@ -106,7 +106,7 @@ export function drawSailingDial(canvas,{heading,boatSpeed,trueWind,cupSpeed,vane
       ctx.fillStyle=i===0?'#ffc46e':'#e2eff0';
       ctx.font='bold 10px monospace';
       const cardinal={0:'N',18:'E',36:'S',54:'W'}[i];
-      ctx.fillText(cardinal||String(i*5),(r-15)*Math.sin(a),-(r-15)*Math.cos(a));
+      if(cardinal||detailed)ctx.fillText(cardinal||String(i*5),(r-15)*Math.sin(a),-(r-15)*Math.cos(a));
     }
   }
   ctx.fillStyle='#fff';ctx.beginPath();ctx.moveTo(0,-r+2);
@@ -125,22 +125,25 @@ export function drawSailingDial(canvas,{heading,boatSpeed,trueWind,cupSpeed,vane
     ctx.fillStyle=color;ctx.font=font;ctx.textAlign=align;ctx.fillText(msg,x,y);
   }
   const knots=speed=>(speed*1.94384449).toFixed(1)+' kn';
-  text('SOG '+knots(boatSpeed),98,18,'#fff','bold 13px system-ui');
-  text('HDG '+compass(heading)+'T',271,18,'#e2eff0','bold 12px system-ui','right');
+  text('Boat speed  '+knots(boatSpeed),98,18,'#fff','bold 13px system-ui');
+  if(detailed)text(compass(heading)+'T',271,18,'#e2eff0','bold 12px system-ui','right');
   function windRow(label,speed,angle,y,selected){
     const degrees=angle===null?null:Math.round(Math.abs(angle)*180/Math.PI);
     const side=angle<0?'port':'starboard';
     const direction=degrees===null?'Calm':degrees===0?'Bow':degrees===180?'Aft':degrees+'° '+(angle<0?'P':'S');
     const color=selected?'#ffd091':'#c9dfe1';
-    text(label==='Apparent'?'App. wind':'True wind',98,y,color,'bold 12px system-ui');
-    text(knots(speed),219,y,color,'bold 12px system-ui','right');
-    text(direction,271,y,color,'bold 12px system-ui','right');
+    if(detailed||selected){
+      const row=detailed?y:46;
+      text(label+' wind',98,row,color,'bold 12px system-ui');
+      text(knots(speed),detailed?226:266,row,color,'bold 12px system-ui','right');
+      if(detailed)text(direction,271,row,color,'bold 12px system-ui','right');
+    }
     const from=degrees===null?'':degrees===0?' from the bow':degrees===180?' from astern':' from '+degrees+' degrees '+side;
     return label+' wind '+knots(speed)+from+'.';
   }
   const trueText=windRow('True',trueSpeed,sector,41,pointer==='true');
   const apparentText=windRow('Apparent',cupSpeed,apparentFrom,62,pointer==='apparent');
-  if(target)text(target.label+'  '+target.bearing+'  '+Math.round(target.range)+' m',98,84,targetColor,'bold 12px system-ui');
+  if(target)text(target.label+'  '+(detailed?target.bearing+'  ':'')+Math.round(target.range)+' m',98,84,targetColor,'bold 12px system-ui');
   const noGoText=sector===null?'':inside?' Heading inside the no-go sector.':' Heading clear of the no-go sector.';
   canvas.setAttribute('aria-label','Heading '+compass(heading)+' true. Speed over ground '+knots(boatSpeed)+'. '+trueText+' '+apparentText+noGoText+(target?' '+target.label+' bearing '+target.bearing+', '+Math.round(target.range)+' metres.':''));
 }
