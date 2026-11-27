@@ -94,7 +94,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
         const seaPitch=sea?0:-Math.atan((surface(east+dx,north+dy)-surface(east-dx,north-dy))*.5);
         const slot=index%plannerLimit;
         if(!groups.has(slot))groups.set(slot,[]);
-        groups.get(slot).push({id:entry.pilotId,raceStart,water:sea?.tide??surface(east,north),roll:seaRoll,pitch:seaPitch,wind:[wind.x,wind.y],
+        groups.get(slot).push({id:entry.pilotId,controller:row.controller??'vmg',weights:row.weights,raceStart,water:sea?.tide??surface(east,north),roll:seaRoll,pitch:seaPitch,wind:[wind.x,wind.y],
           initial:{...startGate,prevailing,lane,initialEast:east,initialNorth:north,initialHeading:yaw,initialSpeed:previous?.[4]??2.1,initialPenalty:previous?.[12]??0}});
         if(previous)contact(entry.pilotId,[1,east,north,previous[3],previous[5],previous[6],previous[7],previous[2],1],previous.slice(18,20));
       }else{

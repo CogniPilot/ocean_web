@@ -46,7 +46,7 @@ import * as fishBodies from './fish-body.mjs';
 import {baitfishMaterial} from './baitfish.mjs';
 import {fishObstacles} from './fish-obstacles.mjs';
 import {harborTraffic} from './harbor-traffic.mjs';
-import {divePacket,gullIndex,vesselNpcNames} from './npc-room.mjs';
+import {divePacket,gullIndex,vesselNpcNames,npcVesselLimit} from './npc-room.mjs';
 import {chooseVehicle} from './fleet-menu.mjs';
 import {validRoomName} from './vendor/names.js';
 import {publicRoom,publicChannel,observeDirectory} from './fleet-directory.mjs';
@@ -138,6 +138,7 @@ function joinRoomLink(url,room,fleet=1){
   url.searchParams.set('join','1');
   return url;
 }
+import {hobieControllers} from './hobie-race-policies.mjs';
 import {sailTrainingHelm} from './sail-training-helm.mjs';
 import {diverTraining} from './diver-training.mjs';
 import {modelTraining} from './model-training.mjs';
@@ -1590,14 +1591,21 @@ async function run(saved=readReset(),carried){
     const trim=()=>{
       const auto=$('autoTrim').checked;
       const x=$('ballX').valueAsNumber,y=$('ballY').valueAsNumber;
-      $('ballX').disabled=$('ballY').disabled=auto;
       $('ballXValue').value=auto?'Auto':positionText(x,'aft','forward');
       $('ballYValue').value=auto?'Auto':positionText(y,'starboard','port');
       model.set('ballastManual',Number(!auto));
       model.set('ballastCmdX',-x/100);
       model.set('ballastCmdY',-y/100);
     };
-    for(const id of ['autoTrim','ballX','ballY'])$(id).oninput=trim;
+    $('autoTrim').oninput=trim;
+    for(const id of ['ballX','ballY'])$(id).oninput=()=>{
+      if($('autoTrim').checked){
+        const other=id==='ballX'?'ballY':'ballX';
+        $(other).value=Math.round(-100*model.get(other==='ballX'?'ballastX':'ballastY'));
+        $('autoTrim').checked=false;
+      }
+      trim();
+    };
     trim();
     moveBallast=(code,gain)=>{
       const foreAft=$('ballX'),athwartships=$('ballY');
@@ -1616,7 +1624,6 @@ async function run(saved=readReset(),carried){
       const auto=$('autoDeck').checked;model.set('deckManual',Number(!auto));
       for(const [id,input] of [['mainCar','mainCarInput'],['jibCar','jibCarInput'],['jibSheet','jibTrimInput']]){
         const control=$(id),value=control.valueAsNumber;
-        control.disabled=auto;
         $(id+'Value').value=auto?'Auto':id==='jibCar'?value+' cm outboard':value+'% eased';
         model.set(input,value/100);
       }
@@ -1627,7 +1634,11 @@ async function run(saved=readReset(),carried){
       jib.value=Math.round(model.get('jibCar')*100);
       $('jibSheet').value=Math.round(model.get('jibSheet')*100);
     }
-    for(const id of ['mainCar','jibCar','jibSheet'])$(id).oninput=deck;
+    for(const id of ['mainCar','jibCar','jibSheet'])$(id).oninput=()=>{
+      const value=$(id).value;
+      if(autoDeck.checked){takeOverDeck();autoDeck.checked=false;$(id).value=value;}
+      deck();
+    };
     autoDeck.oninput=()=>{if(!autoDeck.checked)takeOverDeck();deck();};
     deck();
     moveTraveler=(code,gain=1)=>{
@@ -2132,7 +2143,7 @@ async function run(saved=readReset(),carried){
     for(const [i,row] of habitat.vessels.entries()){
       const id='npc-'+(i+1),status=npcTraffic?.raceStatus?.(id);
       const progress=status?.penalty?'Flag · '+turnCount(status.penalty)+(status.turnDegrees?' · '+Math.round(status.turnDegrees)+'°':''):status?.stage===5?`Finished ${lapClock(Math.round(status.lapTime*10))}`:npcStage[status?.stage];
-      npcs.push([remote.npcName(id),fleetModel(row.kind,id),hpFor(id)??progress]);
+      npcs.push([remote.npcName(id),fleetModel(row.kind,id)+(row.kind==='hobie'?' · '+hobieControllers[row.controller??'vmg']:''),hpFor(id)??progress]);
     }
     const rows=[...players,...npcs],signature=JSON.stringify(rows);
     if(signature===fleetSignature)return;
@@ -2207,7 +2218,7 @@ async function run(saved=readReset(),carried){
       option?.remove();
     }
     for(let i=0;i<rows.length;i++){
-      const id='npc-'+(i+1),name=vesselNpcNames[rows[i].kind]+' · '+remote.npcName(id);
+      const id='npc-'+(i+1),name=vesselNpcNames[rows[i].kind]+' · '+remote.npcName(id)+(rows[i].kind==='hobie'?' · '+hobieControllers[rows[i].controller??'vmg']:'');
       let option=menu.querySelector('[value="'+id+'"]');
       if(!option){option=new Option(name,id);menu.add(option);}
       else if(option.text!==name)option.text=name;
@@ -2217,7 +2228,8 @@ async function run(saved=readReset(),carried){
   }
   const npcDiveSites=fixedSpawnPoints('diver');
   for(const site of npcDiveSites)$('npcDiveSite').add(new Option(site.label,site.id));
-  const showNpcDiveSite=()=>{$('npcDiveSiteLabel').hidden=$('spawnKind').value!=='diver';};
+  for(const [id,label] of Object.entries(hobieControllers))$('npcController').add(new Option(label,id));
+  const showNpcDiveSite=()=>{$('spawnHobieRace').hidden=$('npcControllerLabel').hidden=$('spawnKind').value!=='hobie';$('npcDiveSiteLabel').hidden=$('spawnKind').value!=='diver';};
   $('spawnKind').onchange=showNpcDiveSite;showNpcDiveSite();
   $('diverMode').onchange=()=>{
     if(animalKind()==='diver'&&ownsAnimal()){
@@ -2231,11 +2243,24 @@ async function run(saved=readReset(),carried){
     const pendingStart=remote.npc.habitat.raceStart??0;
     const boundary=kind==='hobie'?(pendingStart>race.get('utc')?pendingStart:race.get('nextStart')):undefined;
     const site=kind==='diver'?npcDiveSites.find(p=>p.id===$('npcDiveSite').value):null;
-    const id=remote.npc.spawn(kind,remote.seaTime(world?.time??model.time,performance.now()),boundary,$('wind').valueAsNumber,site?entryPose(site).diverSpawn:undefined);
+    const id=remote.npc.spawn(kind,remote.seaTime(world?.time??model.time,performance.now()),boundary,$('wind').valueAsNumber,site?entryPose(site).diverSpawn:undefined,$('npcController').value,
+      kind==='hobie'&&$('npcController').value==='rl'?getAppliedPolicy('hobie16')?.weights:undefined);
     if(!id)return;
     if(id.startsWith('gull-'))syncGullViews();
     if(id.startsWith('npc-'))syncNpcVessels(remote.npc.habitat.vessels);
     showSpawnResult('added',$('spawnKind').selectedOptions[0].text+(site?' patrolling at '+site.label:' added'));
+  };
+  $('spawnHobieRace').onclick=()=>{
+    if(!remote.npc.canSpawn('hobie')||remote.npc.habitat.vessels.length+4>npcVesselLimit)return;
+    const pending=remote.npc.habitat.raceStart??0;
+    const start=pending>race.get('utc')?pending:race.get('nextStart');
+    const now=remote.seaTime(world?.time??model.time,performance.now());
+    for(const controller of Object.keys(hobieControllers)){
+      remote.npc.spawn('hobie',now,start,$('wind').valueAsNumber,undefined,controller,
+        controller==='rl'?getAppliedPolicy('hobie16')?.weights:undefined);
+    }
+    syncNpcVessels(remote.npc.habitat.vessels);
+    showSpawnResult('added','Four Hobie controllers entered the regatta');
   };
   $('animalFeed').onclick=()=>{if(ownsAnimal())remote.npc.feed(animalId);$('view').focus();};
   $('gullCall').onclick=()=>{
@@ -2253,35 +2278,21 @@ async function run(saved=readReset(),carried){
   panelSize.observe($('vehiclePanel').parentElement);
   cleanup(()=>panelSize.disconnect());
   const manualSelected=()=>animalId?ownsAnimal()&&!remote.npc.animals.get(animalId)?.auto:sub?.active?sub.manual&&!sub.seatedOnLift:drone?.active?drone.manual:manual;
-  let trimRepeat;
-  function stopTrimRepeat(){
-    clearTimeout(trimRepeat);
-    trimRepeat=undefined;
-  }
-  cleanup(stopTrimRepeat);
   function touchTrimPanel(){
     const menu=$('hobieTouchTrim').content.firstElementChild.cloneNode(true);
-    const adjust=(button,held=false)=>{
-      const code=button.dataset.key;
-      if(code.startsWith('Arrow'))moveBallast(code,held?4:1);
-      else moveTraveler(code);
-    };
-    for(const button of menu.querySelectorAll('button')){
-      button.onpointerdown=e=>{
-        if(e.button!==0||trimRepeat!==undefined)return;
-        button.setPointerCapture(e.pointerId);
-        adjust(button);
-        const repeat=()=>{adjust(button,true);trimRepeat=setTimeout(repeat,100);};
-        trimRepeat=setTimeout(repeat,430);
+    for(const slider of menu.querySelectorAll('[data-trim]')){
+      const id=slider.dataset.trim,control=$(id),readout=slider.parentElement.querySelector('output');
+      slider.min=control.min;slider.max=control.max;slider.step=control.step||1;
+      const sync=()=>{slider.value=control.value;readout.value=$(id+'Value').value;};
+      slider.oninput=()=>{
+        control.value=slider.value;control.dispatchEvent(new Event('input'));sync();
       };
-      button.onlostpointercapture=stopTrimRepeat;
-      button.onclick=e=>{if(e.detail===0)adjust(button);};
+      sync();stickIndicators.push(()=>{if(menu.open)sync();});
     }
-    menu.ontoggle=()=>{if(!menu.open)stopTrimRepeat();};
     return menu;
   }
   function touchControls(){
-    stopTrimRepeat();
+
     analog.clear();
     const pad=$('sticks'),gull=flyingGull(),swimming=!!animalId&&!gull,boatActive=hasBoat&&!animalId&&!sub?.active&&!drone?.active;
     const animalSensors=$('animalSensors'),motorSensors=$('motorSensors'),subSensors=$('subPanel');
@@ -2316,7 +2327,8 @@ async function run(saved=readReset(),carried){
     if(swimming&&animalKind()==='shark')$('swimKeys').textContent+=mobile?' · Sprint for burst effort':' · Shift + W sprint';
     if(learned)$('swimKeys').textContent=mobile?'Left stick forward/back and turn · Right stick pitch/roll · BCD slider · 2× doubles movement rates':
       '↑ / ↓ or W / S forward / back · ← / → or A / D turn · R / F pitch · Q / E roll · Shift doubles rates · = / − adjust BCD';
-    $('helm').hidden=Boolean(animalId||motor||sub?.seatedOnLift);$('motorPanel').hidden=!motor||!!animalId;
+    $('hobieControllerLabel').hidden=!(cat&&boatActive);
+    $('helm').hidden=Boolean(cat&&boatActive||animalId||motor||sub?.seatedOnLift);$('motorPanel').hidden=!motor||!!animalId;
     document.querySelectorAll('[data-boat]').forEach(el=>el.hidden=!boatActive);
     physicsVisibility();
     mastButton.hidden=!boatActive||!hasMastCameras;
@@ -3032,7 +3044,7 @@ async function run(saved=readReset(),carried){
     if([...pressedMotion.values()].includes(code))return;
     keys.delete(code);keyboard.release(code,performance.now());helm();
   });
-  function releaseControls(){cameraKeys.clear();stopTrimRepeat();pressedMotion.clear();keys.clear();keyboard.clear();analog.clear();heldLever=undefined;helm();}
+  function releaseControls(){cameraKeys.clear();pressedMotion.clear();keys.clear();keyboard.clear();analog.clear();heldLever=undefined;helm();}
   keyLayout.onchange=()=>{
     releaseControls();touchControls();
     saveKeyboardLayout(keyLayout.value);
@@ -3045,13 +3057,19 @@ async function run(saved=readReset(),carried){
     }
   });
 
+  $('hobieController').value='manual';
+  $('hobieController').onchange=()=>{
+    manual=$('hobieController').value==='manual';
+    model.set('manualHelm',Number(manual));
+    keys.clear();keyboard.clear();analog.clear();touchControls();
+  };
   $('helm').onclick=()=>{
     if(sub?.active){
       if(sub.seatedOnLift)return;
       sub.manual=!sub.manual;
     }
     else if(drone?.active){drone.manual=!drone.manual;world?.set('racePilot',Number(!drone.manual));}
-    else{manual=!manual;model.set('manualHelm',Number(manual));}
+    else{manual=!manual;if(cat)$('hobieController').value=manual?'manual':'vmg';model.set('manualHelm',Number(manual));}
     keys.clear();keyboard.clear();touchControls();
   };
   touchControls();
@@ -3165,7 +3183,7 @@ async function run(saved=readReset(),carried){
         wavePresentation.sample(wakeTicks,now);
       }
       wakeTicks++;
-      learnedHelm?.step(!animalId&&!sub?.active&&!drone?.active);
+      learnedHelm?.step(!animalId&&!sub?.active&&!drone?.active&&(!cat||$('hobieController').value==='rl'));
       model.advance(.01);
       if(wakeTicks%5===0){
         race.set('east',model.get('east'));race.set('north',model.get('north'));
@@ -3192,7 +3210,7 @@ async function run(saved=readReset(),carried){
     const elapsed=Math.max(0,(now-physicsWall)/1000);
     physicsWall=now;
     if(starting||!running||document.hidden)return;
-    learnedHelm?.step(!animalId&&!sub?.active&&!drone?.active);
+    learnedHelm?.step(!animalId&&!sub?.active&&!drone?.active&&(!cat||$('hobieController').value==='rl'));
     if(frameTest?.headroom){
       // Count the offline harbor as well as the vehicle. Limit the lead
       // so contact inputs and animal poses stay close to the world clock.
@@ -3333,7 +3351,7 @@ async function run(saved=readReset(),carried){
     [...settingPanels()].forEach((pane,i)=>{if(typeof saved.panels[i]==='boolean')pane.open=saved.panels[i];});
     for(const id of toggleSettings){
       const button=$(id);
-      const available=id==='helm'?hasBoat||drone?.active||sub?.active:id==='cutMotors'?drone?.active:id==='cruiserChartFit'?motor:id!=='subLamp';
+      const available=id==='helm'?(hasBoat&&!cat)||drone?.active||sub?.active:id==='cutMotors'?drone?.active:id==='cruiserChartFit'?motor:id!=='subLamp';
       const preference=saved.toggles[id];
       if(available&&!(id==='helm'&&sub?.active)&&typeof preference==='boolean'&&preference!==(button.getAttribute('aria-pressed')==='true'))button.click();
     }
@@ -3932,6 +3950,7 @@ async function run(saved=readReset(),carried){
       }
       syncGullViews();
       restoreCamera();
+      $('spawnHobieRace').disabled=!remote.npc.canSpawn('hobie')||remote.npc.habitat.vessels.length+4>npcVesselLimit;
       $('spawnAnimal').disabled=!remote.npc.canSpawn($('spawnKind').value);
       $('wildlifeSpawn').hidden=!remote.npc.host;
       let diverBrief='';

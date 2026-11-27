@@ -212,9 +212,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 .touch-trim summary,.touch-trim button{min-height:44px;touch-action:manipulation}
 .touch-trim summary{display:grid;place-items:center;padding:0 10px;border:1px solid #82b7b6;border-radius:6px;background:#103540;cursor:pointer;font-size:14px}
 .touch-trim .trim-grid{position:absolute;z-index:2;left:50%;bottom:calc(100% + 8px);transform:translateX(-50%);width:min(292px,calc(100vw - 24px));max-height:calc(100dvh - var(--panel-height,66px) - 100px);overflow:auto;overscroll-behavior:contain;padding:6px;border:1px solid #659995;border-radius:8px;background:#0b2a36}
-.trim-grid fieldset{border:0;margin:0;padding:3px;display:grid;grid-template-columns:1fr 1fr;gap:4px}
-.trim-grid legend{font-size:13px;color:#a4e4d9}
-.trim-grid button{font:inherit;font-size:14px;user-select:none;-webkit-user-select:none}
+.trim-grid label{display:grid;grid-template-columns:1fr auto;padding:3px 8px;font-size:14px}.trim-grid output{font-variant-numeric:tabular-nums;color:#a4e4d9}.trim-grid input{grid-column:1/-1;width:100%;height:34px;margin:0;touch-action:pan-y;accent-color:#86d9c7}
 @media(min-width:580px) and (max-height:540px){.touch-trim .trim-grid{bottom:calc(100% + 3px);max-height:calc(100dvh - var(--panel-height,66px) - 95px);width:350px;display:grid;grid-template-columns:1fr 1fr}}
 #roomQrDialog{width:min(340px,92vw);max-height:92dvh;overflow:auto;margin:auto;padding:20px;border:1px solid #659995;border-radius:9px;background:#0b2935;color:#effdf9;text-align:center}
 #roomQrDialog::backdrop{background:#02151bd9}
@@ -311,6 +309,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div id="vehicleControls" class="control-fields quick-controls"><div class="control-grid">
 <label class="control-select"><span>Model</span><select id="controlTarget" disabled><option value="boat">Hobie 16</option><option id="otherSailboat" value="sloop">Pilothouse sloop</option><option value="motorboat">Motorboat: cabin cruiser</option><option value="drone">Drone: RDD2</option><option value="sub">Sub: Piccard</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option><option value="gull">Herring gull</option></select></label>
 <label class="control-select"><span>Camera</span><select id="cameraDepth"><option value="deck">Orbit</option><option value="line">Waterline</option><option value="keel">Under hull</option><option hidden id="droneFpvOption" value="fpv">Drone FPV</option><option hidden id="onboardOption" value="onboard">Piccard Sub FPV</option><option value="gull" hidden disabled>Gull cam</option><option value="whale" hidden disabled>Whale cam</option><option value="shark" hidden disabled>Shark cam</option><option value="manta" hidden disabled>Manta cam</option><option value="diver" hidden disabled>Diver orbit</option><option value="diverEyes" hidden disabled>Diver first person</option></select></label>
+<label class="control-select" id="hobieControllerLabel" hidden><span>Helm controller</span><select id="hobieController"><option value="manual">Manual</option><option value="vmg">VMG autopilot</option><option value="rl">RL policy</option></select></label>
 <label class="control-select" id="diverModeLabel" hidden><span>Dive mode</span><select id="diverMode"><option value="manual">Manual</option><option value="learned">Learned swim</option><option value="auto">Auto patrol</option></select></label>
 <label class="control-select" id="subModeLabel" hidden><span id="subModeTitle">Sub control mode</span><select id="subMode" aria-labelledby="subModeTitle"><option value="0">Position hold</option><option value="1">Auto level</option><option value="2">Acro</option></select></label>
 <label class="control-select" id="flightModeLabel" hidden><span>Flight mode</span><select id="flightMode"><option value="0">Position hold</option><option value="1">Auto level</option><option value="2">Acro</option></select></label>
@@ -490,8 +489,9 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <div class="control-fields">
 <div class="control-row">
 <label class="control-select"><span>NPC model</span><select id="spawnKind" aria-label="NPC model"><option value="hobie">Hobie 16</option><option value="sloop">Pilothouse sloop</option><option value="motorboat">Cabin cruiser</option><option value="drone">RDD2 drone</option><option value="sub">Piccard submarine</option><option value="gull">Herring gull</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option></select></label>
+<label class="control-select" id="npcControllerLabel"><span>Hobie controller</span><select id="npcController"></select></label>
 <label class="control-select" id="npcDiveSiteLabel" hidden><span>Dive site</span><select id="npcDiveSite"></select></label>
-<button id="spawnAnimal" type="button">Spawn NPC</button>
+<button id="spawnAnimal" type="button">Spawn NPC</button> <button id="spawnHobieRace" type="button" title="Add four Hobie 16s to the same race, one per controller">Race all four controllers</button>
 </div>
 <output id="spawnResult" aria-live="polite"></output>
 </div></details>
@@ -519,13 +519,19 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <template id="hobieTouchTrim">
 <details class="touch-trim"><summary>Crew &amp; trim</summary>
 <div class="trim-grid">
-<fieldset><legend>Ballast fore–aft</legend><button type="button" data-key="ArrowUp">Forward</button><button type="button" data-key="ArrowDown">Aft</button></fieldset>
-<fieldset><legend>Ballast across deck</legend><button type="button" data-key="ArrowLeft">Port</button><button type="button" data-key="ArrowRight">Starboard</button></fieldset>
-<fieldset><legend>Main traveler</legend><button type="button" data-key="KeyF">Haul in</button><button type="button" data-key="KeyR">Ease</button></fieldset>
-<fieldset><legend>Jib travelers</legend><button type="button" data-key="KeyQ">Inboard</button><button type="button" data-key="KeyE">Outboard</button></fieldset>
+<label>Crew fore–aft<output></output><input type="range" data-trim="ballX"></label>
+<label>Crew port–starboard<output></output><input type="range" data-trim="ballY"></label>
+<label>Jib sheet<output></output><input type="range" data-trim="jibSheet"></label>
+<label>Main traveler<output></output><input type="range" data-trim="mainCar"></label>
+<label>Jib travelers<output></output><input type="range" data-trim="jibCar"></label>
 </div></details></template>
 <dialog id="modelTraining" aria-labelledby="modelTrainingTitle">
   <div class="trainingHead"><h2 id="modelTrainingTitle">Model training</h2><button type="button" id="modelTrainingClose" autofocus>Close</button></div>
+  <div id="modelTrainingViewport" hidden>
+    <canvas id="modelTrainingFleet" aria-label="Live training rollouts. Drag to orbit or scroll to zoom."></canvas>
+    <output id="modelTrainingViewStatus" role="status"></output>
+    <div class="fleet-zoom"><button type="button" id="modelTrainingZoomIn" aria-label="Zoom in">+</button><button type="button" id="modelTrainingZoomOut" aria-label="Zoom out">−</button></div>
+  </div>
   <form id="modelTrainingForm">
     <div class="model-fields">
       <label>Model<select id="modelTrainingTask"></select></label>
@@ -535,7 +541,9 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
       <label>Count<select id="modelTrainingLanes"><option value="auto">Auto</option><option selected>1</option><option>4</option><option>16</option><option>32</option><option>64</option><option value="manual">Manual…</option></select></label>
       <label id="modelTrainingCountLabel" hidden>Instance count<input id="modelTrainingCount" type="number" min="1" max="256" step="1" value="4" required></label>
     </div>
-    <p id="modelTrainingObjective"></p><p id="modelTrainingAvailability"></p>
+    <p id="modelTrainingObjective"></p><p id="modelTrainingAvailability" role="status"></p>
+    <div class="model-actions"><span id="modelTrainingLocalLinks" hidden><a id="modelTrainingLocal" href="http://127.0.0.1:18588/" target="_blank" rel="noopener">Open local CUDA trainer</a> · <a href="https://github.com/CogniPilot/ocean_web/blob/HEAD/tools/fmi-cuda-batch/README.md#model-training-service" target="_blank" rel="noopener">Setup instructions</a></span>
+      <button type="button" id="modelTrainingRefresh">Refresh devices</button></div>
     <div class="model-actions"><button id="modelTrainingRun" type="submit">Start training</button>
       <button type="button" id="modelTrainingLoad">Load checkpoint…</button><input type="file" id="modelTrainingFile" aria-label="Checkpoint file" accept=".json,application/json" hidden>
       <button type="button" id="modelTrainingSave" disabled>Save checkpoint</button>

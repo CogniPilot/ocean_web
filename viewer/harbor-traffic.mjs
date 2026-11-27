@@ -112,13 +112,13 @@ function sharkSkin(T,material){
   material.customProgramCacheKey=()=>'great-white-denticles-and-caustics';
 }
 
-async function marineAnimal(T,name,length,caustics,tideUniform){
+export async function marineAnimal(T,name,length,caustics,tideUniform){
   const url=new URL('./assets/'+name+'.glb',import.meta.url);
   url.search=new URL(import.meta.url).search;
   const {scene:model}=await new GLTFLoader().loadAsync(url.href);
   model.traverse(m=>{
     if(m.isMesh&&m.material.name==='Slate dorsum and ivory belly'){
-      caustics.lightSkin(m.material,tideUniform);sharkSkin(T,m.material);
+      caustics?.lightSkin(m.material,tideUniform);sharkSkin(T,m.material);
     }
   });
   const group=new T.Group(),aligned=new T.Group();group.add(aligned);aligned.add(model);

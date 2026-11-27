@@ -9,7 +9,7 @@ export function sailTrainingHelm(raw,cat,field,select,report){
   const manual={manualHelm:1,deckManual:0,manualJibAssist:1,ballastManual:0,
     rudderInput:0,trimInput:0,vangInput:.5,mainCarInput:0,jibCarInput:.53,jibTrimInput:.35,
     downhaulInput:.5,outhaulInput:.65,jibHalyardInput:.55,ballastCmdX:0,ballastCmdY:0};
-  let policy,actor,loading,failed,next=0,captured=0;
+  let policy,actor,loading,failed,shipped,fetching,next=0,captured=0;
   const model=Object.create(raw);
   model.set=(key,value)=>{
     if(Object.hasOwn(manual,key)){
@@ -27,8 +27,11 @@ export function sailTrainingHelm(raw,cat,field,select,report){
     policy=null;field.hidden=true;
   }
   return {model,step(enabled){
-    const selected=enabled&&getAppliedPolicy(task.id);
-    if(!selected){restore();failed=null;return;}
+    const selected=enabled&&(getAppliedPolicy(task.id)??shipped);
+    if(enabled&&cat&&!selected&&!fetching&&!failed){
+      fetching=task.pretrained().then(weights=>{shipped={weights};}).catch(error=>{failed=error;report(error);}).finally(()=>{fetching=null;});
+    }
+    if(!selected){restore();if(!enabled)failed=null;return;}
     if(selected===failed)return;
     if(!actor){
       loading??=openPolicyActor().then(result=>{actor=result;}).catch(error=>{failed=selected;report(error);}).finally(()=>{loading=null;});
