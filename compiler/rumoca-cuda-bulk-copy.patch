@@ -1,0 +1,78 @@
+diff --git a/examples/codegen/cuda-fmi3/build.mjs b/examples/codegen/cuda-fmi3/build.mjs
+index 0869de6..81c7200 100644
+--- a/examples/codegen/cuda-fmi3/build.mjs
++++ b/examples/codegen/cuda-fmi3/build.mjs
+@@ -4,6 +4,7 @@ import {createHash} from 'node:crypto';
+ import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+ import {dirname, join, resolve} from 'node:path';
+ import {fileURLToPath} from 'node:url';
++import {lowerBulkCopies} from './bulk-copy.mjs';
+ import {lowerLaneWorkspace} from './arena.mjs';
+ 
+ const [fmu, output] = process.argv.slice(2);
+@@ -60,9 +61,12 @@ run(join(LLVM_BIN, 'opt'), '-passes=internalize,globaldce,default<O2>',
+     artifact('linked.bc'), '-o', artifact('optimized.bc'));
+ run(join(LLVM_BIN, 'llvm-dis'), artifact('optimized.bc'), '-o', artifact('optimized.ll'));
+ const workspace = lowerLaneWorkspace(readFileSync(artifact('optimized.ll'), 'utf8'));
+-writeFileSync(artifact('arena.ll'), workspace.ir);
++writeFileSync(artifact('arena.ll'), lowerBulkCopies(workspace.ir));
++run(clang, '--target=nvptx64-nvidia-cuda', '-march=' + arch, '-O2', '-ffreestanding',
++    '-emit-llvm', '-c', join(here, 'bulk-copy.c'), '-o', artifact('bulk-copy.bc'));
++run(join(LLVM_BIN, 'llvm-link'), artifact('arena.ll'), artifact('bulk-copy.bc'), '-o', artifact('arena.bc'));
+ run(join(LLVM_BIN, 'llc'), '-O2', '-mtriple=nvptx64-nvidia-cuda', '-mcpu=' + arch, '-mattr=+ptx80',
+-    artifact('arena.ll'), '-o', artifact('ensemble.ptx'));
++    artifact('arena.bc'), '-o', artifact('ensemble.ptx'));
+ run(process.env.PTXAS ?? 'ptxas', '-O' + optimization, '-v', '-arch=' + arch,
+     artifact('ensemble.ptx'), '-o', artifact('ensemble.cubin'));
+ const sha256 = createHash('sha256').update(readFileSync(artifact('ensemble.cubin'))).digest('hex');
+diff --git a/examples/codegen/cuda-fmi3/bulk-copy.c b/examples/codegen/cuda-fmi3/bulk-copy.c
+new file mode 100644
+index 0000000..92b050a
+--- /dev/null
++++ b/examples/codegen/cuda-fmi3/bulk-copy.c
+@@ -0,0 +1,31 @@
++// Called for nonvolatile, nonoverlapping LLVM memcpy intrinsics in generic address space.
++// Some generated FMI arrays carry byte alignment in IR but are aligned at runtime.
++#include <stdint.h>
++#include <stddef.h>
++
++typedef uint64_t Word __attribute__((may_alias));
++typedef uint64_t Pair __attribute__((vector_size(16), may_alias));
++
++void rmc_cuda_copy(unsigned char *destination, const unsigned char *source, size_t count) {
++    if (destination == source) return;
++    uintptr_t addresses = (uintptr_t)destination | (uintptr_t)source;
++    if ((addresses & 7) == 0) {
++        if ((addresses & 15) == 0) {
++            while (count >= 64) {
++                const Pair *from = (const Pair *)source;
++                Pair *to = (Pair *)destination;
++                for (size_t i = 0; i < 4; ++i) to[i] = from[i];
++                destination += 64;
++                source += 64;
++                count -= 64;
++            }
++        }
++        while (count >= 8) {
++            *(Word *)destination = *(const Word *)source;
++            destination += 8;
++            source += 8;
++            count -= 8;
++        }
++    }
++    while (count--) *destination++ = *source++;
++}
+diff --git a/examples/codegen/cuda-fmi3/bulk-copy.mjs b/examples/codegen/cuda-fmi3/bulk-copy.mjs
+new file mode 100644
+index 0000000..bd29f9b
+--- /dev/null
++++ b/examples/codegen/cuda-fmi3/bulk-copy.mjs
+@@ -0,0 +1,8 @@
++// Keep scalar and volatile operations on LLVM's ordinary lowering path.
++export function lowerBulkCopies(ir) {
++  const call = /\bcall void @llvm\.memcpy\.p0\.p0\.i64\(([^\n]*?), i64 ([^,]+), i1 false\)/g;
++  return ir.replace(call, (original, pointers, count) => {
++    if (Number(count) < 96) return original;
++    return 'call void @rmc_cuda_copy(' + pointers + ', i64 ' + count + ')';
++  }) + '\ndeclare void @rmc_cuda_copy(ptr, ptr, i64)\n';
++}

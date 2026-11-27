@@ -1634,3 +1634,18 @@ The packaged harbor FMU was measured in calm water with zero throttle, wake off 
 | Beach | 80.67 ms | 4.36 ms |
 
 The hull checks previously evaluated four quadrature samples on each of 234 triangles, including repeated vertices. The updated model combines coincident vertex weights, rejects clear portions of the hull before terrain and rock evaluation, and samples contact wrenches at 100 Hz. Peak loads on the shoal and beach differed by 1.4% and 2.0% respectively. The full island approach produced 15.58 kN peak support. The rebuild used a newer compiler, so the offshore speedup includes compiler effects. Reproduce the positional comparison with `node scripts/bench-cruiser-shore.mjs`.
+
+### ScubaDiver training with 64 CUDA instances (RTX 3090, sm_86)
+
+The physics step is 10 ms. At 64 simultaneous instances the realtime target is 6,400 swimmer-steps/s and 10× is 64,000. The browser's view FPS measures rendering independently.
+
+| Measurement | PR #755 CUDA | With Rumoca #766 |
+| --- | ---: | ---: |
+| Mean device time per 64-lane step | 445.8 ms | 262.4 ms |
+| 95th percentile device time | 487.0 ms | 290.8 ms |
+| Simulated time / wall time, kernel only | 0.0224× | 0.0381× |
+| Full Chromium training round, including policy and observations | — | 0.0266× (170.1 swimmer-steps/s) |
+
+The kernel comparison used the same source FMU (token `6c338f73-3711-40a3-902e-e1df23740257`), driver and inputs. Each kernel advanced 64 instances through 240 ticks with mixed swimming commands. Exported states, joint angles/rates, bladder volumes and mechanical powers agreed exactly. The separate browser run used the shipped pretrained policy, 64 instances, CUDA physics and WebGPU policy updates for baseline, exploration and validation (720 dispatches, 46,080 swimmer-steps).
+
+Linux perf on the host placed over 98% of sampled CPU cycles in the CUDA driver and vDSO while the batch ran. Device timing put 190 ms inside the generated diver dynamics, including 126 ms inside floating-tree dynamics, on a 458 ms instrumented step. LLVM emitted byte-copy loops for large arrays. Rumoca PR #766 widens these copies for generic FMI modules. Each CUDA thread still executes a complete FMU instance, including event settling and matrix assembly. The elapsed time at count 64 exceeds both realtime targets.

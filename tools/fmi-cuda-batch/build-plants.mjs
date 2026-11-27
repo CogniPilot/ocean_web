@@ -15,6 +15,11 @@ const rumoca=resolve(process.env.RUMOCA_ROOT??join(root,'.deps/rumoca-upstream')
 const templates=join(rumoca,'crates/rumoca-phase-codegen/src/templates');
 const compiler=join(work,'cuda-fmi3');
 cpSync(join(rumoca,'examples/codegen/cuda-fmi3'),compiler,{recursive:true});
+// Carry Rumoca PR #766 for checkouts that predate the CUDA bulk-copy pass.
+if(!existsSync(join(compiler,'bulk-copy.mjs'))){
+  execFileSync('patch',['--batch','--forward','-p4','-i',join(root,'compiler/rumoca-cuda-bulk-copy.patch')],
+    {cwd:compiler,stdio:'inherit'});
+}
 // These scalar functions in the shipped FMUs are available in CUDA libdevice.
 const math=join(compiler,'freestanding/math.h');
 const mathBindings=readFileSync(math,'utf8');
