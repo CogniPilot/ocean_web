@@ -93,7 +93,9 @@ async function train(request,id){
           const frames=actors.map(({pose,model})=>appendDiverRig([pose[14],...pose,...model.get('activity')],model));
           const perBatch=blockCount*decisionSteps,localTick=Math.round(models[0].time*100);
           const tick=wave*perBatch+localTick,total=waves*perBatch;
-          publish('frames',{frames,commands,phase,steps,round,batchSeconds:models[0].time,tick,total,
+          const wallSeconds=(performance.now()-phaseStart)/1000;
+          publish('frames',{frames,commands,phase,steps,round,kernelMs:physics.kernelMs,
+            stepsPerSecond:localTick&&wallSeconds>0?localTick*lanes/wallSeconds:0,batchSeconds:models[0].time,tick,total,
             realTime:localTick?models[0].time/((performance.now()-phaseStart)/1000):0,
             remainingSeconds:localTick?(performance.now()-phaseStart)/1000*(total-tick)/localTick:null});
         }
@@ -141,7 +143,7 @@ async function train(request,id){
     if(automatic){
       const memory=self.navigator?.deviceMemory;
       const ceiling=physics.label==='CPU WASM'&&memory&&memory<=4?Math.max(4,memory*4):physics.maxLanes;
-      lanes=await calibrateCount({groupSize:Math.min(4,2**Math.floor(Math.log2(ceiling))),maximum:ceiling,stepsToUpdate:3*blockCount*decisionSteps,
+      lanes=await calibrateCount({groupSize:1,stepSeconds:.01,maximum:ceiling,stepsToUpdate:3*blockCount*decisionSteps,
         onProbe:count=>publish('sizing',{count}),
         probe:async count=>{lanes=count;return run(initial,true,true);}
       });

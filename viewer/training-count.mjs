@@ -1,6 +1,6 @@
 // Batch constraints belong to the learner and physics backend. Calibrate with
 // real, disposable rollout steps before fixing the population for a run.
-export async function calibrateCount({groupSize,maximum,probe,onProbe,stepsToUpdate=1,targetUpdateMs=60000}){
+export async function calibrateCount({groupSize,maximum,probe,onProbe,stepSeconds,stepsToUpdate=1,targetUpdateMs=60000}){
   let selected=0,bestRate=0,previousRate=0,firstLatency;
   const limit=Math.floor(maximum/groupSize)*groupSize;
   if(limit<groupSize)throw Error('Insufficient capacity for one training group');
@@ -16,7 +16,9 @@ export async function calibrateCount({groupSize,maximum,probe,onProbe,stepsToUpd
     }
     if(!Number.isFinite(elapsed)||elapsed<=0)throw Error('Invalid batch timing');
     firstLatency??=elapsed;
-    const latencyBudget=Math.max(targetUpdateMs/stepsToUpdate,firstLatency*1.25);
+    // Keep up with the physics clock if the device can. When even a single
+    // instance falls behind, add lanes only while batch latency stays comparable.
+    const latencyBudget=Math.max(Math.min(stepSeconds*1000,targetUpdateMs/stepsToUpdate),firstLatency*1.15);
     const rate=count/elapsed;
     // Prefer the larger population on a throughput plateau while a single
     // step is short enough to give the live view regular pose updates.

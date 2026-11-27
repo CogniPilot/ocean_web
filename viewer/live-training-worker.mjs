@@ -79,10 +79,13 @@ export async function trainLivePolicy(request,send,active=()=>true){
         const actors=group.map(({scenario,sign,noiseSeed},i)=>({
           scenario,sign,noise:generator(noiseSeed),model:models[i],view:observation(models[i],task.outputs),history:[],visual:{}
         }));
+        const batchStart=performance.now();
         const frames=tick=>{
           const rows=actors.map(a=>task.pose(a.view,a.scenario));
           if(!rows.every(row=>row.length===6&&row.every(Number.isFinite)))throw Error('Invalid rollout pose for '+task.label);
-          publish('frames',{frames:rows,rig:task.rigPose?actors.map(a=>task.rigPose(a.view,a.visual)):undefined,tick:wave*perWave+tick,total:waves*perWave,batchSeconds:models[0].time,round,phase,steps});
+          const seconds=(performance.now()-batchStart)/1000;
+          publish('frames',{frames:rows,realTime:tick&&seconds>0?tick*task.dt/seconds:0,
+            stepsPerSecond:tick&&seconds>0?tick*lanes/seconds:0,kernelMs:physics.kernelMs,rig:task.rigPose?actors.map(a=>task.rigPose(a.view,a.visual)):undefined,tick:wave*perWave+tick,total:waves*perWave,batchSeconds:models[0].time,round,phase,steps});
         };
         frames(0);
         let lastFrame=performance.now();
@@ -126,7 +129,7 @@ export async function trainLivePolicy(request,send,active=()=>true){
     if(automatic){
       const memory=globalThis.navigator?.deviceMemory;
       const limit=physicsBackend==='cpu'&&memory&&memory<=4?Math.min(physics.maxLanes,4*memory):physics.maxLanes;
-      const capacity=await calibrateCount({groupSize:Math.min(4,2**Math.floor(Math.log2(limit))),maximum:limit,
+      const capacity=await calibrateCount({groupSize:1,stepSeconds:task.dt,maximum:limit,
         stepsToUpdate:2*decisions*task.ticksPerDecision,onProbe:count=>publish('sizing',{count}),
         probe:async count=>{lanes=count;const sample=await rollout(initial,'sizing');if(!sample)throw Error('Stopped');return sample;}});
       lanes=capacity;

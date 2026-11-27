@@ -70,7 +70,7 @@ export async function trainingPhysics(backend,name,onSession){
   }
   const metadata=await plantMetadata(name);
   const service=await acquire();
-  let dispatches=0,batchDispatches=0;
+  let dispatches=0,batchDispatches=0,kernelMs;
   function lane(values){
     let inputs={};
     return {values,time:0,has:key=>Object.hasOwn(metadata.variables,key),
@@ -78,7 +78,7 @@ export async function trainingPhysics(backend,name,onSession){
       getMany(keys){return keys.map(key=>this.get(key));},
       takeInputs(){const data=inputs;inputs={};return data;}};
   }
-  return {label:'CUDA',maxLanes:service.maxCount??64,get dispatches(){return dispatches;},
+  return {label:'CUDA',maxLanes:service.maxCount??64,get kernelMs(){return kernelMs;},get dispatches(){return dispatches;},
     async reset(inputs,outputs){
       if(!id)await acquire();
       let rows;
@@ -86,7 +86,7 @@ export async function trainingPhysics(backend,name,onSession){
       catch(error){close();throw error;}
       if(rows.lanes.length!==inputs.length)throw Error('Incomplete GPU batch');
       if(rows.token!==metadata.token||rows.dispatches!==0)throw Error('GPU physics and viewer must use the same FMU version.');
-      batchDispatches=0;return rows.lanes.map(lane);
+      batchDispatches=0;kernelMs=undefined;return rows.lanes.map(lane);
     },
     async advance(models,dt,outputs){
       let result;
@@ -94,6 +94,7 @@ export async function trainingPhysics(backend,name,onSession){
       catch(error){close();throw error;}
       if(result.lanes.length!==models.length)throw Error('Incomplete GPU step');
       if(result.dispatches!==batchDispatches+1)throw Error('The GPU runner did not acknowledge the physics step.');
+      kernelMs=Number.isFinite(result.kernelSeconds)?1000*result.kernelSeconds:undefined;
       dispatches+=result.dispatches-batchDispatches;batchDispatches=result.dispatches;
       models.forEach((m,i)=>{m.values=result.lanes[i];m.time+=dt;});
     },close
