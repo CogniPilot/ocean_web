@@ -108,8 +108,8 @@ async function handle(request){
           'boat.hydroStationGeometry','boat.hydroSectionVolume','hydroSurfaceProbes','sectionStamp',
           'stripEast','stripNorth','stripZ','stripForce','stripVolume','panelSea',...battenFields],'physics'],
         [1,['boat.rigCollision'],'physics'],
-        [1,['boat.rigForce','boat.foilLoad','boat.foilArm'],'loads'],
-        [5,['boat.origin','boat.rigMoment','sub.contactMoment','sub.wetTorque','propulsion.propellerCenter','propulsion.rudderCenter','propulsion.propellerForce','propulsion.rudderForce','propulsion.shaftReaction'],'loads'],
+        [1,['boat.rigForce','boat.rigMoment','boat.origin','boat.foilLoad','boat.foilArm'],'loads'],
+        [5,['sub.contactMoment','sub.wetTorque','propulsion.propellerCenter','propulsion.rudderCenter','propulsion.propellerForce','propulsion.rudderForce','propulsion.shaftReaction'],'loads'],
         [20,['boatWater.tile']],[20,['sensor'],'dvl'],[20,['ping'],'camera'],[windDt*100,['wind.field']]
       ];
       for(const [interval,candidates,subscription] of schedules){

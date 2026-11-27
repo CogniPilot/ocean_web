@@ -1,3 +1,5 @@
+import {clothTopology} from './board/sail-battens.mjs';
+
 export function forceDisplay(T,scene,sub,yacht,cat,model,observe){
   function makeArrow(parent,origin,color){
     const glyph=new T.ArrowHelper(new T.Vector3(1,0,0),new T.Vector3(...origin),1,color);
@@ -24,6 +26,11 @@ export function forceDisplay(T,scene,sub,yacht,cat,model,observe){
   if(yacht){
     sails.push(boatArrow(cat?[-.6,0,3.3]:[-.28,0,1.1],0xffad4d),
       boatArrow(cat?[1.1,0,2.2]:[.62,0,.93],0xffad4d));
+    for(const [i,sail] of sails.entries()){
+      sail.label=i?'Jib':'Mainsail';sail.glyph.name=sail.label+' · fluid force';
+      sail.startMoment=new T.Vector3();sail.endMoment=new T.Vector3();
+      sail.startRadius=sail.endRadius=0;
+    }
     for(let i=0;i<(cat?4:2);i++)foils.push(boatArrow([0,0,0],0x6cbcff));
     buoyancy=boatArrow([0,0,-.08],0x77e7ba);
   }
@@ -33,6 +40,51 @@ export function forceDisplay(T,scene,sub,yacht,cat,model,observe){
     contact=makeArrow(subForces,[0,0,0],0xff524b);
   }
   const direction=new T.Vector3(),inverse=new T.Quaternion(),angles=new T.Euler();
+  const center=new T.Vector3(),delta=new T.Vector3(),moment=new T.Vector3(),cross=new T.Vector3();
+  const clothRotation=new T.Matrix3(),points=Array.from({length:24},()=>new T.Vector3());
+  let fields,hasCloth,hasWrench;
+  function sampleCloth(sail,i,vertices,rotation,origin,previous){
+    for(let k=0;k<points.length;k++)points[k].fromArray(vertices,72*i+3*k);
+    let area=0;center.set(0,0,0);
+    for(let j=0;j<clothTopology.length;j+=3){
+      const a=points[clothTopology[j]],b=points[clothTopology[j+1]],c=points[clothTopology[j+2]];
+      const weight=delta.subVectors(b,a).cross(cross.subVectors(c,a)).length();
+      center.addScaledVector(a,weight).addScaledVector(b,weight).addScaledVector(c,weight);area+=weight;
+    }
+    if(area>0)center.divideScalar(3*area);
+    else for(const p of points)center.addScaledVector(p,1/points.length);
+    let radius=0;
+    for(const p of points)radius=Math.max(radius,p.distanceTo(center));
+    sail.startRadius+=(sail.endRadius-sail.startRadius)*previous;sail.endRadius=radius;
+    // Cloth vertices are sail-local. The sheet rotation maps them into the hull,
+    // while Modelica reports the rig origin in the unheeled heading frame.
+    clothRotation.set(...rotation.slice(i*9,i*9+9));
+    sail.startArm.lerp(sail.endArm,previous);
+    sail.endArm.fromArray(origin,3*i).applyQuaternion(inverse).add(center.applyMatrix3(clothRotation));
+    if(stamp===undefined){sail.startArm.copy(sail.endArm);sail.startRadius=radius;}
+  }
+  function drawSail(sail,blend){
+    const p=sail.glyph.position.lerpVectors(sail.startArm,sail.endArm,blend);
+    const force=direction.lerpVectors(sail.start,sail.end,blend);
+    if(hasWrench){
+      moment.lerpVectors(sail.startMoment,sail.endMoment,blend);
+      // The component of M about the centroid perpendicular to F is carried by
+      // shifting F onto its central axis. Bound the arm by the cloth radius when
+      // opposing panel forces nearly cancel, retaining the exact residual couple.
+      moment.sub(cross.crossVectors(p,force));
+      delta.crossVectors(force,moment);
+      const f2=force.lengthSq(),d=delta.length(),radius=sail.startRadius+(sail.endRadius-sail.startRadius)*blend;
+      if(d&&f2){
+        delta.multiplyScalar(Math.min(1/f2,radius/d));
+        p.add(delta);moment.sub(cross.crossVectors(delta,force));
+      }
+      if(observe&&moment.lengthSq()>1e-16)observe(boatForces,sail.label+' · residual couple',true,p.toArray(),moment.toArray());
+    }
+    if(observe){
+      sail.glyph.visible=false;
+      observe(boatForces,sail.label+' · fluid force',false,p.toArray(),force.toArray(),false,0xffad4d);
+    }else draw(sail.glyph,force);
+  }
   let stamp;
   function draw(glyph,vector){
     const n=vector.length();
@@ -52,15 +104,27 @@ export function forceDisplay(T,scene,sub,yacht,cat,model,observe){
     boatForces.visible=Boolean(enabled&&!showSub&&b&&model.has('rigForce'));
     subForces.visible=Boolean(enabled&&showSub&&f?.thrust);
     if(boatForces.visible){
-      sails.forEach((a,i)=>{a.glyph.name=i?'Jib · wind':'Mainsail · wind';});
       foils.forEach((a,i)=>{a.glyph.name='Foil '+(i+1)+' · water';});
       buoyancy.glyph.name='Hull · buoyancy';
       if(time!==stamp){
         // Modelica reports loads and wet-foil arms in a level heading frame.
         // Undo pitch and heel once per sample. The hull supplies the display pose.
         inverse.setFromEuler(angles.set(b[4],b[5],0,'ZYX')).invert();
-        const [rig,load,arm]=model.getMany(['rigForce','foilLoad','foilArm']);
-        sails.forEach((a,i)=>sample(a,rig,i,previous));
+        if(!fields){
+          hasCloth=['sailVertex','sheetRotation','origin'].every(key=>model.has(key));
+          hasWrench=hasCloth&&model.has('rigMoment');
+          fields=['rigForce','foilLoad','foilArm',...(hasCloth?['sailVertex','sheetRotation','origin']:[]),...(hasWrench?['rigMoment']:[])];
+        }
+        const [rig,load,arm,vertices,rotation,origin,moments]=model.getMany(fields);
+        sails.forEach((sail,i)=>{
+          sample(sail,rig,i,previous);
+          if(hasCloth)sampleCloth(sail,i,vertices,rotation,origin,previous);
+          if(hasWrench){
+            sail.startMoment.lerp(sail.endMoment,previous);
+            sail.endMoment.fromArray(moments,3*i).applyQuaternion(inverse);
+            if(stamp===undefined)sail.startMoment.copy(sail.endMoment);
+          }
+        });
         foils.forEach((a,i)=>{
           sample(a,load,i,previous);
           a.startArm.lerp(a.endArm,previous);
@@ -72,12 +136,7 @@ export function forceDisplay(T,scene,sub,yacht,cat,model,observe){
         if(stamp===undefined)buoyancy.start.copy(buoyancy.end);
         stamp=time;
       }
-      if(model.has?.('origin')){
-        const ends=model.get('origin');
-        inverse.setFromEuler(angles.set(b[4],b[5],0,'ZYX')).invert();
-        sails.forEach((a,i)=>a.glyph.position.fromArray(ends,3*i).applyQuaternion(inverse));
-      }
-      for(const a of sails)draw(a.glyph,direction.lerpVectors(a.start,a.end,blend));
+      for(const sail of sails)drawSail(sail,blend);
       for(const a of foils){
         a.glyph.position.lerpVectors(a.startArm,a.endArm,blend);
         draw(a.glyph,direction.lerpVectors(a.start,a.end,blend));

@@ -4321,14 +4321,6 @@ async function run(saved=readReset(),carried){
             loads.load(motor.group,'Rudder · water',false,rudder,world.get('propulsion.rudderForce'));
             const lift=world.get('sternLiftWrench');
             if(lift)loads.load(motor.group,'Hull · lift moment about origin',true,null,lift.slice(3),true);
-          }else if(boat&&model?.has('rigMoment')&&model.has('rigForce')&&model.has('origin')){
-            const [mom,force,arm]=model.getMany(['rigMoment','rigForce','origin']);
-            const inverse=new T.Quaternion().setFromEuler(new T.Euler(s[4],s[5],0,'ZYX')).invert();
-            for(let i=0;i<2;i++){
-              const p=new T.Vector3().fromArray(arm,3*i),f=new T.Vector3().fromArray(force,3*i);
-              const local=new T.Vector3().fromArray(mom,3*i).sub(new T.Vector3().crossVectors(p,f));
-              loads.load(boat.group,(i?'Jib':'Mainsail')+' · aerodynamic couple',true,p.applyQuaternion(inverse).toArray(),local.applyQuaternion(inverse).toArray());
-            }
           }
         }
       }
