@@ -4,6 +4,14 @@ set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 src=$(realpath "${1:?source directory containing model.h}")
 out=$(realpath -m "${2:?output directory}")
+shift 2
+host_flags=()
+for define in "$@"; do
+  case "$define" in
+    RMC_FMI3_INLINE_FACTORS) host_flags+=("-D$define") ;;
+    *) echo "Unsupported CUDA host ABI option: $define" >&2; exit 2 ;;
+  esac
+done
 mkdir -p "$out"
 fmi=${FMI_INCLUDE:-"$here/../../.deps/rumoca-upstream/crates/rumoca-phase-codegen/src/templates/fmi-ls-wasm/fmi3-headers"}
 : "${CUDA_INCLUDE:?directory containing cuda.h}"
@@ -14,7 +22,7 @@ jobs_to_wait=()
 for unit in "$src"/*.c "$here"/host.c; do
   obj="$out/$(basename "$unit" .c).o"
   objects+=("$obj")
-  "${CC:-cc}" -O2 -DNDEBUG -ffp-contract=off -I"$src" -I"$fmi" -c "$unit" -o "$obj" &
+  "${CC:-cc}" "${host_flags[@]}" -O2 -DNDEBUG -ffp-contract=off -I"$src" -I"$fmi" -c "$unit" -o "$obj" &
   jobs_to_wait+=("$!")
 done
 status=0

@@ -62,7 +62,12 @@ for(const name of new Set(names)){
     compilerEnv.PTXAS_OPT_LEVEL='1';
   }
   execFileSync(process.execPath,[builder,source,device],{stdio:'inherit',env:compilerEnv});
-  run('bash',[join(here,'build.sh'),join(source,'sources'),host]);
+  const deviceBuild=JSON.parse(readFileSync(join(device,'ensemble.json'),'utf8'));
+  const defines=deviceBuild.hostDefines ?? [];
+  if(!Array.isArray(defines)){
+    throw Error('Unsupported CUDA host ABI for '+name);
+  }
+  run('bash',[join(here,'build.sh'),join(source,'sources'),host,...defines]);
   const runner=join(host,'runner'),cubin=join(device,'ensemble.cubin');
   const entryConfig={runner:relative(out,runner),cubin:relative(out,cubin),metadata:relative(out,metadata)};
   if(name==='OceanMotorboat'){
