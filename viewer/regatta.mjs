@@ -450,6 +450,17 @@ export function hoistWaterEntry(){
 export function raceAudio(T){
   let engines,audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
   let submerged,effects,luffGain,flapOscillator,flapRate,level=.15;
+  let rainPlaying=false,lastWet=-Infinity;
+  function startRain(){
+    if(!rain.paused)return;
+    rainPlaying=true;
+    void rain.play().catch(error=>{
+      if(error.name!=='AbortError')console.warn('Rain recording unavailable',error);
+    });
+  }
+  function stopRain(){
+    rain?.pause();rainPlaying=false;
+  }
   let waves,waveGains,lastWaveMix=-Infinity,lastWaveTime,waveTimeWall,wavesActive=false;
   let hullWash,hullLapping,piccardVoices,piccardRecording,piccardRetryAt=0;
   function silencePiccard(){piccardVoices?.stop();piccardVoices=undefined;}
@@ -490,9 +501,11 @@ export function raceAudio(T){
     for(const gain of waveGains??[])gain.gain.setTargetAtTime(0,audio.currentTime,.15);
   }
   function setVolume(value){
+    const wasMuted=!level;
     level=value;
     if(effects)effects.gain.setTargetAtTime(level,audio.currentTime,.025);
-    if(!level){silenceLuff();silenceWaves();silencePiccard();}
+    if(!level){stopRain();silenceLuff();silenceWaves();silencePiccard();}
+    else if(wasMuted&&enabled){lastWet=audio.currentTime;startRain();}
   }
   function connectCabinRadio(media){
     const speaker=audio.createPanner(),gain=audio.createGain();
@@ -592,14 +605,16 @@ export function raceAudio(T){
       submerged=audio.createGain();submerged.gain.value=0;submerged.connect(effects);
       const blower=audio.createBufferSource();blower.buffer=noise;blower.loop=true;
       filter=audio.createBiquadFilter();filter.type='lowpass';wind=audio.createGain();wind.gain.value=0;
-      const rainfall=audio.createBufferSource(),rainFilter=audio.createBiquadFilter();
-      rainfall.buffer=noise;rainfall.loop=true;rainfall.playbackRate.value=1.19;
-      rainFilter.type="highpass";rainFilter.frequency.value=1350;
-      weather=audio.createGain();weather.gain.value=0;rain=audio.createGain();rain.gain.value=.16;
-      rainfall.connect(rainFilter).connect(rain).connect(weather).connect(effects);rainfall.start();
+      // Stream the four-minute stereo track without allocating a full decoded buffer on phones.
+      rain=new Audio();rain.preload='none';rain.loop=true;
+      rain.src=new URL('./assets/audio/dark-rainy-night.mp3',import.meta.url).href;
+      weather=audio.createGain();weather.gain.value=0;
+      audio.createMediaElementSource(rain).connect(weather).connect(effects);
       blower.connect(filter).connect(wind).connect(effects);blower.start();
     }
     if(on){
+      // Unlock media playback during the same gesture that enables sound.
+      if(level){lastWet=audio.currentTime;startRain();}
       await audio.resume();
       outputFailed=false;
       startAmbience('underwater-rumble.flac',submerged,true);
@@ -609,7 +624,7 @@ export function raceAudio(T){
       }
     }
     else{
-      enabled=false;
+      enabled=false;stopRain();
       try{silenceLuff();silenceWaves();silencePiccard();}
       finally{if(audio.state!=='closed')await audio.suspend();}
     }
@@ -658,7 +673,10 @@ export function raceAudio(T){
       luffGain.gain.setTargetAtTime(1.1*exposure*luff,wall,.09);
     }
     submerged.gain.setTargetAtTime(.36*(1-exposure),lastMix,.35);
-    weather.gain.setTargetAtTime(storm?exposure:0,lastMix,.20);
+    const wet=storm?exposure:0;
+    weather.gain.setTargetAtTime(wet,lastMix,.20);
+    if(wet>0){lastWet=wall;if(!rainPlaying)startRain();}
+    else if(rainPlaying&&wall-lastWet>=1.2)stopRain();
     filter.frequency.setTargetAtTime(180+Math.min(30,speed)*53,audio.currentTime,.4);
     wind.gain.setTargetAtTime(exposure*Math.min(.28,.009*speed),audio.currentTime,.35);
   }
@@ -959,7 +977,11 @@ export function raceAudio(T){
   }
   const mixer={get enabled(){return enabled;},get audible(){return enabled&&level>0;},
     setEnabled,setVolume,connectCabinRadio,onOutputError:undefined,
-    dispose(){if(audio&&audio.state!=='closed')void audio.close().catch(()=>{});}};
+    dispose(){
+      stopRain();
+      if(rain){rain.removeAttribute('src');rain.load();}
+      if(audio&&audio.state!=='closed')void audio.close().catch(()=>{});
+    }};
   let outputFailed=false;
   const effectsMethods={update,water,signal,finishGun,thunder,wildlife,imagingHit,motorSound,droneSound,submarineSound,hoistWater,structureImpact,floodSound,whaleSong};
   for(const [name,mix] of Object.entries(effectsMethods)){

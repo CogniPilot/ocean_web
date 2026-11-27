@@ -47,6 +47,10 @@ Drone by Cafitz3D, CC BY 4.0. See DRONE.md and CC-BY-4.0.txt.
 Music (Pirate1_Theme1.mp3) by Olivier Bérubé.
 The project contributor confirmed the source permits use with attribution.
 
+Storm ambience (dark-rainy-night.mp3) is “rain and thunders” by kindland,
+CC0 1.0. The full stereo recording was loudness-matched and encoded as MP3.
+https://opengameart.org/content/rain-and-thunders
+
 Piccard motor audio (piccard-engine.flac) is a mono, crossfaded loop from
 “underwater or space engine” by gmason. Underwater ambience
 (underwater-rumble.flac) uses “deep rumble” from the same CC0 1.0 collection.
