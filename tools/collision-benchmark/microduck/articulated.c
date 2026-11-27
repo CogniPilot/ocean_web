@@ -181,6 +181,36 @@ static int ascending(const void *a, const void *b) {
   double x = *(const double *)a, y = *(const double *)b;
   return (x > y) - (x < y);
 }
+// Binary reference for the optional Newton comparator. Layout is documented by each write below.
+static void writeReference(const char *path) {
+  FILE *out = fopen(path, "wb");
+  if (!out) {
+    perror(path);
+    exit(1);
+  }
+  const char magic[8] = "DUCK250";
+  fwrite(magic, 1, 8, out);
+  for (int lane = 0; lane < lanes; lane++) {
+    mjData *d = workers[lane];
+    reset(d, lane);
+    fwrite(d->qpos, sizeof(double), poses, out);
+    fwrite(d->qvel, sizeof(double), nv, out);
+    for (int i = 0; i < steps; i++) {
+      int tick = 20 * firstFrame(lane) + i;
+      const Sample *a = gait + tick / 20, *b = a + 1;
+      double control[14], t = (tick % 20) / 20.;
+      for (int j = 0; j < 14; j++)
+        control[j] = a->tau[j] + t * (b->tau[j] - a->tau[j]);
+      const State *ref = &trace[lane][i];
+      fwrite(control, sizeof(double), 14, out);
+      fwrite(ref->q, sizeof(double), poses, out);
+      fwrite(ref->v, sizeof(double), nv, out);
+      fwrite(ref->load, sizeof(double), 2, out);
+    }
+  }
+  if (ferror(out) || fclose(out))
+    exit(1);
+}
 int main(int argc, char **argv) {
   if (argc != 3 || mj_version() != 4000001 || mj_version() != mjVERSION_HEADER)
     return 1;
@@ -211,6 +241,8 @@ int main(int argc, char **argv) {
     workers[j] = mj_makeData(m);
   if (!check())
     return 1;
+  if (getenv("MICRODUCK_REFERENCE"))
+    writeReference(getenv("MICRODUCK_REFERENCE"));
   double times[2][reps], sum[2] = {0};
   for (int r = -1; r < reps; r++)
     for (int pass = 0; pass < 2; pass++) {
