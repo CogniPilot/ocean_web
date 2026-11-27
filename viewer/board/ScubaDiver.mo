@@ -609,10 +609,12 @@ equation
     (if depth>1.2 and standing<.05 then max(-1,min(1,1.6*(max(0,volumeError-.12)+min(0,volumeError+.12)))) else 0)
     else if policyMode>.5 or pilot[1]>.5 or standing>.5 then 0 else
       max(-1,min(1,neutralVestLitres+max(-1.2,min(1.2,.32*(cruiseZ-state[3])-.85*state[6]))-vestLitres));
+  // Ramp the automatic valve continuously out of its dead band. A relay here
+  // chatters as gas expansion carries the feedback across the opening threshold.
   selectedValve=if abs(vestValve)>.001 then vestValve else
     (if neutralTrim<.5 and policyMode>.5 and bladderAction>0 then
       max(0,min(1,(neutralVestLitres+3*min(1,bladderAction)-vestLitres)*2))
-      else (if abs(autoValve)>.08 then autoValve else 0));
+      else (max(0,autoValve-.08)+min(0,autoValve+.08))/.92);
   inflateCommand=max(0,min(1,selectedValve));
   vestFill=2.0*inflateCommand*min(1,available/.2)*min(1,max(0,(vestCapacity-vestLitres)*4));
   vestDump=1.6*ambient*max(0,min(1,-selectedValve))*min(1,vestLitres*4)
