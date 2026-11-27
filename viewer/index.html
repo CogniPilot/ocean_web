@@ -186,22 +186,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 #startupScreen progress{display:block;width:min(72vw,248px);height:8px;margin:18px auto 0;accent-color:#91d8ca}
 #startupScreen button{margin-top:16px}
 
-#diverTraining{position:fixed;inset:0;margin:0;width:100%;max-width:none;height:100dvh;max-height:none;box-sizing:border-box;overflow:auto;padding:0;background:#0b2935;color:#e6f4f6;border:0;border-radius:0}
-#diverTraining[open]{display:flex;flex-direction:column}
-#diverTraining .trainingHead{position:sticky;top:0;background:#0b2935;z-index:2;flex:none}
-#trainingViewStatus{position:absolute;top:10px;left:12px;font:13px ui-monospace,monospace;color:#e1f1f1;pointer-events:none}
-#trainingSceneLabel,#trainingViewStatus{background:#0b2935db;border-radius:4px;padding:3px 7px}
-#trainingViewStatus:empty,.trainingCharts[hidden]{display:none}
-#trainingTools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:5px 14px}#trainingTools label{display:inline-flex;align-items:center;gap:5px}
-.trainingCharts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;padding:0 14px 12px}
-.trainingCharts figure{margin:0;min-width:0}.trainingCharts figcaption{font-size:13px;color:#d6e9e8}.trainingCharts canvas{position:static;inset:auto;width:100%;height:84px;display:block}
-#diverTraining::backdrop{background:#01121cba}
-.trainingHead,.trainingFoot{display:flex;align-items:center;flex-wrap:wrap;padding:10px 14px;gap:8px}
-.trainingHead{justify-content:space-between}.trainingHead h2{font:24px Georgia,serif;margin:0}
-#trainingViewport{position:relative;flex:1 0 min(42dvh,240px);background:linear-gradient(165deg,#488992 0%,#24596a 39%,#123746 82%,#102e3c)}
-#trainingGhosts{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:grab}
-#trainingSceneLabel{position:absolute;left:12px;bottom:9px;font:12px ui-monospace,monospace;color:#e1f1f1;pointer-events:none}
-.trainingFoot label{display:flex;gap:6px;align-items:center}.trainingFoot output{flex:1 0 100%;font:13px/1.4 ui-monospace,monospace}.trainingFoot output:empty{display:none}
+.trainingHead{display:flex;align-items:center;justify-content:space-between;gap:12px}.trainingHead h2{font:24px Georgia,serif;margin:0}
 #sticks .swim-fast{position:absolute;pointer-events:auto;left:0;bottom:calc(100% + 21px);min-width:44px;min-height:44px}
 #sticks.hobie{align-items:center}
 #sticks.hobie .stick::before{content:"";position:absolute;border-radius:4px;background:#a4d7d381;pointer-events:none}
@@ -317,7 +302,6 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <span id="subAccessories" hidden><button type="button" id="subLamp" aria-pressed="true" aria-keyshortcuts="Z">Survey lamp (Z)</button></span>
 <button type="button" id="diverTorch" hidden aria-pressed="false" aria-keyshortcuts="X">Equip flashlight</button>
 <button type="button" id="openModelTraining" aria-haspopup="dialog" aria-controls="modelTraining">Model training</button>
-<button type="button" id="openDiverTraining" aria-haspopup="dialog" hidden>Diver swim training</button>
 <button id="showSticks" aria-controls="sticks" aria-pressed="false">On-screen controls</button>
 <button type="button" id="recenterView" aria-keyshortcuts="Home" title="Restore the selected camera’s default view (Home)">Recenter view</button>
 <button id="helm" title="Sail the regatta course automatically">Engage race autopilot</button>
@@ -514,7 +498,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button type="button" id="fleetButton">Invite a friend</button>
 <button id="openChat" type="button" aria-controls="roomChat" aria-keyshortcuts="Enter" hidden>Chat</button>
 <button type="button" id="mainMenu">Main menu</button></div>
-<div id="hudCustomize" hidden><fieldset><legend>Readouts</legend><div id="hudWidgets"></div><button type="button" aria-pressed="false" id="showCompass">Navigation compass</button><label class="control-select" data-boat><span>Wind pointer</span><select id="compassWind"><option value="apparent">Apparent</option><option value="true">True</option></select></label></fieldset>
+<div id="hudCustomize" hidden><fieldset><legend>Readouts</legend><div id="hudWidgets"></div><button type="button" aria-pressed="false" id="showCompass">Navigation compass</button><label class="control-select" data-boat><span>Wind display</span><select id="compassWind"><option value="apparent">Apparent</option><option value="true">True</option></select></label><label data-boat><input type="checkbox" id="compassDetails"> Detailed compass</label></fieldset>
 <fieldset><legend>Panels</legend><div id="hudPanels"></div><button type="button" data-boat id="mastCapture" aria-controls="mastPanel" aria-expanded="false">Mast cameras</button></fieldset><details id="hudShortcutSettings"><summary>Toolbar shortcuts</summary><div id="hudShortcuts"></div></details><button type="button" id="hudReset">Restore defaults</button></div></section></footer><div id="sticks" hidden></div>
 <template id="hobieTouchTrim">
 <details class="touch-trim"><summary>Crew &amp; trim</summary>
@@ -526,25 +510,34 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <label>Jib travelers<output></output><input type="range" data-trim="jibCar"></label>
 </div></details></template>
 <dialog id="modelTraining" aria-labelledby="modelTrainingTitle">
-  <div class="trainingHead"><h2 id="modelTrainingTitle">Model training</h2><button type="button" id="modelTrainingClose" autofocus>Close</button></div>
+  <div class="trainingHead"><h2 id="modelTrainingTitle">Model training</h2><div class="model-actions"><button id="modelTrainingRun" type="submit" form="modelTrainingForm">Start training</button><button type="button" id="modelTrainingClose" autofocus>Close</button></div></div>
+  <div class="training-workspace">
+  <div class="training-stage">
   <div id="modelTrainingViewport" hidden>
     <canvas id="modelTrainingFleet" aria-label="Live training rollouts. Drag to orbit or scroll to zoom."></canvas>
     <output id="modelTrainingViewStatus" role="status"></output>
+    <output id="modelTrainingStep" aria-live="off"></output>
     <div class="fleet-zoom"><button type="button" id="modelTrainingZoomIn" aria-label="Zoom in">+</button><button type="button" id="modelTrainingZoomOut" aria-label="Zoom out">−</button></div>
   </div>
+  <div id="modelTrainingViewTools" hidden><label>View <select id="modelTrainingFocus"><option value="-1">All instances</option></select></label>
+    <span id="modelTrainingDiverTools" hidden><label>Playback <select id="trainingPlayback"><option value="live">Live</option><option value="replay" disabled>Recorded · 1×</option></select></label>
+    <label><input id="trainingOverlay" type="checkbox"> Bodies and joints</label></span>
+  </div>
+  </div>
+  <div class="training-controls">
   <form id="modelTrainingForm">
     <div class="model-fields">
       <label>Model<select id="modelTrainingTask"></select></label>
       <label>Start from<select id="modelTrainingInit"><option value="scratch">Scratch</option><option value="pretrained">Pre-trained policy</option><option value="current">Saved policy</option></select></label>
       <label>Physics<select id="modelTrainingPhysics"><option value="cpu">CPU (WASM)</option><option value="cuda" disabled>GPU (CUDA)</option></select></label>
       <label>Policy updates<select id="modelTrainingBackend"><option value="cpu">CPU</option><option value="gpu" disabled>GPU (WebGPU)</option></select></label>
-      <label>Count<select id="modelTrainingLanes"><option value="auto">Auto</option><option selected>1</option><option>4</option><option>16</option><option>32</option><option>64</option><option value="manual">Manual…</option></select></label>
+      <label>Count<select id="modelTrainingLanes"><option value="auto">Auto</option><option>1</option><option selected>4</option><option>16</option><option>32</option><option>64</option><option value="manual">Manual…</option></select></label>
       <label id="modelTrainingCountLabel" hidden>Instance count<input id="modelTrainingCount" type="number" min="1" max="256" step="1" value="4" required></label>
     </div>
     <p id="modelTrainingObjective"></p><p id="modelTrainingAvailability" role="status"></p>
     <div class="model-actions"><span id="modelTrainingLocalLinks" hidden><a id="modelTrainingLocal" href="http://127.0.0.1:18588/" target="_blank" rel="noopener">Open local CUDA trainer</a> · <a href="https://github.com/CogniPilot/ocean_web/blob/HEAD/tools/fmi-cuda-batch/README.md#model-training-service" target="_blank" rel="noopener">Setup instructions</a></span>
       <button type="button" id="modelTrainingRefresh">Refresh devices</button></div>
-    <div class="model-actions"><button id="modelTrainingRun" type="submit">Start training</button>
+    <div class="model-actions">
       <button type="button" id="modelTrainingLoad">Load checkpoint…</button><input type="file" id="modelTrainingFile" aria-label="Checkpoint file" accept=".json,application/json" hidden>
       <button type="button" id="modelTrainingSave" disabled>Save checkpoint</button>
       <button type="button" id="modelTrainingApply" disabled>Use in simulation</button><button type="button" id="modelTrainingRestore" hidden>Restore default policy</button></div>
@@ -552,27 +545,15 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
   </form>
   <section aria-label="Training progress" class="model-progress">
     <output id="modelTrainingStatus" role="status">Ready</output>
-    <output id="modelTrainingStep" aria-live="off"></output><progress id="modelTrainingProgress" aria-label="Rollout progress" hidden></progress>
+    <progress id="modelTrainingProgress" aria-label="Rollout progress" hidden></progress>
     <output id="modelTrainingMetrics" aria-live="off"></output>
   </section>
-  <div id="modelTrainingPlots" hidden><figure><figcaption>Displacement from rollout start <label>View <select id="modelTrainingFocus"><option value="-1">All instances</option></select></label></figcaption>
+  <div id="modelTrainingPlots" hidden><figure><figcaption>Displacement from rollout start</figcaption>
     <canvas id="modelTrainingPaths" aria-label="East and north displacement in metres from each instance’s first sample"></canvas></figure>
     <figure id="modelTrainingChart" hidden><figcaption>Validation reward <span>Current</span> / <span>Best</span></figcaption><canvas id="modelTrainingReward" aria-label="Current and best validation reward by round"></canvas></figure>
+    <figure id="modelTrainingErrorChart" hidden><figcaption>Forward speed error · m/s</figcaption><canvas id="modelTrainingError" aria-label="Mean absolute forward speed error by round"></canvas></figure>
   </div>
-</dialog>
-<dialog id="diverTraining" aria-labelledby="diverTrainingTitle">
-  <div class="trainingHead"><h2 id="diverTrainingTitle">Diver training</h2><label>Model <select id="diverTrainingTask"></select></label><button type="button" id="trainingClose">Close</button></div>
-  <div id="trainingViewport"><canvas id="trainingGhosts" aria-label="Diver training grid. Drag to orbit or scroll to zoom."></canvas>
-    <span id="trainingViewStatus" role="status"></span><span id="trainingSceneLabel">Open ocean</span></div>
-  <div id="trainingTools"><label>View <select id="trainingFocus"><option value="-1">All swimmers</option></select></label>
-    <button type="button" id="trainingZoomIn" aria-label="Zoom in">+</button><button type="button" id="trainingZoomOut" aria-label="Zoom out">−</button>
-    <label>Playback <select id="trainingPlayback"><option value="live">Live</option><option value="replay" disabled>Recorded · 1×</option></select></label>
-    <label><input id="trainingOverlay" type="checkbox"> Bodies and joints</label></div>
-  <div class="trainingFoot"><label>Start from <select id="trainingStart"><option value="pretrained">Pre-trained swimmer</option><option value="scratch">Scratch · zero weights</option><option value="current">My swimmer</option></select></label><label>Count <select id="trainingLanes"><option value="auto" selected>Auto</option><option>1</option><option>4</option><option>16</option><option>32</option><option>64</option><option value="manual">Manual…</option></select></label> <input id="trainingCount" type="number" required aria-label="Manual instance count" min="1" step="1" max="256" value="16" style="width:5.5em" hidden><label>Physics <select id="trainingPhysics"><option value="cpu">CPU</option><option value="cuda" disabled>GPU (CUDA)</option></select></label><label>Policy updates <select id="trainingBackend"><option value="cpu">CPU</option><option value="gpu" selected>GPU (WebGPU)</option></select></label>
-    <button type="button" id="trainingRun">Start training</button><button type="button" id="trainingSave" disabled>Save weights</button>
-    <output id="trainingStatus" aria-live="polite">Ready</output><output id="trainingMetrics"></output>
-  </div>
-  <div class="trainingCharts" id="trainingCharts" hidden><figure><figcaption>Validation reward · <span style="color:#76ddcf">current</span> / <span style="color:#f9bd7c">best</span></figcaption><canvas id="trainingReward" aria-label="Validation reward by round"></canvas></figure><figure><figcaption>Forward speed error · m/s</figcaption><canvas id="trainingError" aria-label="Mean absolute forward speed error by round"></canvas></figure></div>
+  </div></div>
 </dialog>
 <dialog id="roomQrDialog" aria-labelledby="roomQrTitle" aria-describedby="roomQrName">
 <h2 id="roomQrTitle">Scan to join</h2><img id="roomQrImage" alt="QR code for the multiplayer room">

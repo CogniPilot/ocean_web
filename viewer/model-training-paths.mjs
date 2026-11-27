@@ -1,9 +1,9 @@
 // Plot each lane relative to its own first sampled position in the current rollout.
 export function trainingPaths(canvas,focus){
   const context=canvas.getContext('2d');
-  let tracks=[],round,phase,tick;
+  let tracks=[],round,phase,batchTime;
   function clear(){
-    tracks=[];round=phase=tick=undefined;
+    tracks=[];round=phase=batchTime=undefined;
     focus.replaceChildren(new Option('All instances','-1'));
   }
   function draw(){
@@ -36,17 +36,18 @@ export function trainingPaths(canvas,focus){
     context.fillText('N ↑   E →',6,12);context.fillText(metres+' m',6,height-9);
     context.beginPath();context.moveTo(6,height-4);context.lineTo(6+metres*scale,height-4);context.stroke();
   }
-  function add(data){
+  function add(data,positionOffset=0){
     const rows=data.frames;
     if(!rows?.length)return;
     if(rows.length!==tracks.length){
       focus.replaceChildren(new Option('All instances','-1'),...rows.map((_,i)=>new Option('Instance '+(i+1),String(i))));
     }
-    if(rows.length!==tracks.length||round!==data.round||phase!==data.phase||tick>=data.tick){
+    if(rows.length!==tracks.length||round!==data.round||phase!==data.phase||batchTime>=data.batchSeconds){
       tracks=rows.map(()=>({origin:null,points:[]}));
     }
-    round=data.round;phase=data.phase;tick=data.tick;
-    rows.forEach(([east,north],i)=>{
+    round=data.round;phase=data.phase;batchTime=data.batchSeconds;
+    rows.forEach((row,i)=>{
+      const east=row[positionOffset],north=row[positionOffset+1];
       if(!Number.isFinite(east)||!Number.isFinite(north))return;
       const track=tracks[i];track.origin??=[east,north];
       track.points.push([east-track.origin[0],north-track.origin[1]]);

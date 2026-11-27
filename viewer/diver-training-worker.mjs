@@ -166,10 +166,16 @@ async function train(request,id){
   }finally{experiment?.dispose?.();physics?.close();learner.close();}
 }
 
+let running;
 self.onmessage=({data})=>{
-  if(data.type==='stop'){generation++;return;}
+  if(data.type==='stop'){
+    generation++;
+    void running?.then(()=>postMessage({type:'done'}));return;
+  }
   if(data.type==='start'){
     const id=++generation;
-    train(data,id).catch(error=>{if(id===generation)postMessage({type:'error',message:error.message,backend:data.backend});});
+    running=train(data,id)
+      .then(()=>{if(id===generation)postMessage({type:'done'});})
+      .catch(error=>{if(id===generation)postMessage({type:'error',message:error.message,backend:data.backend});});
   }
 };

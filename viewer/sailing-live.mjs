@@ -140,13 +140,12 @@ function joinRoomLink(url,room,fleet=1){
 }
 import {hobieControllers} from './hobie-race-policies.mjs';
 import {sailTrainingHelm} from './sail-training-helm.mjs';
-import {diverTraining} from './diver-training.mjs';
 import {modelTraining} from './model-training.mjs';
 import {loadVectors} from './load-vectors.mjs';
 
 const resetStorage='ocean-world-reset';
 const crtStorage='ocean-crt-filter';
-const settingsFields='wind seaState sky storm quality simulationSpeed showForces diverLoadGroup compassWind crtFilter keyLayout roomName physicsView physicsRig physicsAllLabels physicsHulls physicsWater physicsAir physicsCurrent waveLayer collisionShapes inertiaShapes cameraCones showDroneCovariance vang outhaul autoTrim showBallastMarker ballX ballY autoDeck jibTackAssist mainCar jibCar jibSheet searchLamp keelLamp lampYaw lampTilt subMode flightMode sonarMap showDvlRays cruiserSonarRange echoCamera wiperSwitch jibHalyard mastPort musicVolume effectsVolume spawnKind'.split(' ');
+const settingsFields='wind seaState sky storm quality simulationSpeed showForces diverLoadGroup compassWind compassDetails crtFilter keyLayout roomName physicsView physicsRig physicsAllLabels physicsHulls physicsWater physicsAir physicsCurrent waveLayer collisionShapes inertiaShapes cameraCones showDroneCovariance vang outhaul autoTrim showBallastMarker ballX ballY autoDeck jibTackAssist mainCar jibCar jibSheet searchLamp keelLamp lampYaw lampTilt subMode flightMode sonarMap showDvlRays cruiserSonarRange echoCamera wiperSwitch jibHalyard mastPort musicVolume effectsVolume spawnKind'.split(' ');
 const toggleSettings=['showCompass','cruiserChartFit','cutMotors','helm','subLamp'];
 const settingPanels=()=>document.querySelectorAll('.control-pane,#racePanel,#fleetRoster,#cruiserSonarPanel,#cruiserCameras,#subSensors,#subOptical,#fishFinder');
 function readReset(){
@@ -187,8 +186,7 @@ async function run(saved=readReset(),carried){
   const lobbyEndpoint=document.querySelector('meta[name="ocean-lobby-endpoint"]')?.content;
   let landingSeat,entryPoint,chooseEntryHoist=false;
   let controlledSwimmer;
-  const openDiver=diverTraining(T,signal);
-  const trainer=modelTraining(signal,()=>openDiver(controlledSwimmer?.()));
+  const trainer=modelTraining(signal,()=>controlledSwimmer?.());
   on($('entryModelTraining'),'click',()=>trainer.open($('vehicleType').value));
   const invalidInvite=url.searchParams.get('join')==='1'&&!validRoomName(url.searchParams.get('room')??'');
   if(invalidInvite||url.searchParams.has('menu')||(packaged&&!['runtime','boat','control','demo'].some(name=>url.searchParams.has(name)))){
@@ -342,7 +340,12 @@ async function run(saved=readReset(),carried){
     model.has('blockStack')?model.get('blockStack'):undefined,
     model.has('travelerMounts')?model.get('travelerMounts'):undefined):null;
   if(boat)scene.add(boat.group);
-  const compassWind=$('compassWind');
+  const compassWind=$('compassWind'),compassDetails=$('compassDetails');
+  try{compassDetails.checked=saved?.fields.compassDetails??(localStorage.getItem('ocean-compass-details')==='on');}catch{}
+  compassDetails.onchange=()=>{
+    try{localStorage.setItem('ocean-compass-details',compassDetails.checked?'on':'off');}catch{}
+    lastDial=-Infinity;
+  };
   compassWind.value=cat?'apparent':'true';
   try{
     const preference=saved?.fields.compassWind??localStorage.getItem('ocean-compass-wind');
@@ -1762,7 +1765,6 @@ async function run(saved=readReset(),carried){
   }
   showCovariance.onchange=covarianceVisibility;
   $('sonarMap').onchange=()=>{if(sub)sub.mapVisible=$('sonarMap').checked;};
-  const trainingDialog=$('diverTraining');
   on($('openModelTraining'),'click',()=>{
     keys.clear();keyboard.clear();analog.clear();
     const target=$('controlTarget').value;
@@ -1780,9 +1782,6 @@ async function run(saved=readReset(),carried){
       }
     };
   };
-  on($('openDiverTraining'),'click',()=>{
-    keys.clear();keyboard.clear();analog.clear();trainer.open('diver');
-  });
   const showForces=$('showForces');
   if(saved?.toggles?.showForces===true && saved?.fields?.showForces===undefined)showForces.checked=true;
   showForces.onchange=()=>{
@@ -2302,7 +2301,6 @@ async function run(saved=readReset(),carried){
     const animalSensors=$('animalSensors'),motorSensors=$('motorSensors'),subSensors=$('subPanel');
     const diver=animalKind()==='diver',canFeed=swimming&&!diver&&animalKind()!=='manta';
     $('diverModeLabel').hidden=!diver;
-    $('openDiverTraining').hidden=!diver;
     $('diverTorch').hidden=!diver||!ownsAnimal();updateTorchButton();
     $('diverMode').disabled=!ownsAnimal();
     const learned=diver&&remote.npc.animals.get(animalId)?.learned;
@@ -3821,7 +3819,7 @@ async function run(saved=readReset(),carried){
           }else if(s){
             drawSailingDial($('dial'),{heading:s[2],boatSpeed:Math.hypot(extra[4],extra[5]),
               trueWind:model.has('sailWind')?model.get('sailWind'):wind,cupSpeed:model.get('cupSpeed'),vane:s[30],
-              pointer:compassWind.value,noGo,target:courseTarget});
+              pointer:compassWind.value,noGo,target:courseTarget,detailed:compassDetails.checked});
           }
         }
         if(!covarianceOutput.hidden){
@@ -4335,7 +4333,7 @@ async function run(saved=readReset(),carried){
       reef.update(camera.position,opticalTime);
       cave.update(camera.position);
       updateWreckSites(camera.position,eyeSurface,collisionToggle.checked);
-      const drawOcean=!trainingDialog.open&&!trainer.dialog.open;
+      const drawOcean=!trainer.dialog.open;
       if(drawOcean&&eyeHeight>=-surfaceBand)ocean.updateWhitecaps(renderer,now,eyeX,eyeY,
         model?.get('currentEast')??.2,model?.get('currentNorth')??.04);
       if(drawOcean)caustics.update(opticalTime,!omitWake);

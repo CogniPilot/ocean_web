@@ -1,3 +1,4 @@
+import {diverTask,diverCheckpoint,diverTrainingView} from './diver-training.mjs';
 import {requestTrainingAdapter} from './diver-training-update.mjs';
 import {trainingChart} from './training-chart.mjs';
 import {trainingPaths} from './model-training-paths.mjs';
@@ -6,7 +7,7 @@ import {trainingTasks,getTrainingTask,validateTrainingCheckpoint,getAppliedPolic
 
 let openedLinkedTask=false;
 
-export function modelTraining(signal,openDiver){
+export function modelTraining(signal,controlledSwimmer){
   const element=suffix=>document.getElementById('modelTraining'+suffix);
   const dialog=element(''),model=element('Task'),init=element('Init'),physics=element('Physics');
   const backend=element('Backend'),lanes=element('Lanes'),count=element('Count'),run=element('Run');
@@ -15,42 +16,49 @@ export function modelTraining(signal,openDiver){
   const plots=element('Plots'),chart=element('Chart'),focus=element('Focus');
   const paths=trainingPaths(element('Paths'),focus);
   const reward=trainingChart(element('Reward'),new Map([['score','#f9bd7c'],['candidate','#76ddcf']]));
+  const speedError=trainingChart(element('Error'),new Map([['speed','#76ddcf']]));
   const refresh=element('Refresh'),local=element('Local');
   const checkpoints=new Map(),controls=[model,init,physics,backend,lanes,load,refresh];
   const on=(target,event,fn)=>target.addEventListener(event,fn,{signal});
   const option=(select,value)=>select.querySelector('[value="'+value+'"]');
-  const selected=()=>getTrainingTask(model.value);
-  const diverModel=document.getElementById('diverTrainingTask');
-  const entries=[...trainingTasks,{id:'diver',label:'Scuba diver'}];
-  for(const menu of [model,diverModel])menu.replaceChildren(...entries.map(task=>new Option(task.label,task.id)));
-  diverModel.value='diver';
+  const taskFor=id=>id==='diver'?diverTask:getTrainingTask(id);
+  const selected=()=>taskFor(model.value);
+  const entries=[...trainingTasks,diverTask];
+  model.replaceChildren(...entries.map(task=>new Option(task.label,task.id)));
+  let swimmer,trainedSwimmer,stopMessage;
   let devices={},devicesPending=true,gpuAvailable=false,gpuPending=true;
   const linkedTask=openedLinkedTask?null:new URLSearchParams(location.search).get('training');
   let preferredPhysics=linkedTask?'cuda':physics.value,preferredBackend=linkedTask?'gpu':backend.value;
   let worker,sessionId,stopTimer,stopping=false,probe=0,adapterProbe=0,backendSummary='';
 
   const viewport=element('Viewport'),viewStatus=element('ViewStatus');
-  let fleet,viewPending=false,viewGeneration=0,latestFrame;
+  let fleet,viewSession,latestFrame;
   function closeView(){
-    ++viewGeneration;viewPending=false;latestFrame=null;
-    fleet?.dispose();fleet=null;viewport.hidden=true;viewStatus.textContent='';
+    viewSession?.abort();viewSession=null;latestFrame=null;
+    fleet?.dispose?.();fleet=null;viewport.hidden=true;element('ViewTools').hidden=true;viewStatus.textContent='';
   }
   async function showFleet(data){
     if(!dialog.open)return;
     const task=selected();
     latestFrame=data;
     if(fleet){fleet.frames(data);return;}
-    if(viewPending)return;
-    const generation=viewGeneration;viewPending=true;viewport.hidden=false;
-    viewStatus.textContent='Loading '+task.label+' model…';
+    if(viewSession)return;
+    const session=new AbortController();viewSession=session;
+    const updateStatus=message=>{if(!session.signal.aborted)viewStatus.textContent=message;};
+    viewport.hidden=false;element('ViewTools').hidden=false;element('DiverTools').hidden=task!==diverTask;
+    updateStatus('Loading '+task.label+' model…');
+    const previous=element('Fleet'),canvas=previous.cloneNode(false);previous.replaceWith(canvas);
     try{
-      const {trainingFleetView}=await import('./training-fleet-view.mjs');
-      if(viewGeneration!==generation)return;
-      const view=await trainingFleetView(element('Fleet'),task.id);
-      if(viewGeneration!==generation){view.dispose();return;}
-      fleet=view;fleet.frames(latestFrame);fleet.focus(Number(focus.value));
-      viewStatus.textContent='';
-    }catch(error){if(viewGeneration===generation)viewStatus.textContent='Live view unavailable · '+error.message;}
+      let view;
+      if(task===diverTask)view=await diverTrainingView(canvas,session.signal,updateStatus);
+      else {
+        const {trainingFleetView}=await import('./training-fleet-view.mjs');
+        if(session.signal.aborted)return;
+        view=await trainingFleetView(canvas,task.id);
+      }
+      if(session.signal.aborted){view?.dispose?.();return;}
+      fleet=view;fleet.frames(latestFrame);fleet.focus(Number(focus.value));updateStatus('');
+    }catch(error){updateStatus('Live view unavailable · '+error.message);}
   }
   on(element('ZoomIn'),'click',()=>fleet?.magnify(.78));
   on(element('ZoomOut'),'click',()=>fleet?.magnify(1/.78));
@@ -99,12 +107,12 @@ export function modelTraining(signal,openDiver){
     gpuAvailable=Boolean(adapter);gpuPending=false;limits();
   }
   function showCheckpoint(){
-    const applied=getAppliedPolicy(model.value);
+    const diver=selected()===diverTask,applied=diver?null:getAppliedPolicy(model.value);
     if(!checkpoints.has(model.value)&&applied)checkpoints.set(model.value,applied);
     const checkpoint=checkpoints.get(model.value);
-    option(init,'current').disabled=!checkpoint;
-    option(init,'current').textContent=checkpoint?'Saved policy · round '+checkpoint.bestRound:'Saved policy';
-    save.disabled=apply.disabled=!checkpoint;
+    option(init,'current').disabled=!checkpoint&&!(diver&&swimmer?.weights());
+    option(init,'current').textContent=checkpoint?'Saved policy · round '+checkpoint.bestRound:diver&&swimmer?.weights()?'My swimmer':'Saved policy';
+    save.disabled=!checkpoint;apply.hidden=diver&&!swimmer;apply.disabled=!checkpoint;
     const appliedStatus=element('Applied');
     appliedStatus.hidden=!applied;
     if(applied)appliedStatus.textContent='Simulation policy · round '+applied.bestRound+
@@ -113,13 +121,13 @@ export function modelTraining(signal,openDiver){
   }
   function clearPlots(){
     plots.hidden=chart.hidden=progress.hidden=true;
-    closeView();step.textContent=metrics.textContent='';paths.clear();reward.clear();
+    element('ErrorChart').hidden=true;closeView();step.textContent=metrics.textContent='';paths.clear();reward.clear();speedError.clear();
   }
   function selectTask(){
     const task=selected();
-    clearPlots();showCheckpoint();
+    swimmer=task===diverTask?controlledSwimmer?.():null;clearPlots();showCheckpoint();
     option(init,'pretrained').disabled=!task.pretrained;
-    init.value=checkpoints.has(task.id)?'current':task.pretrained?'pretrained':'scratch';
+    init.value=checkpoints.has(task.id)||swimmer?.weights()?'current':task.pretrained?'pretrained':'scratch';
     element('Objective').textContent=task.summary??'';
     status.textContent='Ready';void checkPlant();
   }
@@ -134,20 +142,25 @@ export function modelTraining(signal,openDiver){
   function stop(){
     if(!worker||stopping)return;
     stopping=true;run.disabled=true;status.textContent='Stopping training…';
+    const applied=trainedSwimmer&&swimmer?.apply(trainedSwimmer.weights);
+    stopMessage=applied?'Applied best policy to your swimmer · round '+trainedSwimmer.bestRound:'Training stopped';
     worker.postMessage({type:'stop'});
-    stopTimer=setTimeout(()=>finish('Training stopped'),3000);
+    stopTimer=setTimeout(()=>finish(stopMessage),3000);
   }
   function start(){
     const task=selected();
-    const next=new Worker(new URL('./live-training-worker.mjs',import.meta.url),{type:'module'});
+    const diver=task===diverTask;
+    const url=diver?new URL('./diver-training-worker.mjs',import.meta.url):new URL('./live-training-worker.mjs',import.meta.url);
+    const next=new Worker(url,{type:'module'});
     worker=next;clearPlots();backendSummary='';
+    trainedSwimmer=null;
     for(const control of controls)control.disabled=true;
     count.disabled=true;run.textContent='Stop training';status.textContent='Loading '+task.label+'…';
     next.onerror=event=>{if(worker===next)finish(event.message||'Training worker failed');};
     next.onmessage=({data})=>{
       if(worker!==next)return;
       if(data.type==='deviceSession'){sessionId=data.id;return;}
-      if(data.type==='done'){finish(stopping?'Training stopped':'Training complete');return;}
+      if(data.type==='done'){finish(stopping?stopMessage:'Training complete');return;}
       if(data.type==='error'){finish(data.message);return;}
       if(stopping)return;
       switch(data.type){
@@ -159,43 +172,43 @@ export function modelTraining(signal,openDiver){
           status.textContent=backendSummary;
           break;
         }
-        case 'frames':
+        case 'frames':{
           if(backendSummary&&status.textContent!==backendSummary)status.textContent=backendSummary;
-          plots.hidden=false;paths.add(data);void showFleet(data);
+          plots.hidden=false;paths.add(data,diver?1:0);void showFleet(data);
           step.textContent='Round '+data.round+' · '+data.phase+' · step '+data.tick+' / '+data.total;
+          if(data.realTime>0)step.textContent+=' · '+data.realTime.toFixed(data.realTime<.1?3:2)+'× realtime per instance';
+          if(data.stepsPerSecond>0)step.textContent+=' · '+data.stepsPerSecond.toFixed(1)+' aggregate steps/s';
+          if(data.kernelMs>0)step.textContent+=' · CUDA kernel '+data.kernelMs.toFixed(2)+' ms';
           if(data.total>0){progress.hidden=false;progress.max=data.total;progress.value=data.tick;}
           break;
+        }
         case 'progress':{
           const candidate=data.candidateScore??data.score;
           status.textContent=backendSummary;
-          const rate=Number.isFinite(data.stepsPerSecond)?' · '+Math.round(data.stepsPerSecond)+' steps/s':'';
+          const rate=Number.isFinite(data.stepsPerSecond)?' · '+Math.round(data.stepsPerSecond)+' aggregate steps/s':'';
           metrics.textContent='Round '+data.round+' · reward '+candidate.toFixed(3)+' · best '+data.score.toFixed(3)+' (round '+data.bestRound+') · '+data.steps+' physics steps'+rate;
           plots.hidden=chart.hidden=false;reward.add({round:data.round,candidate,score:data.score});
-          if(data.checkpoint){checkpoints.set(task.id,data.checkpoint);showCheckpoint();}
+          if(diver){
+            element('ErrorChart').hidden=false;speedError.add({round:data.round,speed:data.metrics?.[1]});
+          }
+          const checkpoint=diver?diverCheckpoint(data):data.checkpoint;
+          if(checkpoint){checkpoints.set(task.id,checkpoint);showCheckpoint();}
+          if(diver&&data.round>0)trainedSwimmer=checkpoint;
           break;
         }
       }
     };
     const instances=lanes.value==='manual'?count.valueAsNumber:lanes.value==='auto'?'auto':Number(lanes.value);
     next.postMessage({type:'start',task:task.id,physics:physics.value,backend:backend.value,
-      lanes:instances,initialization:init.value,checkpoint:init.value==='current'?checkpoints.get(task.id):undefined});
+      lanes:instances,initialization:init.value,checkpoint:init.value==='current'?checkpoints.get(task.id):undefined,
+      weights:diver&&init.value==='current'?(checkpoints.get(task.id)?.weights??swimmer?.weights()):undefined});
   }
   on(element('Form'),'submit',event=>{
     event.preventDefault();
     if(worker){stop();return;}
     try{start();}catch(error){finish(error.message);}
   });
-  on(model,'change',()=>{
-    if(model.value==='diver'){
-      probe++;
-      dialog.close();openDiver();
-    }else selectTask();
-  });
-  on(diverModel,'change',()=>{
-    const task=diverModel.value;
-    diverModel.value='diver';document.getElementById('diverTraining').close();
-    open(task);
-  });
+  on(model,'change',selectTask);
   on(physics,'change',()=>{preferredPhysics=physics.value;limits();});
   on(backend,'change',()=>{preferredBackend=backend.value;limits();});
   on(lanes,'change',limits);
@@ -206,8 +219,8 @@ export function modelTraining(signal,openDiver){
     const source=file.files[0];file.value='';
     if(!source)return;
     try{
-      const raw=JSON.parse(await source.text()),task=getTrainingTask(raw?.task);
-      const checkpoint=validateTrainingCheckpoint(task,raw);
+      const raw=JSON.parse(await source.text()),task=taskFor(raw?.task??(raw?.weights&&raw?.round!=null?'diver':undefined));
+      const checkpoint=task===diverTask?diverCheckpoint(raw):validateTrainingCheckpoint(task,raw);
       if(signal.aborted||worker||!dialog.open)return;
       checkpoints.set(task.id,checkpoint);model.value=task.id;selectTask();
       status.textContent='Loaded '+task.label+' checkpoint · round '+checkpoint.bestRound;
@@ -222,7 +235,10 @@ export function modelTraining(signal,openDiver){
   on(apply,'click',()=>{
     try{
       const checkpoint=checkpoints.get(model.value);
-      setAppliedPolicy(model.value,checkpoint);showCheckpoint();
+      if(selected()===diverTask){
+        if(!swimmer?.apply(checkpoint.weights))throw Error('This swimmer is no longer under your control.');
+      }else setAppliedPolicy(model.value,checkpoint);
+      showCheckpoint();
       status.textContent='Simulation policy set · '+selected().label+' · round '+checkpoint.bestRound;
     }catch(error){status.textContent=error.message;}
   });
@@ -230,7 +246,7 @@ export function modelTraining(signal,openDiver){
     try{setAppliedPolicy(model.value,null);showCheckpoint();status.textContent='Default simulation policy restored';}
     catch(error){status.textContent=error.message;}
   });
-  const observer=new ResizeObserver(()=>{paths.draw();reward.draw();});observer.observe(plots);
+  const observer=new ResizeObserver(()=>{paths.draw();reward.draw();speedError.draw();});observer.observe(plots);
   on(element('Close'),'click',()=>dialog.close());
   for(const name of ['keydown','keyup'])on(dialog,name,event=>event.stopPropagation());
   on(dialog,'close',()=>{if(!dialog.open){probe++;stop();closeView();}});
@@ -240,16 +256,14 @@ export function modelTraining(signal,openDiver){
   },{once:true});
 
   function open(vehicle){
-    if(vehicle==='diver'){openDiver();return;}
     if(dialog.open)return;
-    if(!worker&&model.value==='diver')model.selectedIndex=0;
     dialog.showModal();
     if(worker)return;
     const suggested=({hobie:'hobie16',sloop:'sailboat',sub:'submarine'})[vehicle]??vehicle;
-    if(trainingTasks.some(task=>task.id===suggested))model.value=suggested;
+    if(entries.some(task=>task.id===suggested))model.value=suggested;
     gpuPending=true;selectTask();void checkAdapter();
   }
-  if(trainingTasks.some(task=>task.id===linkedTask))queueMicrotask(()=>{
+  if(entries.some(task=>task.id===linkedTask))queueMicrotask(()=>{
     if(signal.aborted||openedLinkedTask)return;
     openedLinkedTask=true;open(linkedTask);
   });

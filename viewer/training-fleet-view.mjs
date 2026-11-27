@@ -191,6 +191,6 @@ export async function trainingFleetView(canvas,id){
   },focus(i){selected=i;zoom=1;schedule();},magnify,dispose(){
     observer.disconnect();events.abort();cancelAnimationFrame(raf);ordinary?.dispose();for(const mesh of batches)mesh.dispose();
     for(const object of [water,grid]){object.geometry.dispose();object.material.dispose();}
-    renderer.dispose();
+    renderer.dispose();renderer.forceContextLoss();
   }};
 }
