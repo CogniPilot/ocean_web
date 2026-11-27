@@ -42,10 +42,11 @@ mkdir -p "$library_root"
 ln -sfn "$root/Wreck" "$library_root/Wreck"
 roots=(--source-root "$root/.deps/msl" --source-root "$root/.deps/marine-models" --source-root "$library_root")
 status=0
-for model in OnrtWake OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot Rdd2Survey AirflowProbe CurrentProbe HerringGull FishSchool FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray MantaRay ScubaDiver HarborTraffic HullWake WakeSpectrum BowWavePatch MarineWind Regatta Wreck.Plant Wreck.Navigation Wreck.SurveySLAM Wreck.PiccardPositionHold; do
+for model in OnrtWake OnrTumblehome CruiserImagingSonar Sailboat Hobie16 HobieFleetPilot HobieCoursePrediction Rdd2Survey AirflowProbe CurrentProbe HerringGull FishSchool FeedingGround HullWildlife SwimmerWake SurfaceSpray WhaleSpray MantaRay ScubaDiver HarborTraffic HullWake WakeSpectrum BowWavePatch MarineWind Regatta Wreck.Plant Wreck.Navigation Wreck.SurveySLAM Wreck.PiccardPositionHold; do
   extra=()
   source=Wreck/package.mo
   if [[ $model == Hobie16 ]]; then source=viewer/board/Hobie16.mo; extra=(--source-root "$root/viewer/board/Shore.mo" --source-root "$root/viewer/board/Sailboat.mo" --source-root "$root/viewer/board/SailMembrane.mo" --source-root "$root/viewer/board/SailingTactics.mo"); fi
+  if [[ $model == HobieCoursePrediction ]]; then source=viewer/board/HobieCoursePrediction.mo; fi
   if [[ $model == HobieFleetPilot ]]; then
     source=viewer/board/HobieFleetPilot.mo
     for dep in Shore Sailboat SailMembrane Hobie16 RegattaBase Regatta SailingTactics BowWavePatch; do extra+=(--source-root "$root/viewer/board/$dep.mo"); done

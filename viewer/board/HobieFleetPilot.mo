@@ -7,6 +7,8 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
   input Real swellSampleTime=0;
   input Real externalCourse=0,coursePoints[4,2]=zeros(4,2);
   input Real traffic[10,9]=zeros(10,9),trafficTilt[10,2]=zeros(10,2);
+  input Real learnedHelm=0,predictiveHelm=0,predictedHeading=0;
+  input Real actuators[10]=zeros(10) "Rudder, winch, travelers, jib, downhaul, outhaul, halyard and crew x/y in boat input units";
   output Real pose[8] "ENU, heading, water-relative speed, EN velocity, yaw rate";
   output Real raceStatus[6] "Stage, elapsed, lap time, heat start, turns owed, degrees through the current turn";
   parameter Real initialPenalty=0;
@@ -19,10 +21,11 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
     seaClockOffset= -swellSample[2]/swellFrequency-swellSampleTime,manualJibAssist=1,reachTrial=0,
     useRefinedSectionWater=true,refinedSectionWater=sectionSample,previousRefinedSectionWater=sectionPrevious,
     useSectionWater=1,sectionWater=coarseSection,previousWater=coarsePrevious,waterStamp=sectionTime,
-    mass=205,ballastMass=60,ballastManual=0,ballastCmdX=0,ballastCmdY=0,
-    downhaulInput=.5,outhaulInput=.65,manualHelm=0,rudderInput=0,trimInput=0,vangInput=.5,
-    deckManual=0,mainCarInput=0,jibCarInput=0,jibTrimInput=0,
-    raceGoal={1,goal[1],goal[2]},tacticalCourse={1,course,pace},
+    mass=205,ballastMass=60,ballastManual=if learnedHelm>.5 then 1 else 0,ballastCmdX=actuators[9],ballastCmdY=actuators[10],
+    downhaulInput=if learnedHelm>.5 then actuators[6] else .5,outhaulInput=if learnedHelm>.5 then actuators[7] else .65,
+    jibHalyardInput=if learnedHelm>.5 then actuators[8] else .55,manualHelm=if learnedHelm>.5 and not turning then 1 else 0,rudderInput=actuators[1],trimInput=actuators[2],vangInput=.5,
+    deckManual=if learnedHelm>.5 then 1 else 0,mainCarInput=actuators[3],jibCarInput=actuators[4],jibTrimInput=actuators[5],
+    raceGoal={1,goal[1],goal[2]},tacticalCourse={1,if predictiveHelm>.5 and not turning then predictedHeading else course,pace},
     traffic=traffic[1:4,:],trafficTilt=trafficTilt[1:4,:],sceneTraffic=traffic[5:10,:],
     sceneTilt=trafficTilt[5:10,:],wakeEast=0,wakeNorth=0,wakeYaw=0,droneLoad=race.racerLoad);
   Real upwind,wind,along,across,seconds,pace,markLoad;
