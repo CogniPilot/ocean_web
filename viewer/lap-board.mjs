@@ -3,7 +3,11 @@ import {isCaptainName} from './captains.mjs';
 // Each retained finish has its own storage key so simultaneous tabs cannot
 // overwrite one another's laps. Only the ten fastest per course and hull survive.
 const limit=10;
-const classes={Hobie16:'Hobie 16',Sailboat:'Pilothouse sloop',RDD2:'RDD2 drone'};
+const classes={Hobie16:'Hobie 16',Sailboat:'Pilothouse sloop',RDD2:'RDD2 drone',motorboat:'Cabin cruiser',sub:'Piccard submarine',gull:'Herring gull',whale:'Humpback whale',shark:'Great white shark',manta:'Manta ray',diver:'Scuba diver'};
+const feedingKinds=['shark','manta','whale'];
+const boards=[...Object.keys(classes),...feedingKinds.map(kind=>kind+'-feeding')];
+const feeding=board=>board.endsWith('-feeding');
+const controllers={vmg:'VMG autopilot',rl:'RL policy',nmpc:'Scenario NMPC',mppi:'MPPI'};
 const playerNumber=/^Player #(?:0|[1-9]\d?)$/;
 const npcNumber=/^NPC #(?:0|[1-9]\d?)$/;
 
@@ -39,7 +43,7 @@ export function fleetFinishes(){
   };
 }
 function valid(row,hull){
-  if(!row||typeof row.id!=='string'||!Number.isSafeInteger(row.tenths)||row.tenths<=0)return false;
+  if(!row||typeof row.id!=='string'||(feeding(hull)?!Number.isSafeInteger(row.count)||row.count<0:!Number.isSafeInteger(row.tenths)||row.tenths<=0))return false;
   const npc=/^npc-([1-5])-\d{1,15}-(?:[a-f0-9]{16}|-?\d{1,15})$/.exec(row.id);
   if(npc)return hull==='Hobie16'&&(npcNumber.test(row.captain)||row.captain==='NPC '+npc[1]);
   return /^[a-f0-9]{32}$/.test(row.id)&&(row.captain==='You'||playerNumber.test(row.captain)||isCaptainName(row.captain));
@@ -63,7 +67,7 @@ export function lapTable(storage,scope,hull){
     trim();
   }
   function trim(){
-    rows.sort(compare);
+    rows.sort(feeding(hull)?(a,b)=>b.count-a.count||a.id.localeCompare(b.id):compare);
     for(const row of rows.splice(limit)){
       try{storage.removeItem(prefix+row.id);}catch{}
     }
@@ -72,7 +76,7 @@ export function lapTable(storage,scope,hull){
     if(!Array.isArray(batch)||batch.length>limit)return false;
     const before=rows.slice();
     for(const row of batch){
-      if(valid(row,hull)&&!rows.some(r=>r.id===row.id))rows.push({id:row.id,captain:row.captain,tenths:row.tenths});
+      if(valid(row,hull)&&!rows.some(r=>r.id===row.id))rows.push({id:row.id,captain:row.captain,...(feeding(hull)?{count:row.count}:{tenths:row.tenths}),...(Object.hasOwn(controllers,row.controller)?{controller:row.controller}:{})});
     }
     trim();
     for(const row of rows){
@@ -90,24 +94,103 @@ export function lapTable(storage,scope,hull){
   };
 }
 
-export function lapLeaderboard(hull,roomName,panel){
+// A feeding heat uses the race committee's UTC schedule. Catch counters are
+// cumulative on the habitat authority, so establish the baseline at the signal.
+export function feedingHeat(){
+  let last;
+  return {
+    reset(){last=undefined;},
+    sample(utc,start,total,eligible){
+      if(!Number.isFinite(utc)||!Number.isFinite(start)||!Number.isSafeInteger(total)||total<0){
+        last=undefined;return;
+      }
+      const heat=start+300*Math.floor((utc-start)/300);
+      const continuous=last&&last.start===start&&utc>=last.utc&&utc-last.utc<=2&&total>=last.total;
+      const atSignal=utc>=start&&(utc===heat||continuous&&last.heat+300===heat);
+      let completed;
+      if(continuous&&last.heat+300===heat&&last.eligible&&eligible)completed=last.total-last.base;
+      if(!continuous||last.heat!==heat){
+        const base=continuous?last.total:total;
+        last={heat,start,base,total,utc,eligible:Boolean(atSignal&&eligible)};
+      }else{
+        last.eligible&&=eligible;
+        last.total=total;last.utc=utc;
+      }
+      return {count:total-last.base,eligible:last.eligible,completed};
+    }
+  };
+}
+
+// A Regatta instance samples only one continuously controlled trajectory.
+// Re-seed at the first position of each seat and after discontinuities so a
+// change of vehicle cannot become a gate crossing.
+export function controlledRace(create){
+  let key,pending,model,previous,nextAttempt=0,generation=0;
+  function reset(){
+    if(key===undefined&&!pending&&!model)return;
+    generation++;model?.close();model=undefined;pending=undefined;previous=undefined;key=undefined;nextAttempt=0;
+  }
+  return {reset,get generation(){return generation;},
+    sample(id,position,time,utc,start,course,trajectoryTime=time){
+      if(!position||!Number.isFinite(position[0])||!Number.isFinite(position[1])||!Number.isFinite(time)||!Number.isFinite(utc)){
+        if(key!==undefined)reset();return;
+      }
+      const [east,north]=position,dt=previous?time-previous.time:0;
+      if(id!==key||previous&&(dt<0||trajectoryTime<previous.trajectoryTime||Math.hypot(east-previous.east,north-previous.north)>12+80*Math.min(dt,.5))){
+        reset();key=id;
+      }
+      if(!model){
+        if(!pending&&time>=nextAttempt){
+          const ticket=generation;
+          previous={time,trajectoryTime,east,north};
+          pending=create({east,north,utc,raceStart:start,coursePoints:course()}).then(loaded=>{
+            if(generation!==ticket){loaded.close();return;}
+            model=loaded;pending=undefined;
+          }).catch(error=>{
+            if(generation!==ticket)return;
+            pending=undefined;nextAttempt=time+5;console.error('Race committee',error);
+          });
+        }
+        return;
+      }
+      if(dt>=.049){
+        model.set('east',east);model.set('north',north);model.set('utc',utc);
+        model.set('raceStart',start);model.set('coursePoints',course());
+        model.advance(Math.min(dt,.1));previous={time,trajectoryTime,east,north};
+      }
+      return model;
+    }
+  };
+}
+
+export function lapLeaderboard(hull,roomName,panel,signal){
   let storage;
   try{storage=window.localStorage;}catch{}
   const details=panel.querySelector('#bestLaps');
-  const personal=new Map(Object.keys(classes).map(kind=>[kind,lapTable(storage,'personal',kind)]));
-  const roomTables=name=>new Map(Object.keys(classes).map(kind=>[kind,lapTable(storage,'room/'+name,kind)]));
+  const personal=new Map(boards.map(kind=>[kind,lapTable(storage,'personal',kind)]));
+  const roomTables=name=>new Map(boards.map(kind=>[kind,lapTable(storage,'room/'+name,kind)]));
   let room=roomTables(roomName);
   let channel;
   const finished=new Set();
+  const selection=details.querySelector('select');
+  selection.replaceChildren();
+  for(const board of boards){
+    const name=classes[board.replace(/-feeding$/,'')];
+    selection.add(new Option(name+(feeding(board)?' · 5 min feeding':' · Lap time'),board));
+  }
+  selection.value=hull;selection.onchange=render;
   const heading=details.querySelector('small'),list=details.querySelector('ol'),empty=details.querySelector('p');
   function render(){
-    const rows=(channel?room:personal).get(hull).rows;
-    heading.textContent=classes[hull]+' · '+(channel?'Room '+roomName:'This device');
+    const board=selection.value||hull;
+    const rows=(channel?room:personal).get(board).rows;
+    heading.textContent=channel?'Room '+roomName:'This device';
+    empty.textContent=feeding(board)?'No completed feeding heats yet.':'No finished laps yet.';
     list.replaceChildren();
     for(const row of rows){
       const item=document.createElement('li'),time=document.createElement('time');
-      item.append(channel||row.id.startsWith('npc-')?(isCaptainName(row.captain)?'Player':row.captain):'Your lap');
-      time.textContent=lapClock(row.tenths);
+      item.append(channel||row.id.startsWith('npc-')?(isCaptainName(row.captain)?'Player':row.captain):'You');
+      if(row.controller)item.append(' · '+controllers[row.controller]);
+      time.textContent=feeding(board)?row.count+' caught':lapClock(row.tenths);
       item.append(time);
       list.append(item);
     }
@@ -122,11 +205,12 @@ export function lapLeaderboard(hull,roomName,panel){
   }
   function connect(action,name=roomName){
     if(name!==roomName){roomName=name;room=roomTables(name);}
+    if(action!==channel)finished.clear();
     channel=action;
     if(action)action.onMessage=packet=>{
       if(channel!==action)return;
       const table=room.get(packet?.boat);
-      if(table?.add(packet.rows)&&packet.boat===hull)render();
+      if(table?.add(packet.rows)&&packet.boat===selection.value)render();
     };
     render();
   }
@@ -141,17 +225,17 @@ export function lapLeaderboard(hull,roomName,panel){
   }
   function record(boat,row){
     if(!valid(row,boat))return;
-    const updated=personal.get(boat).add([row]);
+    const updated=!channel&&personal.get(boat).add([row]);
     const shared=channel&&room.get(boat).add([row]);
     if(shared)send();
-    if((updated||shared)&&boat===hull)render();
+    if((updated||shared)&&boat===selection.value)render();
   }
   function observeNpc(number,vessel,status,name){
     // Peers and refreshed tabs can observe the same finish. Use the
     // synchronized vessel identity and scheduled heat to keep one entry.
     const spawn=vessel.raceId??Math.round(vessel.started*1000);
     const id='npc-'+number+'-'+status.heatStart+'-'+spawn;
-    record('Hobie16',{id,captain:name,tenths:Math.round(status.lapTime*10)});
+    record('Hobie16',{id,captain:name,controller:vessel.controller??'vmg',tenths:Math.round(status.lapTime*10)});
   }
   window.addEventListener('storage',event=>{
     for(const table of [...personal.values(),...room.values()]){
@@ -161,7 +245,14 @@ export function lapLeaderboard(hull,roomName,panel){
         render();
       }
     }
-  });
+  },{signal});
   render();
-  return {connect,send,observe,observeNpc,select(kind){if(hull!==kind){hull=kind;render();}}};
+  return {connect,send,observe,observeNpc,
+    recordFeeding(kind,count,captain){
+      if(!feedingKinds.includes(kind))return;
+      const id=crypto.randomUUID().replaceAll('-','');
+      record(kind+'-feeding',{id,captain:captain||'You',count});
+    },
+    select(kind){if(classes[kind]&&hull!==kind){hull=kind;selection.value=kind;render();}}
+  };
 }

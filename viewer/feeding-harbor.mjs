@@ -8,6 +8,21 @@ import {loadInstance} from './fmi3/instance.mjs';
 
 import {sampleLoads} from './wildlife-loads.mjs';
 
+// Manta frames contain world velocity followed by yaw and nose-up pitch.
+export function mantaFiltering(frame){
+  const [east,north,up,yaw,pitch]=frame.slice(4,9);
+  return (east*Math.cos(yaw)+north*Math.sin(yaw))*Math.cos(pitch)+up*Math.sin(pitch)>=.3;
+}
+
+export function creditPrey(animal,inside,restock,time){
+  if(animal.kind==='shark'&&animal.lastBite===animal.feedAt)return;
+  for(let i=0;i<inside.length;i++){
+    if(!inside[i]||restock[i]>time)continue;
+    restock[i]=time+18+1.3*(i%8);animal.caught=(animal.caught??0)+1;
+    if(animal.kind==='shark'){animal.lastBite=animal.feedAt;break;}
+  }
+}
+
 export function feedingHarbor(T,scene,room,playSound,gullEnvironment,sampleSurface,signal,nearbyActors,fishWaterLimits,sampleMappedCurrent){
   let school,loadingSchool,positions,stamp,hostModels,hostSession,lastSequence,authority,initialSounds;
   const soundPos=new T.Vector3(),birds=[];
@@ -47,9 +62,10 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment,sampleSurfa
     if(school.has('useSchool')){school.set('useSchool',Number(!!swimmers));if(swimmers)school.set('swimmers',swimmers);}
   }
   function observer(a,row,time){
-    const whale=a.kind==='whale',i=whale?17:9;
+    const whale=a.kind==='whale',manta=a.kind==='manta',i=manta?1:whale?17:9;
     school.set('clock',time);setSchool(time);school.set('whale',Number(whale));
-    school.set('pose',[row[i],row[i+1],row[i+2],row[i+3],row[whale?21:67]??0,whale?row[35]:0]);
+    school.set('manta',Number(manta));
+    school.set('pose',manta?[...row.slice(1,4),...row.slice(7,10)]:[row[i],row[i+1],row[i+2],row[i+3],row[whale?21:67]??0,whale?row[35]:0]);
     school.set('feedAge',a.feedAt==null?-1:time-a.feedAt);
   }
   function resetHostModels(){
@@ -112,8 +128,9 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment,sampleSurfa
     if(h.gulls[index]&&(called!=null||Math.floor(priorTime/26)<Math.floor(t/26)))
       room.sound('gull',t,h.gulls[index].slice(0,3),called!=null?1:.8);
     for(const a of room.animals.values()){
-      if(a.kind!=='shark'&&a.kind!=='whale')continue;
-      const frame=a.frame??row;
+      const manta=a.kind==='manta';
+      if(a.kind!=='shark'&&a.kind!=='whale'&&!manta)continue;
+      const frame=manta?a.frame:a.frame??row;
       if(!frame||a.id!==a.kind&&!a.frame)continue;
       const old=lastAnimalFrames.get(a.id)??(a.id===a.kind?previous:null);
       if(a.kind==='whale'&&old){
@@ -125,17 +142,14 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment,sampleSurfa
       lastAnimalFrames.set(a.id,frame);
       const attempt=a.feedingAttempt;
       if(!a.seat&&attempt&&(a.feedAt==null||animalTime-a.feedAt>(a.kind==='whale'?5:3)))a.feedAt=animalTime;
-      if(a.feedAt==null){a.gape=0;continue;}
+      if(manta){
+        if(old?.[0]===frame[0]||!mantaFiltering(frame))continue;
+      }else if(a.feedAt==null){a.gape=0;continue;}
       if(!school){loadSchool();continue;}
       observer(a,frame,animalTime);
       const [gape,capture,inside]=school.getMany(['gape','capture','inMouth']);
       a.gape=gape;
-      if(!capture||(a.kind==='shark'&&a.lastBite===a.feedAt))continue;
-      for(let i=0;i<inside.length;i++){
-        if(!inside[i]||h.restock[i]>animalTime)continue;
-        h.restock[i]=animalTime+18+1.3*(i%8);a.caught=(a.caught??0)+1;
-        if(a.kind==='shark'){a.lastBite=a.feedAt;break;}
-      }
+      if(capture)creditPrey(a,inside,h.restock,animalTime);
     }
   }
   const lastAnimalFrames=new Map();

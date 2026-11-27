@@ -2,6 +2,7 @@ model FeedingGround "Kinematic bait schools and body-mounted fish finder"
   input Real clock "Shared harbor time in seconds";
   input Real pose[6] "East, north, up, yaw, nose-up pitch, roll";
   input Real whale "One for a humpback, zero for a white shark";
+  input Real manta=0 "Use the manta filter-feeding envelope";
   input Real feedAge "Time since the last feeding command, negative when idle";
   constant Integer fishCount=72;
   input Real restock[fishCount]=zeros(fishCount) "Time when each eaten fish returns";
@@ -36,14 +37,14 @@ model FeedingGround "Kinematic bait schools and body-mounted fish finder"
     end for;
   end swim;
   function scan
-    input Real fish[:,4],p[6],isWhale;
+    input Real fish[:,4],p[6],isWhale,isManta;
     output Real echoes[size(fish,1),4],inside[size(fish,1)];
   protected
     Real dx,dy,dz,h,f,l,u,r,b,e,reach,width,gape,side,up;
   algorithm
-    reach:=if isWhale>.5 then 3.9 else 2.0;
-    width:=if isWhale>.5 then 1.03 else .28;
-    gape:=if isWhale>.5 then .85 else .21;
+    reach:=if isManta>.5 then 1.00 elseif isWhale>.5 then 3.9 else 2.0;
+    width:=if isManta>.5 then .30 elseif isWhale>.5 then 1.03 else .28;
+    gape:=if isManta>.5 then .12 elseif isWhale>.5 then .85 else .21;
     for i in 1:size(fish,1) loop
       dx:=fish[i,1]-p[1];dy:=fish[i,2]-p[2];dz:=fish[i,3]-p[3];
       h:=dx*cos(p[4])+dy*sin(p[4]);
@@ -84,11 +85,11 @@ equation
   prey=choosePrey(school,returns,inMouth,restock,clock,whale);
   // These are instantaneous observations. A single stateless FMU can evaluate
   // different animals at the same harbor time without advancing an event clock.
-  gape=noEvent(if feedAge<0 then 0 elseif whale>.5 then max(0,min(1,min(feedAge/.65,(2.6-feedAge)/.8)))
+  gape=noEvent(if manta>.5 then 1 elseif feedAge<0 then 0 elseif whale>.5 then max(0,min(1,min(feedAge/.65,(2.6-feedAge)/.8)))
     else max(0,min(1,min(feedAge/.26,(.72-feedAge)/.21))));
-  capture=noEvent(if whale>.5 then (if gape>.72 then 1 else 0)
+  capture=noEvent(if manta>.5 then 1 elseif whale>.5 then (if gape>.72 then 1 else 0)
     else (if feedAge>=.45 and feedAge<=.72 then 1 else 0));
   migration=swim(clock,fishCount);
   school=if noEvent(useSchool>.5) then swimmers else migration;
-  (returns,inMouth)=scan(school,pose,whale);
+  (returns,inMouth)=scan(school,pose,whale,manta);
 end FeedingGround;

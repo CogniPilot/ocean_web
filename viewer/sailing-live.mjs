@@ -32,7 +32,7 @@ import {mastCamera} from "./mast-camera.mjs";
 import {cameraCones} from './camera-cones.mjs';
 import {courseScene,raceCoursePoints,raceAudio,underwaterMix,firstLeg,raceTarget} from "./regatta.mjs";
 import {raceRules} from './race-rules.mjs';
-import {lapLeaderboard,lapClock} from "./lap-board.mjs";
+import {lapLeaderboard,lapClock,controlledRace,feedingHeat} from "./lap-board.mjs";
 import {animalSticks,controlGain,keyboardAxisKey,keyboardSticks,pilotSticks,preferredKeyboardLayout,saveKeyboardLayout} from './keyboard-sticks.mjs';
 import {abyssEncounter} from './abyss-encounter.mjs';
 import {abyssCaveScenery} from './abyss-cave.mjs';
@@ -483,7 +483,11 @@ async function run(saved=readReset(),carried){
   const normalizeRoom=value=>validRoomName(value.trim())?value.trim():publicRoom;
   let roomName=normalizeRoom(url.searchParams.get('room')??saved?.fields.roomName??'');
   const roomField=$('roomName');roomField.value=roomName;
-  const laps=lapLeaderboard(mode==='flight'?'RDD2':hasBoat?vessel:'Hobie16',roomName,$('racePanel'));
+  const laps=lapLeaderboard(mode==='flight'?'RDD2':hasBoat?vessel:'Hobie16',roomName,$('racePanel'),signal);
+  const roleRace=controlledRace(inputs=>loadInstance('Regatta',{...startGate,windBearing,externalCourse:1,...inputs}));
+  const feedingScore=feedingHeat();
+  let scoreEpoch=0,scoreIdentity,lapStartedHere=false,scoreRoom;
+  cleanup(()=>roleRace.reset());
   const ruleTracker=raceRules(),penaltyFlag=$('racePenalty');
   let penaltyTurns=0;
   const turnCount=turns=>turns+' turn'+(turns===1?'':'s');
@@ -2080,7 +2084,7 @@ async function run(saved=readReset(),carried){
     const number=kind==='hobie'?remote.fleetNumber(id):undefined;
     return Number.isInteger(number)?label+' #'+number:label;
   }
-  const racePanel=$('racePanel'),raceSidebar=racePanel.parentElement;
+  const racePanel=$('racePanel'),raceSidebar=$('raceSidebar');
   const npcStage=['Prestart','Crossing start','Mark 1','Mark 2','Heading to finish','Finished'];
   const hostControls=$('roomHostControls'),hostTarget=$('hostTarget'),transferHost=$('transferHost');
   let fleetSignature='',hostTargets='',lastFleetReport=-Infinity;
@@ -2335,9 +2339,10 @@ async function run(saved=readReset(),carried){
     if(mastButton.hidden){mastPanel.hidden=true;mastButton.setAttribute('aria-expanded','false');}
     $('trampoline').hidden=$('hobieTrim').hidden=$('outhaulControl').hidden=!cat||!boatActive;
     $('easeTraveler').hidden=!cat||!boatActive||!manual;
-    racePanel.hidden=Boolean(sub?.active||animalId||motor);
+    racePanel.hidden=false;
     const sensorPanel=[animalSensors,motorSensors,subSensors].find(panel=>!panel.hidden);
     const rosterPanel=sensorPanel??raceSidebar;
+    if(racePanel.parentElement!==rosterPanel)rosterPanel.prepend(racePanel);
     if(fleetRoster.parentElement!==rosterPanel){
       if(sensorPanel)sensorPanel.prepend(fleetRoster);
       else racePanel.after(fleetRoster);
@@ -2549,7 +2554,7 @@ async function run(saved=readReset(),carried){
     }
     restartViewer(link,state);
   }
-  let loadingDrone,droneScorer,scoredTime=0;
+  let loadingDrone;
   const flightControl=$('flightMode');
   flightControl.onchange=()=>{
     if(!drone)return;
@@ -2558,13 +2563,7 @@ async function run(saved=readReset(),carried){
     $('view').focus({preventScroll:true});
   };
   function loadDrone(){
-    loadingDrone??=import('./drone.mjs').then(({surveyDrone})=>surveyDrone(T,scene,world)).then(async vehicle=>{
-      if(mode!=='flight'){
-        // Coupled development scenes keep scoring the sailboat independently.
-        const [east,north]=vehicle.position;
-        scoredTime=world?.time??model.time;
-        droneScorer=await loadInstance('Regatta',{...startGate,externalCourse:1,coursePoints:raceCoursePoints(race),windBearing,east,north,utc:race.get('utc'),raceStart:remote.npc.habitat.raceStart??0});
-      }
+    loadingDrone??=import('./drone.mjs').then(({surveyDrone})=>surveyDrone(T,scene,world)).then(vehicle=>{
       drone=vehicle;
       if(wreckSurvey&&(fullWorld||!packaged))drone.manual=false;
     }).catch(error=>{loadingDrone=undefined;throw error;});
@@ -2577,6 +2576,7 @@ async function run(saved=readReset(),carried){
   };
   let enteredSub=false,viewBeforeAnimal;
   async function selectTarget(){
+    scoreEpoch++;
     if(['hobie','sloop'].includes(targetSelect.value)){changeVehicle(targetSelect.value);return;}
     if(animalId&&animalId!==targetSelect.value){
       remote.npc.release(animalId);animalId=undefined;visitors.watch(null);
@@ -2631,7 +2631,6 @@ async function run(saved=readReset(),carried){
     }
     drone?.select(targetSelect.value==='drone');
     const flying=Boolean(drone?.active);
-    laps.select(flying?'RDD2':hasBoat?vessel:'Hobie16');
     $('view').focus({preventScroll:true});
     $('onboardOption').hidden=!sub?.active;
     $('droneFpvOption').hidden=!flying;
@@ -2704,6 +2703,7 @@ async function run(saved=readReset(),carried){
     sub.hoistQuaternion=[q.w,q.x,q.y,q.z];sub.hoistUp=pose.slice(9,12);sub.hoistAngularVelocity=pose.slice(12,15);
   }
   function unseat(drop){
+    scoreEpoch++;
     if(drop?.pose)setHandoffPose(drop.pose);
     else if(drop?.carrier)setMount(drop.carrier,drop);
     if(seated||drop)sub.releaseMount();
@@ -2830,6 +2830,7 @@ async function run(saved=readReset(),carried){
       }
       point.afloat=accepted==='afloat';
       if(transferredLift===id||joiningAtHoist){
+        scoreEpoch++;
         const carrier=remote.liftCarrier(owner,performance.now(),true),lift=remote.lifts.remote.get(owner);
         if(!carrier||!lift){
           remote.lifts.abandon(owner);
@@ -3091,6 +3092,7 @@ async function run(saved=readReset(),carried){
   $('resetSimulation').onclick=openRespawn;
   $('play').onclick=()=>{
     running=!running;
+    if(!running)feedingScore.reset();
     acc=0;prev=physicsWall=performance.now();
     if(!running)world?.clearQueued();
     $('play').textContent=running?'Pause':'Resume';
@@ -3114,7 +3116,7 @@ async function run(saved=readReset(),carried){
     const rate=(world||splitDive)&&!speedSelect.disabled?Number(speedSelect.value):1;
     if(playbackRate===rate)return;
     playbackRate=rate;
-    if(rate!==1)timedLap=false;
+    if(rate!==1){timedLap=false;feedingScore.reset();}
     physicsWall=performance.now();acc=0;world?.clearQueued();
     statsStart=undefined;
     if(frameTest)finishTest('Test interrupted by a simulation speed change.');
@@ -3555,52 +3557,74 @@ async function run(saved=readReset(),carried){
           appliedRaceStart=start;
           if(world)world.set('raceStart',start);
           else race.set('raceStart',start);
-          droneScorer?.set('raceStart',start);
           lastCountdown=null;
           if(model)resetPenalties();
         }
-        if(droneScorer){
-          const t=world?.time??model.time,dt=t-scoredTime;
-          if(dt>=.049){
-            const [east,north]=drone.position;
-            droneScorer.set('coursePoints',raceCoursePoints(race));
-            droneScorer.set('east',east);droneScorer.set('north',north);droneScorer.set('utc',race.get('utc'));
-            droneScorer.advance(dt);scoredTime=t;
+        const utc=race.get('utc'),sceneryTime=world?.time??model.time;
+        const raceClass=animalId?animalKind():drone?.active?'RDD2':sub?.active?'sub':motor?'motorboat':vessel;
+        const roomScope=remote.npc.session;
+        if(scoreRoom!==roomScope){scoreRoom=roomScope;lastLaps.clear();lastReportedFinish=0;}
+        const controlled=(!animalId||ownsAnimal())&&(!sub?.active||!sub.seatedOnLift&&!sub.breached);
+        const identity=[roomScope,scoreEpoch,animalId??raceClass,controlled,start].join('/');
+        const separate=Boolean(animalId||sub?.active||drone?.active&&mode!=='flight');
+        let racer,trajectoryTime;
+        if(animalId){
+          const frame=visitors.frame(animalId),offset=flyingGull()?0:raceClass==='whale'?17:['manta','diver'].includes(raceClass)?1:9;
+          if(frame){
+            racer=[frame[offset],frame[offset+1]];
+            trajectoryTime=flyingGull()?remote.npc.habitat.time:frame[0];
           }
+        }else if(sub?.active){
+          racer=sub.frame?.position;trajectoryTime=sub.frame?.time;
         }
-        if(drone?.active&&!drone.manual&&droneScorer)drone.station(...droneScorer.get('pilotTarget'));
+        else if(drone?.active)racer=drone.position;
+        else if(motor)racer=world.get('boatPose');
+        else if(model)racer=model.getMany(['east','north']);
+        const scorer=separate?roleRace.sample(identity,controlled?racer:null,sceneryTime,utc,start,()=>raceCoursePoints(race),trajectoryTime):race;
+        if(!separate)roleRace.reset();
+        const attempt=identity+'/'+roleRace.generation;
+        if(attempt!==scoreIdentity){scoreIdentity=attempt;lapStartedHere=false;feedingScore.reset();}
+        if(drone?.active&&!drone.manual&&separate&&scorer)drone.station(...scorer.get('pilotTarget'));
         if(!world&&model&&!manual)model.set('raceGoal',[1,...race.get('pilotTarget')]);
-        const scorer=drone?.active&&droneScorer?droneScorer:race;
-        const left=Math.ceil(scorer.get('countdown')),stage=scorer.get('stage');
+        const left=Math.ceil(race.get('countdown')),stage=scorer?.get('stage')??0;
         if(lastCountdown!==null&&lastCountdown<5&&left>295)audio.signal();
         lastCountdown=left;const label=left>298&&stage>0?'START':Math.floor(left/60)+':'+String(left%60).padStart(2,'0');
-        const sceneryTime=world?.time??model.time;
         course.update(label,sceneryTime,ocean.sampleWind);$('countdown').textContent=label;
-        const lap=scorer.get('lapTime');
+        const lap=scorer?.get('lapTime')??0;
         const tenths=Math.round(lap*10);
         const timer=lapClock(tenths);
-        const raceClass=drone?.active?'RDD2':vessel;
+        laps.select(raceClass);
         const normalSpeed=playbackRate===1&&!frameTest?.headroom;
+        if(!controlled||!normalSpeed)lapStartedHere=false;
+        else if(scorer&&stage<=1)lapStartedHere=true;
         if(stage<2||!normalSpeed)timedLap=normalSpeed;
-        observePenalties(stage);
-        if(!sub?.active&&(hasBoat||drone?.active)&&!penaltyTurns)laps.observe(stage,lap,remote.playerName(),timedLap);
-        const heat=scorer.has('heatStart')?scorer.get('heatStart'):undefined;
+        const sailing=hasBoat&&!animalId&&!sub?.active&&!drone?.active;
+        if(sailing)observePenalties(stage);
+        const eligible=Boolean(scorer&&controlled&&lapStartedHere&&timedLap&&(!sailing||!penaltyTurns));
+        laps.observe(stage,lap,remote.playerName(),eligible);
+        const hunter=animalId&&['shark','whale','manta'].includes(raceClass)&&controlled?remote.npc.animals.get(animalId):null;
+        const food=$('feedingHeat');food.hidden=!hunter;
+        if(hunter){
+          const result=feedingScore.sample(utc,start,hunter.caught??0,normalSpeed&&running&&Boolean(racer));
+          if(result?.completed!==undefined)laps.recordFeeding(raceClass,result.completed,remote.playerName());
+          if(result)food.textContent='Feeding · '+result.count+' caught · '+label+' left'+(result.eligible?'':' · practice');
+        }else feedingScore.reset();
+        const heat=scorer?.has('heatStart')?scorer.get('heatStart'):undefined;
         const finished=stage===5&&scorer.has('finishUtc')?scorer.get('finishUtc'):0;
-        if(hasBoat&&!animalId&&!sub?.active&&!drone?.active&&timedLap&&!penaltyTurns&&finished>lastReportedFinish){
+        if(sailing&&eligible&&finished>lastReportedFinish){
           remote.recordFinish(heat,finished);lastReportedFinish=finished;
         }
-        if(stage===5&&!penaltyTurns)lastLaps.set(raceClass,timer);
+        if(stage===5&&eligible)lastLaps.set(raceClass,timer);
         const lastLap=lastLaps.get(raceClass);
-        let cue=scorer.has('earlyStart')&&scorer.get('earlyStart')?'Over early · Return behind the start line':
+        let cue=!scorer?'Waiting for controlled position':scorer.has('earlyStart')&&scorer.get('earlyStart')?'Over early · Return behind the start line':
           ['Wait for start','Cross upwind','Mark 1','Mark 2','Cross finish downwind','Finished'][stage];
-        const racer=drone?.active?drone.estimatedPosition:model?[model.get('east'),model.get('north')]:null;
         courseTarget=racer?raceTarget(race,stage,racer[0],racer[1]):null;
         if(courseTarget && (drone?.active || stage===2 || stage===3)){
           cue+=' · '+courseTarget.bearing+' · '+Math.round(courseTarget.range)+' m';
         }
         $('raceCourse').textContent='TRI 1 · First leg '+firstLeg(race)+' · 1 & 2 to port';
         $('raceStatus').textContent=cue+(stage>=2?' · Lap '+timer:lastLap?' · Last lap '+lastLap:'');
-        const winner=remote.raceWinner(heat);
+        const winner=sailing?remote.raceWinner(heat):null;
         const winnerLine=$('raceWinner');
         const winnerLabel=winner?'First across · '+winner.name:'';
         if(winnerLine.textContent!==winnerLabel)winnerLine.textContent=winnerLabel;

@@ -1,7 +1,7 @@
 // Exercise the shipped WebAssembly scorer with a rotated course and timed crossings.
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {fleetFinishes,lapTable,lapClock} from '../viewer/lap-board.mjs';
+import {fleetFinishes,lapTable,lapClock,feedingHeat,controlledRace} from '../viewer/lap-board.mjs';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
 import {fleetNumbers} from '../viewer/fleet-numbers.mjs';
 import {raceTarget} from '../viewer/regatta.mjs';
@@ -205,3 +205,66 @@ assert.equal(lapTable(storage,'personal','Hobie16').rows.length,0);
 assert.equal(lapClock(600),'1:00.0');
 assert.equal(lapClock(599),'0:59.9');
 console.log('Lap leaderboard passed ordering, persistence, top-ten limit, replay and room/hull isolation.');
+
+const feeding=feedingHeat();
+let score;
+for(let utc=598;utc<=900;utc++){
+  const count=utc<600?7:utc<660?8:utc<900?10:12;
+  score=feeding.sample(utc,600,count,true);
+  if(utc<900)assert.equal(score.completed,undefined);
+}
+assert.equal(score.completed,3,'only captures observed in the completed five-minute heat');
+assert.equal(score.count,2,'captures observed at the next signal belong to the new heat');
+assert.equal(feeding.sample(900,600,12,true).completed,undefined,'one result per heat');
+feeding.reset();
+for(let t=605;t<=900;t++)score=feeding.sample(t,600,20,true);
+assert.equal(score.completed,undefined,'joining mid-heat cannot claim a full five minutes');
+feeding.reset();
+for(let t=600;t<=900;t++)score=feeding.sample(t,600,20,t!==700);
+assert.equal(score.completed,undefined,'an interrupted heat is practice');
+feeding.reset();
+for(let t=600;t<=900;t++)score=feeding.sample(t,600,t<800?20:0,true);
+assert.equal(score.completed,undefined,'a reset authority counter cannot finish the previous attempt');
+feeding.reset();
+for(let t=599;t<=900;t++)score=feeding.sample(t,600,20,true);
+assert.equal(score.completed,0,'a completed heat may have zero captures');
+
+const geometry=await loadInstance('Regatta',{...startGate,windBearing:0,utc:599},read);
+const [pe,pn,mx,my,ce,cn]=geometry.getMany(['pinEast','pinNorth','markEast','markNorth','committeeEast','committeeNorth']);
+const course=()=>[pe,pn,mx[0],my[0],mx[1],my[1],ce,cn],x=(pe+ce)/2,y=(pn+cn)/2;
+let loaded;
+const subject=controlledRace(inputs=>loaded=loadInstance('Regatta',{...startGate,windBearing:0,externalCourse:1,...inputs},read));
+const sample=(id,dx,t)=>subject.sample(id,[x+dx,y],t,599+t,600,course);
+assert.equal(sample('room-a/sub',4,0),undefined);await loaded;
+assert.equal(sample('room-a/sub',1,.5).get('stage'),0);
+assert.equal(sample('room-a/sub',1,1).get('stage'),1);
+assert.equal(sample('room-a/sub',-1,1.1).get('stage'),2,'controlled sub crosses its gate');
+const before=subject.generation;
+assert.equal(sample('room-a/manta-2',-1,1.2),undefined);await loaded;
+assert.ok(subject.generation>before);
+assert.equal(sample('room-a/manta-2',-1,1.3).get('stage'),1,'animal does not inherit sub lap');
+assert.equal(sample('room-a/manta-2',100,1.4),undefined);await loaded;
+assert.equal(sample('room-a/manta-2',100,1.5).get('stage'),1,'teleport reseeds the committee');
+assert.equal(sample('room-b/manta-2',-1,1.6),undefined);await loaded;
+assert.equal(sample('room-b/manta-2',-1,1.7).get('stage'),1,'room switch starts a fresh attempt');
+subject.reset();geometry.close();
+console.log('Controlled trajectories, seat/room discontinuities and five-minute feeding heat boundaries passed.');
+
+const catchRow=(i,count)=>({id:i.toString(16).padStart(32,'0'),captain:'Captain Kai',count});
+const hunts=lapTable(storage,'room/reef','manta-feeding');
+for(let i=0;i<12;i++)hunts.add([catchRow(i,i)]);
+assert.deepEqual(hunts.rows.map(row=>row.count),[11,10,9,8,7,6,5,4,3,2]);
+assert.equal(hunts.add([catchRow(11,11)]),false,'replayed room scores are idempotent');
+assert.equal(lapTable(storage,'room/other','manta-feeding').rows.length,0);
+assert.equal(lapTable(storage,'personal','manta-feeding').rows.length,0);
+assert.equal(lapTable(storage,'room/reef','shark-feeding').rows.length,0);
+assert.equal(lapTable(storage,'room/reef','manta').rows.length,0);
+
+const resolveRace=[];
+const switching=controlledRace(()=>new Promise(resolve=>resolveRace.push(resolve)));
+switching.sample('room-a/whale',[0,0],1,600,600,course);
+switching.sample('room-b/whale',[1,0],2,601,600,course);
+let staleClosed=false;
+resolveRace[0]({close(){staleClosed=true;}});await Promise.resolve();
+assert(staleClosed,'an old room completing its asynchronous load cannot attach to a new room');
+switching.reset();resolveRace[1]({close(){}});await Promise.resolve();

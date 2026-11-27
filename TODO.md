@@ -2,6 +2,11 @@
 
 A checked item records the specific result described. Open items include partially implemented requests and identify the remaining check.
 
+## Harbor scoreboards
+
+- [x] Rank the ten harbor models by triangle-course lap time and shark, manta ray and whale by observed catches per completed five-minute heat. Keep personal and individual room boards separate.
+- [ ] Define a course and its finish criteria for the standalone ONR Tumblehome towing basin before adding a basin leaderboard.
+
 ## Current simulator requests · 2026-11-21
 
 ### Performance priority
