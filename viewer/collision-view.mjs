@@ -148,8 +148,7 @@ export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768
   };
 }
 
-// WildlifeContact's nominal animal envelopes, expanded by the opposing hull
-// sample in Modelica. Skin probes use the same offsets as each ground contact.
+// Convex pieces follow their GLTF joints. The whale also has terrain contact probes.
 let swimmerHulls,loadingHulls;
 function loadSwimmerHulls(){
   if(!loadingHulls){
@@ -198,8 +197,8 @@ export function drawAnimalCollision(painter,frame,kind){
   const pose=frame.userData.contactPose;
   if(!swimmerHulls){loadSwimmerHulls();return;}
   painter.swimmerSkin(frame,swimmerHulls[kind]);
-  const skin=swimmerHulls.probes[kind];
   if(kind==='whale'){
+    const skin=swimmerHulls.probes.whale;
     painter.points(frame,skin.slice(0,5).flat(),'#f8ec9d');
     if(!pose)return;
     // A fluke probe follows tail pitch relative to the rolled torso and
@@ -212,10 +211,6 @@ export function drawAnimalCollision(painter,frame,kind){
       flukes.push(-2.35+(x+2.35)*ct-rz*st,ry*cr+up*sr,-ry*sr+up*cr);
     }
     painter.points(frame,flukes,'#f8ec9d');
-  }else{
-    const probes=skin.flat();
-    if(pose)probes[13]-=.91*Math.sin(pose[70]);
-    painter.points(frame,probes,'#f8ec9d');
   }
 }
 

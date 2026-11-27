@@ -50,7 +50,7 @@ export function swimmerObservation(animal,base){
   const {id,kind}=animal;
   if(individualSwimmer(kind))return {id,kind,x:row[1],y:row[2],z:row[3],ve:row[4],vn:row[5],vz:row[6],yaw:row[7],pitch:-row[8],heel:row[9]};
   const whale=kind==='whale',k=whale?17:9,yaw=row[k+3],u=row[whale?27:65]??0,v=row[whale?38:74]??0;
-  return {id,kind,joints:whale?undefined:[row[202]??0,row[70]??0,row[72]??0,row[201]??0],vz:row[whale?28:66]??0,gape:animal.gape??0,x:row[k],y:row[k+1],z:row[k+2],yaw,pitch:-(row[whale?21:67]??0),heel:row[whale?35:203]??0,
+  return {id,kind,joints:whale?undefined:[row[202]??0,row[70]??0,row[72]??0,row[319]??row[201]??0,row[320]??row[201]??0],vz:row[whale?28:66]??0,gape:animal.gape??0,x:row[k],y:row[k+1],z:row[k+2],yaw,pitch:-(row[whale?21:67]??0),heel:row[whale?35:203]??0,
     ve:u*Math.cos(yaw)-v*Math.sin(yaw),vn:u*Math.sin(yaw)+v*Math.cos(yaw)};
 }
 

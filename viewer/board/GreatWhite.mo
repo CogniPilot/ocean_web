@@ -98,48 +98,76 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
     H:=cat(1,base,(next[3:5]-base[3:5])/.001);
   end articulatedInertia;
   function groundContact
-    input Real origin[3],heading,state[10],length,bank[2];
+    input Real origin[3],heading,state[10],length,bank[2],trunk,fin,port,starboard;
+    input Boolean direct;
+    input Real vertices[787,3];
+    input Integer faces[1506,3];
     output Real loads[8] "Forward, port, up, pitch, yaw, normal load, minimum signed gap, roll";
   protected
-    // Body, rostrum, bottom of the caudal fin, paired pectorals, dorsal and flank skin points.
-    constant Real skin[13,3]=cat(1,Wreck.SwimmerHulls.sharkSkin,
-      [-1.25,0,-.05;-.42,0,-.05;.42,0,-.05;1.25,0,-.05]);
-    Real cy,sy,cp,sp,cr,sr,arm[3],point[3],velocity[3],contact[5],hull[5],along,side,up,tailRate;
+    Real frame[6,3,4],rotation[3,3],jointRotation[3,3],base[3],world[48,3],lo[3],hi[3],center[3],half[3],bound[3];
+    Real hit[7],candidate[7],n[3],arm[3],velocity[3],slip[3],force[3],moment[3],normalRate,load,support,scale,damping;
+    Real cy,sy,cp,sp,cr,sr,reach;
+    Integer piece,joint,first,last,count,localFaces[92,3];
+    Boolean shore,wreck;
   algorithm
-    loads:=zeros(8);loads[7]:=1e6;
-    cp:=cos(state[3]);sp:=sin(state[3]);
-    cr:=cos(bank[1]);sr:=sin(bank[1]);
-    // Even with maximum tail sweep, all probes fit inside this sphere.
-    // The gap remains the exact minimum over the rotated contact points.
-    if Shore.aboveFlatBottom(origin[1],origin[2],origin[3],2.5*abs(length/4.8)+.91) and
-       not Wreck.WreckSolids.nearSite(origin,3.3*length/4.8) then
-      for i in 1:9 loop
-        along:=length/4.8*skin[i,1];up:=length/4.8*skin[i,3];
-        side:=length/4.8*skin[i,2]-(if i==5 then .91*sin(state[6]) else 0);
-        loads[7]:=min(loads[7],origin[3]+(along*sp+cp*(side*sr+up*cr))+13.7);
-      end for;
-      return;
+    scale:=length/4.8;reach:=2.85*scale;loads:=zeros(8);loads[7]:=1e6;
+    if Shore.clearOfShore(origin[1],origin[2],origin[3]-reach,reach) and not Wreck.WreckSolids.nearSite(origin,reach) then
+      loads[7]:=max(0,origin[3]-reach+13.7);return;
     end if;
-    cy:=cos(heading);sy:=sin(heading);
-    for i in 1:13 loop
-      along:=length/4.8*skin[i,1];
-      side:=length/4.8*skin[i,2]-(if i==5 then .91*sin(state[6]) else 0);
-      up:=length/4.8*skin[i,3];
-      tailRate:=if i==5 then -.91*cos(state[6])*state[7] else 0;
-      arm:={along*cp-(side*sr+up*cr)*sp,side*cr-up*sr,along*sp+(side*sr+up*cr)*cp};
-      point:=origin+{cy*arm[1]-sy*arm[2],sy*arm[1]+cy*arm[2],arm[3]};
-      velocity:={state[1]-state[9]*arm[2]-state[4]*arm[3]-sp*(tailRate*sr+bank[2]*arm[2]),
-        state[10]+state[9]*arm[1]+tailRate*cr-bank[2]*(side*sr+up*cr),
-        state[2]+state[4]*arm[1]+cp*(tailRate*sr+bank[2]*arm[2])};
-      contact:=if i<=9 then Shore.skinContact(point,cy,sy,velocity,5800) else {0,0,0,0,1e6};
-      hull:=Wreck.swimmerContact(point,cy,sy,velocity,min(.78,length/4.8*(if i>=10 then .40 else .12)),5800);
-      contact[1:4]:=contact[1:4]+hull[1:4];contact[5]:=min(contact[5],hull[5]);
-      loads[1:3]:=loads[1:3]+contact[1:3];
-      loads[4]:=loads[4]+arm[1]*contact[3]-arm[3]*contact[1];
-      loads[5]:=loads[5]+arm[1]*contact[2]-arm[2]*contact[1];
-      loads[6]:=loads[6]+contact[4];loads[7]:=min(loads[7],contact[5]);
-      loads[8]:=loads[8]+arm[2]*(cp*contact[3]-sp*contact[1])-(side*sr+up*cr)*contact[2];
+    cy:=cos(heading);sy:=sin(heading);cp:=cos(state[3]);sp:=sin(state[3]);cr:=cos(bank[1]);sr:=sin(bank[1]);
+    rotation:=[cy*cp,-cy*sp*sr-sy*cr,-cy*sp*cr+sy*sr;sy*cp,-sy*sp*sr+cy*cr,-sy*sp*cr-cy*sr;sp,cp*sr,cp*cr];
+    frame:=Wreck.skinFrames(false,{trunk,state[6],state[8],if direct then port else fin},if direct then starboard else fin);world:=zeros(48,3);localFaces:=zeros(92,3);
+    for part in 1:19 loop
+      piece:=part+Wreck.SwimmerHulls.count[1];joint:=1+Wreck.SwimmerHulls.joint[piece];
+      jointRotation:=rotation*transpose(frame[joint,:,1:3]);
+      base:=origin-scale*(jointRotation*frame[joint,:,4]);
+      half:=.5*scale*(Wreck.SwimmerHulls.bounds[piece,4:6]-Wreck.SwimmerHulls.bounds[piece,1:3]);
+      center:=base+jointRotation*(scale*Wreck.SwimmerHulls.bounds[piece,1:3]+half);
+      bound:=abs(jointRotation)*half;lo:=center-bound;hi:=center+bound;
+      shore:=not Shore.clearOfShore(center[1],center[2],lo[3],sqrt(bound[1]^2+bound[2]^2));
+      wreck:=Wreck.WreckSolids.nearSite(center,sqrt(bound*bound));
+      if shore or wreck then
+        first:=Wreck.SharkSurface.firstFace[part];last:=Wreck.SharkSurface.firstFace[part+1]-1;
+        count:=Wreck.SharkSurface.firstVertex[part+1]-Wreck.SharkSurface.firstVertex[part];
+        lo:=fill(1e6,3);hi:=fill(-1e6,3);
+        for v in 1:48 loop
+          if v<=count then
+            world[v,:]:=base+scale*(jointRotation*vertices[Wreck.SharkSurface.firstVertex[part]+v-1,:]);
+            for j in 1:3 loop lo[j]:=min(lo[j],world[v,j]);hi[j]:=max(hi[j],world[v,j]);end for;
+          end if;
+        end for;
+        for f in 1:92 loop
+          if first+f-1<=last then localFaces[f,:]:=faces[first+f-1,:];end if;
+        end for;
+        hit:=zeros(7);
+        if shore then
+          hit:=Wreck.SharkContact.seabed(world,lo,hi,count,1,last-first+1,localFaces);
+          if hi[1]>=7 and lo[1]<=65 and hi[2]>=17 and lo[2]<=63 then
+            candidate:=Wreck.SharkContact.boulders(world,lo,hi,Shore.rocks,Shore.planes,1,last-first+1,localFaces);
+            if candidate[1]>hit[1] then hit:=candidate;end if;
+          end if;
+        end if;
+        if wreck then
+          candidate:=Wreck.SharkContact.wrecks(world,lo,hi,1,last-first+1,localFaces);
+          if candidate[1]>hit[1] then hit:=candidate;end if;
+        end if;
+        if hit[1]>0 then
+          n:={cy*hit[2]+sy*hit[3],-sy*hit[2]+cy*hit[3],hit[4]};
+          center:=hit[5:7]-origin;
+          arm:={cy*center[1]+sy*center[2],-sy*center[1]+cy*center[2],center[3]};
+          velocity:={state[1],state[10],state[2]}+cross({cp*bank[2],-state[4],state[9]+sp*bank[2]},arm);
+          normalRate:=velocity*n;slip:=velocity-normalRate*n;
+          damping:=5800*scale;support:=damping*min(5,28*hit[1]);
+          load:=max(0,support-damping*min(1,hit[1]/.015)*normalRate-max(0,support/.55-damping)*max(0,normalRate));
+          force:=load*(n-.48*slip/sqrt(.2^2+slip*slip));moment:=cross(arm,force);
+          loads[1:3]:=loads[1:3]+force;loads[4]:=loads[4]-moment[2];loads[5]:=loads[5]+moment[3];
+          loads[6]:=loads[6]+load;loads[7]:=min(loads[7],-hit[1]);loads[8]:=loads[8]+cp*moment[1]+sp*moment[3];
+        else
+          loads[7]:=min(loads[7],max(0,lo[3]-Shore.seabed(center[1],center[2])));
+        end if;
+      end if;
     end for;
+    annotation(Inline=false);
   end groundContact;
   function pectorals
     input Boolean direct;
@@ -171,14 +199,12 @@ protected
   Real immersed[7],buoyMoment,stationHalfHeight[7],tailDepth,caudalHalfHeight;
   Real bowSide,sternSide,bowFlow,sternFlow;
   Real cp,sp,cr,sr,forward,vertical,finBank,bankTorque,yawWaterInertia;
-  Boolean direct,learned;
   Real action[4],speedError,pitchSignal,rollSignal,tailSignal,featherSignal;
   Real finDepth,portWet,starboardWet;
   Real recruit,steer,gear,sternX,sternY,sternDX,sternDY,sternAxial,sternNormal,sternFx,sternFy,tailArmX,tailArmY,tailDX,tailDY,tailAlong;
   Real trunkRatio,totalYaw,totalHinge,determinant,yawLoad,hingeLoad;
   Real gaitSprint,gaitBurst,portAngle,starboardAngle;
 equation
-  direct=directDrive>.5;learned=directDrive>1.5;
   // Positive yaw curls the posterior body to port (negative posterior tangent).
   steer=min(1,abs(directDrive-1))*max(-1,min(1,swimCommand[2]));
   recruit=max(min(1,max(0,directDrive-1)),abs(steer));
@@ -190,10 +216,10 @@ equation
   featherSignal=(.52+swimWeights[4])*inflow-(1.10+swimWeights[5])*swimCommand[2]+.40*x[9];
   pitchSignal=(1.35+swimWeights[6])*(swimCommand[3]-x[3])-.4*x[4]+.10+swimWeights[7];
   rollSignal=(1.0+swimWeights[8])*(swimCommand[4]-.32*steer-bank[1])-.30*bank[2];
-  action=if learned then {tanh(tailSignal),tanh(featherSignal),tanh(pitchSignal+rollSignal),tanh(pitchSignal-rollSignal)} else actuators;
+  action=if noEvent(directDrive>1.5) then {tanh(tailSignal),tanh(featherSignal),tanh(pitchSignal+rollSignal),tanh(pitchSignal-rollSignal)} else actuators;
   trackingReward=1-speedError^2-3*(x[9]-.48*swimCommand[2])^2
     -2.5*(x[3]-swimCommand[3])^2-1.2*(bank[1]-swimCommand[4])^2-.035*max(0,shaftPower)/peakPower;
-  gaitSprint=if direct then 0 else sprint;gaitBurst=if direct then 0 else burst;
+  gaitSprint=if noEvent(directDrive>.5) then 0 else sprint;gaitBurst=if noEvent(directDrive>.5) then 0 else burst;
   cp=cos(x[3]);sp=sin(x[3]);cr=cos(bank[1]);sr=sin(bank[1]);
   u=x[1]-current[1]*cos(heading)-current[2]*sin(heading);
   v=x[10]+current[1]*sin(heading)-current[2]*cos(heading);
@@ -213,13 +239,13 @@ equation
   effort=max(0,min(1,.11*desiredSpeed+.26*(desiredSpeed+7*gaitBurst-along)));
   // The ordinary stroke range is based on tagged ascents (Semmens et al., 2019).
   // The 15 m/s game launch recruits a faster, finite-reserve stroke.
-  frequency=if learned then max(.45,min(2.2,.95+swimWeights[9]+(.55+swimWeights[10])*swimCommand[1])) else if direct then 0 else .39+(1.60+.51*gaitBurst+breachFrequencyGain*breachRecruitment+.13*gaitSprint*(1-gaitBurst))*effort;rate=6.2831853*frequency;der(x[5])=rate;
+  frequency=if noEvent(directDrive>1.5) then max(.45,min(2.2,.95+swimWeights[9]+(.55+swimWeights[10])*swimCommand[1])) else if noEvent(directDrive>.5) then 0 else .39+(1.60+.51*gaitBurst+breachFrequencyGain*breachRecruitment+.13*gaitSprint*(1-gaitBurst))*effort;rate=6.2831853*frequency;der(x[5])=rate;
   amplitude=.26+(.46+.20*gaitSprint+.47*gaitBurst+.16*breachRecruitment)*effort;target=amplitude*sin(x[5])-.75*steer;
   torqueLimit=peakTorque*(1+1.4*gaitSprint+8*gaitBurst+4*breachRecruitment+.6*gaitSprint*(1-gaitBurst));
   powerLimit=peakPower*(1+2*gaitSprint+14*gaitBurst+9*breachRecruitment+3*(sustainedPowerGain-1)*gaitSprint*(1-gaitBurst));
   // Reduce outward muscle recruitment at the edge of the tail stroke.
   // The compliant hinge and its damping continue to act in both modes.
-  rawTorque=if direct then peakTorque*max(-1,min(1,action[1]))*
+  rawTorque=if noEvent(directDrive>.5) then peakTorque*max(-1,min(1,action[1]))*
     min(1,max(0,(1.15-(if action[1]>=0 then x[6] else -x[6]))/.20)) else
     drive*(1+1.5*gaitSprint+5*gaitBurst+3*breachRecruitment)*(14500*(target-x[6])+1500*(amplitude*rate*cos(x[5])-x[7]));
   limitedTorque=max(-torqueLimit,min(torqueLimit,rawTorque));
@@ -247,7 +273,7 @@ equation
   leadRate=x[7]-lead*rate^2*x[6];
   leadInflow=if lead>0 then atan2(v-1.95*x[9]-caudalArm*cos(leadAngle)*leadRate,
     max(.35,along+caudalArm*sin(leadAngle)*leadRate)) else inflow;
-  feather=if direct then 1.22*max(-1,min(1,action[2])) else max(-1.22-.14*featherControl,min(1.22+.14*featherControl,.50*leadInflow+featherControl*.45*
+  feather=if noEvent(directDrive>.5) then 1.22*max(-1,min(1,action[2])) else max(-1.22-.14*featherControl,min(1.22+.14*featherControl,.50*leadInflow+featherControl*.45*
     (leadInflow-min(.50,max(-.50,leadInflow)))-.60*turn+.70*x[9]));
   der(x[8])=min(18+80*featherControl,
     max(-18-80*featherControl,(feather-x[8])*(35+205*featherControl)));
@@ -259,7 +285,8 @@ equation
     +.5*lockedInertia[6]*x[9]^2-.5*lockedInertia[8]*x[7]^2;
   der(x[7])=(totalYaw*hingeLoad-lockedInertia[4]*yawLoad)/determinant;
   portAngle=.85*max(-1,min(1,action[3]));starboardAngle=.85*max(-1,min(1,action[4]));
-  finAngle=if direct then .5*(portAngle+starboardAngle) else max(-.85,min(.85,atan2(normal,max(.60,along))+.96*(desiredPitch-x[3])-.42*x[4]));
+  // The water-flow pitch controller loses authority when the fins leave the water.
+  finAngle=if noEvent(directDrive>.5) then .5*(portAngle+starboardAngle) else finWet*max(-.85,min(.85,atan2(normal,max(.60,along))+.96*(desiredPitch-x[3])-.42*x[4]));
   // Retract part of the pectoral span in straight, fast swimming. Restore
   // the exposed span as pitch and bank demand increase.
   finExposure=1-.46*featherControl*max(0,min(1,(along-4)/5))*
@@ -269,7 +296,7 @@ equation
   finDepth=surface-z-.65*sp+.18*cp*cr;
   portWet=Humpback.wet(finDepth-.91*sr*cp,.27);
   starboardWet=Humpback.wet(finDepth+.91*sr*cp,.27);
-  pectoralLoad=pectorals(direct,along,if direct then cr*(normal+.65*x[4])-sr*v else normal-.55*x[4],
+  pectoralLoad=pectorals(noEvent(directDrive>.5),along,if noEvent(directDrive>.5) then cr*(normal+.65*x[4])-sr*v else normal-.55*x[4],
     finAngle,pectoralArea*finExposure,finWet,portWet,starboardWet,
     bankTorque,portAngle,starboardAngle,bank[2],x[9]);
   finX=pectoralLoad[1];finZ=pectoralLoad[2];
@@ -300,9 +327,9 @@ equation
   forward=tailX+finX+drag+sternFx;vertical=cr*finZ+bodyNormal;
   // Use the same contact clock as the humpback so a face change on the wreck
   // cannot force arbitrarily small adaptive integration steps.
-  lockedInertia=articulatedInertia(segments,pivots,mass/870,length/4.8,x[6],trunkRatio,recruit,x[8],if direct then portAngle else finAngle,if direct then starboardAngle else finAngle);
+  lockedInertia=articulatedInertia(segments,pivots,mass/870,length/4.8,x[6],trunkRatio,recruit,x[8],if noEvent(directDrive>.5) then portAngle else finAngle,if noEvent(directDrive>.5) then starboardAngle else finAngle);
   when sample(0,.005) then
-    ground=groundContact({east,north,z},heading,x,length,bank);
+    ground=groundContact({east,north,z},heading,x,length,bank,trunkFlex,finAngle,portAngle,starboardAngle,noEvent(directDrive>.5),Wreck.SharkSurface.vertices,Wreck.SharkSurface.faces);
   end when;
   der(x[1])=(boatLoad[1]+ground[1]+cp*forward-sp*vertical)/mass+x[9]*x[10];
   der(x[2])=(ground[3]+sp*forward+cp*vertical)/mass+9.81*(.992*wet-1);

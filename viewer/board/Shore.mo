@@ -595,7 +595,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     contact:={force[1],force[2],force[3],load,clearance};
   end skinContact;
   function rockTriangle "Clip a real contact triangle to a convex boulder and return its contact point"
-    input Real tri[3,3] "Vertices in the vessel body frame",face[80,4] "Unit boulder planes in that frame";
+    input Real tri[3,3] "Vertices in the vessel body frame",face[:,4] "Unit convex planes in that frame";
     output Real hit[7] "Penetration, surface normal, body contact point";
   protected
     Real polygon[83,3],clipped[83,3],a[3],b[3],n[3],pa,pb,point[3],depth;
@@ -605,7 +605,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     hit:=zeros(7);
     polygon:=zeros(83,3);clipped:=zeros(83,3);
     count:=3;polygon[1:3,:]:=tri;
-    for f in 1:80 loop
+    for f in 1:size(face,1) loop
       n:=face[f,1:3];newCount:=0;
       allInside:=true;allOutside:=true;
       for i in 1:count loop
@@ -635,7 +635,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     for i in 1:count loop point:=point+polygon[i,:];end for;
     point:=point/count;
     hit[1]:=1e6;hit[5:7]:=point;
-    for f in 1:80 loop
+    for f in 1:size(face,1) loop
       depth:=face[f,4]-face[f,1:3]*point;
       if depth<hit[1] then hit[1]:=depth;hit[2:4]:=face[f,1:3];end if;
     end for;

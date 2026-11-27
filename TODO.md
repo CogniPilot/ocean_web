@@ -80,7 +80,8 @@ A checked item records the specific result described. Open items include partial
 - [ ] Review the animated humpback at the waterline and from below. Check long scalloped pectorals, ventral throat pleats and broad notched flukes with a dark upper face and mottled white panels with black borders underneath.
 - [ ] Validate breach mechanics. Measure tail thrust, muscle power, approach depth and speed, water exit angle, height, roll, re-entry and recovery. Compare against animal observations. Keep the trajectory force-driven.
 - [x] Whale pectoral controls, deterministic direct-actuator headless environment and opposite-roll recovery check. Opposite fin commands produced approximately ±39.5° of bank.
-- [x] Use unilateral terrain contact on whale and shark skin points. Compiled flat-bottom, powered-shore and beached tests pass. A dry shark tail produces zero water thrust.
+- [x] Use unilateral terrain contact on the whale and the great white. The player and NPC shark use the same articulated 19-piece collision surface for ground and wreck contacts as the diagnostic overlay. A dry shark tail produces zero water thrust.
+- [ ] Replace the separate scripted Breakwater cruiser encounter's shark envelope with articulated shark mesh contact.
 - [ ] Verify whale and shark contact stops both sailboats and powered motorboats. Exercise glancing hits, different depths, player-controlled and NPC animals, and multiplayer.
 - [ ] Validate both Modelica animal plants, guidance, wake and foam against observations and keep Three.js focused on visualization. Record approximations and calibration evidence before describing either plant as research-grade.
 - [ ] Review the adult great white at the requested scale and from the supplied front and side views. Check the continuous jaw opening around the snout, tooth placement, five gill slits, countershading without a black stripe and fins-only exposure at the surface.

@@ -14,7 +14,7 @@ export function sharkCollision(actor){
   const angles=actor.joints??[0,0,0,0],velocity=[actor.ve??0,actor.vn??0,actor.vz??0];
   const frames=[{r:basis(actor.yaw??0,actor.pitch??0,actor.heel??0),o:[actor.x,actor.y,actor.z]}];
   pivots.forEach((p,i)=>{
-    const parent=frames[i<3?i:0],delta=i>2?angles[3]:i?angles[i]-angles[i-1]:angles[0];
+    const parent=frames[i<3?i:0],delta=i>2?(angles[i]??angles[3]):i?angles[i]-angles[i-1]:angles[0];
     const local=i<3?basis(delta,0,0):basis(0,-delta,0);
     const r=multiply(parent.r,local),o=add(parent.o,apply(parent.r,sub(p,apply(local,p))));
     frames.push({r,o});
