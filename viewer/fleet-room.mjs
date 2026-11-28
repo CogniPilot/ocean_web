@@ -4,6 +4,18 @@ export function joinFleetRoom(transport,config,name,callbacks){
   try{bus=new BroadcastChannel('ocean-web/'+config.appId+'/'+name);}catch{}
   const self=transport.selfId,local=new Map(),online=new Map(),actions=new Map();
   let closed=false,recovery,recoverAt=Infinity,discovery;
+  // Normal pose traffic is 10 Hz. Leave room for habitat snapshots and
+  // reliable updates while bounding gameplay handler work for each peer.
+  function receive(action,data,meta){
+    const link=online.get(meta.peerId)??local.get(meta.peerId);
+    if(!link||!action?.onMessage)return;
+    const now=performance.now();
+    link.tokens=Math.min(96,(link.tokens??96)+.18*(now-(link.received??now)));
+    link.received=now;
+    if(link.tokens<1)return;
+    link.tokens--;
+    action.onMessage(data,meta);
+  }
   const network=transport.joinRoom(config,name,{
     onJoinError(error){if(!closed)callbacks?.onJoinError?.(error);}
   });
@@ -33,7 +45,7 @@ export function joinFleetRoom(transport,config,name,callbacks){
           }));
         }
       };
-      remote.onMessage=(data,meta)=>{if(!closed)action.onMessage?.(data,meta);};
+      remote.onMessage=(data,meta)=>{if(!closed)receive(action,data,meta);};
       actions.set(name,action);
       return action;
     },
@@ -102,13 +114,15 @@ export function joinFleetRoom(transport,config,name,callbacks){
       if(msg.type==='hello')post('here',id);
       if(msg.type==='hello'||msg.type==='here'||msg.type==='data'){
         const joined=!local.has(id)&&!online.has(id);
-        local.set(id,performance.now());
+        const link=local.get(id)??{};
+        link.seen=performance.now();
+        local.set(id,link);
         if(joined)room.onPeerJoin?.(id);
-        if(msg.type==='data')actions.get(msg.action)?.onMessage?.(msg.data,{peerId:id});
+        if(msg.type==='data')receive(actions.get(msg.action),msg.data,{peerId:id});
       }
     };
     heartbeat=setInterval(()=>{
-      for(const [id,seen] of local)if(performance.now()-seen>15000)forgetLocal(id);
+      for(const [id,link] of local)if(performance.now()-link.seen>15000)forgetLocal(id);
       post('hello');
     },2500);
     post('hello');

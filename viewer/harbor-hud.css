@@ -54,6 +54,7 @@ body[data-hud-fpv=false] #flightHud {display:none}
 body[data-hud-telemetry=true] header #readout {display:block}
 header #dial {width:205px}
 header #dial.race-navigation {width:270px}
+#raceSidebar,body > footer {background:#071f2be8;border-left:3px solid var(--hud-accent);border-radius:4px}
 body > footer {left:max(var(--hud-gutter),env(safe-area-inset-left));right:auto;bottom:max(12px,env(safe-area-inset-bottom));width:fit-content;max-width:calc(100vw - 2 * var(--hud-gutter))}
 body > footer:has(#vehiclePanel:not([hidden])) {width:min(450px,calc(100vw - 2 * var(--hud-gutter)))}
 .control-toolbar {padding:3px}
@@ -64,8 +65,8 @@ body > footer:has(#vehiclePanel:not([hidden])) {width:min(450px,calc(100vw - 2 *
 body > footer .control-toolbar {position:relative;z-index:2;order:1;flex-shrink:0;border-bottom:0}
 body > footer:has(#vehiclePanel:not([hidden])) .control-toolbar {border-top:1px solid var(--hud-edge)}
 #vehiclePanel {scroll-padding-top:56px;isolation:isolate}
-#vehiclePanel .hud-drawer-head {position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 10px;background:#0b2b37;border-bottom:1px solid var(--hud-edge)}
-#hudMenuTitle {margin:0;font:normal 20px/1.2 Georgia,serif}
+#vehiclePanel .hud-drawer-head {position:sticky;top:0;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 10px;background:#0d2834;border-bottom:1px solid var(--hud-edge)}
+#hudMenuTitle {margin:0;color:#a4e4d9;font:12px/1.2 ui-monospace,monospace;text-transform:uppercase}
 #hudDone {min-width:48px;min-height:38px}
 #hudCustomize,#hudActions {padding:9px 10px 12px}
 #hudActions {display:grid;grid-template-columns:1fr 1fr;gap:6px}

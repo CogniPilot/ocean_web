@@ -870,8 +870,8 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    float windDelta=(mix(localSpeed,rippleWind,.35)-referenceWind)/max(3.,referenceWind);
    // Short-wave roughness is visible out into the weaker shoulders of a
    // gust. Give those shoulders more contrast without changing wind loads.
-   float puff=smoothstep(.001,.15,windDelta)*windFieldActive;
-   float lull=smoothstep(.01,.23,-windDelta)*windFieldActive;
+   float puff=smoothstep(.015,.18,windDelta)*windFieldActive;
+   float lull=smoothstep(.035,.17,-windDelta)*windFieldActive;
    vec2 p=vec2(dot(wp.xy,baseDir),dot(wp.xy,vec2(-baseDir.y,baseDir.x)));
    float fade=1.-smoothstep(16.,110.,eyeDistance);
    #ifdef VERTEX_SLOPE
@@ -881,7 +881,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    #endif
    vec4 swimmer=wildlifeWave(wp.xy);
    d+=swimmer.zw;
-   d+=rippleScale*fade*rippleSlope(wp.xy,tm,baseDir,rippleWind)*(.62+1.02*windChop+.94*puff-.29*lull);
+   d+=rippleScale*fade*rippleSlope(wp.xy,tm,baseDir,rippleWind)*(.62+1.02*windChop+.94*puff)*mix(1.,.24,lull);
    // Resolve fine wind rows nearby; their aggregate roughness stays visible farther out.
    float ripplePhase=12.*p.x+1.9*p.y-11.*tm+.8*sin(1.6*p.y+.5*tm);
    float resolved=1.-smoothstep(1.,3.,fwidth(ripplePhase));
@@ -899,7 +899,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      vec4 seaFoam=texture2D(whitecapMap,atlas);
      whitecap=seaFoam.rg*atlasWeight;
      seaSlope=atlasWeight*(seaFoam.ba-vec2(128./255.));
-     d+=seaSlope;
+     d+=seaSlope*mix(1.,.32,lull);
    }
    vec3 n=normalize(vec3(-d,1.));vec3 ref=reflect(-eye,n);
    if(under>.5){
@@ -946,10 +946,10 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      // below the local horizon see neighbouring water instead of bright sky.
      // The delayed short-wave response broadens the reflection of the sky,
      // so a gust remains visible after its individual ripples are subpixel.
-     float slopeVariance=.00512*max(0.,rippleWind)*(1.+.65*puff-.24*lull);
+     float slopeVariance=.00512*max(0.,rippleWind)*(1.+.65*puff)*mix(1.,.21,lull);
      float refractionVariance=max(0.,slopeVariance-.015)*(.4+.6*windChop);
      float spread=sqrt(slopeVariance)*(.55+.65*subpixel);
-     float roughReflection=max(roughSea,.65*smoothstep(.002,.05,slopeVariance));
+     float roughReflection=max(roughSea*mix(1.,.28,lull),.65*smoothstep(.002,.05,slopeVariance));
      float skyVisibility=mix(1.,smoothstep(-spread,.8*spread+.001,ref.z),roughReflection);
      vec3 skyDirection=normalize(vec3(ref.xy,max(0.,ref.z)+.55*spread*roughSea));
      vec3 reflectedSky=mix(.65*waterColor,sampleSky(skyDirection).rgb,skyVisibility);
@@ -1003,7 +1003,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      vec2 mirrorMargin=min(uv,1.-uv);
      float mirrorVisible=step(.001,mirrorRay.w)*smoothstep(0.,.018,min(mirrorMargin.x,mirrorMargin.y));
      // Broaden reflected detail where the pixel spans several short ripples.
-     float mirrorBlur=smoothstep(6.,20.,eyeDistance)*(.65+1.4*roughSea*subpixel);
+     float mirrorBlur=smoothstep(6.,20.,eyeDistance)*(.65+1.4*roughSea*subpixel)*mix(1.,.22,lull);
      vec4 objects=texture2D(reflection,clamp(uv,.001,.999),mirrorBlur)*mirrorVisible;
      if(objects.a>.001 && eyeDistance<80.){
        float depth=texture2D(reflectionDepth,clamp(uv,.001,.999)).r;
@@ -1061,6 +1061,9 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
      float visible=smoothstep(0.,.025,min(frameMargin.x,frameMargin.y))*step(.001,surfaceDepth);
      color=mix(waterColor+visible*transmissionDetail(opticalPath,refractionVariance)*transmitted.rgb,reflected,fres);
      #endif
+     // Rough patches scatter more light away from the view. Keep direct sun
+     // glitter and foam above the darker surface so gusts are legible at sea level.
+     color*=mix(vec3(1.),vec3(.62,.70,.75),puff*mix(.60,1.,day));
      float specular=sunReflection(n,eye,.0018+slopeVariance*(.04+.56*subpixel));
      if(specular>.00015)color+=vec3(4.4,3.8,2.8)*sampleSky(sunDir).a*specular;
      color+=vec3(.62,.7,1.)*pow(max(dot(ref,moonDir),0.),260.);

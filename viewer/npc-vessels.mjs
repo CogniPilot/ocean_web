@@ -37,27 +37,65 @@ function dispose(group){
 export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,incidentSea,fleetNumber){
   const craft=new Map(),sailRigs=new Map(),wind=new T.Vector2(),contacts=new Float64Array(45),tilts=new Float64Array(10);
   const cruisers=[];
-  const planners=new Map();
+  const planners=new Map(),pilotSlots=new Map(),slowBatches=new Map();
   // Reserve capacity for the world worker and the renderer. Small devices
   // can share a worker across several boats while larger ones get one each.
   const plannerLimit=Math.max(1,Math.min(5,(navigator.hardwareConcurrency||4)-2));
   let plannerSession;
+  function stopWorker(slot,planner){
+    clearTimeout(planner.timer);
+    planner.worker.terminate();
+    planners.delete(slot);
+  }
   function stopPlanner(){
-    for(const {worker} of planners.values())worker.terminate();
-    planners.clear();
+    for(const [slot,planner] of planners)stopWorker(slot,planner);
+    pilotSlots.clear();slowBatches.clear();
+  }
+  function removeSlowVessel(row,reason){
+    if(plannerSession===room.session&&room.removeVessel(row))
+      onError(Error('Removed '+vesselNpcNames[row.kind]+' NPC · '+reason));
   }
   function createPlanner(slot){
     const worker=new Worker(new URL('./npc-sailing-worker.mjs',import.meta.url),{type:'module'});
     const planner={worker,awaiting:false,time:undefined};
     const fail=error=>{
       if(planners.get(slot)!==planner)return;
-      worker.terminate();planners.delete(slot);onError(error);
+      stopWorker(slot,planner);
+      const row=planner.vessels?.get(planner.current);
+      if(row)removeSlowVessel(row,error.message);
+      else onError(error);
+    };
+    planner.armTimeout=()=>{
+      clearTimeout(planner.timer);
+      const deadline=performance.now()+15000;
+      planner.timer=setTimeout(()=>{
+        // Background tabs and a delayed main thread cannot reliably time a worker.
+        if(document.hidden||performance.now()-deadline>2000){planner.armTimeout();return;}
+        fail(Error('physics worker stopped responding'));
+      },15000);
     };
     worker.onmessage=({data})=>{
       if(planners.get(slot)!==planner)return;
+      if(!room.host||plannerSession!==room.session){stopWorker(slot,planner);return;}
+      if(data.started!==undefined){
+        planner.current=data.started;
+        planner.armTimeout();
+        return;
+      }
       if(data.error){fail(Error(data.error));return;}
+      clearTimeout(planner.timer);
       planner.awaiting=false;
-      room.publishVessels(data.frames);
+      planner.current=undefined;
+      const frames=[];
+      for(const {computeMs,...frame} of data.frames){
+        const row=planner.vessels.get(frame.id);
+        if(!room.habitat.vessels.includes(row))continue;
+        const slow=computeMs>250?(slowBatches.get(frame.id)??0)+1:0;
+        slowBatches.set(frame.id,slow);
+        if(slow>=8)removeSlowVessel(row,'physics exceeded its step budget repeatedly');
+        else frames.push(frame);
+      }
+      if(frames.length)room.publishVessels(frames);
     };
     worker.onerror=event=>fail(Error(event.message));
     planners.set(slot,planner);
@@ -72,7 +110,13 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
     if(plannerSession!==room.session){stopPlanner();plannerSession=room.session;}
     const sea=incidentSea?.();
     const prevailing=race.get('windBearing'),upwind=prevailing+Math.PI,course=[Math.cos(upwind),Math.sin(upwind)];
-    const side=[-course[1],course[0]],groups=new Map(),traffic=[];
+    const side=[-course[1],course[0]],groups=new Map(),traffic=[],vessels=new Map();
+    const active=new Set(rows.flatMap((row,index)=>row.kind==='hobie'?[craft.get('npc-'+(index+1)).pilotId]:[]));
+    const slotLoads=Array(plannerLimit).fill(0);
+    for(const [id,slot] of pilotSlots){
+      if(active.has(id))slotLoads[slot]++;
+      else{pilotSlots.delete(id);slowBatches.delete(id);}
+    }
     function contact(id,pose,tilt){traffic.push({id,pose,tilt});}
     const [z,roll,pitch]=race.get('launchPose');
     const deck=race.get('deckState'),coursePoints=raceCoursePoints(race);
@@ -93,7 +137,12 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
         const yaw=previous?.[3]??heading,dx=Math.cos(yaw),dy=Math.sin(yaw);
         const seaRoll=sea?0:Math.atan((surface(east-dy,north+dx)-surface(east+dy,north-dx))*.5);
         const seaPitch=sea?0:-Math.atan((surface(east+dx,north+dy)-surface(east-dx,north-dy))*.5);
-        const slot=index%plannerLimit;
+        let slot=pilotSlots.get(entry.pilotId);
+        if(slot===undefined){
+          slot=slotLoads.indexOf(Math.min(...slotLoads));
+          pilotSlots.set(entry.pilotId,slot);slotLoads[slot]++;
+        }
+        vessels.set(entry.pilotId,row);
         if(!groups.has(slot))groups.set(slot,[]);
         groups.get(slot).push({id:entry.pilotId,controller:row.controller??'vmg',weights:row.weights,raceStart,water:sea?.tide??surface(east,north),roll:seaRoll,pitch:seaPitch,wind:[wind.x,wind.y],
           initial:{...startGate,prevailing,lane,initialEast:east,initialNorth:north,initialHeading:yaw,initialSpeed:previous?.[4]??2.1,initialPenalty:previous?.[12]??0}});
@@ -104,9 +153,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       }
     });
     for(const [slot,planner] of planners){
-      if(!groups.has(slot)){
-        planner.worker.terminate();planners.delete(slot);
-      }
+      if(!groups.has(slot))stopWorker(slot,planner);
     }
     for(const [slot,racers] of groups){
       const planner=planners.get(slot)??createPlanner(slot);
@@ -119,6 +166,8 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       if(step<2)continue;
       planner.time+=.05*step;
       planner.awaiting=true;
+      planner.vessels=vessels;
+      planner.armTimeout();
       planner.worker.postMessage({racers,utc:utc-(time-planner.time),step,traffic,sea,coursePoints,courseGateEnds});
     }
   }

@@ -12,6 +12,7 @@ self.onmessage=async({data})=>{
     for(const [id,entry] of models)if(!active.has(id)){entry.model.close();entry.pilot.close();models.delete(id);}
     const frames=[];
     for(const racer of racers){
+      self.postMessage({started:racer.id});
       let entry=models.get(racer.id);
       if(!entry){
         const kind=racer.controller??'vmg';
@@ -20,6 +21,7 @@ self.onmessage=async({data})=>{
           undefined,courseGateEnds?{courseGateEnds}:{});
         entry={model,pilot};models.set(racer.id,entry);
       }
+      const started=performance.now();
       const {model,pilot}=entry;
       const nearby=new Float64Array(90),attitude=new Float64Array(20);
       let index=0;
@@ -44,9 +46,10 @@ self.onmessage=async({data})=>{
         pilot.step(model);
         model.advance(.05);
       }
-      frames.push({id:racer.id,data:readRacerFrame(model),
+      const frame={id:racer.id,data:readRacerFrame(model),
         forestay:model.has('boat.forestayPath')?model.get('boat.forestayPath'):undefined,
-        mastRotation:model.has('boat.mastRotation')?model.get('boat.mastRotation'):undefined});
+        mastRotation:model.has('boat.mastRotation')?model.get('boat.mastRotation'):undefined};
+      frames.push({...frame,computeMs:performance.now()-started});
     }
     self.postMessage({frames});
   }catch(error){self.postMessage({error:error.message});}

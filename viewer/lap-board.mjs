@@ -96,6 +96,10 @@ export function lapTable(storage,scope,hull){
   read();
   return {
     reload(){rows=[];read();},
+    clear(){
+      for(const row of rows){try{storage.removeItem(prefix+row.id);}catch{}}
+      rows=[];
+    },
     add,prefix,
     get rows(){return rows.slice();}
   };
@@ -170,9 +174,18 @@ export function lapLeaderboard(hull,roomName,panel,signal){
   try{storage=window.localStorage;}catch{}
   const details=panel.querySelector('#bestLaps');
   const personal=new Map(boards.map(kind=>[kind,lapTable(storage,'personal',kind)]));
-  const roomTables=name=>new Map(boards.map(kind=>[kind,lapTable(storage,'room/'+name,kind)]));
-  let room=roomTables(roomName);
+  const epochKey=name=>'ocean.laps.epoch.v1.'+encodeURIComponent(name);
+  function storedEpoch(name){
+    let epoch;
+    try{epoch=Number(storage?.getItem(epochKey(name)));}catch{}
+    return Number.isSafeInteger(epoch)&&epoch>0?epoch:0;
+  }
+  const roomTables=(name,epoch)=>new Map(boards.map(kind=>[
+    kind,lapTable(storage,epoch?'room-reset/'+epoch+'/'+name:'room/'+name,kind)]));
+  let roomEpoch=storedEpoch(roomName),room=roomTables(roomName,roomEpoch);
   let channel;
+  let acceptPeer,host;
+  const clear=details.querySelector('#clearRoomLeaderboard');
   const finished=new Set();
   const feedingIds=new Map(),feedingBests=new Map();
   function feedingId(kind,policyName){
@@ -188,7 +201,7 @@ export function lapLeaderboard(hull,roomName,panel,signal){
     }
     return feedingIds.get(key);
   }
-  function bestKey(id){return 'ocean.feeding.best.v1.'+(channel?'room.'+encodeURIComponent(roomName):'personal')+'.'+id;}
+  function bestKey(id){return 'ocean.feeding.best.v1.'+(channel?'room.'+encodeURIComponent(roomName)+(roomEpoch?'.'+roomEpoch:''):'personal')+'.'+id;}
   function localFeedingBest(id){
     const key=bestKey(id);
     if(!feedingBests.has(key)){
@@ -213,32 +226,50 @@ export function lapLeaderboard(hull,roomName,panel,signal){
     empty.textContent=feeding(board)?'No feeding scores yet.':'No finished laps yet.';
     list.replaceChildren();
     for(const row of rows){
-      const item=document.createElement('li'),time=document.createElement('time');
-      item.append(channel||row.id.startsWith('npc-')?(isCaptainName(row.captain)?'Player':row.captain):'You');
-      if(row.policyName||row.controller)item.append(' · '+(row.policyName??controllers[row.controller]));
+      const item=document.createElement('li'),time=document.createElement('time'),label=document.createElement('span');
+      label.textContent=channel||row.id.startsWith('npc-')?(isCaptainName(row.captain)?'Player':row.captain):'You';
+      if(row.policyName||row.controller)label.append(' · '+(row.policyName??controllers[row.controller]));
       time.textContent=feeding(board)?row.count+' caught':lapClock(row.tenths);
-      item.append(time);
+      item.append(label,time);
       list.append(item);
     }
     empty.hidden=rows.length>0;
+    list.hidden=rows.length===0;
   }
   function send(target){
     if(!channel)return;
     for(const [boat,table] of room){
       const rows=table.rows;
-      if(rows.length)channel.send({boat,rows},target?{target}:undefined).catch(()=>{});
+      if(rows.length)channel.send({boat,rows,epoch:roomEpoch},target?{target}:undefined).catch(()=>{});
     }
   }
-  function connect(action,name=roomName){
-    if(name!==roomName){roomName=name;room=roomTables(name);}
+  const requests=new Map();
+  function connect(action,name=roomName,hasPeer,roomHost){
+    if(name!==roomName){roomName=name;roomEpoch=storedEpoch(name);room=roomTables(name,roomEpoch);}
+    if(action!==channel)requests.clear();
     if(action!==channel)finished.clear();
-    channel=action;
-    if(action)action.onMessage=packet=>{
-      if(channel!==action)return;
+    channel=action;acceptPeer=hasPeer;host=roomHost;
+    if(!action)clear.hidden=true;
+    if(action)action.onMessage=(packet,{peerId})=>{
+      if(channel!==action||!acceptPeer(peerId)||(packet?.epoch??0)!==roomEpoch)return;
+      if(packet?.request===true&&host()){
+        const now=performance.now();
+        if(now-(requests.get(peerId)??-Infinity)<1000)return;
+        requests.set(peerId,now);send(peerId);return;
+      }
       const table=room.get(packet?.boat);
       if(table?.add(packet.rows)&&packet.boat===selection.value)render();
     };
     render();
+  }
+  function setRoomEpoch(epoch,owner){
+    if(!channel||epoch<=roomEpoch)return;
+    for(const table of room.values())table.clear();
+    roomEpoch=epoch;
+    try{storage?.setItem(epochKey(roomName),String(epoch));}catch{}
+    room=roomTables(roomName,roomEpoch);
+    render();
+    if(owner)channel.send({request:true,epoch},{target:owner}).catch(()=>{});
   }
   function observe(stage,seconds,captain,eligible=true,policyName){
     const entered=stage===5&&!finished.has(hull);
@@ -274,7 +305,13 @@ export function lapLeaderboard(hull,roomName,panel,signal){
     }
   },{signal});
   render();
-  return {connect,send,observe,observeNpc,
+  return {connect,send,observe,observeNpc,setRoomEpoch,get roomEpoch(){return channel?roomEpoch:0;},
+    setClearHandler(handler){
+      clear.hidden=!handler;
+      clear.onclick=handler?()=>{
+        if(window.confirm('Clear all lap times and feeding scores for this room?'))handler();
+      }:null;
+    },
     recordFeeding(kind,count,captain,policyName){
       if(!feedingKinds.includes(kind)||!Number.isSafeInteger(count)||count<=0)return;
       const id=feedingId(kind,policyName);

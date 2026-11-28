@@ -60,8 +60,9 @@ aside{position:fixed;right:18px;top:20px;background:#071f2be8;border-left:3px so
 #racePanel>div{display:grid;gap:3px}
 #bestLaps{border-top:1px solid #94cac34d;margin-top:7px;padding-top:6px;font:12px ui-monospace,monospace;overflow-wrap:anywhere}
 #bestLaps small{display:block;margin-top:3px}
-#bestLaps ol{padding-left:2.6em;margin:4px 0 0;max-height:21vh;overflow:auto}
-#bestLaps li{padding:2px 0}
+#bestLaps ol{padding-left:2.6em;margin:4px 0 0;max-height:100px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+#bestLaps li{line-height:18px;padding:1px 0;white-space:nowrap}
+#bestLaps li span{display:inline-block;max-width:calc(100% - 11ch);overflow:hidden;text-overflow:ellipsis;vertical-align:top}
 #bestLaps time{float:right;margin-left:1em;color:#ffc371}
 #bestLaps p{font:inherit}
 #fleetRoster{border-top:1px solid #94cac34d;margin-top:7px;padding-top:6px;color:#d7efed;font:12px/1.35 ui-monospace,monospace}
@@ -279,9 +280,9 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <section id="animalSensors" aria-label="Animal sensors" hidden><details id="fishFinder"><summary>Fish finder · <output id="fishCaught">0 fish caught</output></summary><canvas id="animalSonar" width="320" height="140" aria-label="Forward sonar in plan and elevation, range 15 metres"></canvas></details></section>
 <canvas id="flightHud" role="img" hidden></canvas><section id="subPanel" hidden><details id="subSensors"><summary>Imaging sonar</summary><div class="sensor-images"><figure><figcaption>Forward imaging sonar</figcaption><canvas id="sonarFan" width="320" height="185" aria-label="Sonar echoes by bearing and range, 18 metres ahead"></canvas></figure></div><label><input type="checkbox" id="sonarMap"> Sonar map</label><small id="dvlMapLegend">White points show DVL bottom-lock hits. Soft marks show fan echoes with uncertain elevation.</small></details><details id="subOptical"><summary>Optical camera</summary><div class="sensor-images"><canvas id="sensorCam" width="320" height="238" aria-label="Forward RGB camera for computer vision"></canvas></div></details></section><aside id="raceSidebar" aria-label="Race and fleet">
 <details id="racePanel" open>
-<summary><span>Race committee · Boston Whaler 190</span><output id="countdown" aria-label="Next fleet start">—</output></summary>
+<summary><span>Race committee</span><output id="countdown" aria-label="Next fleet start">—</output></summary>
 <div><small id="raceCourse"></small><output id="raceStatus"></output><output id="raceWinner" aria-live="polite" hidden></output></div>
-<p id="racePenalty" role="status" hidden></p><section id="bestLaps" aria-label="Best laps"><label>Leaderboard <select aria-label="Leaderboard event"></select></label><small></small><ol></ol><p>No finished laps yet.</p></section>
+<p id="racePenalty" role="status" hidden></p><section id="bestLaps" aria-label="Best laps"><label>Leaderboard <select aria-label="Leaderboard event"></select></label><small></small><ol tabindex="0" aria-label="Leaderboard results" hidden></ol><p>No finished laps yet.</p><button id="clearRoomLeaderboard" type="button" hidden>Clear room leaderboard</button></section>
 </details><details id="fleetRoster"><summary>Players &amp; NPCs <span id="fleetCount"></span></summary><div><table aria-label="Players and NPCs"><thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead><tbody id="fleetEntries"></tbody></table></div></details><section id="mastPanel" aria-label="Live mast cameras" hidden><button type="button" id="mastClose" aria-label="Close mast cameras">Close</button><label>Mast camera <select id="mastPort"><option value="0">Forward</option><option value="1">Port</option><option value="2">Aft</option><option value="3">Starboard</option></select></label><canvas id="mastImage" width="256" height="256" aria-label="Live mast fisheye image"></canvas><button type="button" id="mastExport">Export calibrated capture</button></section></aside><footer aria-label="Simulator controls">
 <div class="control-toolbar"><div class="control-row">
 <button type="button" id="harborMapButton" aria-controls="harborMap" aria-expanded="false" aria-haspopup="dialog" aria-keyshortcuts="M">Map</button>

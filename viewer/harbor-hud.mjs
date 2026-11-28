@@ -76,6 +76,7 @@ export function harborHud(signal,role){
     let returnFocus=false;
     details.querySelector('summary').addEventListener('click',event=>{
       if(event.defaultPrevented)return;
+      if(id==='fleetRoster'&&details.open){event.preventDefault();return;}
       if(id==='racePanel'){
         save('racePanelExpanded',!details.open);
         return;

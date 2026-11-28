@@ -67,6 +67,7 @@ export function npcRoom(){
       (h.gullSeats===undefined||(Array.isArray(h.gullSeats)&&h.gullSeats.length===h.gulls.length&&
         h.gullSeats.every(seat=>seat===null||typeof seat==='string')))&&
       (h.raceStart===undefined||h.raceStart===0||validStart(h.raceStart))&&
+      (h.leaderboardEpoch===undefined||validStart(h.leaderboardEpoch))&&
       (h.time===undefined||Number.isFinite(h.time)&&h.time>=0)&&Number.isSafeInteger(h.sequence)&&h.sequence>=0&&Array.isArray(h.sounds)&&h.sounds.length<=16&&
       h.sounds.every(s=>Array.isArray(s)&&s.length===7&&['gull','spout','impact'].includes(s[2])&&s.every((v,i)=>i===2||Number.isFinite(v)));
   }
@@ -357,6 +358,21 @@ export function npcRoom(){
       sync();
       return true;
     },
+    setLeaderboardEpoch(epoch){
+      if(owner!==self||!validStart(epoch)||epoch<=(habitat.leaderboardEpoch??0))return false;
+      habitat.leaderboardEpoch=epoch;
+      sync();
+      return true;
+    },
+    removeVessel(vessel){
+      if(owner!==self)return false;
+      const index=habitat.vessels.indexOf(vessel);
+      if(index<0)return false;
+      const id=vessel.raceId??'v-'+index+'-'+Math.round(vessel.started*1000);
+      vesselFrames.delete(id);vesselForestays.delete(id);vesselMastRotations.delete(id);
+      habitat.vessels.splice(index,1);revision++;sync();
+      return true;
+    },
     roster(){return {vessels:habitat.vessels.map(v=>v.kind),hobiePilots:habitat.vessels.map(v=>({controller:v.controller,weights:v.weights})),gulls:habitat.gulls.length,animals:[...animals.values()].filter(a=>!a.player).map(({kind,id})=>({kind,id})),raceStart:habitat.raceStart};},
     reseed(started,boundary,wind,roster=this.roster()){
       if(owner!==self)return;
@@ -435,8 +451,8 @@ export function npcRoom(){
             if(typeof policyName==='string'&&policyName.trim())vessel.policyName=policyName.trim().slice(0,80);
           }
         }
-        if(kind==='hobie'&&validStart(raceAt)){
-          vessel.raceAt=raceAt;
+        if(kind==='hobie'){
+          if(validStart(raceAt))vessel.raceAt=raceAt;
           vessel.raceId=Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('');
         }
         if(kind==='hobie'&&Number.isFinite(raceWind))vessel.raceWind=Math.max(0,Math.min(22,raceWind));

@@ -118,6 +118,27 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     return {slot:order.indexOf(selfId),sent};
   }
   const npc=npcRoom();
+  let leaderboardHost;
+  function clearLeaderboard(){
+    if(!lapChannel||!npc.host||!laps)return;
+    const epoch=Math.max(Date.now(),(npc.habitat.leaderboardEpoch??0)+1,laps.roomEpoch+1);
+    if(npc.setLeaderboardEpoch(epoch))laps.setRoomEpoch(epoch);
+  }
+  function syncLeaderboard(){
+    if(!lapChannel||!laps)return;
+    if(leaderboardHost!==npc.host){
+      leaderboardHost=npc.host;
+      laps.setClearHandler(npc.host?clearLeaderboard:null);
+    }
+    const epoch=npc.habitat.leaderboardEpoch??0;
+    if(npc.host&&laps.roomEpoch>epoch)npc.setLeaderboardEpoch(laps.roomEpoch);
+    else if(epoch>laps.roomEpoch)laps.setRoomEpoch(epoch,npc.host?undefined:npc.owner);
+  }
+  function connectLeaderboard(){
+    leaderboardHost=undefined;
+    laps?.connect(lapChannel,roomName,id=>participants.has(id),()=>npc.host);
+    syncLeaderboard();
+  }
   const offlineNumbers=fleetNumbers(String(Math.random()),['you']);
   let numbers=offlineNumbers;
   const fleetNumber=id=>numbers.get(id??(room?selfId:'you'));
@@ -402,7 +423,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
         chat?.receive(roster.get(peerId)??'Player',message.trim());
     };
     lapChannel=room.makeAction('best-laps');
-    laps?.connect(lapChannel,roomName);
+    connectLeaderboard();
     finishChannel=room.makeAction('race-finish');
     finishChannel.onMessage=(packet,{peerId})=>{
       if(room!==active||!participants.has(peerId)||!Array.isArray(packet))return;
@@ -605,6 +626,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       report();
     }
     npc.tick(now);
+    syncLeaderboard();
     if(participants.size&&now-lastPenaltySend>=1500){
       lastPenaltySend=now;
       penaltyChannel.send(ourPenalty).catch(()=>{});
@@ -1022,7 +1044,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
         if(part)scene.add(part);
       }
     }
-    laps?.connect(lapChannel,roomName);
+    connectLeaderboard();
     if(weatherRows)weather?.apply(Object.fromEntries(Object.entries(weatherRows).map(([key,row])=>[key,row[2]])));
     report();
   }
