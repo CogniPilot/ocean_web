@@ -61,8 +61,8 @@ for(const sign of [-1,1]){
 }
 await env.reset({state:launch(2,-18,-11.7,3)});
 const hulls=JSON.parse(await readFile(new URL('../viewer/assets/swimmer-hulls.json',import.meta.url),'utf8'));
-const lowestProbe=Math.min(...hulls.probes.whale.map(point=>point[2]));
-assert(Math.abs(env.observe().clearance-(13.7-11.7+lowestProbe))<1e-9);
+const lowestVertex=Math.min(...hulls.whale.flatMap(({wire})=>wire.filter((_,i)=>i%3===2)));
+assert(Math.abs(env.observe().clearance-(13.7-11.7+lowestVertex))<1e-9);
 assert.equal(env.observe().normalForce,0);
 for(const [name,start,pitch,limitX,limitZ] of [
   ['flat bottom',launch(2,-18,-10.8,3,-.4),-.8,70,-9],

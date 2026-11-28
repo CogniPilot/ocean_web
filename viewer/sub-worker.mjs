@@ -75,6 +75,8 @@ self.onmessage=async({data})=>{
     }
     plant.set('manual',Number(data.manual));plant.set('pilot',data.pilot);
     plant.set('manualMode',data.mode);plant.set('attitudePilot',data.attitude);
+    const hasBallastTrim=plant.has('ballastTrim');
+    if(hasBallastTrim)plant.set('ballastTrim',data.ballastTrim??-1);
     plant.set('windSpeed',data.wind);plant.set('windDirection',data.bearing);
     nav.set('idleCamera',Number(!data.acquireSurvey));nav.set('useSonar',Number(data.acquireSurvey||data.showSonar));
     const previousEstimate=estimate;
@@ -95,6 +97,7 @@ self.onmessage=async({data})=>{
       ...(data.policyObservation?{policyVelocity:plant.get('velocity'),policyYawRate:plant.get('yawRate')}:{}),
       flood:plant.has('floodState')?plant.get('floodState'):undefined,
       battery:plant.has('batteryTelemetry')?plant.get('batteryTelemetry'):undefined,
+      hasBallastTrim,tankLitres:hasBallastTrim?plant.get('tankLitres'):undefined,
       time:tick*.01,pitchLimit,position,q,rpm,cavitation,flow,currentEnvironment,hoistCommand:data.hoist?.[0],
       ...(previousEstimate!==estimate?{estimate,dvl}:{}),
       ...(data.showSonar && sentPing!==ping?{image,features,ping}:{})},mapRows?[mapRows.buffer]:[]);

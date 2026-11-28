@@ -1,2 +1,2 @@
 within Wreck;
-function piccardBoxContact = MultiBodyLie.Collision.boxBoxSupport;
+function piccardBoxContact = .Collision.orientedBoxSupport;

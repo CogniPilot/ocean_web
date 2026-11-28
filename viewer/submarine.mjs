@@ -77,11 +77,11 @@ export function submarinePilot(axis,mode=0,pitchCommand=0,fastTravel=false){
     attitude:[position?0:axis('ArrowRight','ArrowLeft'),pitchCommand]};
 }
 
-export function submarine(T,scene,world,signal,spawn=wreckApproach()){
+export function submarine(T,scene,world,signal,lighting,spawn=wreckApproach()){
   const mesh=surveyVehicle(T,vehicleShell('survey-pressure-housing'));scene.add(mesh);
   mesh.position.fromArray(spawn.position);mesh.rotation.z=spawn.heading;
   mesh.traverse(part=>{if(part.isMesh)showInLowWaterCapture(part);});
-  const bubbles=bubbleWake(T,scene,mesh,showInLowWaterCapture), map=sonarMap(T,scene);
+  const bubbles=bubbleWake(T,scene,mesh,showInLowWaterCapture,lighting), map=sonarMap(T,scene);
   const doppler=dopplerDisplay(T,mesh);
   const drawPing=imagingSonar(document.getElementById('sonarFan'));
   let worker,breached=false,legacyFraction=0,hasFloodPhysics=world?.hasSubFlood??false,isolatedBattery;
@@ -141,6 +141,8 @@ export function submarine(T,scene,world,signal,spawn=wreckApproach()){
     get completedTime(){return completedTime;},
     get pitchCommand(){return pitchCommand;},
     get pitchLimit(){return world?.get('sub.pilotPitchLimit')??frame?.pitchLimit??Math.PI/4;},
+    ballastTrim:-1,
+    get hasBallastTrim(){return world?.hasSubBallastTrim??frame?.hasBallastTrim??false;},
     breach(){
       if(breached||this.seatedOnLift||this.hoist[0]>.5)return false;
       breached=true;
@@ -212,10 +214,11 @@ export function submarine(T,scene,world,signal,spawn=wreckApproach()){
         previous=time;
         world.set('subManual',Number(manual));world.set('subPilot',pilot);
         if(world.hasSubMode){world.set('subMode',mode);world.set('subAttitudePilot',attitude);}
+        if(world.hasSubBallastTrim)world.set('subBallastTrim',this.ballastTrim);
         const survey=world.get('sub.surveyTelemetry'),estimate=world.get('estimate');
         const rows=map.group.visible?world.get('keyframes'):undefined;
         receive({time,hoistCommand:world.appliedHoistCommand,position:world.get('sub.position'),q:world.get('sub.orientation'),rpm:world.get('sub.propellerRPM'),
-          flood:world.get('subFloodState'),battery:world.get('sub.batteryTelemetry'),
+          flood:world.get('subFloodState'),battery:world.get('sub.batteryTelemetry'),tankLitres:world.get('sub.tankLitres'),
           currentEnvironment:['tide','wind','bearing','tidalEast'].map(name=>world.get('sub.ocean.'+name)),
           cavitation:world.get('sub.cavitation'),flow:world.get('sub.current'),estimate,ping:world.get('ping'),dvl:world.get('sensor'),
           mapRows:rows!==displayedMap?rows:undefined,
@@ -227,6 +230,6 @@ export function submarine(T,scene,world,signal,spawn=wreckApproach()){
       const steps=Math.min(20,Math.floor((time-previous)*100+1e-6));
       previous+=steps*.01;
       submittedTime=previous;
-      worker.postMessage({spawn,policyObservation:Boolean(checkpoint),inspectLoads:this.inspectLoads,animalTraffic:this.animalTraffic,animalJoints:this.animalJoints,peerCruisers:this.peerCruisers,peerLiftStates:this.peerLiftStates,hoist:this.hoist,hoistUp:this.hoistUp,hoistQuaternion:this.hoistQuaternion,hoistAngularVelocity:this.hoistAngularVelocity,acquireSurvey,manual,pilot,mode,breached,attitude,wind,bearing,showSonar,steps});
+      worker.postMessage({spawn,policyObservation:Boolean(checkpoint),inspectLoads:this.inspectLoads,animalTraffic:this.animalTraffic,animalJoints:this.animalJoints,peerCruisers:this.peerCruisers,peerLiftStates:this.peerLiftStates,hoist:this.hoist,hoistUp:this.hoistUp,hoistQuaternion:this.hoistQuaternion,hoistAngularVelocity:this.hoistAngularVelocity,acquireSurvey,manual,pilot,mode,ballastTrim:this.ballastTrim,breached,attitude,wind,bearing,showSonar,steps});
     }};
 }

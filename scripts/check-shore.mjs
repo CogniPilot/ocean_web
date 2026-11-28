@@ -31,6 +31,12 @@ for(const north of [40.7,42.8]){
     hull.advance(.01);
     const w=hull.get('shoreWrench');
     assert(w.every(Number.isFinite));
+    if(north===40.7&&i===17){
+      const [rock,rig]=hull.getMany(['rockShoreWrench','rigShoreWrench']);
+      assert(Math.hypot(...rock.slice(0,3))>100,'the pontoon mesh should already be in contact');
+      assert(w.every((value,j)=>Math.abs(value-rock[j]-rig[j])<.01),
+        'the boulder strike must not receive a duplicate point force in clear water');
+    }
     if(!impact && w[0]<-10)impact=w;
     furthest=Math.max(furthest,hull.get('east'));
   }

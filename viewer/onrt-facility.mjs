@@ -7,7 +7,7 @@ export async function createFacility(T,scene,finishes){
   const trackingRig=new T.Group(),rails=new T.Group();
   trackingRig.add(rails,bridge);scene.add(hall,trackingRig);bridge.add(trolley);
   const shapes={box:new T.BoxGeometry(1,1,1),tube:new T.CylinderGeometry(.5,.5,1,16)};
-  const solids=[],trackingSolids=[];
+  const solids=[],trackingSolids=[],wallFixtures=[];
   const frameOf=parent=>parent===bridge?1:parent===trolley?2:0;
   const solidBox=(x,y,z,l,h,w,frame=0,list=solids)=>list.push([x,y,z,l/2,h/2,w/2,1,frame,0]);
   const solidTube=(a,b,d,frame=0,list=solids)=>list.push([...a,...b,2,frame,d/2]);
@@ -40,22 +40,24 @@ export async function createFacility(T,scene,finishes){
   hallSection([[-halfWidth,eave],[0,ridge],[halfWidth,eave],
     [halfWidth,eave+sheet],[0,ridge+sheet],[-halfWidth,eave+sheet]],49,39,0xe3e7e4);
 
-  // A shallow fluorescent housing tilts out at the bottom. Its diffuser faces
-  // into the room and slightly upwards, with a metal lip around the luminous face.
+  // A tilted housing directs the diffuser and light into the basin and down.
   function wallFixture(x,y,z,yaw){
     const angle=Math.PI/6;
-    const rotation=new T.Quaternion().setFromEuler(new T.Euler(-angle,yaw,0,'YXZ'));
+    const rotation=new T.Quaternion().setFromEuler(new T.Euler(angle,yaw,0,'YXZ'));
     const center=new T.Vector3(x,y,z);
     const normal=new T.Vector3(0,0,1).applyQuaternion(rotation);
     const mount=center.clone().addScaledVector(new T.Vector3(Math.sin(yaw),0,Math.cos(yaw)),-.095);
+    const face=center.clone().addScaledVector(normal,.024);
     const mountingRotation=new T.Quaternion().setFromAxisAngle(up,yaw);
     part(hall,'box',steel,mount.toArray(),[.84,.10,.17],mountingRotation);
     part(hall,'box',steel,center.toArray(),[1.26,.31,.044],rotation);
-    part(hall,'box',0xfffae7,center.addScaledVector(normal,.024).toArray(),[1.21,.26,.006],rotation);
+    part(hall,'box',0xfffae7,face.toArray(),[1.21,.26,.006],rotation);
+    wallFixtures.push({position:face,normal});
     const along=Math.abs(Math.cos(yaw)),across=Math.abs(Math.sin(yaw));
     solidBox(x,y,z,along*1.26+across*.20,.31,across*1.26+along*.20);
   }
   // Ribbed steel hall, roof frames and pendant luminaires.
+  const columnXs=Array.from({length:11},(_,i)=>-9+4.7*i);
   for(const side of [-1,1]){
     box(14.5,(eave-1.45)/2,side*13.15,49,eave+1.45+.03,.18,white);
     // The coping ends at |z|=10.20. Begin the deck there so its top
@@ -92,7 +94,7 @@ export async function createFacility(T,scene,finishes){
       solidBox(x,.325,side*9.89,.035,.21,.21);
     }
     hall.add(brackets);
-    for(let x=-9;x<=38;x+=4.7){
+    for(const x of columnXs){
       box(x,4.8,side*12.88,.22,8.65,.28,steel);
       bar([x,8.9,side*12.9],[x,10.4,0],.23,steel);
       bar([x,8.9,side*12.8],[x,8.9,0],.13,steel);
@@ -103,6 +105,10 @@ export async function createFacility(T,scene,finishes){
       bar([x,9.8,side*5.6],[x,8.55,side*5.6],.035,iron);
       box(x,8.52,side*5.6,.85,.14,.52,steel);
       box(x,8.42,side*5.6,.81,.06,.48,0xfffae7);
+    }
+    for(let i=1;i<columnXs.length;i++){
+      const x=(columnXs[i-1]+columnXs[i])/2;
+      wallFixture(x,3.08,side*12.92,side<0?0:Math.PI);
     }
   }
   for(const x of [-9.6,38.6]){
@@ -143,9 +149,6 @@ export async function createFacility(T,scene,finishes){
     const t=j/12,x=18.25+1.19*t,y=.55+2.89*t;
     bar([x,y,-12.45],[x,y,-11.93],.042,gold);
   }
-  for(const side of [-1,1])for(let x=-4.6;x<35;x+=4.7){
-    wallFixture(x,3.08,side*12.92,side<0?0:Math.PI);
-  }
   // Release platform on the beach end, and the safety rail at its landward edge.
   for(const z of [-4.25,4.25]){
     box(-4.55,.22,z,2.45,.18,3.65,gold);
@@ -169,29 +172,47 @@ export async function createFacility(T,scene,finishes){
     const z=(j-2.5)*3.3;
     wallFixture(38.38,4.23,z,-Math.PI/2);
   }
-  // A yellow triangular space truss with wheeled end trucks and a transverse measuring carriage.
-  for(const offset of [-.76,.76]){
-    bar([offset,2.30,-10.8],[offset,2.30,10.8],.14,gold,bridge);
-    bar([offset,3.48,-10.8],[offset,3.48,10.8],.14,gold,bridge);
-    for(let i=0;i<18;i++){
-      const z=-10.8+1.2*i;
-      bar([offset,2.30,z],[offset,3.48,z+.60],.087,gold,bridge);
-      bar([offset,3.48,z+.60],[offset,2.30,z+1.2],.087,gold,bridge);
-      if(offset<0)bar([-.76,3.48,z],[.76,3.48,z+1.2],.075,gold,bridge);
+  finishes.bakeWallLighting(wallFixtures);
+  // The transverse Warren truss sits on two rail trucks. Each mast's two
+  // stays meet the paired upper chords at the same cross-braced panel point.
+  const bridgeSpan=21.64,panels=18,spanStart=-bridgeSpan/2,panelWidth=bridgeSpan/panels;
+  const lowerJoint=(side,panel)=>[side*.76,2.30,spanStart+panel*panelWidth];
+  const upperJoint=(side,panel)=>[side*.76,3.48,spanStart+panel*panelWidth];
+  const member=(from,to,diameter)=>bar(from,to,diameter,gold,bridge);
+  for(const side of [-1,1]){
+    member(lowerJoint(side,0),lowerJoint(side,panels),.14);
+    member(upperJoint(side,0),upperJoint(side,panels),.14);
+    for(let i=0;i<panels;i++){
+      const peak=upperJoint(side,i+.5);
+      member(lowerJoint(side,i),peak,.087);
+      member(peak,lowerJoint(side,i+1),.087);
     }
   }
-  for(const side of [-1,1]){
-    const z=side*10.82;
+  // The end trucks tie the lower chords around the drive cabinets.
+  for(let i=1;i<panels;i++)member(lowerJoint(-1,i),lowerJoint(1,i),.09);
+  for(let i=0;i<panels;i++){
+    member(upperJoint(-1,i+.5),upperJoint(1,i+.5),.09);
+    if(i+1<panels)member(upperJoint(-1,i+.5),upperJoint(1,i+1.5),.075);
+  }
+  for(const end of [0,panels]){
+    const z=lowerJoint(1,end)[2],apex=[0,5.65,z];
+    const stayPanel=end===0?3.5:panels-3.5;
     box(0,.99,z,3.45,.38,.60,gold,bridge);
-    for(const x of [-1.4,1.4]){
+    member(upperJoint(-1,end),upperJoint(1,end),.13);
+    for(const side of [-1,1]){
+      const x=side*1.4,foot=[x,1.15,z],lower=lowerJoint(side,end),upper=upperJoint(side,end);
+      const anchor=upperJoint(side,stayPanel);
       box(x,.81,z,.4,.19,.39,iron,bridge);
-      bar([x,1.08,z],[0,4.75,z],.15,gold,bridge);
+      member(foot,apex,.15);
+      member(foot,lower,.12);
+      member(lower,upper,.12);
+      member(apex,anchor,.086);
+      box(anchor[0],anchor[1],anchor[2],.20,.14,.18,gold,bridge);
     }
-    bar([0,4.75,z],[0,3.48,z-side*2.6],.14,gold,bridge);
+    box(apex[0],apex[1],apex[2],.22,.18,.22,gold,bridge);
     box(0,1.31,z,.73,.52,.53,0x53656a,bridge);
     box(0,2.22,z,.64,1.24,.47,0x296477,bridge);
     box(0,2.89,z,.13,.11,.13,0xa4ce7a,bridge);
-    bar([-.76,2.30,z],[.76,2.30,z],.13,gold,bridge);
   }
   box(0,2.16,0,1.85,.20,1.26,steel,trolley);
   for(const x of [-.6,.6]){

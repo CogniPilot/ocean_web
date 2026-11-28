@@ -1,3 +1,5 @@
+import {sharkForebodyOffset} from './npc-room.mjs';
+
 // Production rigs driven by the extra FMU outputs published with each rollout.
 export const previewSize={
   shark:{length:4.8,underwater:true},whale:{length:10,underwater:true},manta:{length:4,underwater:true},
@@ -8,11 +10,14 @@ export const previewSize={
 export async function loadTrainingRig(T,id){
   if(id==='shark'||id==='whale'){
     const {marineAnimal}=await import('./harbor-traffic.mjs');
-    const {group,articulate}=await marineAnimal(T,id,previewSize[id].length);
-    const packet=new Float64Array(id==='shark'?321:18);
+    const {group,articulate,mouth}=await marineAnimal(T,id,previewSize[id].length);
+    mouth(0);
+    const packet=new Float64Array(id==='shark'?sharkForebodyOffset+2:18);
     return {group,pose:r=>{
       if(id==='shark'){
-        [packet[202],packet[70],packet[72],packet[319],packet[320]]=r;articulate(packet);
+        [packet[202],packet[70],packet[72],packet[319],packet[320]]=r;
+        packet[sharkForebodyOffset]=r[5]??0;
+        articulate(packet);
       }else{
         [packet[7],packet[15],packet[16],packet[17]]=r;articulate(packet,0);
       }

@@ -1,7 +1,21 @@
 // The host and device must be compiled from the same generated ModelInstance.
 #include "model.h"
+#ifdef RMC_BATCH_OUTPUT_CLASSIFICATION
+#include "output-references.h"
+#endif
 
 size_t host_instance_size(void) { return sizeof(ModelInstance); }
+
+bool host_ordinary_output(uint32_t ref) {
+#if defined(RMC_OUTPUT_INVENTORY_KNOWN) && RMC_OUTPUT_INVENTORY_KNOWN
+    for (size_t i = 0; i < sizeof(rmc_special_output_refs) / sizeof(*rmc_special_output_refs); ++i)
+        if (ref == rmc_special_output_refs[i]) return false;
+    return true;
+#else
+    (void)ref;
+    return false;
+#endif
+}
 
 // Event iteration can hold an eight-slot relation history and one restore image.
 // Budget twice that storage and round up for CUDA device-heap allocation overhead.
@@ -23,11 +37,15 @@ void *host_begin(const char *token) {
 }
 void host_free(void *instance) { fmi3FreeInstance(instance); }
 int host_finish(void *instance) { return fmi3ExitInitializationMode(instance); }
-int host_real(void *instance, uint32_t ref, double *values, size_t count, int write) {
-    return write ? fmi3SetFloat64(instance, &ref, 1, values, count)
-                 : fmi3GetFloat64(instance, &ref, 1, values, count);
+int host_set_real(void *instance, uint32_t ref, const double *values, size_t count) {
+    return fmi3SetFloat64(instance, &ref, 1, values, count);
 }
-int host_boolean(void *instance, uint32_t ref, bool *values, size_t count, int write) {
-    return write ? fmi3SetBoolean(instance, &ref, 1, values, count)
-                 : fmi3GetBoolean(instance, &ref, 1, values, count);
+int host_set_boolean(void *instance, uint32_t ref, const bool *values, size_t count) {
+    return fmi3SetBoolean(instance, &ref, 1, values, count);
+}
+int host_get_reals(void *instance, const uint32_t *refs, size_t nrefs, double *values, size_t count) {
+    return fmi3GetFloat64(instance, refs, nrefs, values, count);
+}
+int host_get_booleans(void *instance, const uint32_t *refs, size_t nrefs, bool *values, size_t count) {
+    return fmi3GetBoolean(instance, refs, nrefs, values, count);
 }

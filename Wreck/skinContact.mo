@@ -1,7 +1,7 @@
 within Wreck;
 function skinContact "Contact of a hull-sampling sphere with the baked compound convex swimmer skin"
     input Boolean whale;
-    input Real p[3],radius,frames[6,3,4];
+    input Real p[3],radius,frames[7,3,4];
     output Real contact[4] "Outward normal in body axes and signed clearance";
   protected
     Real q[3],n[3],plane[4],gap,d;

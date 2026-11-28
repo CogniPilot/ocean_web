@@ -18,24 +18,23 @@ export async function diverTrainingView(canvas,signal,onStatus){
   if(signal.aborted)return;
   const view=await trainingView(globalThis.THREE,canvas,signal,onStatus);
   if(!view||signal.aborted)return;
-  const playback=document.getElementById('trainingPlayback'),overlay=document.getElementById('trainingOverlay');
+  const playback=document.getElementById('trainingPlayback');
   const recorded=playback.querySelector('[value=replay]'),replay=trainingReplay();
   let raf,latest;
   function play(now){
     const rows=replay.sample(now);if(rows)view.frames(rows);
     raf=requestAnimationFrame(play);
   }
-  playback.value='live';recorded.disabled=true;view.overlay(overlay.checked);
+  playback.value='live';recorded.disabled=true;
   playback.addEventListener('change',()=>{
     cancelAnimationFrame(raf);replay.stop();
     if(playback.value==='replay')raf=requestAnimationFrame(play);
     else if(latest)view.frames(latest);
   },{signal});
-  overlay.addEventListener('change',()=>view.overlay(overlay.checked),{signal});
   signal.addEventListener('abort',()=>{cancelAnimationFrame(raf);replay.clear();},{once:true});
   return {frames(data){
     latest=data.frames;
     if(data.phase!=='sizing'){replay.record(latest,data.batchSeconds);recorded.disabled=!replay.available();}
     if(playback.value==='live')view.frames(latest);
-  },focus:view.focus,magnify:view.magnify};
+  },focus:view.focus,magnify:view.magnify,overlay:view.overlay};
 }

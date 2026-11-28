@@ -24,6 +24,38 @@ function islandTextures(T){
   };
 }
 
+function drawLifeguardStand(T,pad,site,bed){
+  const white=new T.MeshStandardMaterial({color:0xf3efde,roughness:.78});
+  const blue=new T.MeshStandardMaterial({color:0x153d6f,roughness:.78});
+  const teal=new T.MeshStandardMaterial({color:0x267f79,roughness:.83});
+  const box=(x,y,z,a,b,c,material)=>{
+    const part=new T.Mesh(new T.BoxGeometry(a,b,c),material);
+    part.position.set(x,y,z);pad.add(part);return part;
+  };
+  function timber(from,to,size,material){
+    const base=new T.Vector3(...from),tip=new T.Vector3(...to),arm=tip.clone().sub(base);
+    const middle=base.clone().lerp(tip,.5);
+    const beam=box(...middle,size,size,arm.length(),material);
+    beam.quaternion.setFromUnitVectors(new T.Vector3(0,0,1),arm.normalize());
+  }
+  const floor=-.94;
+  box(0,0,-.068,site.width+.18,site.length+.18,.136,white);
+  box(0,0,-.172,site.width+.02,site.length+.02,.086,blue);
+  box(0,0,floor-.05,2.40,2.38,.13,white);
+  for(const x of [-1.10,1.10])for(const y of [-1.10,1.10]){
+    const fx=x*1.09,fy=y*1.09,ground=bed.surfaceHeight(site.x+fx,site.y+fy)-pad.position.z-.12;
+    timber([fx,fy,Math.min(ground,floor-.15)],[x,y,floor],.15,white);
+    timber([x,y,floor],[x,y,-.12],.10,white);
+    timber([fx,fy,Math.min(ground,floor-.20)],[x,-y,floor],.085,white);
+  }
+  for(const side of [-1,1]){
+    box(side*1.10,0,floor+.27,.071,2.18,.52,teal);
+    box(side*1.132,0,floor+.55,.11,2.24,.06,blue);
+  }
+  box(0,1.10,floor+.27,2.18,.075,.52,teal);
+  box(0,1.13,floor+.55,2.24,.11,.06,blue);
+}
+
 // Low coastal scrub is clustered behind the open beach.
 function islandScrub(T,land,terrain){
   const positions=[],indices=[],colors=[];

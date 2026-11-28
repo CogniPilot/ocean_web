@@ -4,6 +4,8 @@ const rad=Math.PI/180;
 const helm=['Rudder','Mainsheet winch rate'];
 const hobieTrims=['Main traveler','Jib traveler','Jib sheet','Downhaul','Outhaul','Jib halyard','Crew fore/aft','Crew port/starboard'];
 const fields=['east','north','heave','heading','pitch','heel','windEast','windNorth','ve','vn','yawRate','payout'];
+const crewFields=['ballastX','ballastY','ballastZ'];
+const waveFields=['swellAmplitude','swellK','swellBearing','swellPhase'];
 const features=['Bias','True wind speed','True wind angle sin','True wind angle cos',
   'Apparent wind speed','Apparent wind angle sin','Apparent wind angle cos',
   'Course error sin','Course error cos','Forward speed','Lateral speed','Heel sin','Yaw rate','Mainsheet payout'];
@@ -15,17 +17,32 @@ export function signedWindAngle(model){
 function course(model,target){
   return Math.atan2(-model.get('windNorth'),-model.get('windEast'))-target.pointOfSail;
 }
+async function loadSwellPresets(plant){
+  const {loadInstance}=await import('./fmi3/instance.mjs');
+  const model=await loadInstance(plant,{});
+  try{
+    const [amplitudes,numbers,frequencies]=model.getMany(['swellPresetAmplitudes','swellPresetWaveNumbers','swellPresetFrequencies']);
+    const bearing=model.get('swellBearing');
+    return [0,.45,1.1,1.5].map((launchSeaState,i)=>({bearing,inputs:{launchSeaState,
+      swellAmplitude:amplitudes[i],swellK:numbers[i],swellOmega:frequencies[i]}}));
+  }finally{model.close();}
+}
 function sailingTask(id,label,plant,cat){
-  return {id,label,plant,dt:.01,ticksPerDecision:80,
-    summary:cat?"Sail the requested point of sail in changing wind conditions. Control the rudder, both sheets and travelers, luff and foot tension, and crew position.":"Sail the requested point of sail on either tack. Control the rudder, shared sheet winch and boom vang to make progress along the course.",
+  return {id,label,plant,dt:.01,ticksPerDecision:80,sailing:true,waveGrid:cat,
+    prepareScenarios:cat?()=>loadSwellPresets(plant):undefined,
+    summary:cat?"Sail the requested point of sail across wind and swell conditions. Control the rudder, sheets, travelers, sail tension, and crew position.":"Sail the requested point of sail on either tack. Control the rudder, shared sheet winch and boom vang to make progress along the course.",
     actionNames:[...helm,...(cat?hobieTrims:['Boom vang'])],
-    featureNames:features,outputs:[...fields,'trim','rudder'],
-    rigPose:model=>[...model.get('trim'),model.get('rudder')],
-    scenario(draw){
+    featureNames:features,outputs:[...fields,'trim','rudder',...(cat?[...crewFields,...waveFields]:[])],
+    rigPose:model=>[...model.get('trim'),model.get('rudder'),...(cat?[...crewFields,...waveFields].map(field=>model.get(field)):[])],
+    scenario(draw,presets){
       const side=draw()<.5?-1:1,pointOfSail=side*(45+135*draw())*rad;
       const from=2*Math.PI*draw(),speed=2+9*draw();
-      return {pointOfSail,inputs:{launchEast:-900,launchNorth:-200,launchSpeed:.7+1.8*draw(),
-        launchHeading:from-pointOfSail+(draw()-.5)*.65,launchHeight:cat?.20:.069,
+      const launchSpeed=.7+1.8*draw(),launchHeading=from-pointOfSail+(draw()-.5)*.65;
+      const sea=presets?.[Math.floor(draw()*presets.length)];
+      const offset=sea?(draw()-.5)*2*Math.PI/sea.inputs.swellK:0;
+      return {pointOfSail,inputs:{...sea?.inputs,
+        launchEast:-900+offset*Math.cos(sea?.bearing??0),launchNorth:-200+offset*Math.sin(sea?.bearing??0),
+        launchSpeed,launchHeading,launchHeight:cat?.20:.069,
         windEast:-speed*Math.cos(from),windNorth:-speed*Math.sin(from),manualHelm:1,
         deckManual:1,ballastManual:1,manualJibAssist:0}};
     },

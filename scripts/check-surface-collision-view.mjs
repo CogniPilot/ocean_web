@@ -1,3 +1,4 @@
+import {readIslandAsset} from './read-island-asset.mjs';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
@@ -16,8 +17,8 @@ function table(source,name){
   return match[1].split(';').map(row=>row.split(',').map(Number));
 }
 const rocks=table(shore,'rocks'),pontoon=table(shore,'pontoon');
-const scene=new T.Scene(),scope={T,scene,harborBed:require('../viewer/bathymetry.js'),islandTextures:()=>({}),islandPalms:()=>()=>{},islandScrub:()=>{}};
-runInNewContext(visuals+'\nbatchScenery=()=>{}; land=coast(T,scene,true);',scope);
+const scene=new T.Scene(),scope={T,scene,shoreAsset:await readIslandAsset(),harborBed:require('../viewer/bathymetry.js'),islandTextures:()=>({}),islandPalms:()=>()=>{},islandScrub:()=>{}};
+runInNewContext(visuals+'\nbatchScenery=()=>{}; land=coast(T,scene,shoreAsset,true);',scope);
 const island=scope.land,committee=new T.Group(),marks=Array.from({length:3},()=>new T.Group());
 const hobie=new T.Group(),motor=new T.Group(),drone=new T.Group();
 for(const [i,group] of [committee,...marks,hobie,motor,drone].entries()){

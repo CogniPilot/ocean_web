@@ -1,6 +1,6 @@
 # Rumoca FMI CUDA batch runner
 
-The runner executes the generated co-simulation step on an NVIDIA GPU once per lane and request. Initialization, FMI input setters and output getters run on the host. Each lane owns a full model instance, event state and a separate scratch arena (4 MiB by default).
+The runner executes the generated co-simulation step on an NVIDIA GPU once per lane and request. Initialization runs on the host. Each lane owns a full model instance, event state and a separate scratch arena (4 MiB by default).
 
 Build the runner with a C and C++17 toolchain, FMI 3 headers, CUDA driver headers and library, and cJSON. Use the same generated C sources for the host build and the device kernel. The metadata JSON is the file shipped with the matching browser reactor.
 
@@ -20,7 +20,7 @@ Without `--capabilities`, send one JSON request per line. A reset can change the
 {"op":"advance","dt":0.01,"lanes":[{"inputs":{"pilot":[1,0,0,0.5,0]}}],"outputs":["state","mechanicalPower"]}
 ```
 
-The memory-based maximum accounts for free VRAM, per-lane arena, instance storage, and the separate CUDA device heap. Before loading a module the runner reserves a heap sized from the generated state and parameter counts for event iteration. This covers concurrent relation-history allocations when the trainer increases the batch size. GPU contention, context allocations and launch latency can make a smaller batch more practical. The current runner copies full instances across PCIe on each step. For modules exporting their build identity it verifies both the device instantiation token and instance size on startup. Older modules require the same build pairing to be established when packaging.
+The memory-based maximum accounts for free VRAM, per-lane arena, instance storage, and the separate CUDA device heap. Before loading a module the runner reserves a heap sized from the generated state and parameter counts for event iteration. This covers concurrent relation-history allocations when the trainer increases the batch size. GPU contention, context allocations and launch latency can make a smaller batch more practical. Set `RUMOCA_CUDA_RESIDENT_PACKETS=1` when running `build-plants.mjs` to keep initialized instances on the device and transfer typed FMI inputs and requested outputs. The other CUDA entries use host setters and getters with full instance copies. For modules exporting their build identity the runner verifies both the device instantiation token and instance size on startup. Older modules require the same build pairing to be established when packaging.
 
 The runner reserves a 24,576-byte CUDA thread stack by default. Set `RUMOCA_CUDA_STACK_BYTES` in the training service environment to use a stack size validated for the specific CUBIN. The packaged sm_86 diver built with ptxas O3 passed four-lane trajectory and 64-lane event checks with 16,384 bytes. This leaves more device memory available for the browser renderer.
 

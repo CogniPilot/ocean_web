@@ -38,9 +38,8 @@ async function advance({actors,environment,steps}){
       for(const [name,value] of Object.entries(environment))if(model.has(name))model.set(name,value);
     }
     if(actor.inputs.sharkDirect===2){
-      const checkpoint=actor.policies?.shark;
-      if(checkpoint){
-        model.set('sharkPolicyWeights',checkpoint.weights.flat());model.shippedSharkPolicy=false;
+      if(actor.inputs.sharkPolicyWeights){
+        model.shippedSharkPolicy=false;
       }else if(!model.shippedSharkPolicy){
         sharkPolicy??=await loadSharkPolicy();
         model.set('sharkPolicyWeights',sharkPolicy);model.shippedSharkPolicy=true;
@@ -122,10 +121,12 @@ async function advance({actors,environment,steps}){
       frames.push({id:actor.id,frame,loads:actor.inspect?.map(([id,kind])=>[id,sampleLoads(model,kind)])});
       continue;
     }
-    const [state,animal,age,...rest]=model.getMany(outputs);
+    const hasForebody=model.has('sharkForebody');
+    const [state,animal,age,...rest]=model.getMany(hasForebody?[...outputs,'sharkForebody']:outputs);
+    const forebody=hasForebody?rest.pop():[];
     const finAngles=actor.inputs.sharkDirect===2?model.getMany(['whiteShark.portAngle','whiteShark.starboardAngle']):[rest[7],rest[7]];
     // The host samples the live sea at the resulting whale position.
-    frames.push({id:actor.id,loads:actor.inspect?.map(([id,kind])=>[id,sampleLoads(model,kind)]),attempt:model.get('feedingAttempt'),frame:[...state,...animal,age,0,...rest.flat(),...finAngles]});
+    frames.push({id:actor.id,loads:actor.inspect?.map(([id,kind])=>[id,sampleLoads(model,kind)]),attempt:model.get('feedingAttempt'),frame:[...state,...animal,age,0,...rest.flat(),...finAngles,...forebody]});
   }
   return frames;
 }

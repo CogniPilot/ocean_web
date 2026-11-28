@@ -4,7 +4,9 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   input Real imagingSonar(start=0) "Request a sonar ping independently of optical acquisition and mapping";
   input Real idleCamera(start=0) "Camera and SLAM mode: -1 active, 0 use startup setting, 1 idle";
   input Real subManual(start=1),subPilot[4],subMode(start=0),subAttitudePilot[2],flightManual(start=1),flightPilot[4],motorCut;
+  input Real subBallastTrim(start=-1);
   input Real flightMode(start=0),racePilot(start=0),station[2](each start=0);
+  input Real autoLand=0,landingCue[6]=zeros(6),landingRange[2]=zeros(2);
   input Real peerCruisers[9,14](each start=0),peerLiftStates[9,2](each start=0);
   input Real mappedCurrent[4](each start=0) "Coverage and local mean ENU current at Piccard";
   input Real scanConstraints[8,10](each start=0) "Local scan contacts for Piccard";
@@ -14,13 +16,14 @@ model OceanWorld "Single-clock marine world, with onboard perception and guidanc
   input Real subHoistQuaternion[4](each start=0),subHoistAngularVelocity[3](each start=0);
   Wreck.Plant sub(mappedCurrent=mappedCurrent,animalTraffic=animalTraffic,animalJoints=animalJoints,flood=subFlood,peerCruisers=peerCruisers,peerLiftStates=peerLiftStates,hoist=subHoist,hoistUp=subHoistUp,hoistQuaternion=subHoistQuaternion,
     hoistAngularVelocity=subHoistAngularVelocity,scanConstraints=scanConstraints,seaClockOffset=seaClockOffset,seaState=seaState,windSpeed=windSpeed,windDirection=windBearing,sensor=sensor,elevationRanges=elev,navigationUp=estimate[3],navigationUpValid=if estimate[9]>0 then 1 else 0,
-    manual=subManual,pilot=subPilot,manualMode=subMode,attitudePilot=subAttitudePilot,hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:7]);
+    manual=subManual,pilot=subPilot,manualMode=subMode,attitudePilot=subAttitudePilot,ballastTrim=subBallastTrim,hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:7]);
   Wreck.Ocean droneWater(seaClockOffset=seaClockOffset,seaState=seaState,pos=drone.position,windSpeed=windSpeed,windDirection=windBearing);
   input Real rotorWakeTraffic[4,12]=zeros(4,12),droneTraffic[4,14]=zeros(4,14);
   input Real vesselDecks[4,14]=zeros(4,14) "Nearby surface vessel deck pose and twist";
-  Rdd2Survey drone(vesselDecks=vesselDecks,rotorWakeTraffic=rotorWakeTraffic,droneTraffic=droneTraffic,flightMode=flightMode,gpsDropout=0,sailDeckEnabled=1,sailDeckState=boat.landingDeck,isCatamaran=if hobie then 1 else 0,deckEnabled=1,deckState=race.deckState,windENU=wind.droneWind,currentENU=droneWater.velocity,waterLevel=droneWater.surface+receiverWater[8],
+  Rdd2Survey drone(autoLand=autoLand,landingCue=landingCue,landingRange=landingRange,vesselDecks=vesselDecks,rotorWakeTraffic=rotorWakeTraffic,droneTraffic=droneTraffic,flightMode=flightMode,gpsDropout=0,sailDeckEnabled=1,sailDeckState=boat.landingDeck,isCatamaran=if hobie then 1 else 0,deckEnabled=1,deckState=race.deckState,windENU=wind.droneWind,currentENU=droneWater.velocity,waterLevel=droneWater.surface+receiverWater[8],
     pilot=flightManual,forward=flightPilot[1],left=flightPilot[2],climb=flightPilot[3],turn=flightPilot[4],
-    stationEast=if racePilot>.5 then station[1] else estimate[1],stationNorth=if racePilot>.5 then station[2] else estimate[2],motorCut=motorCut);
+    stationEast=if racePilot>.5 then station[1] else estimate[1],stationNorth=if racePilot>.5 then station[2] else estimate[2],motorCut=motorCut,
+    raceNavigation=racePilot);
   discrete Real previousGyro[3](each start=0,each fixed=true);
   final parameter Real beams[1017,3]=Wreck.Perception.directions();
   discrete output Real sensor[91](each start=0,each fixed=true),elev[100](each start=0,each fixed=true),

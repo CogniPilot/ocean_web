@@ -1,5 +1,6 @@
 import {rigSelection} from './rig-selection.mjs';
 import {battenPath} from './board/sail-battens.mjs';
+import {forEachGridEdge,forEachHullSectionEdge,surfaceGridColor} from './physics-geometry.mjs';
 
 // All geometry is projected from the current boat and water state. Keeping the
 // annotations in a separate canvas also keeps them out of water captures.
@@ -97,12 +98,12 @@ export function physicsView(T,canvas,status,viewport,select,signal){
   const ink=canvas.getContext('2d');
   const clip=new T.Vector3(),projected=new T.Vector2();
   const colors={main:'#79edff',jib:'#b2ffa8',mast:'#ffd080',joint:'#ff9cce',batten:'#fff07b',
-    wet:'#5af2e9',dry:'#a1aab7',wind:'#7ebaff',wake:'#bd96ff',near:'#ffce74',swimmer:'#62ffe3',surface:'#d8faff'};
+    wet:'#5af2e9',dry:'#a1aab7',wind:'#7ebaff',wake:'#bd96ff',near:'#ffce74',swimmer:'#62ffe3',surface:surfaceGridColor};
   const surfaceField={size:32,length:64,emphasis:true};
   let gridPixels=new Float64Array(32*32*2);
   const a=new T.Vector3(),b=new T.Vector3(),center=new T.Vector3(),airflowOffset=new T.Vector3(),priorFlow=new T.Vector3();
   let pontoonPoints;
-  let width,height,camera;
+  let width,height,camera,labelsVisible=true;
   const labelRects=[],markCache=new WeakMap(),battenPaths=new WeakMap(),rigMeshes=new WeakMap();
 
   function project(point,object){
@@ -126,6 +127,7 @@ export function physicsView(T,canvas,status,viewport,select,signal){
     ink.beginPath();ink.arc(p.x,p.y,radius,0,2*Math.PI);ink.fill();
   }
   function label(point,object,caption,color,dx=8,dy=-8){
+    if(!labelsVisible)return;
     const p=project(point,object);
     if(!p||p.x<0||p.x>width||p.y<0||p.y>height)return;
     ink.font='600 11px ui-monospace, monospace';
@@ -147,14 +149,7 @@ export function physicsView(T,canvas,status,viewport,select,signal){
     let mesh=rigMeshes.get(sail);
     if(!mesh){
       const count=sail.coords.count,edges=[];
-      for(let i=0;i<count;i++){
-        const col=i%4;
-        if(col<3)edges.push([i,i+1]);
-        if(i<count-4){
-          edges.push([i,i+4]);
-          if(col<3)edges.push([i,i+5]);
-        }
-      }
+      forEachGridEdge(4,count/4,(i,j)=>edges.push([i,j]),true);
       mesh={edges,points:Array.from({length:count},()=>new T.Vector3())};
       rigMeshes.set(sail,mesh);
     }
@@ -378,13 +373,8 @@ export function physicsView(T,canvas,status,viewport,select,signal){
       const wet=volume[sections*side+i];
       const color=wet>1e-5?colors.wet:colors.dry;
       ink.strokeStyle=color;ink.lineWidth=1.7;ink.beginPath();
-      for(const sign of [-1,1])for(let j=0;j<3;j++){
-        a.set(x,y+sign*beam*fractions[j],stations[offset+2+j]);
-        b.set(x,y+sign*beam*fractions[j+1],stations[offset+3+j]);
-        segment(a,b,boat);
-      }
-      a.set(x,y-beam,stations[offset+5]);b.set(x,y+beam,stations[offset+5]);
-      segment(a,b,boat);ink.stroke();
+      forEachHullSectionEdge(stations,fractions,i,y,(x,y0,z0,y1,z1)=>segment(a.set(x,y0,z0),b.set(x,y1,z1),boat));
+      ink.stroke();
       a.set(x,y+beam,stations[offset+5]);
       if(wet>=.0005&&(sections<=6||i%2===0))label(a,boat,Math.round(wet*1000)+' L',color);
     }
@@ -417,18 +407,15 @@ export function physicsView(T,canvas,status,viewport,select,signal){
       a.set(e,n,tide+height);
       const p=project(a);
       gridPixels[k]=p?.x??NaN;gridPixels[k+1]=p?.y??NaN;
-      if(p){
-        if(i>i0&&Number.isFinite(gridPixels[k-2])){
-          ink.moveTo(gridPixels[k-2],gridPixels[k-1]);ink.lineTo(p.x,p.y);
-        }
-        const above=k-2*columns;
-        if(j>j0&&Number.isFinite(gridPixels[above])){
-          ink.moveTo(gridPixels[above],gridPixels[above+1]);ink.lineTo(p.x,p.y);
-        }
-      }
       k+=2;
     }
-    if(hasSignal)ink.stroke();
+    if(hasSignal){
+      forEachGridEdge(columns,rows,(i,j)=>{
+        if(!Number.isFinite(gridPixels[2*i])||!Number.isFinite(gridPixels[2*j]))return;
+        ink.moveTo(gridPixels[2*i],gridPixels[2*i+1]);ink.lineTo(gridPixels[2*j],gridPixels[2*j+1]);
+      });
+      ink.stroke();
+    }
     ink.globalAlpha=1;
     return hasSignal?width+'×'+height+' / '+spacing.toPrecision(2)+' m':null;
   }
@@ -636,7 +623,7 @@ export function physicsView(T,canvas,status,viewport,select,signal){
     const w=Math.round(width*scale),h=Math.round(height*scale);
     if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
     ink.setTransform(scale,0,0,scale,0,0);ink.clearRect(0,0,width,height);
-    labelRects.length=0;namesVisible=options.names===true;
+    labelRects.length=0;labelsVisible=options.labels!==false;namesVisible=labelsVisible&&options.names===true;
     if(!options.rig)picker.reset();
     const {group}=body;
     camera=viewCamera;camera.updateMatrixWorld();group.updateMatrixWorld(true);

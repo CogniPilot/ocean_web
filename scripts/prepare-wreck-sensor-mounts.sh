@@ -9,6 +9,7 @@ for patch in \
   "$root/patches/marine-wreck-sensor-mounts.patch" \
   "$root/patches/marine-sonar-patch-width.patch" \
   "$root/patches/marine-wake-row-updates.patch" \
+  "$root/patches/marine-triangle-convex.patch" \
   "$root/patches/marine-shroud-row-bounds.patch"; do
   if ! git apply --reverse --check "$patch" 2>/dev/null; then
     git apply "$patch" || git apply --reverse --check "$patch"

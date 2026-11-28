@@ -47,62 +47,113 @@ model Humpback "Ten-metre humpback with a hinged caudal peduncle and oscillating
     fx:=k*(-cl*w-cd*u);
     fz:=k*(cl*u-cd*w);
   end foil;
-  function bottomContact "Unilateral skin contact against sand triangles, flat bottom and shoreline rocks"
+  function bottomContact "Unilateral contact of the articulated hull facets with the seabed, rocks and wrecks"
     input Real state[18];
+    input Real vertices[size(Wreck.WhaleSurface.vertices,1),3];
+    input Integer faces[size(Wreck.WhaleSurface.faces,1),3];
     output Real loads[11] "Body Fx,Fz,pitch and tail Fx,Fz,pitch, total Fy,yaw,roll, normal force, minimum clearance";
   protected
-    constant Real skin[11,3]=cat(1,Wreck.SwimmerHulls.whaleSkin,
-      [-2.35,0,0;-.95,0,0;.65,0,0;2.3,0,0]);
-    constant Real along[11]=skin[:,1]-{0,0,0,0,0,bx,bx,0,0,0,0};
-    constant Real side[11]=skin[:,2],below[11]=skin[:,3];
-    Real cy,sy,cr,sr,cp,sp,ct,st,lever,zOffset,yOffset,cosPitch,sinPitch,rate;
-    Real arm[3],velocity[3],pos[3],force[3],rel[3],contact[5],hull[5];
+    Real frames[7,3,4],rotation[3,3],jointRotation[3,3],base[3],center[3],half[3],bound[3];
+    Real world[48,3],lo[3],hi[3],hit[7],candidate[7],normal[3],arm[3],relative[3],hinge[3];
+    Real offset[3],velocity[3],angularRate[3],slip[3],force[3],moment[3];
+    Real cy,sy,cp,sp,cr,sr,ct,st,pitchRate,normalRate,load,support,damping;
+    Integer joint,first,last,firstVertex,count,localFaces[92,3],vertexIndex,faceIndex;
+    Boolean flat,shore,wreck,tailPiece;
   algorithm
-    loads:=zeros(11); loads[11]:=1e6;
-    cr:=cos(state[12]);sr:=sin(state[12]);
-    cp:=cos(state[6]);sp:=sin(state[6]);ct:=cos(state[8]);st:=sin(state[8]);
-    // The furthest fluke probe stays within 6.7 m of the body origin.
-    if Shore.aboveFlatBottom(state[1],state[2],state[3],6.7) and
-       not Wreck.WreckSolids.nearSite(state[1:3],6.7) then
-      for i in 1:7 loop
-        zOffset:=side[i]*sr+below[i]*cr;
-        loads[11]:=min(loads[11],state[3]+(if i<=5 then along[i]*sp+zOffset*cp
-          else (along[i]*st+zOffset*ct)+bx*sp)+13.7);
-      end for;
-      return;
-    end if;
+    loads:=zeros(11);loads[11]:=1e6;
     cy:=cos(state[10]);sy:=sin(state[10]);
-    for i in 1:11 loop
-      // Rotate the skin offsets in roll and pitch. Fluke points translate with the torso hinge.
-      yOffset:=side[i]*cr-below[i]*sr; zOffset:=side[i]*sr+below[i]*cr;
-      lever:=along[i];cosPitch:=if (i<=5 or i>=8) then cp else ct;sinPitch:=if (i<=5 or i>=8) then sp else st;
-      rate:=if (i<=5 or i>=8) then state[7] else state[9];
-      rel:={lever*cosPitch-zOffset*sinPitch,yOffset,lever*sinPitch+zOffset*cosPitch};
-      arm:=rel+(if (i<=5 or i>=8) then zeros(3) else {bx*cp,0,bx*sp});
-      velocity:={state[4]-state[11]*arm[2]-rate*rel[3]-state[13]*yOffset*sinPitch,
-        state[15]+state[11]*arm[1]-state[13]*zOffset,
-        state[5]+rate*rel[1]+state[13]*yOffset*cosPitch};
-      if i==6 or i==7 then velocity:=velocity+{-state[7]*bx*sp,0,state[7]*bx*cp}; end if;
-      pos:={state[1]+cy*arm[1]-sy*arm[2],state[2]+sy*arm[1]+cy*arm[2],state[3]+arm[3]};
-      contact:=if i<=7 then Shore.skinContact(pos,cy,sy,velocity,if i<=5 then 55000 else 16000) else {0,0,0,0,1e6};
-      hull:=Wreck.swimmerContact(pos,cy,sy,velocity,if i>=8 then .78 elseif i==3 then .38 else .20,
-        if (i<=5 or i>=8) then 55000 else 16000);
-      contact[1:4]:=contact[1:4]+hull[1:4];contact[5]:=min(contact[5],hull[5]);
-      loads[11]:=min(loads[11],contact[5]);
-      if contact[4]>0 then
-        force:=contact[1:3];
-        if (i<=5 or i>=8) then
-          loads[1]:=loads[1]+force[1];loads[2]:=loads[2]+force[3];
-          loads[3]:=loads[3]+rel[1]*force[3]-rel[3]*force[1];
+    cp:=cos(state[6]);sp:=sin(state[6]);ct:=cos(state[8]);st:=sin(state[8]);
+    cr:=cos(state[12]);sr:=sin(state[12]);
+    rotation:=[cy*cp,-cy*sp*sr-sy*cr,-cy*sp*cr+sy*sr;
+               sy*cp,-sy*sp*sr+cy*cr,-sy*sp*cr-cy*sr;sp,cp*sr,cp*cr];
+    frames:=Wreck.skinFrames(true,{state[8]-state[6],state[16],state[17],state[18]});
+    hinge:={bx*cp,0,bx*sp};
+    flat:=Shore.aboveFlatBottom(state[1],state[2],state[3],Wreck.WhaleSurface.reach)
+      and not Wreck.WreckSolids.nearSite(state[1:3],Wreck.WhaleSurface.reach);
+    world:=zeros(48,3);localFaces:=zeros(92,3);
+    for piece in 1:Wreck.SwimmerHulls.count[1] loop
+      joint:=1+Wreck.SwimmerHulls.joint[piece];
+      jointRotation:=rotation*transpose(frames[joint,:,1:3]);
+      base:=state[1:3]-jointRotation*frames[joint,:,4];
+      firstVertex:=Wreck.WhaleSurface.firstVertex[piece];
+      count:=Wreck.WhaleSurface.firstVertex[piece+1]-firstVertex;
+      if flat then
+        // A flat plane's closest witness is the lowest mesh vertex.
+        vertexIndex:=0;
+        while vertexIndex<count loop
+          loads[11]:=min(loads[11],base[3]+jointRotation[3,:]*vertices[firstVertex+vertexIndex,:]+13.7);
+          vertexIndex:=vertexIndex+1;
+        end while;
+      else
+        half:=.5*(Wreck.SwimmerHulls.bounds[piece,4:6]-Wreck.SwimmerHulls.bounds[piece,1:3]);
+        center:=base+jointRotation*(Wreck.SwimmerHulls.bounds[piece,1:3]+half);
+        bound:=abs(jointRotation)*half;
+        lo:=center-bound;hi:=center+bound;
+        shore:=not Shore.clearOfShore(center[1],center[2],lo[3],sqrt(bound[1]^2+bound[2]^2));
+        wreck:=Wreck.WreckSolids.nearSite(center,sqrt(bound*bound));
+        if shore or wreck then
+          lo:=fill(1e6,3);hi:=fill(-1e6,3);
+          vertexIndex:=1;
+          while vertexIndex<=count loop
+            world[vertexIndex,:]:=base+jointRotation*vertices[firstVertex+vertexIndex-1,:];
+            for j in 1:3 loop
+              lo[j]:=min(lo[j],world[vertexIndex,j]);
+              hi[j]:=max(hi[j],world[vertexIndex,j]);
+            end for;
+            vertexIndex:=vertexIndex+1;
+          end while;
+          first:=Wreck.WhaleSurface.firstFace[piece];last:=Wreck.WhaleSurface.firstFace[piece+1]-1;
+          faceIndex:=1;
+          while first+faceIndex-1<=last loop
+            localFaces[faceIndex,:]:=faces[first+faceIndex-1,:];
+            faceIndex:=faceIndex+1;
+          end while;
+          hit:=zeros(7);
+          if shore then
+            hit:=Wreck.SharkContact.seabed(world,lo,hi,count,1,last-first+1,localFaces);
+            if hi[1]>=7 and lo[1]<=65 and hi[2]>=17 and lo[2]<=63 then
+              candidate:=Wreck.SharkContact.boulders(world,lo,hi,Shore.rocks,Shore.planes,1,last-first+1,localFaces);
+              if candidate[1]>hit[1] then hit:=candidate;end if;
+            end if;
+          end if;
+          if wreck then
+            candidate:=Wreck.SharkContact.wrecks(world,lo,hi,1,last-first+1,localFaces);
+            if candidate[1]>hit[1] then hit:=candidate;end if;
+          end if;
+          if hit[1]>0 then
+            normal:={cy*hit[2]+sy*hit[3],-sy*hit[2]+cy*hit[3],hit[4]};
+            offset:=hit[5:7]-state[1:3];
+            arm:={cy*offset[1]+sy*offset[2],-sy*offset[1]+cy*offset[2],offset[3]};
+            tailPiece:=joint==3 or joint==4;
+            relative:=if tailPiece then arm-hinge else arm;
+            pitchRate:=if tailPiece then state[9] else state[7];
+            angularRate:={state[13]*(if tailPiece then ct else cp),-pitchRate,state[13]*(if tailPiece then st else sp)};
+            velocity:={state[4],state[15],state[5]}+cross({0,0,state[11]},arm)+cross(angularRate,relative);
+            if tailPiece then velocity:=velocity+{-state[7]*bx*sp,0,state[7]*bx*cp};end if;
+            damping:=if tailPiece then 16000 else 55000;
+            normalRate:=velocity*normal;slip:=velocity-normalRate*normal;
+            support:=damping*min(5,28*hit[1]);
+            load:=max(0,support-damping*min(1,hit[1]/.015)*normalRate-max(0,support/.55-damping)*max(0,normalRate));
+            force:=load*(normal-.48*slip/sqrt(.2^2+slip*slip));
+            moment:=cross(arm,force);
+            if tailPiece then
+              loads[4]:=loads[4]+force[1];loads[5]:=loads[5]+force[3];
+              loads[6]:=loads[6]+(relative[1]+tx*ct)*force[3]-(relative[3]+tx*st)*force[1];
+            else
+              loads[1]:=loads[1]+force[1];loads[2]:=loads[2]+force[3];loads[3]:=loads[3]-moment[2];
+            end if;
+            loads[7]:=loads[7]+force[2];loads[8]:=loads[8]+moment[3];
+            loads[9]:=loads[9]+cp*moment[1]+sp*moment[3];loads[10]:=loads[10]+load;
+            loads[11]:=min(loads[11],-hit[1]);
+          else
+            loads[11]:=min(loads[11],max(0,lo[3]-Shore.seabed(center[1],center[2])));
+          end if;
         else
-          loads[4]:=loads[4]+force[1];loads[5]:=loads[5]+force[3];
-          loads[6]:=loads[6]+(rel[1]+tx*ct)*force[3]-(rel[3]+tx*st)*force[1];
+          loads[11]:=min(loads[11],max(0,lo[3]-Shore.seabed(center[1],center[2])));
         end if;
-        loads[7]:=loads[7]+force[2];loads[8]:=loads[8]+arm[1]*force[2]-arm[2]*force[1];
-        loads[9]:=loads[9]+yOffset*(cosPitch*force[3]-sinPitch*force[1])-zOffset*force[2];
-        loads[10]:=loads[10]+contact[4];
       end if;
     end for;
+    annotation(Inline=false);
   end bottomContact;
   Real c,s,ct,st,u,w,v,b,q,a,r,course,turn,roll,omega,stroke,amplitude,cycle,divePhase;
   Real restPhase,rest;
@@ -137,7 +188,7 @@ equation
   // makes the integrator chase a discontinuous normal along facet boundaries.
   when sample(0,.005) then
     if enableContacts then
-      ground=bottomContact(x);
+      ground=bottomContact(x,Wreck.WhaleSurface.vertices,Wreck.WhaleSurface.faces);
     else
       ground={0,0,0,0,0,0,0,0,0,0,1e6};
     end if;

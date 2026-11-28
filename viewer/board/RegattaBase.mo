@@ -19,13 +19,17 @@ partial model RegattaBase "Five-minute fleet starts and an equilateral triangula
   input Real swellK=Wreck.SpectralSea.swellK;
   input Real swellOmega=sqrt(Wreck.g*Wreck.SpectralSea.swellK*
     tanh(Wreck.SpectralSea.swellK*Wreck.SpectralSea.nearshoreDepth));
-  parameter Real launchMass=1150,waterplaneArea=7.2,rollInertia=650,pitchInertia=3100;
+  parameter Real launchMass=1256,waterplaneArea=7.6,rollInertia=650,pitchInertia=3100;
   final parameter Real stationX[4]={1.65,1.65,-1.65,-1.65},stationY[4]={.65,-.65,.65,-.65};
   final parameter Real draft=launchMass/(1025*waterplaneArea);
   final parameter Real committeeContactVertices[42,3]=Shore.committeeVertices();
   final parameter Integer committeeContactFaces[80,3]=Shore.committeeFaces();
-  final parameter Real committeeFittingVertices[3,8,3]=Shore.committeeFittings();
+  final parameter Real committeeFittingVertices[Shore.committeeFittingCount,8,3]=Shore.committeeFittings();
   final parameter Integer fittingContactFaces[12,3]=Shore.boxFaces();
+  final parameter Real committeePadGeometry[5]=cat(1,Shore.committeePadCenter,2*Shore.committeePadHalf);
+  final parameter Real committeeMastTop=Shore.committeeMastTop;
+  final parameter Real committeeMastX=Shore.committeeMastX;
+  final parameter Real committeeBoardGeometry[5]=Shore.committeeBoard;
   output Real launchPose[3] "Elevation, roll and bow-up pitch of anchored launch [m,rad,rad]";
   Real heave(start=0,fixed=true),roll(start=0,fixed=true),pitch(start=0,fixed=true);
   Real heaveRate(start=0,fixed=true),rollRate(start=0,fixed=true),pitchRate(start=0,fixed=true);
@@ -52,7 +56,7 @@ partial model RegattaBase "Five-minute fleet starts and an equilateral triangula
   final parameter Real laidN[4]={gateNorth-rightN*lineLength/2,gateNorth+legLength*upN,
     gateNorth+legLength*(upN/2-sqrt(3.0)*rightN/2),gateNorth+rightN*lineLength/2};
   parameter Real anchorReach[4]={12,12,12,24} "Initial horizontal lead from body center to embedded anchor [m]";
-  final parameter Real bowLead=2.85,bowHeight=.80;
+  final parameter Real bowLead=3.06,bowHeight=1.06;
   final parameter Real anchorE[4]=laidE+upE*anchorReach,anchorN[4]=laidN+upN*anchorReach;
   final parameter Real anchorBed[4]={Shore.seabed(anchorE[i],anchorN[i]) for i in 1:4};
   final parameter Real rode[4]={sqrt((anchorReach[i]-(if i==4 then bowLead else 0))^2+
@@ -64,7 +68,13 @@ partial model RegattaBase "Five-minute fleet starts and an equilateral triangula
   Real lineForce[4,3],markAir[3,2],markFlow[3,2];
   output Real mooringTension[4],anchorPosition[4,3],fairlead[4,3];
   Real gateCenter[2],lineRight[2],lineUp[2],span;
-  input Real externalCourse=0,coursePoints[4,2]=zeros(4,2) "Use live pin, marks and committee positions from the owning vehicle when scoring a second racer";
+  input Real externalCourse=0;
+  input Real coursePoints[4,2]=zeros(4,2) "Live body centers from the course simulation";
+  input Real courseGateEnds[2,2]=zeros(2,2)
+    "Live sighting points from the course simulation, pin then committee";
+  output Real startGateEnds[2,2] "Horizontal projections of the pin apex and the committee flagstaff head, in ENU";
+  Real gateVector[2],pinSightArm[3],committeeSightArm[3];
+  Boolean hasExternalGate;
   Real markOffset[3,2](each start=0,each fixed=true),markVelocity[3,2](each start=0,each fixed=true);
   function rodeLoad "Tension-only elastic rode with axial damping"
     input Real lead[3],velocity[3],length,stiffness,damping;
@@ -110,8 +120,8 @@ partial model RegattaBase "Five-minute fleet starts and an equilateral triangula
     constant Real radius=1.34,height=1.75,draft=.10,slope=radius/(2*height),scale=1/sqrt(1+slope^2);
     constant Real faces[4,3]=[0,scale,slope*scale;sqrt(3.0)/2*scale,-.5*scale,slope*scale;
       -sqrt(3.0)/2*scale,-.5*scale,slope*scale;0,0,-1];
-    MultiBodyLie.Collision.Material inflatable(k=6500,d=.55,mu=.18,eps=.0003,v_eps=.06);
-    MultiBodyLie.Collision.ContactPoint point;
+    .Collision.Material inflatable(k=6500,d=.55,mu=.18,eps=.0003,v_eps=.06);
+    .Collision.ContactPoint point;
     Real boatAxes[3,3],markAxes[3,3],local[3],arm[3],p[3],bestArm[3],n[3];
     Real boatCenterX,boatCenterY,margin;
     Real gap,best,x,y,z,alpha,width,v[3],w[3],omega[3],f[3],m[3],fb[3],mb[3];
@@ -168,8 +178,8 @@ partial model RegattaBase "Five-minute fleet starts and an equilateral triangula
         end for;
         if best<0 then
           n:=transpose(markAxes)*faces[bestFace,:];
-          point:=MultiBodyLie.Collision.ContactPoint(gap=best,n=n,armA=bestArm,armB=delta+bestArm-best*n);
-          (f,m,fb,mb):=MultiBodyLie.Collision.pairWrenches(point,v,w,markVelocity,omega,inflatable);
+          point:=.Collision.ContactPoint(gap=best,n=n,armA=bestArm,armB=delta+bestArm-best*n);
+          (f,m,fb,mb):=.Collision.pairWrenches(point,v,w,markVelocity,omega,inflatable);
           load:=load+cat(1,f,m,fb,mb);
         end if;
       end for;
@@ -360,9 +370,19 @@ equation
   pinNorth=if externalCourse>.5 then coursePoints[1,2] else laidN[1]+markOffset[1,2];
   markEast=if externalCourse>.5 then coursePoints[2:3,1] else laidE[2:3]+markOffset[2:3,1];
   markNorth=if externalCourse>.5 then coursePoints[2:3,2] else laidN[2:3]+markOffset[2:3,2];
-  gateCenter=.5*{pinEast+committeeEast,pinNorth+committeeNorth};
-  span=max(.01,sqrt((committeeEast-pinEast)^2+(committeeNorth-pinNorth)^2));
-  lineRight={committeeEast-pinEast,committeeNorth-pinNorth}/span;
+  // A sighting point moves horizontally as its hull pitches or rolls.
+  pinSightArm=transpose(hullAxes(0,markPose[1,2],-markPose[1,3]))*{0,0,pyramidHeight-pyramidDraft};
+  committeeSightArm=transpose(hullAxes(yaw,roll,-pitch))*{committeeMastX,0,committeeMastTop};
+  hasExternalGate=noEvent(externalCourse>.5 and
+    (courseGateEnds[2,:]-courseGateEnds[1,:])*(courseGateEnds[2,:]-courseGateEnds[1,:])>.01);
+  startGateEnds[1,:]=if hasExternalGate then courseGateEnds[1,:] else
+    {pinEast,pinNorth}+(if externalCourse>.5 then zeros(2) else pinSightArm[1:2]);
+  startGateEnds[2,:]=if hasExternalGate then courseGateEnds[2,:] else
+    {committeeEast,committeeNorth}+(if externalCourse>.5 then zeros(2) else committeeSightArm[1:2]);
+  gateCenter=.5*(startGateEnds[1,:]+startGateEnds[2,:]);
+  gateVector=startGateEnds[2,:]-startGateEnds[1,:];
+  span=max(.01,sqrt(gateVector*gateVector));
+  lineRight=gateVector/span;
   lineUp={-lineRight[2],lineRight[1]};
   along=({east,north}-gateCenter)*lineUp;
   across=({east,north}-gateCenter)*lineRight/span;

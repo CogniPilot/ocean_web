@@ -12,6 +12,7 @@ export const vesselNpcNames=Object.freeze({
   hobie:'Hobie 16',sloop:'Pilothouse sloop',motorboat:'Cabin cruiser',drone:'RDD2 drone',sub:'Piccard submarine'
 });
 // Diver packets append the 20 Modelica restart states and four gauge outputs to the swimmer pose.
+export const sharkForebodyOffset=321;
 export const divePacket={start:23,gauge:43,posture:47,computer:48,log:51,joints:56,rates:66,footLoads:76,lateral:78,lateralRates:82,vest:86,axial:88,axialRates:92,torch:96,length:97};
 export const npcVesselLimit=5;
 export const npcGullLimit=6;
@@ -56,6 +57,7 @@ export function npcRoom(){
         v=>v&&Object.hasOwn(vesselNpcNames,v.kind)&&Number.isFinite(v.started)&&
           (v.controller===undefined||['vmg','rl','mppi','nmpc'].includes(v.controller))&&
           (v.weights===undefined||v.controller==='rl'&&validHobieWeights(v.weights))&&
+          (v.policyName===undefined||v.weights&&typeof v.policyName==='string'&&v.policyName.length<=80)&&
           (v.raceAt===undefined||validStart(v.raceAt))&&
           (v.lane===undefined||Number.isInteger(v.lane)&&v.lane>=0&&v.lane<5)&&
           (v.patrol===undefined||Number.isInteger(v.patrol)&&v.patrol>=0&&v.patrol<5)&&
@@ -69,7 +71,7 @@ export function npcRoom(){
       h.sounds.every(s=>Array.isArray(s)&&s.length===7&&['gull','spout','impact'].includes(s[2])&&s.every((v,i)=>i===2||Number.isFinite(v)));
   }
   let animals=new Map(),controls=new Map(),revision=0;
-  const validFrame=f=>Array.isArray(f)&&[65,70,202,203,205,207,319,321].includes(f.length)&&f.every(Number.isFinite);
+  const validFrame=f=>Array.isArray(f)&&[65,70,202,203,205,207,319,321,sharkForebodyOffset+2].includes(f.length)&&f.every(Number.isFinite);
   const validKind=kind=>kind==='whale'||kind==='shark'||individualSwimmer(kind);
   const validPolicy = weights => Array.isArray(weights) && weights.length === 8 && weights.every(row => finiteRow(row,15));
   function setDiverMode(animal,auto,learned=false){
@@ -98,6 +100,12 @@ export function npcRoom(){
     if(!Array.isArray(msg.axes)||msg.axes.length!==3||!msg.axes.every(v=>Number.isFinite(v)&&Math.abs(v)<=1))return;
     const bank=Number.isFinite(msg.bank)&&Math.abs(msg.bank)<=1?msg.bank:0;
     controls.set(id,{axes:msg.axes,bank,strafe:Number.isFinite(msg.strafe)?Math.max(-1,Math.min(1,msg.strafe)):0,torch:msg.torch===true,vest:Number.isFinite(msg.vest)?Math.max(-1,Math.min(1,msg.vest)):0,sprint:msg.sprint===true,breach:controls.get(id)?.breach??false,at:performance.now()});
+    if(animals.get(id)?.kind==='shark'){
+      const shark=msg.shark;
+      if(shark?.mode==='deterministic'||shark?.mode==='pretrained')controls.get(id).shark={mode:shark.mode};
+      else if(shark?.mode==='saved'&&Array.isArray(shark.weights)&&shark.weights.length===10&&shark.weights.every(Number.isFinite))
+        controls.get(id).shark={mode:'saved',weights:shark.weights};
+    }
   }
   function addGull(){
     const index=habitat.gulls.length;
@@ -143,6 +151,9 @@ export function npcRoom(){
     if(msg.type==='diverMode'&&a.kind==='diver'&&msg.learned===true&&validPolicy(msg.weights)){
       a.swimWeights=msg.weights; a.policyRevision=(a.policyRevision??0)+1;
     }
+    if(msg.type==='diverMode'&&a.kind==='diver'&&msg.learned===true&&msg.weights===null){
+      delete a.swimWeights;a.policyRevision=(a.policyRevision??0)+1;
+    }
     if(msg.type==='diverMode'&&a.kind==='diver'&&typeof msg.auto==='boolean'&&(msg.auto!==a.auto||(!msg.auto&&Boolean(a.learned)!==(msg.learned===true)))){
       setDiverMode(a,msg.auto,msg.learned===true);revision++;
     }
@@ -167,7 +178,7 @@ export function npcRoom(){
             const {schoolSnapshot,...rest}=fishHabitat;fishHabitat=rest;
           }else m.schoolStamp=frameTime;
         }
-        const frameSize=m.pairedFins?321:m.shapeFrames?319:m.swimReserve?207:m.sharkBank?205:203;
+        const frameSize=m.sharkForebody?sharkForebodyOffset+2:m.pairedFins?sharkForebodyOffset:m.shapeFrames?319:m.swimReserve?207:m.sharkBank?205:203;
         const frame=last?.frame?.length>frameSize?last.frame.slice(0,frameSize):last?.frame;
         const roster=items.filter(a=>(a.kind!=='manta'||m.manta)&&(a.kind!=='diver'||m.diver)).map(a=>{
           const limit=a.kind==='manta'?(m.mantaJoints?29:23):a.kind!=='diver'?frameSize:m.diverAxial?divePacket.length:m.diverVest?divePacket.axial:m.diverLateral?divePacket.vest:m.diverJoints?divePacket.lateral:
@@ -179,7 +190,7 @@ export function npcRoom(){
           }
           return a.frame?.length>limit?{...a,frame:a.frame.slice(0,limit)}:a;
         });
-        delivery.push(send({type:'harbor',version:2,hostTransfer:true,extendedGulls:true,gullWater:true,gullSwimMode:true,gullFlightDynamics:true,gullPaddleDynamics:true,gullTailDynamics:true,sharkBank:true,swimReserve:true,shapeFrames:true,pairedFins:true,expandedFish:true,diverAxial:true,diverVest:true,diverLateral:true,diverJoints:true,diveMeter:true,diveComputer:true,diver:true,manta:true,mantaJoints:true,schooling:true,joined,frame,items:roster,habitat:fishHabitat},id));
+        delivery.push(send({type:'harbor',version:2,hostTransfer:true,extendedGulls:true,gullWater:true,gullSwimMode:true,gullFlightDynamics:true,gullPaddleDynamics:true,gullTailDynamics:true,sharkBank:true,swimReserve:true,shapeFrames:true,pairedFins:true,sharkForebody:true,expandedFish:true,diverAxial:true,diverVest:true,diverLateral:true,diverJoints:true,diveMeter:true,diveComputer:true,diver:true,manta:true,mantaJoints:true,schooling:true,joined,frame,items:roster,habitat:fishHabitat},id));
       }else{
         if(last?.frame)send([joined,...last.frame.slice(0,70)],id);
         send({type:'animals',items:items.filter(a=>!individualSwimmer(a.kind)).map(a=>({...a,frame:a.frame?.slice(0,70)}))},id);
@@ -210,7 +221,7 @@ export function npcRoom(){
     if(owner===self)sync();
   }
   function send(data,target){return channel?.send(data,target?{target}:undefined).catch(()=>{});}
-  function hello(target){send([joined],target);send({type:'hello',version:2,hostTransfer:true,host:appointed,hostRevision,extendedGulls:true,gullWater:true,gullSwimMode:true,gullFlightDynamics:true,gullPaddleDynamics:true,gullTailDynamics:true,sharkBank:true,swimReserve:true,shapeFrames:true,pairedFins:true,expandedFish:true,diverAxial:true,diverVest:true,diverLateral:true,diverJoints:true,diveMeter:true,diveComputer:true,diver:true,manta:true,mantaJoints:true,schooling:true,joined},target);}
+  function hello(target){send([joined],target);send({type:'hello',version:2,hostTransfer:true,host:appointed,hostRevision,extendedGulls:true,gullWater:true,gullSwimMode:true,gullFlightDynamics:true,gullPaddleDynamics:true,gullTailDynamics:true,sharkBank:true,swimReserve:true,shapeFrames:true,pairedFins:true,sharkForebody:true,expandedFish:true,diverAxial:true,diverVest:true,diverLateral:true,diverJoints:true,diveMeter:true,diveComputer:true,diver:true,manta:true,mantaJoints:true,schooling:true,joined},target);}
   return {
     vesselFrames,vesselForestays,vesselMastRotations,
     publishVessels(frames){
@@ -230,7 +241,7 @@ export function npcRoom(){
         let m=members.get(peerId);
         if((data.type==='hello'||data.type==='harbor')&&data.version===2&&Number.isSafeInteger(data.joined)&&data.joined>0){
           if(!m){m={joined:data.joined,samples:[]};members.set(peerId,m);elect();hello(peerId);}
-          m.version=2;m.schooling=data.schooling===true;m.manta=data.manta===true;m.mantaJoints=data.mantaJoints===true;m.diver=data.diver===true;m.diveComputer=data.diveComputer===true;m.diveMeter=data.diveMeter===true;m.diverJoints=data.diverJoints===true;m.diverLateral=data.diverLateral===true;m.diverAxial=data.diverAxial===true;m.diverVest=data.diverVest===true;m.hostTransfer=data.hostTransfer===true;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.gullSwimMode=data.gullSwimMode===true;m.gullFlightDynamics=data.gullFlightDynamics===true;m.gullPaddleDynamics=data.gullPaddleDynamics===true;m.gullTailDynamics=data.gullTailDynamics===true;m.sharkBank=data.sharkBank===true;m.swimReserve=data.swimReserve===true;m.shapeFrames=data.shapeFrames===true;m.pairedFins=data.pairedFins===true;m.expandedFish=data.expandedFish===true;
+          m.version=2;m.schooling=data.schooling===true;m.manta=data.manta===true;m.mantaJoints=data.mantaJoints===true;m.diver=data.diver===true;m.diveComputer=data.diveComputer===true;m.diveMeter=data.diveMeter===true;m.diverJoints=data.diverJoints===true;m.diverLateral=data.diverLateral===true;m.diverAxial=data.diverAxial===true;m.diverVest=data.diverVest===true;m.hostTransfer=data.hostTransfer===true;m.extendedGulls=data.extendedGulls===true;m.gullWater=data.gullWater===true;m.gullSwimMode=data.gullSwimMode===true;m.gullFlightDynamics=data.gullFlightDynamics===true;m.gullPaddleDynamics=data.gullPaddleDynamics===true;m.gullTailDynamics=data.gullTailDynamics===true;m.sharkBank=data.sharkBank===true;m.swimReserve=data.swimReserve===true;m.shapeFrames=data.shapeFrames===true;m.pairedFins=data.pairedFins===true;m.sharkForebody=data.sharkForebody===true;m.expandedFish=data.expandedFish===true;
           if(data.type==='hello'){receiveHost(data,peerId,m);sync(peerId);return;}
         }
         if(!Array.isArray(data)){
@@ -386,13 +397,14 @@ export function npcRoom(){
     seat(id){const index=gullIndex(id);return index<0?animals.get(id)?.seat:habitat.gullSeats[index];},
     select(id,spawn){request({type:'occupy',id,spawn});},release(id){request({type:'release',id});},
     diverMode(id,auto,learned=false,weights){request({type:'diverMode',id,auto,learned,weights});},
-    steer(id,axes,bank=0,sprint=false,vest=0,strafe=0,torch=false){request({type:'steer',id,axes,bank,sprint,vest,strafe,torch});},breach(id){request({type:'breach',id});},
+    steer(id,axes,bank=0,sprint=false,vest=0,strafe=0,torch=false,shark){request({type:'steer',id,axes,bank,sprint,vest,strafe,torch,shark});},breach(id){request({type:'breach',id});},
     command(id){
       const index=gullIndex(id),c=controls.get(index<0?id:gullId(index));
       if(!c)return {axes:[0,0,0],bank:0,sprint:false,breach:false};
       const fresh=performance.now()-c.at<800;
       const result={axes:fresh?c.axes:[0,0,0],bank:fresh?(c.bank??0):0,sprint:fresh&&c.sprint===true,breach:c.breach};
       if(animals.get(id)?.kind==='diver'){result.vest=fresh?(c.vest??0):0;result.strafe=fresh?(c.strafe??0):0;result.torch=c.torch;}
+      if(c.shark)result.shark=c.shark;
       c.breach=false;return result;
     },
     inspectLoads,wantsLoads,publishLoads,loads(id){return id===inspectId?latestLoads:undefined;},
@@ -410,14 +422,18 @@ export function npcRoom(){
     },
     canSpawn(kind){return owner===self&&(Object.hasOwn(vesselNpcNames,kind)?habitat.vessels.length<npcVesselLimit:
       kind==='gull'?habitat.gulls.length<maxGulls:validKind(kind)&&animals.size<npcAnimalLimit);},
-    spawn(kind,started=0,raceAt,raceWind,site,controller='vmg',weights){
+    spawn(kind,started=0,raceAt,raceWind,site,controller='vmg',weights,policyName){
       if(!this.canSpawn(kind))return;
       if(Object.hasOwn(vesselNpcNames,kind)){
         if(!Number.isFinite(started))return;
         const vessel={kind,started};
         if(kind==='hobie'){
           if(!['vmg','rl','nmpc','mppi'].includes(controller)||weights!==undefined&&!validHobieWeights(weights))return;
-          vessel.controller=controller;if(controller==='rl'&&weights)vessel.weights=weights;
+          vessel.controller=controller;
+          if(controller==='rl'&&weights){
+            vessel.weights=weights;
+            if(typeof policyName==='string'&&policyName.trim())vessel.policyName=policyName.trim().slice(0,80);
+          }
         }
         if(kind==='hobie'&&validStart(raceAt)){
           vessel.raceAt=raceAt;

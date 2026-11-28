@@ -7,6 +7,9 @@ async function request(path,body){
   if(!reply.ok)throw Error((await reply.json().catch(()=>({}))).error??'Local GPU physics service unavailable');
   return reply.json();
 }
+function availableOutputs({variables},required,optional){
+  return [...required,...optional.filter(name=>Object.hasOwn(variables,name))];
+}
 function plantMetadata(name){
   return fetch(new URL('./fmi3/'+encodeURIComponent(name)+'.json',import.meta.url),{cache:'no-cache'}).then(response=>{
     if(!response.ok)throw Error('Cannot load '+name+' FMI metadata');
@@ -44,8 +47,8 @@ export async function trainingDevices(plant){
   }catch{}
   return devices;
 }
-export function releaseTrainingDevice(id){
-  if(id)void fetch('/api/training/sessions/'+encodeURIComponent(id),{method:'DELETE',keepalive:true}).catch(()=>{});
+export async function releaseTrainingDevice(id){
+  if(id)await fetch('/api/training/sessions/'+encodeURIComponent(id),{method:'DELETE',keepalive:true}).catch(()=>{});
 }
 function cpuWorkerLimit(){
   const cpu=globalThis.navigator;
@@ -129,7 +132,11 @@ function cpuPhysics(name){
       }));
     }catch(error){close();throw error;}
   }
-  return {label:'CPU WASM',maxLanes:256,dispatches:0,async reset(inputs,outputs){
+  return {label:'CPU WASM',maxLanes:256,dispatches:0,
+    async resolveOutputs(required,optional){
+      metadata??=await plantMetadata(name);
+      return availableOutputs(metadata,required,optional);
+    },async reset(inputs,outputs){
     releaseLocal();
     try{
       const count=Math.min(limit,inputs.length);
@@ -162,8 +169,9 @@ export async function trainingPhysics(backend,name,onSession){
   if(backend!=='cuda')return cpuPhysics(name);
   let id,endpoint;
   function close(){
-    if(id)releaseTrainingDevice(id);
+    const released=releaseTrainingDevice(id);
     id=null;endpoint=null;
+    return released;
   }
   async function acquire(){
     const session=await request('sessions',{plant:name,token:metadata.token});
@@ -181,11 +189,12 @@ export async function trainingPhysics(backend,name,onSession){
       takeInputs(){const data=inputs;inputs={};return data;}};
   }
   return {label:'CUDA',maxLanes:service.maxCount??64,get kernelMs(){return kernelMs;},get dispatches(){return dispatches;},
+    resolveOutputs:(required,optional)=>availableOutputs(metadata,required,optional),
     async reset(inputs,outputs){
       if(!id)await acquire();
       let rows;
       try{rows=await request(endpoint,{op:'reset',lanes:inputs.map(inputs=>({inputs})),outputs});}
-      catch(error){close();throw error;}
+      catch(error){await close();throw error;}
       if(rows.lanes.length!==inputs.length)throw Error('Incomplete GPU batch');
       if(rows.token!==metadata.token||rows.dispatches!==0)throw Error('GPU physics and viewer must use the same FMU version.');
       batchDispatches=0;kernelMs=undefined;return rows.lanes.map(lane);
@@ -193,7 +202,7 @@ export async function trainingPhysics(backend,name,onSession){
     async advance(models,dt,outputs){
       let result;
       try{result=await request(endpoint,{op:'advance',lanes:models.map(model=>({inputs:model.takeInputs()})),dt,outputs});}
-      catch(error){close();throw error;}
+      catch(error){await close();throw error;}
       if(result.lanes.length!==models.length)throw Error('Incomplete GPU step');
       if(result.dispatches!==batchDispatches+1)throw Error('The GPU runner did not acknowledge the physics step.');
       kernelMs=Number.isFinite(result.kernelSeconds)?1000*result.kernelSeconds:undefined;

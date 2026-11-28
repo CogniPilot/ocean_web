@@ -34,13 +34,6 @@ async function start() {
     lamp.position.set(x,8.35,z);lamp.target.position.set(x,0,z);
     scene.add(lamp,lamp.target);
   }
-  // The wall fixtures wash the cladding and rails across the side galleries.
-  for(const z of [-12.6,12.6]){
-    for(const x of [4.8,23.6]){
-      const lamp=new T.PointLight(0xf2f6ff,24,9,2);
-      lamp.position.set(x,3.22,z);scene.add(lamp);
-    }
-  }
   const finishes=await loadBasinMaterials(T,renderer);
   const facility=await createFacility(T,scene,finishes);
   const rigControl=$('trackingRig');

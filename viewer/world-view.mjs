@@ -21,7 +21,7 @@ const flightOutputs=group('drone','position quaternion rotorAngle throttle attit
 const flightNavigationOutputs=group('drone','estimatedPosition estimatedVelocity positionCovariance velocityCovariance estimatedWindENU windEstimateValid windCovariance');
 const flightWakeOutputs=[...group('drone','rotorWakeWind rotorWakeWrench propellerRadius aircraft.thrustCoefficient_N_s2 aircraft.hoverRotorSpeed_rad_s aircraft.omegaMax'),'wind.droneWind'];
 const droneContactOutputs=group('drone','droneContactParts droneContactFaces');
-const launchContactOutputs=group('race','committeeContactVertices committeeContactFaces committeeFittingVertices fittingContactFaces');
+const launchContactOutputs=group('race','committeeContactVertices committeeContactFaces committeeFittingVertices fittingContactFaces committeePadGeometry committeeBoardGeometry');
 const submarineOutputs=[...group('sub','surveyTelemetry position orientation propellerRPM cavitation current'),
  'estimate','sensor','ping'];
 const boatInputs={manualHelm:'sailingManual',rudderInput:'rudder',trimInput:'trim',vangInput:'vang',downhaulInput:'downhaul',outhaulInput:'outhaul',deckManual:'deckManual',
@@ -64,13 +64,20 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    inputs.push(...Object.values(boatInputs).filter(name=>name!=='jibHalyardInput'),'finishAllowed','npcVessels','npcTilt');
    initial.finishAllowed=1;
  }
+ if(mode==='whaler')inputs.push('throttleLever','helmLever');
  if(mode==='motorboat')inputs.push('throttleLever','helmLever','traffic','trafficTilt','npcVessels','npcTilt');
  if(mode==='habitat')initial.animalPosition=[-5,0,0];
  if(hasSub){initial.subManual=1;inputs.push('subPilot');}
- if(hasFlight){initial.flightManual=1;inputs.push('flightPilot','motorCut','flightMode','racePilot');}
+ if(hasFlight){
+   initial.flightManual=1;
+   initial.motorCut=Number(options.droneStart==='island-pad'||options.droneStart==='committee-pad');
+   inputs.push('flightPilot','flightMode','racePilot');
+ }
  if(hasFlight)initial.station=[-5,0];
  if(mode==='flight')inputs.push('peerDeck');
  const parameters={prevailingBearing:windBearing};
+ if(hasFlight&&options.droneStart==='committee-pad')parameters['drone.carrierLaunch']=true;
+ if(hasFlight&&options.droneStart==='island-pad')parameters['drone.islandLaunch']=true;
  for(const [key,value] of Object.entries(startGate))parameters['race.'+key]=value;
  if(hasBoat){
    parameters['boat.launchSeaState']=seaState;
@@ -82,12 +89,12 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    for(const [i,value] of spawn.velocity.entries())parameters['sub.spawnVelocity['+(i+1)+']']=value;
    parameters['sub.spawnHeading']=spawn.heading;
  }
- if(mode==='motorboat'&&options.motorStart){
+ if(['motorboat','whaler'].includes(mode)&&options.motorStart){
    parameters.initialEast=options.motorStart.launchEast;
    parameters.initialNorth=options.motorStart.launchNorth;
  }
  const outputs=[...environmentOutputs,...(hasBoat?sailingOutputs:['focus','swell','waterStamp','waterFraction']),
-   ...(mode==='motorboat'?['boatPose','engine','starterRemaining']:[]),...(hasSub?submarineOutputs:[]),...(hasFlight?flightOutputs:[])];
+   ...(['motorboat','whaler'].includes(mode)?['boatPose','engine']:[]),...(mode==='motorboat'?['starterRemaining']:[]),...(hasSub?submarineOutputs:[]),...(hasFlight?flightOutputs:[])];
  const inertiaOutputs=[...(hasBoat?boatInertiaFields.map(name=>'boat.'+name):[]),
    ...(hasSub?subInertiaFields.map(name=>'sub.'+name):[]),...(hasFlight?droneInertiaFields.map(name=>'drone.'+name):[]),
    ...(mode==='motorboat'?cruiserInertiaFields:[])].filter(name=>!outputs.includes(name));
@@ -95,21 +102,22 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
  const frame=await send({type:'open',outputs,inputs:controlsToBind,initial,parameters,omitWake,stepTicks,surveyMap:hasSub,sampledFields:true,surveyView,
    breakingBows:mode==='motorboat'||(hasBoat&&mode!=='sloop'),singleBow:mode==='motorboat',bowLength:mode==='motorboat'?cruiserBowLength:8,warmSolver:options.warmSolver,
    reportProgress:Boolean(options.onProgress),
-   optionalInputs:[...(hasSub?['peerCruisers','peerLiftStates','subFlood']:[]),...(mode==='motorboat'?['peerSubs']:[]),...(hasBoat&&mode!=='sloop'?['jibHalyardInput']:[]),...(mode==='motorboat'?['startEncounter','encounterTargets','wiperSwitch','lowerAnchor','droneLandingLoad','sternLiftGoal','sternLiftOccupied']:[]),...(hasFlight?['rotorWakeTraffic','droneTraffic','vesselDecks']:[]),'animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','imagingSonar','omitWake','subMode','subAttitudePilot','subHoist','subHoistUp','subHoistQuaternion','subHoistAngularVelocity'],
+   optionalInputs:[...(hasSub?['peerCruisers','peerLiftStates','subFlood','subBallastTrim']:[]),...(mode==='motorboat'?['peerSubs']:[]),...(hasBoat&&mode!=='sloop'?['jibHalyardInput']:[]),...(mode==='motorboat'?['startEncounter','encounterTargets','wiperSwitch','lowerAnchor','droneLandingLoad','sternLiftGoal','sternLiftOccupied']:[]),...(hasFlight?['rotorWakeTraffic','droneTraffic','vesselDecks','autoLand','landingCue','landingRange']:[]),'animalJoints','animalTraffic','swimmerWater','animals','seaClockOffset','windAnchor','peerWake','idleCamera','imagingSonar','omitWake','subMode','subAttitudePilot','subHoist','subHoistUp','subHoistQuaternion','subHoistAngularVelocity'],
    optionalOutputs:[...(hasBoat?group('boat','origin rigMoment'):[]),...(hasSub?group('sub','contactMoment wetTorque velocity yawRate'):[]),...(mode==='motorboat'?group('propulsion','propellerCenter rudderCenter propellerForce rudderForce shaftReaction'):[]),...(mode==='motorboat'?['sternLiftState','sternLiftPose','sternLiftBottomPose','sternLiftWrench','sternHoistCable','sternHoistSeated']:[]),'swellOmega','wind.gustEast','wind.gustNorth','waves.sourceStrips','bowSources','bowSpeed','bowFrame','sternFoamTrail',...inertiaOutputs,
-     ...launchContactOutputs,
-     ...(hasSub?['subFloodState','sub.batteryTelemetry','sub.pilotPitchLimit',...group('sub.ocean','tide wind bearing tidalEast')]:[]),
-     'race.earlyStart','race.finishUtc','race.heatStart',
+     ...launchContactOutputs,...(mode==='whaler'?['contactHull','contactFaces']:[]),
+     ...(hasSub?['subFloodState','sub.batteryTelemetry','sub.tankLitres','sub.pilotPitchLimit',...group('sub.ocean','tide wind bearing tidalEast')]:[]),
+     'race.earlyStart','race.finishUtc','race.heatStart','race.startGateEnds','race.committeeMastTop','race.committeeMastX',
      ...(hasBoat&&mode!=='sloop'?['boat.ballastTrapezeReach','boat.travelerEase','boat.travelerTension','boat.travelerSag','boat.travelerMounts','boat.jibSheet','boat.jibSheetPins','boat.jibSheetLoads','boat.rightingSide','boat.mastStations','boat.mainGooseneck','boat.mainBlockPins','boat.mainBlockClearance','boat.blockStack','boat.mastBend','boat.forestayPath','boat.forestayTension','boat.jibHalyardTension','boat.mastRake','boat.mastRotation','boat.rigCollision',
        ...[...battenInspectionFields,...sailPanelFields.flat()].map(name=>'boat.'+name)]:[]),
      ...(hasBoat?[...hullInspectionOutputs,'boat.sailWind','boat.stationX','boat.beamHalf','boat.halfSpacing','boat.deckZ','boat.pontoonContactVertices','boat.pontoonContactFaces','boat.platformContactCorners']:[]),
      ...(hasBoat&&mode!=='sloop'?['hydroSurfaceProbes','sectionStamp',...refinedHullInspectionFields.map(name=>'boat.'+name)]:[]),
-     ...(mode==='motorboat'?[...cruiserInspectionFields,'driveGeometry','panelSea','cruiserContactVertices','cruiserContactFaces','cabinContactVertices','cabinContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','anchorHolding','anchor.horizontalSpeed','landingDeck','engineIdleTime','engineOffAfter','yawRate']:[]),...(hasFlight?[...flightNavigationOutputs,...flightWakeOutputs,...droneContactOutputs,'drone.rotorSpeed','drone.aircraft.bladeCount','drone.vesselDeckWrenches']:[])]});
+     ...(mode==='motorboat'?[...cruiserInspectionFields,'driveGeometry','panelSea','cruiserContactVertices','cruiserContactFaces','cabinContactVertices','cabinContactFaces','encounterShark','structuralImpact','hullIntegrity','flooding','damagePanels','encounterHealth','boatDamage','wiperAngle','anchorState','anchorHolding','anchor.horizontalSpeed','landingDeck','engineIdleTime','engineOffAfter','yawRate']:[]),...(hasFlight?[...flightNavigationOutputs,...flightWakeOutputs,...droneContactOutputs,'drone.rotorSpeed','drone.islandPad','drone.onCarrier','drone.landingState','drone.landingRange','drone.aircraft.bladeCount','drone.vesselDeckWrenches']:[])]});
  const layout=frame.layout,offsets=new Map(layout.inputs.map(i=>[i.name,i.offset]));
  const controls=new Float64Array(layout.inputs.reduce((n,i)=>n+i.count,0));
  function set(name,value){const i=offsets.get(name);if(i===undefined)throw Error('Unknown world control '+name);
    if(typeof value==='number')controls[i]=value;else controls.set(value,i);}
  if(offsets.has('idleCamera'))set('idleCamera',1);
+ if(offsets.has('subBallastTrim'))set('subBallastTrim',-1);
  if(offsets.has('sternLiftGoal'))set('sternLiftGoal',1);
  if(offsets.has('omitWake'))set('omitWake',omitWake);
  Object.entries(initial).forEach(([name,v])=>set(name,v));
@@ -188,7 +196,7 @@ export async function openWorld(mode='world',seaState=.45,omitWake=0,stepTicks=1
    if(surveyView.wakeSurface!==enabled)wakeRevision++;
    surveyView.wakeSurface=enabled;
    if(!enabled)for(const name of ['waves.height','bowHeight','bowFoam','bowSpray','sternFoamTrail'])state.delete(name);
- },hasSubFlood:offsets.has('subFlood')&&state.has('subFloodState'),hasPeerCruisers:offsets.has('peerCruisers'),hasPeerLiftStates:offsets.has('peerLiftStates'),hasPeerSubs:offsets.has('peerSubs'),hasWiper:offsets.has('wiperSwitch'),hasAnchor:offsets.has('lowerAnchor'),hasLandingLoad:offsets.has('droneLandingLoad'),hasSternLift:offsets.has('sternLiftGoal')&&offsets.has('sternLiftOccupied')&&state.has('sternLiftState'),hasVesselDecks:offsets.has('vesselDecks'),hasEncounter:offsets.has('startEncounter')&&offsets.has('encounterTargets')&&state.has('encounterShark'),hasSubHoist:offsets.has('subHoist'),hasSubHoistUp:offsets.has('subHoistUp'),hasHoistHandoff:offsets.has('subHoistQuaternion')&&offsets.has('subHoistAngularVelocity'),hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasAnimalJoints:offsets.has('animalJoints'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),hasRotorWake:offsets.has('rotorWakeTraffic'),hasDroneContact:offsets.has('droneTraffic'),setSurveyView(acquireSurvey,showSonar,map,dvl=false){
+ },hasSubBallastTrim:offsets.has('subBallastTrim'),hasSubFlood:offsets.has('subFlood')&&state.has('subFloodState'),hasPeerCruisers:offsets.has('peerCruisers'),hasPeerLiftStates:offsets.has('peerLiftStates'),hasPeerSubs:offsets.has('peerSubs'),hasWiper:offsets.has('wiperSwitch'),hasAnchor:offsets.has('lowerAnchor'),hasLandingLoad:offsets.has('droneLandingLoad'),hasSternLift:offsets.has('sternLiftGoal')&&offsets.has('sternLiftOccupied')&&state.has('sternLiftState'),hasVesselDecks:offsets.has('vesselDecks'),hasEncounter:offsets.has('startEncounter')&&offsets.has('encounterTargets')&&state.has('encounterShark'),hasSubHoist:offsets.has('subHoist'),hasSubHoistUp:offsets.has('subHoistUp'),hasHoistHandoff:offsets.has('subHoistQuaternion')&&offsets.has('subHoistAngularVelocity'),hasSubMode:offsets.has('subMode')&&offsets.has('subAttitudePilot'),hasAnimalTraffic:offsets.has('animalTraffic'),hasAnimalJoints:offsets.has('animalJoints'),hasSwimmerWater:offsets.has('swimmerWater'),hasAnimals:offsets.has('animals'),hasSeaClock:offsets.has('seaClockOffset'),hasWindAnchor:offsets.has('windAnchor'),hasPeerWake:offsets.has('peerWake'),hasRotorWake:offsets.has('rotorWakeTraffic'),hasDroneContact:offsets.has('droneTraffic'),setSurveyView(acquireSurvey,showSonar,map,dvl=false){
    surveyView.dvl=showSonar||dvl;surveyView.camera=showSonar;surveyView.map=map;
    const separateSonar=offsets.has('imagingSonar');
    if(separateSonar)set('imagingSonar',Number(showSonar));

@@ -1,6 +1,7 @@
 // Each swimmer uses its actual posed skin. Display offsets separate the independent environments.
 import {scubaDiver} from './scuba-diver.mjs';
 import {trainingRigOverlay} from './training-rig-overlay.mjs';
+import {trainingCameraDrag} from './training-camera.mjs';
 
 function skinBatches(T,scene,parts,capacity) {
   const bones=parts[0].skeleton.bones.length,width=4*bones,stride=16*bones;
@@ -54,8 +55,9 @@ export async function trainingView(T,canvas,signal,onStatus=()=>{}){
   const focus=new T.Vector3(),box=new T.Box3(),sphere=new T.Sphere(new T.Vector3(),2);
   const frustum=new T.Frustum(),projection=new T.Matrix4(),parts=[],hinges=[];
   let rig,skin,diagnostics,capacity=0,ready=0,rows=[],pending,job,from,target,building,lastTime,arrival=0,duration=0,start=0;
-  let selected=-1,overlay=false,angle=-.95,elev=.5,zoom=1,lastPointer,raf,disposed=false,dirty=true;
+  let selected=-1,overlay=false,angle=-.95,elev=.5,zoom=1,raf,disposed=false,dirty=true,unitsPerPixel=0;
   const centers=[],eyeAxis=new T.Vector3(),rightAxis=new T.Vector3(),upAxis=new T.Vector3(),offset=new T.Vector3();
+  const pan=new T.Vector3(),targetPoint=new T.Vector3();
   function reserve(n){
     if(n<=capacity)return;
     skin?.dispose();diagnostics?.dispose();
@@ -85,8 +87,11 @@ export async function trainingView(T,canvas,signal,onStatus=()=>{}){
       const near=offset.dot(eyeAxis);
       fit=Math.max(fit,near+(Math.abs(offset.dot(rightAxis))+1.6)/tanX,near+(Math.abs(offset.dot(upAxis))+1.0)/tanY);
     }
-    camera.position.copy(eyeAxis).multiplyScalar(Math.max(.35,zoom*fit)).add(focus);
-    camera.lookAt(focus);camera.updateMatrixWorld();
+    const distance=Math.max(.35,zoom*fit);
+    unitsPerPixel=2*distance*Math.tan(camera.fov*Math.PI/360)/h;
+    targetPoint.copy(focus).add(pan);
+    camera.position.copy(targetPoint).addScaledVector(eyeAxis,distance);
+    camera.lookAt(targetPoint);camera.updateMatrixWorld();
   }
   function frameBounds(){
     box.makeEmpty();
@@ -172,9 +177,10 @@ export async function trainingView(T,canvas,signal,onStatus=()=>{}){
   }
   signal.addEventListener('abort',dispose,{once:true});
   const magnify=factor=>{zoom=Math.max(.06,Math.min(3,zoom*factor));dirty=true;};
-  canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);lastPointer=[e.clientX,e.clientY];},{signal});
-  canvas.addEventListener('pointermove',e=>{if(!lastPointer)return;angle-=(e.clientX-lastPointer[0])*.009;elev=Math.max(-1.35,Math.min(1.35,elev+(e.clientY-lastPointer[1])*.008));lastPointer=[e.clientX,e.clientY];dirty=true;},{signal});
-  for(const name of ['pointerup','pointercancel'])canvas.addEventListener(name,()=>{lastPointer=null;},{signal});
+  trainingCameraDrag(canvas,signal,{
+    orbit(dx,dy){angle-=dx*.009;elev=Math.max(-1.35,Math.min(1.35,elev+dy*.008));dirty=true;},
+    pan(dx,dy){pan.addScaledVector(rightAxis,-dx*unitsPerPixel).addScaledVector(upAxis,dy*unitsPerPixel);dirty=true;}
+  });
   canvas.addEventListener('wheel',e=>{e.preventDefault();magnify(Math.exp(Math.max(-1,Math.min(1,e.deltaY*.0015))));},{passive:false,signal});
   try{
     onStatus('Loading diver model');
@@ -191,7 +197,7 @@ export async function trainingView(T,canvas,signal,onStatus=()=>{}){
       rows=[];pending=null;job=null;ready=0;duration=0;lastTime=undefined;
       skin?.count(0);diagnostics?.clear();diagnostics?.flush();dirty=true;onStatus('');
     },
-    focus(i){selected=i;zoom=1;frameBounds();overlayPose();},
+    focus(i){selected=i;zoom=1;pan.set(0,0,0);frameBounds();overlayPose();},
     overlay(on){overlay=on;overlayPose();},magnify
   };
 }

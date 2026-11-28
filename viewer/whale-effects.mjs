@@ -1,4 +1,5 @@
 import {loadInstance} from './fmi3/instance.mjs';
+import {surfaceSlap} from './regatta.mjs';
 import {surfaceSpray,waterStreaks} from './water-spray.mjs';
 
 const noiseGLSL=`
@@ -69,10 +70,11 @@ function impactCurtain(T,scene){
   },dispose(){mesh.removeFromParent();geo.dispose();material.dispose();}};
 }
 
-export function whaleEffects(T,scene,surface){
+export function whaleEffects(T,scene,surface,playSound){
   const plume=mistCloud(T,scene,'Humpback blow',168,0xf2f5f5),bubbles=mistCloud(T,scene,'Breach bubble cloud',160,0xd0e7e9);
   const curtain=impactCurtain(T,scene),spray=waterStreaks(T,scene,'Breach impact spray',520);
   const runoff=surfaceSpray(T,scene,'Fluke runoff and surface spray',20,surface),areas=new Float64Array(20);
+  const flukeSlap=surfaceSlap(.18,.85,.7),contact=new T.Vector3();
   let model,impactStamp,heading=0,last=-Infinity;
   loadInstance('WhaleSpray',{}).then(m=>{model=m;}).catch(console.error);
   function update(frame,t,animal,wind){
@@ -84,6 +86,13 @@ export function whaleEffects(T,scene,surface){
     if(t>=last&&t-last<.039)return;
     last=t;
     animal.edgePoints(runoff.positions);
+    contact.copy(runoff.positions[3]).lerp(runoff.positions[12],.5);
+    const water=surface(contact.x,contact.y);
+    const entrySpeed=flukeSlap(t,contact.z-water);
+    if(entrySpeed&&!(speed>1.2&&age>=0&&age<.35)){
+      contact.z=water;
+      playSound?.('fluke slap',contact,entrySpeed/2.4);
+    }
     for(let i=16;i<20;i++){
       const k=81+(i-15)*5;
       runoff.positions[i].set(frame[k],frame[k+1],frame[23]);

@@ -1,4 +1,4 @@
-model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant caudal foil and paired pectorals"
+model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant anterior spine and caudal foil, and paired pectorals"
   parameter Boolean enableContacts=true "Resolve geometric contacts with the environment" annotation(Evaluate=true);
   parameter Real mass(unit="kg")=870, length(unit="m")=4.8;
   // BEGIN GLB MASS PROPERTIES
@@ -34,6 +34,10 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
   constant Real volumeShare[7]={.027,.103,.225,.290,.225,.103,.027};
   input Real boatLoad[3] "Hull reaction in forward and port axes, and yaw moment";
   parameter Real startBank[2]={0,0};
+  parameter Real startForebody[2]={0,0};
+  parameter Real forebodyStiffness(unit="N.m/rad")=700, forebodyDamping(unit="N.m.s/rad")=220;
+  parameter Real forebodyInertia(unit="kg.m2")=16, forebodyYawCoupling(unit="kg.m2")=36
+    "Reduced anterior section inertia and coupling to body yaw at the reference dimensions";
   input Real east,north,z,heading,surface,current[2],desiredSpeed,desiredPitch,desiredHeading,drive,bankCommand,sprint,burst;
   input Real breachRecruitment "Additional caudal excursion during a commanded launch";
   input Real directDrive=0,actuators[4]=zeros(4) "Direct enable; normalized peduncle torque, caudal incidence, port and starboard incidence";
@@ -99,25 +103,26 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
     H:=cat(1,base,(next[3:5]-base[3:5])/.001);
   end articulatedInertia;
   function groundContact
-    input Real origin[3],heading,state[10],length,bank[2],trunk,fin,port,starboard;
+    input Real origin[3],heading,state[10],length,bank[2],trunk,fin,port,starboard,forebody[2];
     input Boolean direct;
     input Real vertices[787,3];
     input Integer faces[1506,3];
-    output Real loads[8] "Forward, port, up, pitch, yaw, normal load, minimum signed gap, roll";
+    output Real loads[9] "Forward, port, up, pitch, yaw, normal load, minimum signed gap, roll, anterior yaw";
   protected
-    Real frame[6,3,4],rotation[3,3],jointRotation[3,3],base[3],world[48,3],lo[3],hi[3],center[3],half[3],bound[3];
-    Real hit[7],candidate[7],n[3],arm[3],velocity[3],slip[3],force[3],moment[3],normalRate,load,support,scale,damping;
+    Real frame[7,3,4],rotation[3,3],jointRotation[3,3],base[3],world[48,3],lo[3],hi[3],center[3],half[3],bound[3];
+    Real hit[7],candidate[7],n[3],arm[3],headArm[3],headAxis[3],velocity[3],slip[3],force[3],moment[3],normalRate,load,support,scale,damping;
     Real cy,sy,cp,sp,cr,sr,reach;
     Integer piece,joint,first,last,count,localFaces[92,3];
     Boolean shore,wreck;
   algorithm
-    scale:=length/4.8;reach:=2.85*scale;loads:=zeros(8);loads[7]:=1e6;
+    scale:=length/4.8;reach:=2.85*scale;loads:=zeros(9);loads[7]:=1e6;
     if Shore.clearOfShore(origin[1],origin[2],origin[3]-reach,reach) and not Wreck.WreckSolids.nearSite(origin,reach) then
       loads[7]:=max(0,origin[3]-reach+13.7);return;
     end if;
     cy:=cos(heading);sy:=sin(heading);cp:=cos(state[3]);sp:=sin(state[3]);cr:=cos(bank[1]);sr:=sin(bank[1]);
     rotation:=[cy*cp,-cy*sp*sr-sy*cr,-cy*sp*cr+sy*sr;sy*cp,-sy*sp*sr+cy*cr,-sy*sp*cr-cy*sr;sp,cp*sr,cp*cr];
-    frame:=Wreck.skinFrames(false,{trunk,state[6],state[8],if direct then port else fin},if direct then starboard else fin);world:=zeros(48,3);localFaces:=zeros(92,3);
+    frame:=Wreck.skinFrames(false,{trunk,state[6],state[8],if direct then port else fin},if direct then starboard else fin,forebody[1]);world:=zeros(48,3);localFaces:=zeros(92,3);
+    headAxis:={-sp*cr, -sr, cp*cr};
     for part in 1:19 loop
       piece:=part+Wreck.SwimmerHulls.count[1];joint:=1+Wreck.SwimmerHulls.joint[piece];
       jointRotation:=rotation*transpose(frame[joint,:,1:3]);
@@ -157,11 +162,18 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
           center:=hit[5:7]-origin;
           arm:={cy*center[1]+sy*center[2],-sy*center[1]+cy*center[2],center[3]};
           velocity:={state[1],state[10],state[2]}+cross({cp*bank[2],-state[4],state[9]+sp*bank[2]},arm);
+          headArm:=arm;
+          if joint==7 then
+            center:=rotation*(scale*Wreck.SwimmerHulls.pivots[11,:]);
+            headArm:=arm-{cy*center[1]+sy*center[2],-sy*center[1]+cy*center[2],center[3]};
+            velocity:=velocity+forebody[2]*cross(headAxis,headArm);
+          end if;
           normalRate:=velocity*n;slip:=velocity-normalRate*n;
           damping:=5800*scale;support:=damping*min(5,28*hit[1]);
           load:=max(0,support-damping*min(1,hit[1]/.015)*normalRate-max(0,support/.55-damping)*max(0,normalRate));
           force:=load*(n-.48*slip/sqrt(.2^2+slip*slip));moment:=cross(arm,force);
           loads[1:3]:=loads[1:3]+force;loads[4]:=loads[4]-moment[2];loads[5]:=loads[5]+moment[3];
+          if joint==7 then loads[9]:=loads[9]+headAxis*cross(headArm,force);end if;
           loads[6]:=loads[6]+load;loads[7]:=min(loads[7],-hit[1]);loads[8]:=loads[8]+cp*moment[1]+sp*moment[3];
         else
           loads[7]:=min(loads[7],max(0,lo[3]-Shore.seabed(center[1],center[2])));
@@ -190,15 +202,18 @@ model GreatWhite "Lamnid swimmer with a laterally driven peduncle, compliant cau
     end if;
     loads:={fx,fz,roll,yaw,portZ,starboardZ};
   end pectorals;
-  discrete output Real ground[8](each start=0,each fixed=true);
+  discrete output Real ground[9](each start=0,each fixed=true);
   output Real lockedInertia[8] "Rigid roll/pitch/yaw and coupled yaw/hinge coefficients";
   output Real tailThrust,shaftPower,frequency,finAngle,velocity[2],trunkFlex;
+  output Real forebody[2](start=startForebody,each fixed=true) "Anterior yaw and yaw rate";
   output Real peduncleTorque(unit="N.m"),pectoralLoad[6] "Axial/normal N, roll/yaw N.m, port/starboard normal N";
 protected
   Real u,v,along,normal,wet,tailWet,finWet,turn,effort,amplitude,rate,target,rawTorque,torque,caudalArm,torqueLimit,powerLimit,limitedTorque;
   Real lateral,inflow,tailX,tailY,finX,finZ,drag,bodyNormal,sideForce,feather,featherControl,finExposure,lead,leadAngle,leadRate,leadInflow;
   Real immersed[7],buoyMoment,stationHalfHeight[7],tailDepth,caudalHalfHeight;
   Real bowSide,sternSide,bowFlow,sternFlow;
+  Real forebodyGoal,forebodyX,forebodyY,forebodyArm,forebodyFlow,forebodySide,forebodyFx,forebodyFy,forebodyLoad;
+  Real scaledForebodyInertia,scaledForebodyCoupling,effectiveYaw,forebodyYaw,yawAcceleration;
   Real cp,sp,cr,sr,forward,vertical,finBank,bankTorque,yawWaterInertia;
   Real action[4],speedError,pitchSignal,rollSignal,tailSignal,featherSignal;
   Real finDepth,portWet,starboardWet;
@@ -284,7 +299,7 @@ equation
   hingeLoad=peduncleTorque+tailDX*tailX+tailDY*tailY+sternDX*sternFx+sternDY*sternFy-580*x[6]-95*x[7]
     -recruit*30000*(max(0,x[6]-.87)-max(0,-.87-x[6]))
     +.5*lockedInertia[6]*x[9]^2-.5*lockedInertia[8]*x[7]^2;
-  der(x[7])=(totalYaw*hingeLoad-lockedInertia[4]*yawLoad)/determinant;
+  der(x[7])=(effectiveYaw*hingeLoad-lockedInertia[4]*yawLoad)/determinant;
   portAngle=.85*max(-1,min(1,action[3]));starboardAngle=.85*max(-1,min(1,action[4]));
   // The water-flow pitch controller loses authority when the fins leave the water.
   finAngle=if noEvent(directDrive>.5) then .5*(portAngle+starboardAngle) else finWet*max(-.85,min(.85,atan2(normal,max(.60,along))+.96*(desiredPitch-x[3])-.42*x[4]));
@@ -316,24 +331,43 @@ equation
   sternDY=-1.30*recruit*cos(trunkFlex)*gear;
   sternAxial=along-sternY*x[9]+sternDX*x[7];sternNormal=v+sternX*x[9]+sternDY*x[7];
   sternFlow=sternNormal*cos(recruit*trunkFlex)-sternAxial*sin(recruit*trunkFlex);
-  bowSide=-wet*(120*abs(along)+215*abs(bowFlow))*bowFlow;
+  // Blend a compliant anterior section into the established bow crossflow.
+  // The reduced joint represents distributed vertebral motion behind the head.
+  forebodyGoal=.24*steer/(1+(along/2.8)^2);
+  forebodyArm=.55*length/4.8;
+  forebodyX=Wreck.SwimmerHulls.pivots[11,1]*length/4.8+forebodyArm*cos(forebody[1]);
+  forebodyY=forebodyArm*sin(forebody[1]);
+  forebodyFlow=(v+forebodyX*x[9])*cos(forebody[1])
+    -(along-forebodyY*x[9])*sin(forebody[1])+forebodyArm*forebody[2];
+  forebodySide=-.32*wet*(120*abs(along)+215*abs(forebodyFlow))*forebodyFlow;
+  forebodyFx=-forebodySide*sin(forebody[1]);
+  forebodyFy=forebodySide*cos(forebody[1]);
+  bowSide=-.68*wet*(120*abs(along)+215*abs(bowFlow))*bowFlow;
+  scaledForebodyInertia=forebodyInertia*(mass/870)*(length/4.8)^2;
+  scaledForebodyCoupling=forebodyYawCoupling*(mass/870)*(length/4.8)^2;
+  // Increased muscular stiffness under fast flow limits anterior yaw while
+  // preserving turn flexibility at low speed. The cubic spring limits large bends.
+  forebodyLoad=forebodyStiffness*((1+(along/3)^2)*(forebodyGoal-forebody[1])-8*forebody[1]^3)
+    -forebodyDamping*forebody[2]+forebodyArm*forebodySide+ground[9];
+  der(forebody[1])=forebody[2];
+  der(forebody[2])=(forebodyLoad-scaledForebodyCoupling*yawAcceleration)/scaledForebodyInertia;
   sternSide=-wet*(150*abs(along)+215*abs(sternFlow))*sternFlow;
   sternFx=-sin(recruit*trunkFlex)*sternSide;sternFy=cos(recruit*trunkFlex)*sternSide;
-  sideForce=bowSide+sternFy;
+  sideForce=bowSide+forebodyFy+sternFy;
   // Anterior bending decreases as dynamic pressure stiffens the trunk. The
   // remaining peduncle deflection and compliant caudal foil keep the tail beat.
   trunkRatio=.29/(1+(abs(along)/1.18)^6);
   trunkFlex=trunkRatio*x[6]+.65*recruit*(x[6]-tanh(3*x[6])/3);
   gear=trunkRatio+.65*recruit*tanh(3*x[6])^2;
-  forward=tailX+finX+drag+sternFx;vertical=cr*finZ+bodyNormal;
+  forward=tailX+finX+drag+sternFx+forebodyFx;vertical=cr*finZ+bodyNormal;
   // Use the same contact clock as the humpback so a face change on the wreck
   // cannot force arbitrarily small adaptive integration steps.
   lockedInertia=articulatedInertia(segments,pivots,mass/870,length/4.8,x[6],trunkRatio,recruit,x[8],if noEvent(directDrive>.5) then portAngle else finAngle,if noEvent(directDrive>.5) then starboardAngle else finAngle);
   when sample(0,.005) then
     if enableContacts then
-      ground=groundContact({east,north,z},heading,x,length,bank,trunkFlex,finAngle,portAngle,starboardAngle,noEvent(directDrive>.5),Wreck.SharkSurface.vertices,Wreck.SharkSurface.faces);
+      ground=groundContact({east,north,z},heading,x,length,bank,trunkFlex,finAngle,portAngle,starboardAngle,forebody,noEvent(directDrive>.5),Wreck.SharkSurface.vertices,Wreck.SharkSurface.faces);
     else
-      ground={0,0,0,0,0,0,1e6,0};
+      ground={0,0,0,0,0,0,1e6,0,0};
     end if;
   end when;
   der(x[1])=(boatLoad[1]+ground[1]+cp*forward-sp*vertical)/mass+x[9]*x[10];
@@ -344,10 +378,13 @@ equation
   yawWaterInertia=wet*yawAddedInertia*(1+.35*gaitSprint);
   totalYaw=lockedInertia[3]+yawWaterInertia;
   totalHinge=lockedInertia[5]+wet*hingeWaterInertia;
-  determinant=max(1,totalYaw*totalHinge-lockedInertia[4]^2);
-  yawLoad=boatLoad[3]+ground[5]+pectoralLoad[4]+tailArmX*tailY-recruit*tailArmY*tailX+1.18*bowSide+sternX*sternFy-sternY*sternFx
+  effectiveYaw=totalYaw-scaledForebodyCoupling^2/scaledForebodyInertia;
+  determinant=max(1,effectiveYaw*totalHinge-lockedInertia[4]^2);
+  forebodyYaw=forebodyX*forebodyFy-forebodyY*forebodyFx-scaledForebodyCoupling*forebodyLoad/scaledForebodyInertia;
+  yawLoad=boatLoad[3]+ground[5]+pectoralLoad[4]+tailArmX*tailY-recruit*tailArmY*tailX+1.18*bowSide+forebodyYaw+sternX*sternFy-sternY*sternFx
     -wet*(520+200*abs(along))*x[9]-lockedInertia[6]*x[9]*x[7]-lockedInertia[7]*x[7]^2;
-  der(x[9])=(totalHinge*yawLoad-lockedInertia[4]*hingeLoad)/determinant;
+  yawAcceleration=(totalHinge*yawLoad-lockedInertia[4]*hingeLoad)/determinant;
+  der(x[9])=yawAcceleration;
   der(x[10])=(boatLoad[2]+ground[2]+tailY+sideForce-sr*finZ)/(mass+350)-x[9]*x[1];
   // Differential pectoral lift banks the shark. Fin immersion and water
   // speed limit the control moment while buoyancy and drag right the body.

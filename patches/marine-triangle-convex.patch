@@ -1,0 +1,69 @@
+diff --git a/MultiBodyLie/Collision.mo b/MultiBodyLie/Collision.mo
+index 0e9912e..c0d2428 100644
+--- a/MultiBodyLie/Collision.mo
++++ b/MultiBodyLie/Collision.mo
+@@ -723,4 +723,64 @@ package Collision "Collision shapes, the scene tables and contact points between
+     hit[5:7]:=p;
+   end boxBoxSupport;
+ 
++
++  function triangleConvex "Contact between a triangle and outward-facing planes of a closed convex body"
++    input Real tri[3,3](each unit="m") "Triangle vertices relative to shape A, resolved in the common frame";
++    input Real face[:,4] "Plane rows {nx, ny, nz, offset}, with unit outward normals";
++    input Real originB[3](each unit="m") "Origin of shape B relative to shape A in the common frame";
++    output ContactPoint contact "Deepest face witness with negative gap, or zero gap and normal for a miss";
++  protected
++    Real polygon[size(face,1)+3,3],clipped[size(face,1)+3,3];
++    Real a[3],b[3],n[3],pa,pb,point[3],depth,best;
++    Integer count,newCount;
++    Boolean allInside,allOutside;
++  algorithm
++    contact:=ContactPoint(0,zeros(3),zeros(3),zeros(3));
++    // Reject a triangle on its original vertices before allocating work to
++    // clip the polygon against the earlier faces of the convex body.
++    for f in 1:size(face,1) loop
++      n:=face[f,1:3];
++      if tri[1,:]*n-face[f,4]>0 and tri[2,:]*n-face[f,4]>0 and tri[3,:]*n-face[f,4]>0 then return;end if;
++    end for;
++    polygon:=zeros(size(face,1)+3,3);clipped:=polygon;
++    count:=3;polygon[1:3,:]:=tri;
++    for f in 1:size(face,1) loop
++      n:=face[f,1:3];newCount:=0;
++      allInside:=true;allOutside:=true;
++      for i in 1:count loop
++        pb:=polygon[i,:]*n-face[f,4];
++        allInside:=allInside and pb<=0;allOutside:=allOutside and pb>0;
++      end for;
++      if allOutside then return;end if;
++      if not allInside then
++        a:=polygon[count,:];pa:=a*n-face[f,4];
++        for i in 1:count loop
++          b:=polygon[i,:];pb:=b*n-face[f,4];
++          if (pa<0 and pb>0) or (pa>0 and pb<0) then
++            newCount:=newCount+1;
++            clipped[newCount,:]:=a+(b-a)*(pa/(pa-pb));
++          end if;
++          if pb<=0 then
++            newCount:=newCount+1;clipped[newCount,:]:=b;
++          end if;
++          a:=b;pa:=pb;
++        end for;
++        if newCount<3 then return;end if;
++        count:=newCount;
++        for i in 1:count loop polygon[i,:]:=clipped[i,:];end for;
++      end if;
++    end for;
++    point:=zeros(3);
++    for i in 1:count loop point:=point+polygon[i,:];end for;
++    point:=point/count;
++    best:=1e6;n:=zeros(3);
++    for f in 1:size(face,1) loop
++      depth:=face[f,4]-face[f,1:3]*point;
++      if depth<best then best:=depth;n:=face[f,1:3];end if;
++    end for;
++    if best>0 then
++      contact:=ContactPoint(-best,n,point,point+best*n-originB);
++    end if;
++    annotation(Inline=false,Documentation(info="<html><p>Clips the triangle successively against the outer planes using the method in Sutherland and Hodgman (1974), <a href=\"https://doi.org/10.1145/360767.360802\">Reentrant Polygon Clipping</a>. The centroid of the surviving polygon is the witness on the triangle.</p></html>"));
++  end triangleConvex;
+ end Collision;

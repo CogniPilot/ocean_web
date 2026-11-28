@@ -1,7 +1,7 @@
 // Exercise the shipped WebAssembly scorer with a rotated course and timed crossings.
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {fleetFinishes,lapTable,lapClock,feedingHeat,controlledRace} from '../viewer/lap-board.mjs';
+import {fleetFinishes,lapTable,lapClock,rollingFeedingScore,controlledRace} from '../viewer/lap-board.mjs';
 import {loadInstance} from '../viewer/fmi3/instance.mjs';
 import {fleetNumbers} from '../viewer/fleet-numbers.mjs';
 import {raceTarget} from '../viewer/regatta.mjs';
@@ -206,28 +206,25 @@ assert.equal(lapClock(600),'1:00.0');
 assert.equal(lapClock(599),'0:59.9');
 console.log('Lap leaderboard passed ordering, persistence, top-ten limit, replay and room/hull isolation.');
 
-const feeding=feedingHeat();
-let score;
-for(let utc=598;utc<=900;utc++){
-  const count=utc<600?7:utc<660?8:utc<900?10:12;
-  score=feeding.sample(utc,600,count,true);
-  if(utc<900)assert.equal(score.completed,undefined);
-}
-assert.equal(score.completed,3,'only captures observed in the completed five-minute heat');
-assert.equal(score.count,2,'captures observed at the next signal belong to the new heat');
-assert.equal(feeding.sample(900,600,12,true).completed,undefined,'one result per heat');
-feeding.reset();
-for(let t=605;t<=900;t++)score=feeding.sample(t,600,20,true);
-assert.equal(score.completed,undefined,'joining mid-heat cannot claim a full five minutes');
-feeding.reset();
-for(let t=600;t<=900;t++)score=feeding.sample(t,600,20,t!==700);
-assert.equal(score.completed,undefined,'an interrupted heat is practice');
-feeding.reset();
-for(let t=600;t<=900;t++)score=feeding.sample(t,600,t<800?20:0,true);
-assert.equal(score.completed,undefined,'a reset authority counter cannot finish the previous attempt');
-feeding.reset();
-for(let t=599;t<=900;t++)score=feeding.sample(t,600,20,true);
-assert.equal(score.completed,0,'a completed heat may have zero captures');
+const feeding=rollingFeedingScore();
+assert.deepEqual(feeding.sample(598,7,true),{count:0,best:0,improved:false},'existing captures do not count on join');
+assert.deepEqual(feeding.sample(599,8,true),{count:1,best:1,improved:true});
+assert.deepEqual(feeding.sample(600,10,true),{count:3,best:3,improved:true},'the race signal does not reset feeding');
+assert.deepEqual(feeding.sample(898,12,true),{count:5,best:5,improved:true});
+assert.deepEqual(feeding.sample(899,12,true),{count:4,best:5,improved:false},'captures expire exactly five minutes later');
+assert.deepEqual(feeding.sample(1198,12,true),{count:0,best:5,improved:false});
+assert.equal(feeding.sample(1199,17,false),undefined);
+assert.deepEqual(feeding.sample(1200,17,true),{count:0,best:0,improved:false},'practice captures are excluded');
+assert.deepEqual(feeding.sample(1201,0,true),{count:0,best:0,improved:false},'authority counter reset starts fresh');
+assert.deepEqual(feeding.sample(1202,2,true),{count:2,best:2,improved:true});
+assert.deepEqual(feeding.sample(1201,3,true),{count:0,best:0,improved:false},'authority clock reset starts fresh');
+const feedingTable=lapTable(storage,'room/regatta','whale-feeding');
+const feedingEntry={id:finish(0).id,captain:finish(0).captain,count:4};
+assert.equal(feedingTable.add([feedingEntry]),true);
+assert.equal(feedingTable.add([{...feedingEntry,count:7}]),true);
+assert.equal(feedingTable.add([feedingEntry]),false,'an older peer score cannot replace the best');
+feedingTable.reload();
+assert.deepEqual(feedingTable.rows,[{...feedingEntry,count:7}]);
 
 const geometry=await loadInstance('Regatta',{...startGate,windBearing:0,utc:599},read);
 const [pe,pn,mx,my,ce,cn]=geometry.getMany(['pinEast','pinNorth','markEast','markNorth','committeeEast','committeeNorth']);
@@ -248,7 +245,7 @@ assert.equal(sample('room-a/manta-2',100,1.5).get('stage'),1,'teleport reseeds t
 assert.equal(sample('room-b/manta-2',-1,1.6),undefined);await loaded;
 assert.equal(sample('room-b/manta-2',-1,1.7).get('stage'),1,'room switch starts a fresh attempt');
 subject.reset();geometry.close();
-console.log('Controlled trajectories, seat/room discontinuities and five-minute feeding heat boundaries passed.');
+console.log('Controlled trajectories, seat/room discontinuities and rolling five-minute feeding scores passed.');
 
 const catchRow=(i,count)=>({id:i.toString(16).padStart(32,'0'),captain:'Captain Kai',count});
 const hunts=lapTable(storage,'room/reef','manta-feeding');

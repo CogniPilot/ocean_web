@@ -685,6 +685,10 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  }
  let waterMeshKey=144;
  U.foamTexture={value:makeFoamTexture(THREE)};
+ const swimmerFoam=new THREE.TextureLoader().load('./assets/swimmer-foam.webp');
+ swimmerFoam.wrapS=swimmerFoam.wrapT=THREE.MirroredRepeatWrapping;
+ swimmerFoam.minFilter=THREE.LinearMipmapLinearFilter;
+ U.swimmerFoam={value:swimmerFoam};
  const water=new THREE.Mesh(waterMesh(144),new THREE.ShaderMaterial({uniforms:U,side:THREE.DoubleSide,
  vertexShader:field+`varying vec3 wp;
  uniform float tm,bearing,referenceWind;
@@ -717,7 +721,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  }
  gl_Position=projectionMatrix*viewMatrix*vec4(wp,1.);}`,
  fragmentShader:lookup+oceanRippleGLSL+skyNoiseGLSL+field+foamPatchGLSL+`
- uniform sampler2D windMap,foamTexture,whitecapMap; uniform vec3 whitecapBounds; uniform float windFieldActive,windBlend,referenceWind,windPeriod,rippleScale;
+ uniform sampler2D windMap,foamTexture,whitecapMap,swimmerFoam; uniform vec3 whitecapBounds; uniform float windFieldActive,windBlend,referenceWind,windPeriod,rippleScale;
  uniform vec3 underwaterFogColor;uniform float underwaterFogDensity;
  uniform highp sampler2D reflection,reflectionDepth,transmission; uniform mat4 mirrorMatrix,mirrorInverse;uniform vec2 viewport; uniform float under,wind,bearing;varying vec3 wp;
  #ifndef DISABLE_STERN_FOAM
@@ -1091,7 +1095,14 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
          foam=max(foam,aeration*(.18+.75*islands)*(.50+.22*swirl));
        }
      }
-     if(swimmer.y>0.)foam=max(foam,min(1.,swimmer.y)*(.40+.60*smoothstep(.22,.75,noise2(wp.xy*12.+.28*tm))));
+     if(swimmer.y>0.){
+       vec2 drift=wp.xy-.10*tm*baseDir;
+       float threads=texture2D(swimmerFoam,drift*.64).r;
+       float flecks=texture2D(swimmerFoam,vec2(.80*drift.x+.60*drift.y,-.60*drift.x+.80*drift.y)*.37+.27).r;
+       float wakeCover=smoothstep(.05,.79,min(1.,swimmer.y));
+       float froth=smoothstep(.20,.68,.73*threads+.27*flecks+.16*wakeCover);
+       foam=max(foam,wakeCover*(.11+.89*froth));
+     }
      foam=max(foam,shoreFoam);
 
      float foamLight=day*(1.-.51*storm);
@@ -1116,7 +1127,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    vec3 color=eyeDistance<=540.?surfaceColor(eye,eyeDistance,day):
      under>.5?vec3(.013,.105,.145)*(.22+.78*day):skyColor(normalize(vec3(-eye.xy,.01)));
    if(under>.5){
-     color*=exp(-vec3(.12,.096,.075)*max(0.,tide-cameraPosition.z-11.));
+     color*=exp(-vec3(.12,.096,.075)*max(0.,tide-cameraPosition.z));
      // Match the fog on nearby meshes where they intersect the water surface.
      float opticalDepth=underwaterFogDensity/gl_FragCoord.w;
      float zenith=max(0.,-eye.z);
@@ -1377,7 +1388,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
    baseThroughWidth=Math.max(320,width);baseThroughHeight=Math.max(200,height);
    throughRT.setSize(baseThroughWidth,baseThroughHeight);U.transmissionSize.value.set(baseThroughWidth,baseThroughHeight);
  }
- return {U,dome,water,renderThroughAir,updateWhitecaps:whitecaps.update,dispose(){airTargets.forEach(rt=>rt.dispose());whitecaps.dispose();U.foamTexture.value.dispose();sternField.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
+ return {U,dome,water,renderThroughAir,updateWhitecaps:whitecaps.update,dispose(){airTargets.forEach(rt=>rt.dispose());whitecaps.dispose();U.foamTexture.value.dispose();swimmerFoam.dispose();sternField.dispose();},drawSpray:t=>spray?.draw(t),swimmerWater,sampleSurface,sampleWind,readBowGrid,update,updateSpectrum,updateHullSpectrum,updateHullFoam,clearWake,updateWind,capture,setQuality,resizeCaptures,updateSky};
 }
 
 // Low maritime cloud banks in world coordinates. Soft particles scatter light

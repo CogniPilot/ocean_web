@@ -13,15 +13,17 @@ function makeRotor(T,sub,id,center,axis,material,hubMaterial){
  }
  return {center:new T.Vector3(...center),axis:new T.Vector3(...axis),rotor,handed};
 }
-function bubbleWake(T,scene,sub,includeInWater){
+function bubbleWake(T,scene,sub,includeInWater,lighting){
  const limit=800,xyz=new Float32Array(limit*3),strength=new Float32Array(limit),life=new Float32Array(limit),velocity=new Float32Array(limit*3);
  const geometry=new T.BufferGeometry(),pos=new T.BufferAttribute(xyz,3),alpha=new T.BufferAttribute(strength,1);
  geometry.setAttribute('position',pos);geometry.setAttribute('strength',alpha);
  const maxCssDiameter=5.6;
- const material=new T.ShaderMaterial({transparent:true,depthWrite:false,uniforms:{pixels:{value:500},maxDiameter:{value:maxCssDiameter}},
+ const material=new T.ShaderMaterial({transparent:true,depthWrite:false,
+   uniforms:{pixels:{value:500},maxDiameter:{value:maxCssDiameter},...lighting.uniforms},
    vertexShader:`attribute float strength;
      uniform float pixels,maxDiameter;
      varying float a;
+     ${lighting.vertexShader}
      void main(){
        vec4 p=modelViewMatrix*vec4(position,1.);
        gl_Position=projectionMatrix*p;
@@ -29,10 +31,12 @@ function bubbleWake(T,scene,sub,includeInWater){
        float diameter=min(maxDiameter,.0022*pixels*projectionMatrix[1][1]/max(.05,-p.z));
        gl_PointSize=max(1.,diameter);
        // Hardware rasterizes one pixel minimum. Preserve subpixel area in alpha.
-       a=strength*min(1.,diameter*diameter);
+       vec3 point=(modelMatrix*vec4(position,1.)).xyz;
+       float lit=min(1.,.8*ambientLight+.95*particleLampLight(point));
+       a=strength*min(1.,diameter*diameter)*lit;
      }`,
    fragmentShader:'varying float a;void main(){float r=length(gl_PointCoord-.5)*2.;if(r>1.||a<=0.)discard;gl_FragColor=vec4(.75,.94,.98,a*(.2+.7*smoothstep(.45,.86,r))*(1.-smoothstep(.86,1.,r)));}'});
- const points=new T.Points(geometry,material);points.frustumCulled=false;includeInWater(points);scene.add(points);
+ const points=new T.Points(geometry,material);points.name='Propeller bubbles';points.frustumCulled=false;includeInWater(points);scene.add(points);
  const viewport=new T.Vector4();
  points.onBeforeRender=renderer=>{
    const height=renderer.getCurrentViewport(viewport).w;

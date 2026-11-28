@@ -44,6 +44,7 @@ export function fleetFinishes(){
 }
 function valid(row,hull){
   if(!row||typeof row.id!=='string'||(feeding(hull)?!Number.isSafeInteger(row.count)||row.count<0:!Number.isSafeInteger(row.tenths)||row.tenths<=0))return false;
+  if(row.policyName!==undefined&&(typeof row.policyName!=='string'||!row.policyName||row.policyName.length>96))return false;
   const npc=/^npc-([1-5])-\d{1,15}-(?:[a-f0-9]{16}|-?\d{1,15})$/.exec(row.id);
   if(npc)return hull==='Hobie16'&&(npcNumber.test(row.captain)||row.captain==='NPC '+npc[1]);
   return /^[a-f0-9]{32}$/.test(row.id)&&(row.captain==='You'||playerNumber.test(row.captain)||isCaptainName(row.captain));
@@ -76,7 +77,13 @@ export function lapTable(storage,scope,hull){
     if(!Array.isArray(batch)||batch.length>limit)return false;
     const before=rows.slice();
     for(const row of batch){
-      if(valid(row,hull)&&!rows.some(r=>r.id===row.id))rows.push({id:row.id,captain:row.captain,...(feeding(hull)?{count:row.count}:{tenths:row.tenths}),...(Object.hasOwn(controllers,row.controller)?{controller:row.controller}:{})});
+      if(!valid(row,hull))continue;
+      const current=rows.findIndex(r=>r.id===row.id);
+      if(current>=0&&(!feeding(hull)||row.count<=rows[current].count))continue;
+      const entry={id:row.id,captain:row.captain,
+        ...(feeding(hull)?{count:row.count}:{tenths:row.tenths}),...(Object.hasOwn(controllers,row.controller)?{controller:row.controller}:{}),
+        ...(row.policyName?{policyName:row.policyName}:{})};
+      if(current<0)rows.push(entry);else rows[current]=entry;
     }
     trim();
     for(const row of rows){
@@ -94,29 +101,22 @@ export function lapTable(storage,scope,hull){
   };
 }
 
-// A feeding heat uses the race committee's UTC schedule. Catch counters are
-// cumulative on the habitat authority, so establish the baseline at the signal.
-export function feedingHeat(){
-  let last;
+// Count changes to the habitat authority's cumulative score on its own clock.
+export function rollingFeedingScore(){
+  let last,queue=[],count=0,best=0;
+  function reset(){last=undefined;queue=[];count=best=0;}
   return {
-    reset(){last=undefined;},
-    sample(utc,start,total,eligible){
-      if(!Number.isFinite(utc)||!Number.isFinite(start)||!Number.isSafeInteger(total)||total<0){
-        last=undefined;return;
-      }
-      const heat=start+300*Math.floor((utc-start)/300);
-      const continuous=last&&last.start===start&&utc>=last.utc&&utc-last.utc<=2&&total>=last.total;
-      const atSignal=utc>=start&&(utc===heat||continuous&&last.heat+300===heat);
-      let completed;
-      if(continuous&&last.heat+300===heat&&last.eligible&&eligible)completed=last.total-last.base;
-      if(!continuous||last.heat!==heat){
-        const base=continuous?last.total:total;
-        last={heat,start,base,total,utc,eligible:Boolean(atSignal&&eligible)};
-      }else{
-        last.eligible&&=eligible;
-        last.total=total;last.utc=utc;
-      }
-      return {count:total-last.base,eligible:last.eligible,completed};
+    reset,
+    sample(time,total,eligible){
+      if(!eligible||!Number.isFinite(time)||!Number.isSafeInteger(total)||total<0){reset();return;}
+      if(last&&(time<last.time||total<last.total))reset();
+      const caught=last?total-last.total:0;
+      last={time,total};
+      while(queue.length&&queue[0].time<=time-300)count-=queue.shift().caught;
+      if(caught){queue.push({time,caught});count+=caught;}
+      const improved=count>best;
+      if(improved)best=count;
+      return {count,best,improved};
     }
   };
 }
@@ -131,7 +131,7 @@ export function controlledRace(create){
     generation++;model?.close();model=undefined;pending=undefined;previous=undefined;key=undefined;nextAttempt=0;
   }
   return {reset,get generation(){return generation;},
-    sample(id,position,time,utc,start,course,trajectoryTime=time){
+    sample(id,position,time,utc,start,course,trajectoryTime=time,gateEnds){
       if(!position||!Number.isFinite(position[0])||!Number.isFinite(position[1])||!Number.isFinite(time)||!Number.isFinite(utc)){
         if(key!==undefined)reset();return;
       }
@@ -143,7 +143,8 @@ export function controlledRace(create){
         if(!pending&&time>=nextAttempt){
           const ticket=generation;
           previous={time,trajectoryTime,east,north};
-          pending=create({east,north,utc,raceStart:start,coursePoints:course()}).then(loaded=>{
+          const gate=gateEnds?{courseGateEnds:gateEnds()}:{};
+          pending=create({east,north,utc,raceStart:start,coursePoints:course()},gate).then(loaded=>{
             if(generation!==ticket){loaded.close();return;}
             model=loaded;pending=undefined;
           }).catch(error=>{
@@ -156,6 +157,7 @@ export function controlledRace(create){
       if(dt>=.049){
         model.set('east',east);model.set('north',north);model.set('utc',utc);
         model.set('raceStart',start);model.set('coursePoints',course());
+        if(gateEnds&&model.has('courseGateEnds'))model.set('courseGateEnds',gateEnds());
         model.advance(Math.min(dt,.1));previous={time,trajectoryTime,east,north};
       }
       return model;
@@ -172,11 +174,35 @@ export function lapLeaderboard(hull,roomName,panel,signal){
   let room=roomTables(roomName);
   let channel;
   const finished=new Set();
+  const feedingIds=new Map(),feedingBests=new Map();
+  function feedingId(kind,policyName){
+    const key='ocean.feeding.v1.'+kind+'.'+encodeURIComponent(policyName??'');
+    if(!feedingIds.has(key)){
+      let id;
+      try{id=storage?.getItem(key);}catch{}
+      if(!/^[a-f0-9]{32}$/.test(id??'')){
+        id=crypto.randomUUID().replaceAll('-','');
+        try{storage?.setItem(key,id);}catch{}
+      }
+      feedingIds.set(key,id);
+    }
+    return feedingIds.get(key);
+  }
+  function bestKey(id){return 'ocean.feeding.best.v1.'+(channel?'room.'+encodeURIComponent(roomName):'personal')+'.'+id;}
+  function localFeedingBest(id){
+    const key=bestKey(id);
+    if(!feedingBests.has(key)){
+      let value=0;
+      try{value=Number(storage?.getItem(key));}catch{}
+      feedingBests.set(key,Number.isSafeInteger(value)&&value>0?value:0);
+    }
+    return feedingBests.get(key);
+  }
   const selection=details.querySelector('select');
   selection.replaceChildren();
   for(const board of boards){
     const name=classes[board.replace(/-feeding$/,'')];
-    selection.add(new Option(name+(feeding(board)?' · 5 min feeding':' · Lap time'),board));
+    selection.add(new Option(name+(feeding(board)?' · Best 5 min feeding':' · Lap time'),board));
   }
   selection.value=hull;selection.onchange=render;
   const heading=details.querySelector('small'),list=details.querySelector('ol'),empty=details.querySelector('p');
@@ -184,12 +210,12 @@ export function lapLeaderboard(hull,roomName,panel,signal){
     const board=selection.value||hull;
     const rows=(channel?room:personal).get(board).rows;
     heading.textContent=channel?'Room '+roomName:'This device';
-    empty.textContent=feeding(board)?'No completed feeding heats yet.':'No finished laps yet.';
+    empty.textContent=feeding(board)?'No feeding scores yet.':'No finished laps yet.';
     list.replaceChildren();
     for(const row of rows){
       const item=document.createElement('li'),time=document.createElement('time');
       item.append(channel||row.id.startsWith('npc-')?(isCaptainName(row.captain)?'Player':row.captain):'You');
-      if(row.controller)item.append(' · '+controllers[row.controller]);
+      if(row.policyName||row.controller)item.append(' · '+(row.policyName??controllers[row.controller]));
       time.textContent=feeding(board)?row.count+' caught':lapClock(row.tenths);
       item.append(time);
       list.append(item);
@@ -214,13 +240,13 @@ export function lapLeaderboard(hull,roomName,panel,signal){
     };
     render();
   }
-  function observe(stage,seconds,captain,eligible=true){
+  function observe(stage,seconds,captain,eligible=true,policyName){
     const entered=stage===5&&!finished.has(hull);
     if(stage===5)finished.add(hull);else finished.delete(hull);
     if(!entered||!eligible)return;
     const bytes=crypto.getRandomValues(new Uint8Array(16));
     const id=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
-    const row={id,captain:captain||'You',tenths:Math.round(seconds*10)};
+    const row={id,captain:captain||'You',tenths:Math.round(seconds*10),policyName};
     record(hull,row);
   }
   function record(boat,row){
@@ -235,9 +261,10 @@ export function lapLeaderboard(hull,roomName,panel,signal){
     // synchronized vessel identity and scheduled heat to keep one entry.
     const spawn=vessel.raceId??Math.round(vessel.started*1000);
     const id='npc-'+number+'-'+status.heatStart+'-'+spawn;
-    record('Hobie16',{id,captain:name,controller:vessel.controller??'vmg',tenths:Math.round(status.lapTime*10)});
+    record('Hobie16',{id,captain:name,controller:vessel.controller??'vmg',policyName:vessel.policyName,tenths:Math.round(status.lapTime*10)});
   }
   window.addEventListener('storage',event=>{
+    if(event.key===null)feedingBests.clear();else feedingBests.delete(event.key);
     for(const table of [...personal.values(),...room.values()]){
       if(event.key===null||event.key.startsWith(table.prefix)){
         // Rebuild from the settled storage contents, including deletions.
@@ -248,10 +275,17 @@ export function lapLeaderboard(hull,roomName,panel,signal){
   },{signal});
   render();
   return {connect,send,observe,observeNpc,
-    recordFeeding(kind,count,captain){
-      if(!feedingKinds.includes(kind))return;
-      const id=crypto.randomUUID().replaceAll('-','');
-      record(kind+'-feeding',{id,captain:captain||'You',count});
+    recordFeeding(kind,count,captain,policyName){
+      if(!feedingKinds.includes(kind)||!Number.isSafeInteger(count)||count<=0)return;
+      const id=feedingId(kind,policyName);
+      if(count<=localFeedingBest(id))return;
+      const key=bestKey(id);feedingBests.set(key,count);
+      try{storage?.setItem(key,String(count));}catch{}
+      record(kind+'-feeding',{id,captain:captain||'You',count,policyName});
+    },
+    bestFeeding(kind,policyName){
+      const id=feedingId(kind,policyName);
+      return localFeedingBest(id);
     },
     select(kind){if(classes[kind]&&hull!==kind){hull=kind;selection.value=kind;render();}}
   };

@@ -63,7 +63,9 @@ try{
         if(!texture.image)throw Error('Texture did not load: '+texture.name);
       }));
     }
-    const landScene=new T.Group(),island=coast(T,landScene),terrain=island.userData.chartTerrain;
+    const {scene:shore}=await new GLTFLoader().loadAsync('assets/island/harbor-island.glb');
+    shore.rotation.x=Math.PI/2;
+    const landScene=new T.Group(),island=coast(T,landScene,shore),terrain=island.userData.chartTerrain;
     const reef=fringingReef(T,landScene,terrain,false,false,new AbortController().signal);
     reef.update(new T.Vector3(terrain.center[0],terrain.center[1],8),0);
     const materials=island.userData.terrainTextures;

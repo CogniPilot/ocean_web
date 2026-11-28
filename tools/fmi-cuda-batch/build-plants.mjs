@@ -8,7 +8,9 @@ const here=dirname(fileURLToPath(import.meta.url));
 const root=resolve(here,'../..'),runtime=join(root,'viewer/fmi3');
 const [output,...names]=process.argv.slice(2);
 if(!output||!names.length||names.some(n=>!/^\w+$/.test(n)))throw Error('Usage: node build-plants.mjs OUTPUT PLANT [PLANT ...]');
-const blockCopies=process.env.RUMOCA_CUDA_BLOCK_COPIES==='1';
+const residentPackets=process.env.RUMOCA_CUDA_RESIDENT_PACKETS==='1';
+const blockCopies=residentPackets||process.env.RUMOCA_CUDA_BLOCK_COPIES==='1';
+const blockKernel=residentPackets?'rmc_fmi3_packet_block_v1':'rmc_fmi3_step_block';
 const out=resolve(output);
 mkdirSync(out,{recursive:true});
 const work=mkdtempSync(join(out,'build-'));
@@ -43,12 +45,16 @@ for(const name of new Set(names)){
   const xml=readFileSync(join(source,'modelDescription.xml'),'utf8');
   if(xml.match(/instantiationToken="([^"]+)"/)?.[1]!==token)throw Error('Browser and source archive FMI tokens differ for '+name);
   const entry=join(source,'sources/rmc_cuda_step.c.inc');
-  if(!existsSync(entry)||(blockCopies&&!readFileSync(entry,'utf8').includes('rmc_fmi3_step_block'))){
+  if(!existsSync(entry)||(blockCopies&&!readFileSync(entry,'utf8').includes(blockKernel))){
     // Early source archives predate the optional CUDA entry. Supply the same
     // template from the CUDA compiler, leaving the archived model equations intact.
     const template=readFileSync(join(templates,'fmi3/cuda_step.c.jinja'),'utf8');
     if(!template.includes('{{ artifact.identities.fmu }}')||!/^[\w-]+$/.test(token))throw Error('Unsupported CUDA entry template or FMI token for '+name);
     writeFileSync(entry,template.replaceAll('{{ artifact.identities.fmu }}',token));
+  }
+  const packetHeader=join(source,'sources/rmc_cuda_packet.h');
+  if(residentPackets&&!existsSync(packetHeader)){
+    cpSync(join(templates,'fmi3/cuda_packet.h.jinja'),packetHeader);
   }
   let builder=join(compiler,'build.mjs');
   const compilerEnv={...env};
@@ -62,10 +68,11 @@ for(const name of new Set(names)){
     writeFileSync(builder,tuned);
     compilerEnv.PTXAS_OPT_LEVEL='1';
   }
-  execFileSync(process.execPath,[builder,source,device,...(blockCopies?['--block-copies']:[])],{stdio:'inherit',env:compilerEnv});
+  const builderOptions=residentPackets?['--block-packets']:blockCopies?['--block-copies']:[];
+  execFileSync(process.execPath,[builder,source,device,...builderOptions],{stdio:'inherit',env:compilerEnv});
   const deviceBuild=JSON.parse(readFileSync(join(device,'ensemble.json'),'utf8'));
-  if(blockCopies && (deviceBuild.kernel!=='rmc_fmi3_step_block' || deviceBuild.threadsPerBlock!==33)){
-    throw Error('Selected Rumoca checkout does not provide cooperative CUDA copies');
+  if(blockCopies && (deviceBuild.kernel!==blockKernel || deviceBuild.threadsPerBlock!==33)){
+    throw Error('Selected Rumoca checkout does not provide CUDA entry '+blockKernel);
   }
   const defines=deviceBuild.hostDefines ?? [];
   if(!Array.isArray(defines)){
@@ -74,10 +81,20 @@ for(const name of new Set(names)){
   run('bash',[join(here,'build.sh'),join(source,'sources'),host,...defines]);
   const runner=join(host,'runner'),cubin=join(device,'ensemble.cubin');
   const entryConfig={runner:relative(out,runner),cubin:relative(out,cubin),metadata:relative(out,metadata)};
+  const workspace=deviceBuild.workspaceBytes;
+  if(workspace!==undefined){
+    if(!Number.isSafeInteger(workspace)||workspace<256||workspace%256)throw Error('Invalid CUDA workspace bound for '+name);
+    if(!env.RUMOCA_CUDA_ARENA_BYTES)entryConfig.arenaBytes=workspace;
+  }
+  if(deviceBuild.stackBytes!==undefined){
+    if(!Number.isSafeInteger(deviceBuild.stackBytes)||deviceBuild.stackBytes<=0){
+      throw Error('Invalid CUDA stack reservation for '+name);
+    }
+    if(!env.RUMOCA_CUDA_STACK_BYTES)entryConfig.stackBytes=deviceBuild.stackBytes;
+  }
   if(name==='OceanMotorboat'){
-    // The cruiser kernel uses a 30,928-byte entry frame on SM 86.
-    entryConfig.stackBytes=32768;
-    entryConfig.arenaBytes=8*1024*1024;
+    if(!env.RUMOCA_CUDA_STACK_BYTES)entryConfig.stackBytes??=32768;
+    if(!env.RUMOCA_CUDA_ARENA_BYTES)entryConfig.arenaBytes??=8*1024*1024;
   }
   const options={...env};
   if(entryConfig.stackBytes)options.RUMOCA_CUDA_STACK_BYTES=String(entryConfig.stackBytes);

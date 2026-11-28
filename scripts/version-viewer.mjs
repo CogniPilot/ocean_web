@@ -17,12 +17,22 @@ for(const kind of ['turn','lobby']){
   sources[0]=sources[0].replace(`<meta name="ocean-${kind}-endpoint" content="">`,
     `<meta name="ocean-${kind}-endpoint" content="${address}">`);
 }
+const electrode=process.env.OCEAN_ELECTRODE_URL;
+if(electrode){
+  const origin='https://ocean-web.invalid';
+  const address=new URL(electrode,origin);
+  if(address.protocol!=='https:'||address.username||address.password||(!electrode.startsWith('https://')&&address.origin!==origin))
+    throw Error('OCEAN_ELECTRODE_URL must be HTTPS or a same-origin path');
+  const href=(address.origin===origin?address.href.slice(origin.length):address.href).replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+  sources[0]=sources[0].replace('<meta name="ocean-electrode-url" content="">',
+    `<meta name="ocean-electrode-url" content="${href}">`);
+}
 const hash=createHash('sha256');
 for(const source of sources)hash.update(source).update('\0');
-for(const name of ['trystero.mjs','names.js'])
+for(const name of ['trystero.mjs','names.js','apriltag-wasm.mjs','apriltag-wasm.wasm'])
   hash.update(await readFile(join(root,'vendor',name))).update('\0');
 for(const asset of ['hobie-hulls','whale','shark'])hash.update(await readFile(join(root,'assets',asset+'.glb')));
-for(const surface of ['island','subsea','chart'])for(const asset of (await readdir(join(root,'assets',surface))).sort())
+for(const surface of ['island','subsea','chart','landing-tags'])for(const asset of (await readdir(join(root,'assets',surface))).sort())
   hash.update(await readFile(join(root,'assets',surface,asset)));
 for(const site of ['yatush','satil'])for(const asset of ['far.glb','dive.glb','collision.json'])
   hash.update(await readFile(join(root,'assets','red-sea',site,asset)));

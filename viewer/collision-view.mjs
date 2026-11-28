@@ -148,7 +148,7 @@ export function collisionOverlay(T,name='Collision shapes',segmentCapacity=32768
   };
 }
 
-// Convex pieces follow their GLTF joints. The whale also has terrain contact probes.
+// Triangulated swimmer collision pieces follow their GLTF joints.
 let swimmerHulls,loadingHulls;
 function loadSwimmerHulls(){
   if(!loadingHulls){
@@ -194,24 +194,8 @@ export function drawAnimalCollision(painter,frame,kind){
   }
   if(kind!=='whale'&&kind!=='shark')return;
   frame.updateWorldMatrix(true,false);
-  const pose=frame.userData.contactPose;
   if(!swimmerHulls){loadSwimmerHulls();return;}
   painter.swimmerSkin(frame,swimmerHulls[kind]);
-  if(kind==='whale'){
-    const skin=swimmerHulls.probes.whale;
-    painter.points(frame,skin.slice(0,5).flat(),'#f8ec9d');
-    if(!pose)return;
-    // A fluke probe follows tail pitch relative to the rolled torso and
-    // translates with the torso hinge at x = -2.35 m.
-    const roll=pose[35],pitch=pose[31]-pose[29],cr=Math.cos(roll),sr=Math.sin(roll);
-    const ct=Math.cos(pitch),st=Math.sin(pitch),flukes=[];
-    for(const [x,y,z] of skin.slice(5)){
-      const ry=y*cr-z*sr,rz=y*sr+z*cr;
-      const up=(x+2.35)*st+rz*ct;
-      flukes.push(-2.35+(x+2.35)*ct-rz*st,ry*cr+up*sr,-ry*sr+up*cr);
-    }
-    painter.points(frame,flukes,'#f8ec9d');
-  }
 }
 
 // Sailboat.contactWrench compares horizontal discs across a pair of boats,

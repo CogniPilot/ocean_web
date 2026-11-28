@@ -32,27 +32,38 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
     output Real wrench[6];
   protected
     Real cs,sn,arm[3],p[3],delta[3],contact[5],force[3],lever[3],peak;
+    Real start[3],finish[3],center[3],extent[3],radius;
     Integer intervals;
   algorithm
     wrench:=zeros(6);
     if Shore.aboveFlatBottom(pos[1],pos[2],pos[3],8.7) then return;end if;
     cs:=cos(heading);sn:=sin(heading);
     for i in 1:19 loop
-      delta:=shapes[i,4:6]-shapes[i,1:3];
-      intervals:=if i<=7 then 5 elseif i<=13 then 9 else 3;
-      peak:=0;force:=zeros(3);lever:=zeros(3);
-      for j in 0:9 loop
-        if j>intervals then break;end if;
-        arm:=rotation*(shapes[i,1:3]+j/intervals*delta);
-        p:=pos+{cs*arm[1]-sn*arm[2],sn*arm[1]+cs*arm[2],arm[3]};
-        if not Shore.aboveFlatBottom(p[1],p[2],p[3],shapes[i,7]) then
-          contact:=Shore.skinContact(p,cs,sn,velocity+cross(spin,arm),if i<=13 then 16 else 85,shapes[i,7]);
-          if contact[4]>peak then
-            peak:=contact[4];force:=contact[1:3];lever:=arm;
+      start:=rotation*shapes[i,1:3];
+      finish:=rotation*shapes[i,4:6];
+      center:=(start+finish)/2;
+      extent:=(finish-start)/2;
+      radius:=shapes[i,7];
+      // skinContact measures distance along the normal. Sand grid slopes are
+      // bounded by 7 east and 9 north, so 12 radii cover the vertical offset.
+      if not Shore.clearOfShore(pos[1]+cs*center[1]-sn*center[2],pos[2]+sn*center[1]+cs*center[2],
+        pos[3]+min(start[3],finish[3])-12*radius-1e-8,sqrt(extent[1]^2+extent[2]^2)+radius+1e-8) then
+        delta:=shapes[i,4:6]-shapes[i,1:3];
+        intervals:=if i<=7 then 5 elseif i<=13 then 9 else 3;
+        peak:=0;force:=zeros(3);lever:=zeros(3);
+        for j in 0:9 loop
+          if j>intervals then break;end if;
+          arm:=rotation*(shapes[i,1:3]+j/intervals*delta);
+          p:=pos+{cs*arm[1]-sn*arm[2],sn*arm[1]+cs*arm[2],arm[3]};
+          if not Shore.aboveFlatBottom(p[1],p[2],p[3],radius) then
+            contact:=Shore.skinContact(p,cs,sn,velocity+cross(spin,arm),if i<=13 then 16 else 85,radius);
+            if contact[4]>peak then
+              peak:=contact[4];force:=contact[1:3];lever:=arm;
+            end if;
           end if;
-        end if;
-      end for;
-      wrench:=wrench+cat(1,force,cross(lever,force));
+        end for;
+        wrench:=wrench+cat(1,force,cross(lever,force));
+      end if;
     end for;
   end rigTerrainContact;
 
@@ -542,7 +553,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   final parameter Integer jibPurchase=2 "Two sheet legs through each clew block";
   parameter Real jibSheetEA(unit="N")=900,jibSheetTail(unit="m")=.82;
   parameter Real jibHaulForce(unit="N")=150,jibHoldingForce(unit="N")=250;
-  final parameter Real jibLeadHalf=.019,jibTightSpan=.47,jibEasedSpan=2.57;
+  final parameter Real jibLeadHalf=.019,jibCloseHauledSpan=.47,jibEasedSpan=2.57;
+  parameter Real jibExtraHaul(unit="m",min=0,max=.37)=.22 "Additional take-up at the tight end of the sheet control";
   Real jibLeadCrown,jibLeadSlope,jibLineStiffness[3],jibStretch[3],jibTakeup[3];
   Real jibLegVector[3,2,3],jibLegLength[3,2],jibLegUnit[3,2,3];
   output Real jibSheetPins[5,3] "Clew and both pairs of deck lead pins in hull axes";
@@ -602,7 +614,7 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   Real swellPhase,swellLocal[2],waterDamping,waterVertical;
   final parameter Real waterplaneArea=sum((stationX[2:7]-stationX[1:6]).*(beamHalf[2:7]+beamHalf[1:6]))*(if catamaran then 2 else 1);
   parameter Real heaveDampingRatio=.38 "Estimated fraction of critical damping at design waterline";
-  parameter Real podRadius=if catamaran then .17 else .075, podMass=if catamaran then 1.3 else .35;
+  parameter Real podRadius=if catamaran then 0 else .075, podMass=if catamaran then 0 else .35;
   parameter Real podZ=if catamaran then 8.44 else 3.02;
   Real podCenter[3],podSurface[3],podNormal[3],podCap,podWetVolume,podBuoyancy,podRoll,podPitch,totalMass;
   output Real sectionVolume[2,6];
@@ -641,6 +653,8 @@ model Sailboat "Autonomous fin-keel sloop on a three-leg closed course"
   parameter Real launchHeel(unit="rad")=0;
   Real east(start=launchEast,fixed=true), north(start=launchNorth,fixed=true), heading(start=launchHeading,fixed=true);
   output Real shoreWrench[6];
+  output Real sandShoreWrench[6];
+  discrete Real sandManifold[6,7](each start=0,each fixed=true);
   Real surge(start=launchSpeed,fixed=true), sway(start=0,fixed=true), yawRate(start=0,fixed=true);
   // Effective inertia of the water entrained by the submerged part of each sail.
   // Chord and span mean-square arms use a triangular planform approximation.
@@ -932,8 +946,8 @@ equation
     swellAmplitude*sin(swellPhase+swellLocal*podCenter[1:2]))/sqrt(podSurface*podSurface)));
   podWetVolume=3.14159265358979*podCap^2*(podRadius-podCap/3);
   podBuoyancy=1025*9.80665*podWetVolume;
-  podRoll=(podCenter[2]+podNormal[2]*.75*(2*podRadius-podCap)^2/(3*podRadius-podCap))*podBuoyancy-podCenter[2]*podMass*9.80665;
-  podPitch=-(podCenter[1]+podNormal[1]*.75*(2*podRadius-podCap)^2/(3*podRadius-podCap))*podBuoyancy+podCenter[1]*podMass*9.80665;
+  podRoll=(if podRadius>0 then (podCenter[2]+podNormal[2]*.75*(2*podRadius-podCap)^2/(3*podRadius-podCap))*podBuoyancy else 0)-podCenter[2]*podMass*9.80665;
+  podPitch=(if podRadius>0 then -(podCenter[1]+podNormal[1]*.75*(2*podRadius-podCap)^2/(3*podRadius-podCap))*podBuoyancy else 0)+podCenter[1]*podMass*9.80665;
   swellPhase=swellK*(east*cos(swellBearing)+north*sin(swellBearing))-swellOmega*(time+seaClockOffset);
   swellLocal=swellK*{cos(swellBearing-heading),sin(swellBearing-heading)};
   bowClearance=if catamaran then -max(foredeckDepth) else 0;
@@ -1195,7 +1209,8 @@ equation
   for j in 2:3 loop
     lineTarget[j]=if rightingSide<>0 then max(linePaid[j],lineSpan[j]+.15)
       elseif catamaran then (if (j==2 and jibWorkingSide>0) or (j==3 and jibWorkingSide<0)
-        then jibTightSpan+(jibEasedSpan-jibTightSpan)*jibSheet else jibEasedSpan)
+        then jibCloseHauledSpan+(jibEasedSpan-jibCloseHauledSpan)*jibSheet
+          -jibExtraHaul*max(0,1-jibSheet/.05) else jibEasedSpan)
       else sqrt(fairlead[2,3]^2+(.88*feet[2]*payout/sheetArm)^2);
   end for;
   mainSheetStiffness=purchase^2*mainsheetEA/(sheetTail+purchase*linePaid[1]);
@@ -1475,8 +1490,11 @@ equation
   frictionCoefficient=if hullRe<5e5 then 1.328/sqrt(max(1,hullRe)) else .075/(log10(hullRe)-2)^2;
   skinDrag=.5*1025*skinArea*(1+formFactor)*frictionCoefficient*waterRelative[1]*abs(waterRelative[1]);
   rigCollision=if catamaran then rigCapsules(mastStations,cat(1,stayPath[1:2,:,:],{forestayPath}),rudder) else zeros(19,7);
-  shoreWrench=Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing)+rigShoreWrench+rockShoreWrench;
+  sandShoreWrench=if catamaran then Shore.sandManifoldWrench({east,north,heave},heading,rotation,{surge,sway,vertical},spin,sandManifold) else zeros(6);
+  shoreWrench=(if catamaran then sandShoreWrench else Shore.contact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,stationX,beamHalf,halfSpacing,true))+rigShoreWrench+rockShoreWrench;
   when sample(0,.02) then
+    sandManifold=if catamaran then Shore.hobieSandManifold({east,north,heave},heading,rotation,
+      halfSpacing,pontoonContactVertices,pontoonContactFaces) else zeros(6,7);
     rockShoreWrench=if catamaran and abs(east-36)<31 and abs(north-40)<26 then
       Shore.hobieRockContact({east,north,heave},heading,rotation,{surge,sway,vertical},spin,
         halfSpacing,platformContactCorners,pontoonContactVertices,pontoonContactFaces,Shore.rocks,Shore.planes)

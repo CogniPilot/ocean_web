@@ -134,7 +134,10 @@ export function feedingHarbor(T,scene,room,playSound,gullEnvironment,sampleSurfa
       if(!frame||a.id!==a.kind&&!a.frame)continue;
       const old=lastAnimalFrames.get(a.id)??(a.id===a.kind?previous:null);
       if(a.kind==='whale'&&old){
-        if(frame[22]>=0&&old[22]<0)room.sound('spout',t,frame.slice(17,20),1);
+        if(frame[0]>old[0]&&frame[22]>=0&&(old[22]<0||frame[22]<old[22])){
+          const [east,north]=frame.slice(17,19);
+          room.sound('spout',t,[east,north,sampleSurface(east,north)],1);
+        }
         if(frame[60]>old[60]&&frame[64]>1.2)room.sound('impact',t,frame.slice(61,64),Math.min(1.5,frame[64]/3));
       }
       // Extra animals have independent simulation clocks. Keep the prior event

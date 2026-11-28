@@ -945,32 +945,19 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
    return {pivot,geo,coords,boomHinge,bail,vang,downhaul,downhaulBase,outhaul,tufts,telltaleRows,
      battenRows:panel?rows-2:0};
  });
- const podRadius=cat?.17:.075,podHeight=cat?8.44:3.02,podX=cat?.44:.12;
- const halfLength=cat?.29:podRadius;
- const sideRadius=cat?Math.sqrt(podRadius**3/halfLength):podRadius;
- const masthead=new T.Group();
- masthead.position.set(podX,0,podHeight);
- group.add(masthead);
- let shell;
- if(cat){
-   const profile=Array.from({length:33},(_,i)=>{
-     const u=i/16-1;
-     return new T.Vector2(sideRadius*(1+u)*Math.sqrt(1-u),halfLength*u);
-   });
-   shell=new T.LatheGeometry(profile,32);shell.rotateZ(-Math.PI/2);
-   const bracket=mesh(new T.BoxGeometry(.095,.06,.115),paint(0x76838b),masthead);
-   bracket.position.z=-sideRadius-.022;
- }else shell=new T.SphereGeometry(podRadius,24,16);
- const pod=mesh(shell,cat?white:paint(0xffd14c),masthead);
- if(cat)pod.name='Masthead float';
  const cameraPorts=[];
- for(let i=0;!cat&&i<4;i++){
-   const a=i*Math.PI/2,r=i%2?sideRadius:halfLength;
-   const lens=mesh(new T.SphereGeometry(podRadius*.24,12,8),paint(0x18262e),masthead);
-   lens.position.set(r*Math.cos(a),r*Math.sin(a),0);
-   cameraPorts.push([podX+lens.position.x,lens.position.y,podHeight]);
+ if(!cat){
+   const radius=.075,height=3.02;
+   const pod=mesh(new T.SphereGeometry(radius,24,16),paint(0xffd14c));
+   pod.position.set(.12,0,height);
+   for(let i=0;i<4;i++){
+     const a=i*Math.PI/2;
+     const lens=mesh(new T.SphereGeometry(radius*.24,12,8),paint(0x18262e),pod);
+     lens.position.set(radius*Math.cos(a),radius*Math.sin(a),0);
+     cameraPorts.push([pod.position.x+lens.position.x,lens.position.y,height]);
+   }
+   vane.position.z=height+radius+.035;
  }
- if(vane)vane.position.z=podHeight+podRadius+.035;
  const ribbonGravity=new T.Vector3(),inverse=new T.Quaternion(),anchor=new T.Vector3(),ribbonNormal=new T.Vector3();
  const rightingLead=new T.Vector3(),rightingGrip=new T.Vector3();
  const inspection={sails,joints:[
@@ -1100,7 +1087,6 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
      gooseneckSlider.visible=Boolean(gooseneck);
      if(gooseneck)gooseneckSlider.position.fromArray(gooseneck);
      gooseneckSlider.quaternion.copy(rotation);
-     let headX,headY,headZ=podHeight;
      if(mastStations){
        const last=mastStations.length-3;
        for(let i=0;i<position.count;i++){
@@ -1116,18 +1102,16 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
          position.setXYZ(i,x+mastSection.x,y+mastSection.y,z+mastSection.z);
        }
        mastHeel.position.fromArray(mastStations);mastHeel.position.z+=.031;
-       headX=mastStations[last];headY=mastStations[last+1];headZ=mastStations[last+2];
      }else{
        const bend=Array.from({length:6},(_,r)=>s[186]*s[42+12*r]+s[187]*s[43+12*r]);
        const lateral=Array.from({length:6},(_,r)=>s[189]*s[42+12*r]+s[190]*s[43+12*r]);
        for(let i=0;i<position.count;i++){
          const w=mastWeights[i],lo=Math.floor(w),hi=Math.min(5,lo+1);
          mastSection.set(mastRest.getX(i),mastRest.getY(i),0).applyQuaternion(rotation);
-         position.setXYZ(i,podX+T.MathUtils.lerp(bend[lo],bend[hi],w-lo)+mastSection.x,
+         position.setXYZ(i,.44+T.MathUtils.lerp(bend[lo],bend[hi],w-lo)+mastSection.x,
            T.MathUtils.lerp(lateral[lo],lateral[hi],w-lo)+mastSection.y,mastRest.getZ(i)+mastSection.z);
        }
        mastHeel.position.set(.44,0,.474);
-       headX=podX+bend[5];headY=lateral[5];
      }
      mastHeel.quaternion.copy(rotation);
      for(let i=0;i<normal.count;i++){
@@ -1135,8 +1119,6 @@ export function sailboatMesh(T,cat=false,keelX=.06,sailPanels,blockStack=.295,tr
        normal.setXYZ(i,mastSection.x,mastSection.y,mastSection.z);
      }
      position.needsUpdate=normal.needsUpdate=true;
-     masthead.position.set(headX,headY,headZ);
-     masthead.quaternion.copy(rotation);
    }
    if(cars){
      crossTiller.position.set(-2.545+.89*Math.cos(s[7]),-.89*Math.sin(s[7]),.47);

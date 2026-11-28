@@ -78,6 +78,17 @@ export function waterStreaks(T,scene,name,capacity,bow=false){
   return {mesh,emit,draw,clear,dispose(){mesh.removeFromParent();geometry.dispose();material.dispose();}};
 }
 
+export function emitReentrySpray(drops,{x,y,z,time,yaw,eastSpeed,northSpeed,downSpeed,halfBeam,halfLength}){
+  const c=Math.cos(yaw),s=Math.sin(yaw),strength=Math.min(6,downSpeed);
+  for(let i=0;i<96;i++){
+    const angle=i*2.39996,spread=.22+.8*(i%11)/10;
+    const across=halfBeam*Math.cos(angle)*spread,along=halfLength*Math.sin(angle)*spread;
+    const dx=along*c-across*s,dy=along*s+across*c;
+    drops.emit(x+dx,y+dy,z+.035,time,.22*eastSpeed+dx,.22*northSpeed+dy,
+      strength*(.22+.48*((i*17)%23)/22),.011+.013*spread,z,.035);
+  }
+}
+
 export function surfaceSpray(T,scene,name,count,surface,{bow=false}={}){
   const drops=waterStreaks(T,scene,name,bow?768:2048,bow),positions=Array.from({length:count},()=>new T.Vector3());
   const before=positions.map(p=>p.clone()),wetAt=new Float64Array(count).fill(-Infinity);

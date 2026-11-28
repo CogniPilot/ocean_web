@@ -5,6 +5,9 @@ import {sailTrainingTasks} from '../viewer/sail-training-tasks.mjs';
 const [hobie,sloop]=sailTrainingTasks;
 const values={heading:0,ve:2,vn:0,windEast:0,windNorth:-5,heel:0,yawRate:0,payout:.3};
 const model={get:key=>values[key],set:(key,value)=>{values[key]=value;}};
+const rig={trim:[.1,.2],rudder:.3,ballastX:.4,ballastY:1.5,ballastZ:.52,swellAmplitude:.325,swellK:.2,swellBearing:1,swellPhase:2};
+assert.deepEqual(hobie.rigPose({get:key=>rig[key]}),[.1,.2,.3,.4,1.5,.52,.325,.2,1,2]);
+assert.deepEqual(sloop.rigPose({get:key=>rig[key]}),[.1,.2,.3]);
 for(const tack of [1,-1]){
   values.windNorth=-5*tack;
   const target={pointOfSail:tack*Math.PI/2};

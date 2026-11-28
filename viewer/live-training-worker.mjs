@@ -15,7 +15,7 @@ function observation(model,fields){
   const values=model.getMany(fields);
   if(!values.every(v=>Array.isArray(v)||ArrayBuffer.isView(v)?v.every(Number.isFinite):Number.isFinite(v)))throw Error('Nonfinite '+fields.join('/')+' observation');
   const map=new Map(fields.map((name,i)=>[name,values[i]]));
-  return {time:model.time,get:key=>{
+  return {time:model.time,has:key=>map.has(key),get:key=>{
     if(!map.has(key))throw Error('Missing observation '+key);
     return map.get(key);
   },set:(key,value)=>model.set(key,value)};
@@ -24,6 +24,7 @@ function observation(model,fields){
 export async function trainLivePolicy(request,send,active=()=>true){
   const task=getTrainingTask(request.task),automatic=request.lanes==='auto',seed=request.seed??58429;
   const backend=request.backend??'cpu',physicsBackend=request.physics??'cpu';
+  const maximizeThroughput=physicsBackend==='cuda';
   if(!['cuda','cpu'].includes(physicsBackend))throw Error('Unknown physics backend');
   if(!Number.isSafeInteger(seed)||seed<0||seed>4294967295)throw Error('Seed must be a 32-bit unsigned integer');
   if(request.rounds!=null&&(!Number.isSafeInteger(request.rounds)||request.rounds<1))throw Error('Round count must be positive');
@@ -41,6 +42,7 @@ export async function trainLivePolicy(request,send,active=()=>true){
     stage('Loading '+task.plant+' physics…');
     physics=await trainingPhysics(physicsBackend,task.plant,id=>publish('deviceSession',{id}));
     if(!active())return;
+    const outputs=task.optionalOutputs?await physics.resolveOutputs(task.outputs,task.optionalOutputs):task.outputs;
     if(!automatic&&lanes>physics.maxLanes)throw Error('Count exceeds the physics backend capacity of '+physics.maxLanes);
     let initial;
     switch(request.initialization??'scratch'){
@@ -53,7 +55,7 @@ export async function trainLivePolicy(request,send,active=()=>true){
     }
     validateWeights(task,initial);
     let state={weights:initial,m:zeros(),v:zeros(),step:0};
-    const draw=generator(seed),fixedInputs=await task.fixedInputs?.();
+    const draw=generator(seed),fixedInputs=await task.fixedInputs?.(),scenarios=await task.prepareScenarios?.();
     async function rollout(weights,phase){
       const probe=phase==='sizing',explore=phase==='exploration';
       // The optimizer needs four histories per group even when the user
@@ -64,7 +66,7 @@ export async function trainLivePolicy(request,send,active=()=>true){
       const population=waves*lanes,specs=[];
       const scenarioDraw=explore?draw:generator(902171);
       for(let lane=0;lane<population;){
-        const scenario=task.scenario(scenarioDraw),noiseSeed=nextSeed(scenarioDraw);
+        const scenario=task.scenario(scenarioDraw,scenarios),noiseSeed=nextSeed(scenarioDraw);
         const signs=explore?[1,-1]:[0];
         for(const sign of signs){
           specs.push({scenario,sign,noiseSeed});lane++;
@@ -75,9 +77,9 @@ export async function trainLivePolicy(request,send,active=()=>true){
       for(let wave=0;wave<waves;wave++){
         if(!active())return;
         const group=specs.slice(wave*lanes,(wave+1)*lanes);
-        const models=await physics.reset(group.map(({scenario})=>({...fixedInputs,...scenario.inputs})),task.outputs);
+        const models=await physics.reset(group.map(({scenario})=>({...fixedInputs,...scenario.inputs})),outputs);
         const actors=group.map(({scenario,sign,noiseSeed},i)=>({
-          scenario,sign,noise:generator(noiseSeed),model:models[i],view:observation(models[i],task.outputs),history:[],visual:{}
+          scenario,sign,noise:generator(noiseSeed),model:models[i],view:observation(models[i],outputs),history:[],visual:{}
         }));
         const batchStart=performance.now();
         const frames=tick=>{
@@ -89,7 +91,7 @@ export async function trainLivePolicy(request,send,active=()=>true){
         };
         frames(0);
         let lastFrame=performance.now();
-        const probeStart=lastFrame;
+        let probeStart=lastFrame;
         for(let block=0;block<decisions;block++){
           for(const a of actors){
             const features=task.observe(a.view,a.scenario);
@@ -103,11 +105,11 @@ export async function trainLivePolicy(request,send,active=()=>true){
             const emit=performance.now()-lastFrame>=160||tick===task.ticksPerDecision;
             const sample=tick===Math.ceil(task.ticksPerDecision/2)||tick===task.ticksPerDecision;
             const observe=emit||sample||probe;
-            await physics.advance(models,task.dt,observe?task.outputs:[]);
+            await physics.advance(models,task.dt,observe?outputs:[]);
             if(!probe)steps+=lanes;
             if(observe){
               for(const a of actors){
-                a.view=observation(a.model,task.outputs);
+                a.view=observation(a.model,outputs);
                 if(sample){
                   const reward=task.reward(a.view,a.scenario);
                   if(!Number.isFinite(reward))throw Error('Nonfinite '+task.label+' reward');
@@ -115,7 +117,13 @@ export async function trainLivePolicy(request,send,active=()=>true){
                 }
               }
             }
-            if(probe&&(tick>=3||performance.now()-probeStart>=250))return {steps:tick,milliseconds:performance.now()-probeStart};
+            if(probe){
+              const completed=block*task.ticksPerDecision+tick;
+              if(maximizeThroughput){
+                if(completed===1)probeStart=performance.now();
+                if(completed===6)return {steps:completed-1,milliseconds:performance.now()-probeStart};
+              }else if(tick>=3||performance.now()-probeStart>=250)return {steps:tick,milliseconds:performance.now()-probeStart};
+            }
             if(emit){frames(block*task.ticksPerDecision+tick);lastFrame=performance.now();await yieldTurn();}
           }
           for(const a of actors)a.history[block].reward/=a.samples;
@@ -129,8 +137,8 @@ export async function trainLivePolicy(request,send,active=()=>true){
     if(automatic){
       const memory=globalThis.navigator?.deviceMemory;
       const limit=physicsBackend==='cpu'&&memory&&memory<=4?Math.min(physics.maxLanes,4*memory):physics.maxLanes;
-      const capacity=await calibrateCount({groupSize:1,stepSeconds:task.dt,maximum:limit,
-        stepsToUpdate:2*decisions*task.ticksPerDecision,onProbe:count=>publish('sizing',{count}),
+      const capacity=await calibrateCount({groupSize:maximizeThroughput&&limit>=4?4:1,stepSeconds:task.dt,maximum:limit,
+        stepsToUpdate:2*decisions*task.ticksPerDecision,maximizeThroughput,onProbe:(count,best)=>publish('sizing',{count,best}),
         probe:async count=>{lanes=count;const sample=await rollout(initial,'sizing');if(!sample)throw Error('Stopped');return sample;}});
       lanes=capacity;
     }
@@ -158,7 +166,7 @@ export async function trainLivePolicy(request,send,active=()=>true){
         stepsPerSecond:1000*steps/(performance.now()-start),roundMs:performance.now()-roundStart,updateMs});
       if(round===request.rounds){publish('done',{round,steps,checkpoint:best});return;}
     }
-  }finally{physics?.close();learner?.close();}
+  }finally{await physics?.close();learner?.close();}
 }
 
 if(typeof WorkerGlobalScope!=='undefined'&&self instanceof WorkerGlobalScope){

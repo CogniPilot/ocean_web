@@ -15,8 +15,8 @@ protected
     -.15,0,.05,.0915;.13,0,.05,.0915;
     -.044,-.028,.144,.006;-.044,0,.144,.006;-.044,.028,.144,.006;0,-.028,.144,.006;0,0,.144,.006;0,.028,.144,.006;
     .044,-.028,.144,.006;.044,0,.144,.006;.044,.028,.144,.006];
-  MultiBodyLie.Collision.Material material(k=12000,d=1.2,mu=.22,eps=.0003,v_eps=.08);
-  MultiBodyLie.Collision.ContactPoint point,probe;
+  .Collision.Material material(k=12000,d=1.2,mu=.22,eps=.0003,v_eps=.08);
+  .Collision.ContactPoint point,probe;
   Real sub[14],boat[14],offset[3],boatT[3,3],subT[3,3],centre[3],arm[3],hit[4],n[3],armA[3],armB[3],gap,best;
   Real lift[2],motion[6],contactVelocity[3],box[15],relative[3],basis[3,3],boxCentre[3],liftVelocity[3];
   Real f[3],m[3],reaction[3],moment[3];
@@ -55,7 +55,7 @@ algorithm
               basis:=[box[7],box[8],box[9];box[10],box[11],box[12];box[13],box[14],box[15]]*boatT;
               for i in 1:size(guards,1) loop
                 arm:=transpose(subT)*guards[i,1:3];
-                probe:=MultiBodyLie.Collision.sphereBox(sub[2:4],arm,guards[i,4],boat[2:4],boxCentre,basis,box[4:6]);
+                probe:=.Collision.sphereBox(sub[2:4],arm,guards[i,4],boat[2:4],boxCentre,basis,box[4:6]);
                 if probe.gap<best then
                   best:=probe.gap;n:=probe.n;armA:=probe.armA;armB:=probe.armB;
                   contactVelocity:=PortLift.pointVelocity(feature,motion,lift[2],boatT*armB);
@@ -65,9 +65,9 @@ algorithm
           end for;
         end if;
         if best<0 then
-          point:=MultiBodyLie.Collision.ContactPoint(gap=best,n=n,armA=armA,armB=armB);
+          point:=.Collision.ContactPoint(gap=best,n=n,armA=armA,armB=armB);
           liftVelocity:=boat[9:11]+transpose(boatT)*contactVelocity;
-          (f,m,reaction,moment):=MultiBodyLie.Collision.pairWrenches(point,sub[9:11],sub[12:14],liftVelocity,boat[12:14],material);
+          (f,m,reaction,moment):=.Collision.pairWrenches(point,sub[9:11],sub[12:14],liftVelocity,boat[12:14],material);
           load:=load+(if localIsSub then cat(1,f,m) else cat(1,reaction,moment));
         end if;
       end if;

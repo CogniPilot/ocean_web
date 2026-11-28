@@ -30,10 +30,10 @@ assert(downwind.main>.8&&downwind.jib>.8);
 assert(Math.abs(manual.ease-.66)<1e-9);
 assert.equal(manual.jib,.72);
 
-async function rig(windNorth,step=.01){
+async function rig(windNorth,step=.01,extra={}){
   const boat=await loadInstance('Hobie16',{launchEast:-140,launchNorth:-80,launchHeading:0,
     launchSpeed:windNorth?2:0,manualHelm:1,deckManual:1,jibCarInput:.40,jibTrimInput:.07,
-    windEast:windNorth?-6:0,windNorth},read);
+    windEast:windNorth?-6:0,windNorth,...extra},read);
   const advance=seconds=>{
     for(let t=0;t<Math.round(seconds/step);t++)boat.advance(step);
     assert(boat.getMany(['mainCar','travelerVelocity','travelerTension','heel']).every(Number.isFinite));
@@ -84,6 +84,20 @@ for(const [windNorth,step] of [[-6,.01],[6,.02]]){
   assert(Math.abs(hauled)<Math.abs(released)/3&&tension>0,'Hauling the line pulls the car inboard');
   assert(newLoads[selected]>1&&newLoads[1-selected]===0,'Only the working jib sheet loads when hauled');
   console.log({windNorth,step,initial,released,hauled,tension,jibTailLoad:newLoads[selected]});
+}
+
+for(const windNorth of [-6,6]){
+  const lateralDistance=[];
+  for(const extra of [{jibExtraHaul:0},{}]){
+    const {boat,advance}=await rig(windNorth,.01,{jibTrimInput:0,...extra});
+    advance(7);
+    const [working,loads,pins]=boat.getMany(['jibWorkingSide','jibSheetLoads','jibSheetPins']);
+    const selected=working>0?0:1;
+    assert(loads[selected]>1&&loads[1-selected]===0,'Full trim loads only the working jib sheet');
+    lateralDistance.push(Math.abs(pins[1]));
+    boat.close();
+  }
+  assert(lateralDistance[1]<lateralDistance[0]-.10,'Full trim brings the loaded clew at least 10 cm farther inboard');
 }
 
 const {boat:tacking,advance:advanceTack}=await rig(-6);

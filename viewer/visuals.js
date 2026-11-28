@@ -22,62 +22,6 @@ function batchScenery(T,group,attributes=[]){
  return group;
 }
 
-// Join the independent surveys only in the flat water between them. The two
-// measured grids retain their native SW–NE diagonals and their actual heights.
-function harborTerrainGeometry(T){
- const {min,max,step,shelf}=harborBed,far=250;
- const deepAxis=[];
- for(let x=min;x<=max;x+=step)deepAxis.push(x);
- const survey=[-far,...deepAxis,far], shore=[-far];
- const west=shelf.center[0]-shelf.width/2,south=shelf.center[1]-shelf.height/2;
- for(let i=0;i<=shelf.columns;i++)shore.push(west+shelf.width*i/shelf.columns);
- shore.push(far);
- const positions=[],indices=[],uv=[],colors=[];
- const dry=new T.Color(0xdcc69d),wet=new T.Color(0xa29276),tint=new T.Color();
- let previous=[],first=0;
- function row(y,xs){
-   const start=positions.length/3;
-   for(const x of xs){
-     const z=harborBed.surfaceHeight(x,y);
-     positions.push(x,y,z);
-     uv.push((x-west)/shelf.width,(y-south)/shelf.height);
-     tint.copy(wet).lerp(dry,T.MathUtils.smoothstep(z,-.23,.45));
-     colors.push(tint.r,tint.g,tint.b);
-   }
-   // Merge the two sorted edge lists. Matching columns make ordinary quads;
-   // unequal columns on the datum strip share edges with both surveys.
-   if(previous.length){
-     let i=0,j=0;
-     while(i+1<previous.length || j+1<xs.length){
-       const a=previous[i+1]??Infinity,b=xs[j+1]??Infinity;
-       if(a===b){
-         indices.push(first+i,first+i+1,start+j+1,first+i,start+j+1,start+j);
-         i++;j++;
-       }else if(a<b){
-         indices.push(first+i,first+i+1,start+j);i++;
-       }else{
-         indices.push(first+i,start+j+1,start+j);j++;
-       }
-     }
-   }
-   first=start;previous=xs;
- }
- row(-far,[-far,far]);
- for(const y of deepAxis)row(y,survey);
- row(south,shore);
- const shoreStart=indices.length;
- for(let j=1;j<=shelf.rows;j++)row(south+shelf.height*j/shelf.rows,shore);
- const shoreCount=indices.length-shoreStart;
- row(far,[-far,far]);
- const geo=new T.BufferGeometry();
- geo.setAttribute('position',new T.Float32BufferAttribute(positions,3));
- geo.setAttribute('uv',new T.Float32BufferAttribute(uv,2));
- geo.setAttribute('color',new T.Float32BufferAttribute(colors,3));
- geo.setIndex(indices);geo.computeVertexNormals();geo.computeBoundingSphere();
- geo.userData.reflectionRange={start:shoreStart,count:shoreCount};
- return geo;
-}
-
 const seabedTime={value:0};
 // Keep one shared texture pair per substrate. Above-water sailing never downloads them.
 function diveSurfaces(T){
@@ -255,10 +199,23 @@ function seabedVegetation(T,sites,shore,weed){
      gl_Position=projectionMatrix*mvPosition;`);
  };
  const pose=new T.Object3D(),tint=new T.Color(),tileSize=48;
+ const basin=harborBed.abyss;
+ const abyssRim=[
+   [1.33,-.15],[1.19,.30],[1.14,-.37],[1.09,.47],[.96,-.67],[.83,.65],
+   [.86,-.29],[.84,.26],[.64,-.68],[.56,.78],[.36,.96],[-.12,1.04],
+   [-.49,.86],[-.8,.72],[-.97,.3],[-1.04,-.14],[-.92,-.57],[-.55,-.85],[-.16,-1.07],[.32,-.97]
+ ];
+ // The approach and passage follow the centre of the basin westwards.
+ // Short tufts frame the exterior rock shoulders on either side.
+ const caveShoulders=[
+   [1.96,-2.74],[2.80,-2.23],[4.05,-1.64],[3.88,1.96],
+   [2.75,2.52],[1.86,3.28],[.42,3.78],[-1.35,-3.67]
+ ];
  for(let iy=-5;iy<5;iy++)for(let ix=-5;ix<5;ix++){
    const cx=(ix+.5)*tileSize,cy=(iy+.5)*tileSize,shoots=[];
-   function patch(x,y){
-     const radius=1.1+rand()*2.4,height=.42+rand()*.95,shade=rand(),count=7+Math.floor(rand()*9);
+   function patch(x,y,spread=1,heightScale=1,cave=false){
+     const radius=spread*(1.1+rand()*2.4),height=heightScale*(.42+rand()*.95);
+     const shade=rand(),count=7+Math.floor(rand()*9);
      for(let i=0;i<count;i++){
        const a=rand()*2*Math.PI,r=radius*Math.sqrt(rand());
        const east=x+r*Math.cos(a),north=y+.65*r*Math.sin(a);
@@ -266,7 +223,9 @@ function seabedVegetation(T,sites,shore,weed){
        let z=harborBed.height(east,north);
        const dx=east-shore.center[0],dy=north-shore.center[1];
        if(Math.abs(dx)<29&&Math.abs(dy)<23)z=Math.max(z,shore.height(dx,dy));
-       if(z> -2.5||z< -22)continue;
+       if(cave){
+         if(z< -48||z> -38||Math.abs(north-basin.north)<1.4)continue;
+       }else if(z> -2.5||z< -22)continue;
        shoots.push([east-cx,north-cy,z-.045,height*(.5+rand()*.75),rand()*2*Math.PI,shade*.7+rand()*.3]);
      }
    }
@@ -279,6 +238,19 @@ function seabedVegetation(T,sites,shore,weed){
        if(Math.floor(x/tileSize)===ix&&Math.floor(y/tileSize)===iy)patch(x,y);
      }
    }
+   // These patches share the existing tile instances and leave the procedural
+   // placement sequence elsewhere unchanged.
+   const regularSeed=seed;
+   seed=2162+ix+23*iy;
+   for(const [x,y] of abyssRim){
+     const east=basin.east+x*basin.eastRadius,north=basin.north+y*basin.northRadius;
+     if(Math.floor(east/tileSize)===ix&&Math.floor(north/tileSize)===iy)patch(east,north,.62,1.2);
+   }
+   for(const [x,y] of caveShoulders){
+     const east=basin.east+x,north=basin.north+y;
+     if(Math.floor(east/tileSize)===ix&&Math.floor(north/tileSize)===iy)patch(east,north,.24,.59,true);
+   }
+   seed=regularSeed;
    if(!shoots.length)continue;
    const mesh=new T.InstancedMesh(blade,material,shoots.length);
    for(let i=0;i<shoots.length;i++){
@@ -506,36 +478,45 @@ function islandPalms(T,land,terrain,center,textures){
  };
 }
 
-function coast(T,scene,instanceRocks=true){
+function coast(T,scene,shell,instanceRocks=true){
  const land=new T.Group();scene.add(land);
- const {shelf}=harborBed,center=shelf.center,rock=new T.Color(0x827665);
- const terrain=shelf.vertex;
+ const {shelf}=harborBed,asset=shell.children.find(node=>node.userData.shelf);
+ const {reflectionRange,shelf:survey,islandPadTop}=asset.userData;
+ const {center,columns,rows,width,height,vertexStart,rowStride}=survey;
+ Object.assign(shelf,{center,columns,rows,width,height});
+ const geo=asset.geometry.clone().rotateX(Math.PI/2);
+ geo.userData.reflectionRange=reflectionRange;
+ const coordinates=geo.attributes.position;
+ shelf.samples=new Float32Array((columns+1)*(rows+1));
+ for(let j=0;j<=rows;j++)for(let i=0;i<=columns;i++)
+   shelf.samples[j*(columns+1)+i]=coordinates.getZ(vertexStart+j*rowStride+i);
+ const terrain=(x,y)=>shelf.plane(center[0]+x,center[1]+y)?.height??harborBed.datum;
  land.userData.chartTerrain={center,height:terrain};
- const geo=harborTerrainGeometry(T);
  const bedPixels=new Uint8Array(4*shelf.samples.length);
  for(let i=0;i<shelf.samples.length;i++)bedPixels[4*i]=Math.round(255*(shelf.samples[i]+13.7)/18);
- const bedTexture=new T.DataTexture(bedPixels,shelf.columns+1,shelf.rows+1);
+ const bedTexture=new T.DataTexture(bedPixels,columns+1,rows+1);
  bedTexture.minFilter=bedTexture.magFilter=T.LinearFilter;bedTexture.needsUpdate=true;
- land.userData.bed={texture:bedTexture,bounds:new T.Vector4(center[0]-shelf.width/2,center[1]-shelf.height/2,shelf.width,shelf.height)};
+ land.userData.bed={texture:bedTexture,bounds:new T.Vector4(center[0]-width/2,center[1]-height/2,width,height)};
  const bottom=new T.Mesh(geo,new T.MeshStandardMaterial({vertexColors:true,roughness:.86}));
- bottom.name='Harbor bathymetry';land.userData.sand=bottom;
+ bottom.name='Harbor bathymetry';land.userData.sand=bottom;land.userData.islandPadTop=islandPadTop;
  land.position.set(...center,0);bottom.position.set(-center[0],-center[1],0);land.add(bottom);
- let seed=13;const random=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed/4294967296;};
- const rockCount=46,shape=new T.IcosahedronGeometry(1,1);
- const rocks=instanceRocks?new T.InstancedMesh(shape,new T.MeshStandardMaterial({roughness:.93}),rockCount):new T.Group();
- const pose=new T.Object3D(),tint=new T.Color();
- for(let i=0;i<rockCount;i++){const a=random()*6.28,r=.84+.25*random(),x=17*r*Math.cos(a),y=11*r*Math.sin(a);
-   tint.copy(rock).multiplyScalar(.65+.45*random());
-   pose.scale.set(1+random()*1.5,.7+random(),.65+random());pose.position.set(x,y,terrain(x,y));pose.rotation.set(random(),random(),random()*6);
-   pose.updateMatrix();
-   if(instanceRocks){rocks.setColorAt(i,tint);rocks.setMatrixAt(i,pose.matrix);}
-   else {
-     const mesh=new T.Mesh(shape,new T.MeshStandardMaterial({roughness:.93,color:tint}));
-     mesh.position.copy(pose.position);mesh.quaternion.copy(pose.quaternion);mesh.scale.copy(pose.scale);rocks.add(mesh);
-   }
+ const boulders=[];
+ shell.updateMatrixWorld(true);
+ shell.traverse(object=>{if(object.userData.shoreRock)boulders.push(object);});
+ const origin=new T.Matrix4().makeTranslation(-center[0],-center[1],0);
+ if(instanceRocks&&boulders.length){
+   const rocks=new T.InstancedMesh(boulders[0].geometry,new T.MeshStandardMaterial({roughness:.93}),boulders.length);
+   const pose=new T.Matrix4();
+   boulders.forEach((rock,i)=>{
+     rocks.setColorAt(i,rock.material.color);
+     rocks.setMatrixAt(i,pose.multiplyMatrices(origin,rock.matrixWorld));
+   });
+   rocks.userData.shoreRock=true;rocks.computeBoundingSphere();land.add(rocks);
+ }else for(const source of boulders){
+   const rock=new T.Mesh(source.geometry,source.material);
+   rock.matrix.multiplyMatrices(origin,source.matrixWorld);
+   rock.matrixAutoUpdate=false;rock.userData.shoreRock=true;land.add(rock);
  }
- if(instanceRocks)rocks.computeBoundingSphere();
- land.add(rocks);
  const textures=islandTextures(T);
  land.userData.terrainTextures=textures;
  land.userData.updatePalms=islandPalms(T,land,terrain,center,textures);

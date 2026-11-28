@@ -129,6 +129,7 @@ package Wreck
     input Real navigationUpValid(start=0) "Enable the external fused height estimate";
     input Real elevationRanges[100](each start=0) "Four elevation fans of 25 slant ranges, zero means no echo";
     input Real manual(start=0) "Enable manual control above 0.5";
+    input Real ballastTrim(start=-1) "Negative for automatic trim, otherwise commanded fill fraction for both piston tanks";
     input Real manualMode(start=0) "0 position, 1 auto-level, 2 body-rate acro, 3 assisted translation";
     input Real attitudePilot[2](each start=0) "Normalized roll and pitch stick commands";
     input Real pilot[4](each start=0) "Body surge, port speed (banked translation mode), yaw rate and upward speed [m/s,m/s,rad/s,m/s]";
@@ -186,12 +187,13 @@ package Wreck
     output Real windForce[3] "Aerodynamic hull load in body axes [N]";
     Real apparentAir[3],trimMoment[3];
     Real heading,pitch,roll,manualBank,pilotPitch,steepWeight,unitUp[3],steepMoment[3],poleYawRate;
-    Boolean stationEngaged;
+    Boolean stationEngaged,ballastOverride;
     Real groundUp,groundForward;
     PiccardStationController stationControl(dryMass=dryMass,displaced=displaced,density=rho,
       addedMass=addedMass,linearDrag=piccardLinearDrag,surgeDrag=drag[1],swayDrag=drag[2],
       arm=propMount[3,2],foreX=propMount[3,1],aftX=propMount[5,1],
-      active=if manual>.5 and manualMode<.5 and not forkSecured and (navigationUpValid>.5 or sensor[63]>.5) then 1 else 0,pose={sensor[60],sensor[61],depthEst},
+      active=if manual>.5 and manualMode<.5 and not forkSecured and (navigationUpValid>.5 or sensor[63]>.5)
+        then (if noEvent(ballastTrim<0) then 1 else 0) else 0,pose={sensor[60],sensor[61],depthEst},
       attitude={roll,pitch,heading},gyro=rates,groundSpeed={groundForward,portSpeed,groundUp},
       bottomLock=sensor[63],currentENU=estimatedCurrent,pilot=pilot,pitchReference=pilotPitch,
       netWeight=g*(dryMass+fore.mass+aft.mass-rho*displaced*wet),restoringMoment=trimMoment);
@@ -288,7 +290,7 @@ package Wreck
     for i in 1:2 loop
       der(heldStation[i])=if forkSecured or not positionMode or translate or abs(pilot[2])>.01 or (assistedMode and sensor[63]<.5) then (sensor[59+i]-heldStation[i])/.18 else 0;
     end for;
-    der(heldStation[3])=if forkSecured or (depthEst>.05 and (not positionMode or dive)) then (depthEst-heldStation[3])/.18 else 0;
+    der(heldStation[3])=if forkSecured or (depthEst>.05 and (not positionMode or dive or ballastOverride)) then (depthEst-heldStation[3])/.18 else 0;
     holdE=heldStation[1]-sensor[60];
     holdN=heldStation[2]-sensor[61];
     positionSurge=if translate then pilot[1] elseif sensor[63]>.5 then
@@ -303,7 +305,7 @@ package Wreck
     stationError={holdE,holdN,depthEst-heldStation[3]};
     for i in 1:3 loop
       der(stationBias[i])=if positionMode and not assistedMode and not forkSecured and
-        (if i==3 then not dive else not translate and abs(pilot[2])<=.01) then
+        (if i==3 then not dive and not ballastOverride else not translate and abs(pilot[2])<=.01) then
         (if (i==3 or sensor[63]>.5) and (abs(stationBias[i])<5 or stationBias[i]*stationError[i]<0) then .35*stationError[i] else 0) else -stationBias[i]/.8;
     end for;
     verticalError=depthEst-goalDepth;
@@ -345,7 +347,8 @@ package Wreck
     sideForce=if manual<.5 or (positionMode and (not assistedMode or abs(pilot[2])>.01)) then
       piccardLinearDrag*portRef+drag[2]*portRef*abs(portRef)+(if sensor[63]>.5 then (if assistedMode then 9 else 12)*(portRef-portSpeed) else 0)
       -stationBias[1]*sin(heading)+stationBias[2]*cos(heading) else 0;
-    stationEngaged=manual>.5 and manualMode<.5 and not forkSecured;
+    ballastOverride=manual>.5 and ballastTrim>=0 and not forkSecured;
+    stationEngaged=manual>.5 and manualMode<.5 and not forkSecured and not ballastOverride;
     groundForward=cos(pitch)*sensor[64]+sin(pitch)*(sin(roll)*sensor[65]+cos(roll)*vzDvl);
     groundUp=if sensor[63]>.5 then -sin(pitch)*sensor[64]+cos(pitch)*(sin(roll)*sensor[65]+cos(roll)*vzDvl)
       else max(-1,min(1,(filteredDepth-depthEst)/.6));
@@ -357,7 +360,8 @@ package Wreck
       *verticalDemand/sqrt(verticalDemand^2+1) else 0;
     // During a pilot-commanded bank, reserve differential thrust for roll as
     // the vertical thrusters turn horizontal and lose depth authority.
-    heave=if positionMode or manual<.5 then verticalDemand/max(.65,cos(roll)*cos(pitch))
+    // A centered heave stick leaves piston trim free to move the sub vertically.
+    heave=if ballastOverride then 24*pilot[4] elseif positionMode or manual<.5 then verticalDemand/max(.65,cos(roll)*cos(pitch))
       *(if positionMode then 1-abs(manualBank)*sin(roll)^2 else 1) elseif manual>.5 then 24*pilot[4]
       else 12*verticalError-15*verticalSpeed;
     manualAttitude=manual>.5 and not positionMode;
@@ -418,8 +422,10 @@ package Wreck
     end for;
     fore.pressure=ocean.gaugePressure;
     aft.pressure=ocean.gaugePressure;
-    fore.target=if not battery.powered then fore.volume elseif stationEngaged then stationControl.tankTargets[1] else max(0,min(fore.capacity,trimVolume-0.00010*verticalError-(if manual>.5 and not positionMode then 0 else 0.0002*pitch)));
-    aft.target=if not battery.powered then aft.volume elseif stationEngaged then stationControl.tankTargets[2] else max(0,min(aft.capacity,trimVolume-0.00010*verticalError+(if manual>.5 and not positionMode then 0 else 0.0002*pitch)));
+    fore.target=if not battery.powered then fore.volume elseif ballastOverride then fore.capacity*min(1,ballastTrim)
+      elseif stationEngaged then stationControl.tankTargets[1] else max(0,min(fore.capacity,trimVolume-0.00010*verticalError-(if manual>.5 and not positionMode then 0 else 0.0002*pitch)));
+    aft.target=if not battery.powered then aft.volume elseif ballastOverride then aft.capacity*min(1,ballastTrim)
+      elseif stationEngaged then stationControl.tankTargets[2] else max(0,min(aft.capacity,trimVolume-0.00010*verticalError+(if manual>.5 and not positionMode then 0 else 0.0002*pitch)));
     up=measuredT*{0,0,1};
     wet=max(0,min(1,(ocean.surface+hullSurfaceOffset-position[3]+piccardWaterlineHalfHeight)/(2*piccardWaterlineHalfHeight)));
     buoy=rho*g*displaced*wet*up;

@@ -379,11 +379,11 @@ Run `node scripts/check-analytical-waves.mjs build/pages/flight` to compare the 
 
 ### Hobie solo loading and rotational inertia
 
-The modeled all-up mass of 206.3 kg includes a 145 kg boat, 60 kg movable crew equivalent and 1.3 kg masthead float. A class-minimum open-racing boat and crew total 274.45 kg. The solo fit keeps the simulation's existing crew arrangement. [International Hobie Class Association rules](https://hobieclass.com/wp-content/uploads/2025/03/R_Book_01042025-rev.1.137.pdf)
+The modeled all-up mass of 205 kg includes a 145 kg boat and 60 kg movable crew equivalent. A class-minimum open-racing boat and crew total 274.45 kg. The solo fit keeps the simulation's existing crew arrangement. [International Hobie Class Association rules](https://hobieclass.com/wp-content/uploads/2025/03/R_Book_01042025-rev.1.137.pdf)
 
 The estimated boat mass budget uses two 38 kg hulls, an 18 kg mast, 4 kg boom, 3.9 kg mainsail and 1.2 kg jib. The remaining 41.9 kg covers crossbeams, sidebars, trampoline, rudders, tiller, lines and fittings. Hull and mast figures are typical readings reported by owners. Spar and cloth dimensions inform the boom and sail estimates. [Hull weight reports](https://thebeachcats.com/forums/hobie-16-forum/h16-hull-weight/) · [Mast weight report](https://davidchin38.blogspot.com/2015/09/hobie-cat.html) · [Hobie specifications](https://hobieclass.com/hobie-classes/hobie-16/)
 
-Summing rod and panel approximations with the parallel-axis theorem yields approximately 610 kg m² roll, 715 kg m² pitch and 320 kg m² yaw about the centred solo system's mass centre. Including the float, the previous model used about 280, 385 and 315 kg m². The revised nominal roll and pitch totals are 613 and 718 kg m². A parallel-axis correction increases the appropriate moments as the crew equivalent moves along the trampoline. Dry mass and rudder parameters retain their previous values. The mast bend equation's 6 kg remains an effective modal mass. Measuring physical inertia and water-added inertia remains open.
+Summing rod and panel approximations with the parallel-axis theorem yields approximately 610 kg m² roll, 715 kg m² pitch and 320 kg m² yaw about the centred solo system's mass centre. Including the float, the previous model used about 280, 385 and 315 kg m². With the masthead float removed, the nominal roll and pitch inertias at the centred crew position are 520 and 625 kg m². A parallel-axis correction increases the appropriate moments as the crew equivalent moves along the trampoline. Dry mass and rudder parameters retain their previous values. The mast bend equation's 6 kg remains an effective modal mass. Measuring physical inertia and water-added inertia remains open.
 
 At a fixed test height, opposite 5.2° pitch tilts changed the buoyant centre from 0.91 m aft to 0.38 m forward of the model origin. At opposite cross-slopes it moved ±0.64 m sideways. The total hydrostatic lift matched seawater density times gravity times the sum of the immersed strip volumes to 1e-12 N. Run `node scripts/check-water-loads.mjs` to repeat the check.
 
@@ -463,6 +463,56 @@ wire points against pyramid planes, and holds the paired wrenches between
 20 Hz updates. The standalone wreck query instead uses spatial candidate
 selection and sphere–box tests for hull and thruster guards. Neither test is a
 proxy for general collision-engine performance.
+
+The top-level `modelica_models/Collision` package in `227a110` owns the
+geometry queries. Ocean Web's collision patch adds bounding-volume tests,
+triangle-mesh witnesses, and convex plane queries to that package. The aircraft
+uses its oriented airframe bounds to reject clear terrain before visiting its
+landing and airframe vertices.
+
+In the standalone aircraft WASM, the median 5 ms physics step over the island
+crest fell from 22.2 ms to 2.0 ms. Low approach before contact fell from 25.2 ms
+to 2.3 ms. A longer approach through touchdown fell from 24.2 ms to 17.9 ms,
+with a 6.86 N peak terrain load in both runs. Sampled positions and terrain
+wrenches matched exactly. These tests exclude rendering and the rest of the
+ocean scene.
+
+A V8 CPU profile of the updated touchdown attributed 46.2% of samples to
+the skin contact function and 21.6% to the boulder query. The generated
+skin contact code constructs 598 boulder values and 320 plane values each
+time it calls the boulder query. A scratch WASM build passed the same
+bit-exact values as read-only static arrays. Median step time fell from
+18.0 ms to 10.1 ms, and p95 fell from 25.2 ms to 14.7 ms across the same
+520-step approach. The sampled positions and terrain wrenches matched
+exactly. This measures the compiler opportunity on the touchdown workload.
+
+Rumoca now derives static Real arrays from checked literal construction,
+including nested matrices and concatenation. The compiler-generated RDD2
+WASM completed the same touchdown at 9.2–9.8 ms median and 13.2–14.4 ms p95
+with identical sampled positions and forces. Its WASM fell from 438 KiB to
+369 KiB. The pass preserves the source arithmetic profile and keeps
+constructed arrays that depend on runtime values in the ordinary path.
+
+Two interleaved pairs of 64-instance Float64 diver physics replays on the
+RTX 3090 isolated the storage change in the same compiler and model.
+Mean GPU time per 10 ms step fell from 14.49 ms to 13.51 ms, and required
+workspace fell from 279,808 to 269,824 bytes per instance. All recorded
+outputs and event counters matched across 723 frames in each replay.
+This yields 0.74× realtime per instance for the CUDA physics replay.
+
+An x86-64 native test ran 521 signed-gap queries per shape pair in binary64.
+The table reports medians in nanoseconds per query. All results agreed with the
+analytic gaps within 1.5e-14 m.
+
+| Query | Rumoca FMI | MuJoCo | Coal | Parry | Bullet |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Sphere against sphere | 74.12 | 13.90 | 122.05 | 73.31 | 15.32 |
+| Sphere against box | 110.89 | 24.68 | 146.60 | 118.99 | 34.84 |
+
+The engines use different public query paths, so these timings include their
+respective API and witness work. Broad-phase traversal, rigid-body integration
+and contact response are outside this measurement. Coal supplies collision
+queries for Pinocchio, and Parry supplies geometry for Rapier.
 
 In the integrated Hobie, the centerline, both hull strikes and a 4 m miss
 behaved qualitatively as intended at 3.62 m/s. At 26 knots the nominal
@@ -1651,3 +1701,7 @@ The kernel comparison used the same source FMU (token `6c338f73-3711-40a3-902e-e
 Linux perf on the host placed over 98% of sampled CPU cycles in the CUDA driver and vDSO while the batch ran. Device timing put 190 ms inside the generated diver dynamics, including 126 ms inside floating-tree dynamics, on a 458 ms instrumented step. LLVM emitted byte-copy loops for large arrays. Rumoca PR #766 widens these copies for generic FMI modules. Each CUDA thread still executes a complete FMU instance, including event settling and matrix assembly. The elapsed time at count 64 exceeds both realtime targets.
 
 With the `ScubaDiverOpenWater` training plant, a full local Chromium training round on the same RTX 3090 completed 46,080 swimmer-steps in 720 CUDA dispatches at 189.4 swimmer-steps/s. That is **0.0296× realtime per swimmer** at 64 simultaneous swimmers. This includes exploration, validation and WebGPU policy updates. Reaching 1× on this workload requires a further 33.8× increase in throughput.
+
+The resident CUDA runner now encodes FMI observations directly into a reusable JSON buffer. Two interleaved pairs of 64-lane replays used the same `ScubaDiverOpenWater` CUBIN and the same requests. The observation payloads matched byte for byte across 720 physics steps and three resets per replay. Mean round-trip time outside the CUDA event interval fell from 4.63 ms to 2.68 ms per step. This interval includes host transfer, encoding and pipe delivery.
+
+Four local Chromium training runs used the same model, 64 lanes, the pretrained diver policy and the WebGPU optimizer. All four returned the same baseline and validation scores after 46,080 swimmer-steps. Mean time outside the CUDA event interval within the browser's physics requests fell from 11.03 s to 10.31 s over the 720 steps. Full runs took 47.34–47.58 s with the previous encoder and 46.58–47.61 s with the new one, including startup. The overlapping ranges leave the overall throughput gain uncertain.

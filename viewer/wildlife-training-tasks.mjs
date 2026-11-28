@@ -7,7 +7,7 @@ export const sharkTask={
   id:'shark',label:'Great white shark',plant:'HarborTrafficOpenWater',
   summary:'Tune the deployed cruise controller against speed, turn, pitch and bank commands in changing currents.',
   featureNames:['Cruise coefficient'],actionNames:['Tail amplitude','Speed feedback','Hinge damping','Caudal feather','Tail steering','Pitch feedback','Pitch trim','Roll feedback','Stroke frequency','Cadence gain'],
-  outputs:['state','fish','sharkTrunkFlex','sharkFin','whiteShark.portAngle','whiteShark.starboardAngle','sharkBankState','whiteShark.trackingReward'],dt:.01,ticksPerDecision:32,
+  outputs:['state','fish','sharkTrunkFlex','sharkFin','whiteShark.portAngle','whiteShark.starboardAngle','sharkBankState','whiteShark.trackingReward'],optionalOutputs:['sharkForebody'],dt:.01,ticksPerDecision:32,
   // The FMU uses these ten unbounded coefficients to compute four bounded fin
   // and tail actions on every physics step from its instantaneous observations.
   linear:true,
@@ -26,7 +26,7 @@ export const sharkTask={
   },
   observe:()=>[1],act:(m,s,a)=>m.set('sharkPolicyWeights',a),
   reward:m=>m.get('whiteShark.trackingReward'),
-  rigPose(m){const fish=m.get('fish');return [m.get('sharkTrunkFlex'),fish[5],fish[7],m.get('whiteShark.portAngle'),m.get('whiteShark.starboardAngle')];},
+  rigPose(m){const fish=m.get('fish');return [m.get('sharkTrunkFlex'),fish[5],fish[7],m.get('whiteShark.portAngle'),m.get('whiteShark.starboardAngle'),m.has?.('sharkForebody')?m.get('sharkForebody')[0]:0];},
   pose(m){const state=m.get('state');return [...state.slice(9,13),m.get('fish')[2],m.get('sharkBankState')[0]];}
 };
 

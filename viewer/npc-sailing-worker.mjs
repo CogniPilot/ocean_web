@@ -6,7 +6,7 @@ import {raceController} from './hobie-race-policies.mjs';
 const models=new Map();
 self.onmessage=async({data})=>{
   try{
-    const {racers,utc,traffic,step,sea,coursePoints}=data;
+    const {racers,utc,traffic,step,sea,coursePoints,courseGateEnds}=data;
     const incident=sea?{incidentSea:1,seaTide:sea.tide,seaTile:sea.tile,swellSample:sea.swell}:{incidentSea:0};
     const active=new Set(racers.map(racer=>racer.id));
     for(const [id,entry] of models)if(!active.has(id)){entry.model.close();entry.pilot.close();models.delete(id);}
@@ -16,7 +16,8 @@ self.onmessage=async({data})=>{
       if(!entry){
         const kind=racer.controller??'vmg';
         const pilot=await raceController(kind,racer.weights);
-        const model=await loadInstance('HobieFleetPilot',{...racer.initial,learnedHelm:Number(kind==='rl'),predictiveHelm:Number(kind==='mppi'||kind==='nmpc'),...incident,...(coursePoints?{externalCourse:1,coursePoints}:{}),seaHeight:racer.water});
+        const model=await loadInstance('HobieFleetPilot',{...racer.initial,learnedHelm:Number(kind==='rl'),predictiveHelm:Number(kind==='mppi'||kind==='nmpc'),...incident,...(coursePoints?{externalCourse:1,coursePoints}:{}),seaHeight:racer.water},
+          undefined,courseGateEnds?{courseGateEnds}:{});
         entry={model,pilot};models.set(racer.id,entry);
       }
       const {model,pilot}=entry;
@@ -29,6 +30,7 @@ self.onmessage=async({data})=>{
         index++;
       }
       if(coursePoints){model.set('coursePoints',coursePoints);model.set('externalCourse',1);}
+      if(courseGateEnds&&model.has('courseGateEnds'))model.set('courseGateEnds',courseGateEnds);
       model.set('traffic',nearby);model.set('trafficTilt',attitude);
       model.set('raceStart',racer.raceStart);
       model.set('seaRoll',racer.roll);model.set('seaPitch',racer.pitch);

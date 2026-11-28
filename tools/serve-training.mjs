@@ -11,6 +11,7 @@ import {dirname,resolve} from 'node:path';
 const [portText,viewerUrl,selection,command,...args]=process.argv.slice(2);
 if(!command)throw Error('Usage: node tools/serve-training.mjs PORT VIEWER_URL --registry FILE or PORT VIEWER_URL PLANT RUNNER [args...]');
 const port=Number(portText),viewer=new URL(viewerUrl),sessions=new Map(),prefix='/api/training';
+const closing=new Map();
 const runners=new Map();
 if(selection==='--registry'){
   const base=dirname(resolve(command));
@@ -34,6 +35,7 @@ function probe(name,fresh=false){
   if(runner.pending)return runner.pending;
   // Each probe creates a CUDA context and reserves a heap. Probe one plant at a time.
   runner.pending=probeQueue.then(async()=>{
+    await Promise.all(closing.values());
     const {stdout}=await execute(runner.executable,[...runner.args,'--capabilities'],{env:runner.env,timeout:30000});
     const info=JSON.parse(stdout);
     if(!Number.isSafeInteger(info.maxLanes)||info.maxLanes<1)throw Error(info.error??'GPU capacity unavailable');
@@ -60,7 +62,7 @@ async function capabilities(plant=null){
     try{
       // A capability probe reserves another device stack and heap. Leave the
       // running training allocation alone and report its last verified limits.
-      if(sessions.size){
+      if(sessions.size||closing.size){
         if(!runner.cached)throw Error('GPU in use; this plant has not been measured yet.');
         byPlant[name]={...runner.cached,busy:true};
       }else if(runner.failure&&Date.now()<runner.failure.until){
@@ -80,9 +82,13 @@ async function capabilities(plant=null){
   return {...single,plants,byPlant,errors,activePlants,registeredPlants:[...runners.keys()]};
 }
 function end(id,reason='GPU training session ended'){
-  const session=sessions.get(id);if(!session)return;
-  sessions.delete(id);clearTimeout(session.timeout);session.proc.kill();
+  const session=sessions.get(id);if(!session)return closing.get(id);
+  sessions.delete(id);clearTimeout(session.timeout);
+  closing.set(id,session.exited);
+  void session.exited.then(()=>closing.delete(id));
+  session.proc.kill();
   session.pending?.reject(Error(reason));
+  return session.exited;
 }
 function timeout(id){
   const session=sessions.get(id);clearTimeout(session.timeout);
@@ -98,12 +104,15 @@ function create(plant,maxCount){
   createInterface({input:proc.stdout}).on('line',line=>{
     const pending=session.pending;if(!pending)return;
     session.pending=null;
-    try{const result=JSON.parse(line);if(!result.ok)throw Error(result.error??'GPU step failed');pending.resolve(result);}
+    try{const result=JSON.parse(line);if(!result.ok)throw Error(result.error??'GPU step failed');pending.resolve(line);}
     catch(error){pending.reject(error);end(id);}
   });
   proc.stdin.on('error',error=>end(id,diagnostic.trim()||error.message));
   proc.on('error',error=>end(id,error.message));
-  proc.on('close',(code,signal)=>end(id,diagnostic.trim()||'GPU physics process exited ('+(signal??code)+')'));
+  session.exited=new Promise(resolve=>proc.once('close',(code,signal)=>{
+    end(id,diagnostic.trim()||'GPU physics process exited ('+(signal??code)+')');
+    resolve();
+  }));
   return id;
 }
 async function read(req,maxBytes=2_000_000){
@@ -121,7 +130,8 @@ const server=http.createServer(async(req,res)=>{
     });
     upstream.on('error',()=>res.writeHead(502).end());req.pipe(upstream);return;
   }
-  const reply=(code,obj)=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(obj));};
+  const sendJson=(code,payload)=>{res.writeHead(code,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(payload);};
+  const reply=(code,obj)=>sendJson(code,JSON.stringify(obj));
   try{
     const host=req.headers.host;
     if(!['127.0.0.1:'+port,'localhost:'+port].includes(host)||(req.headers.origin&&req.headers.origin!=='http://'+host))
@@ -131,13 +141,17 @@ const server=http.createServer(async(req,res)=>{
     if(req.method==='POST'&&path===prefix+'/sessions'){
       const request=await read(req);if(!runners.has(request.plant))return reply(400,{error:'Unknown plant'});
       const info=await probe(request.plant,true);
+      if(res.destroyed)return;
       if(request.token&&info.token&&request.token!==info.token)return reply(409,{error:'GPU physics and viewer must use the same FMU version.'});
       if(sessions.size>=4)return reply(429,{error:'GPU training sessions are occupied'});
-      return reply(201,{id:create(request.plant,info.maxCount),maxCount:info.maxCount});
+      const id=create(request.plant,info.maxCount);
+      res.once('close',()=>{if(!res.writableFinished)end(id);});
+      return reply(201,{id,maxCount:info.maxCount});
     }
+    if(!path.startsWith(prefix+'/sessions/'))return reply(404,{error:'Unknown training endpoint'});
     const id=path.slice((prefix+'/sessions/').length),session=sessions.get(id);
+    if(req.method==='DELETE'){await end(id);return reply(200,{ok:true});}
     if(!session)return reply(404,{error:'GPU training session unavailable'});
-    if(req.method==='DELETE'){end(id);return reply(200,{ok:true});}
     if(req.method!=='POST')return reply(405,{error:'Expected POST or DELETE'});
     const request=await read(req,Math.max(2_000_000,session.maxCount*4096));
     if(!['reset','advance'].includes(request.op)||!Array.isArray(request.lanes)||request.lanes.length<1||request.lanes.length>session.maxCount||
@@ -146,11 +160,11 @@ const server=http.createServer(async(req,res)=>{
     if(session.pending)return reply(409,{error:'Previous GPU step still running'});
     clearTimeout(session.timeout);
     res.once('close',()=>{if(!res.writableEnded)end(id);});
-    const result=await new Promise((resolve,reject)=>{
+    const payload=await new Promise((resolve,reject)=>{
       session.pending={resolve,reject};session.proc.stdin.write(JSON.stringify(request)+'\n');
     });
     if(sessions.has(id))timeout(id);
-    return reply(200,result);
+    return sendJson(200,payload);
   }catch(error){return reply(400,{error:error.message});}
 });
 server.listen(port,'127.0.0.1',()=>{

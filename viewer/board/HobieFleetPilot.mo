@@ -6,6 +6,7 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
   input Real swellSample[5]=zeros(5) "Amplitude, origin phase, east/north wave number and angular frequency";
   input Real swellSampleTime=0;
   input Real externalCourse=0,coursePoints[4,2]=zeros(4,2);
+  input Real courseGateEnds[2,2]=zeros(2,2);
   input Real traffic[10,9]=zeros(10,9),trafficTilt[10,2]=zeros(10,2);
   input Real learnedHelm=0,predictiveHelm=0,predictedHeading=0;
   input Real actuators[10]=zeros(10) "Rudder, winch, travelers, jib, downhaul, outhaul, halyard and crew x/y in boat input units";
@@ -63,7 +64,8 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
   discrete Real contactMemory[10](each start=0,each fixed=true);
   discrete Real oldMark(start=0,fixed=true);
   discrete Boolean turning(start=false,fixed=true),finishReady(start=false,fixed=true);
-  Regatta race(externalCourse=externalCourse,coursePoints=coursePoints,utc=utc,raceStart=raceStart,east=east,north=north,finishAllowed=if owed<.5 then 1 else 0,
+  Regatta race(externalCourse=externalCourse,coursePoints=coursePoints,courseGateEnds=courseGateEnds,
+    utc=utc,raceStart=raceStart,east=east,north=north,finishAllowed=if owed<.5 then 1 else 0,
     gateEast=gateEast,gateNorth=gateNorth,lineLength=lineLength,windBearing=prevailing,tide=background,landingReaction=zeros(6),
     wakeTile=zeros(64,64),backgroundTile=zeros(32,32),driftEast=0,driftNorth=0,swellHeight=0,
     racerState={1,heading,boat.heel,boat.pitch,boat.heave,ve,vn,yawRate,boat.vertical,boat.rollRate,boat.pitchRate},

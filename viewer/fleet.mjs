@@ -97,6 +97,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   let remoteAirframe,loadingAirframe,remoteSub,loadingSub,retrySubAt=0,retryAirframeAt=0;
   let selfId,room,action,lastSend=-Infinity,participants=new Set();
   let connectionIssue='';
+  let waitingForPrivateHost=false;
   const failedPeers=new Map();
   let resetChannel,resetHandler,pendingReset,lastReset;
   let resetSequence=0;
@@ -165,6 +166,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   let seaClock,clockChannel,lastClockSend=-Infinity,retainedOffset=0;
   let shownHost,chatChannel,lapChannel,penaltyChannel,ourPenalty=0,lastPenaltySend=-Infinity;
   const penalties=new Map();
+  const controlPolicies=new Map();
+  let policyChannel,ourPolicy,lastPolicySend=-Infinity;
   let weatherChannel,weatherRows,weatherChanged=false,lastWeatherSend=-Infinity;
   const weatherValid={
     wind:v=>Number.isFinite(v)&&v>=0&&v<=12.86,
@@ -244,7 +247,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     const partial=failedPeers.size?' · '+failedPeers.size+
       (failedPeers.size===1?' peer connection failed':' peer connections failed'):'';
     status.textContent=room?roomName+' · '+roster.get(selfId)+' · '+roster.size+' online'+(npc.host?' · Host':'')+
-      (roster.size===1?' · '+(connectionIssue||'Waiting for peers'):partial):'Offline';
+      (roster.size===1?' · '+(connectionIssue||(waitingForPrivateHost?'Waiting for host · Check the password if nobody joins':'Waiting for peers')):partial):'Offline';
     for(const id of ['wind','sky','storm','seaState']){
       const el=document.getElementById(id);
       el.disabled=Boolean(room&&!npc.host);
@@ -312,23 +315,30 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       peers.delete(id);}
   }
   function leave(){lifts.bind(null);resetChannel=null;lastReset=pendingReset=undefined;finishes.clear();finishChannel=null;if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();currentPosePeers.clear();failedPeers.clear();report();}
+  function setControlPolicy(kind,label){
+    if(typeof kind!=='string'||typeof label!=='string')return;
+    if(ourPolicy?.[0]===kind&&ourPolicy[1]===label)return;
+    ourPolicy=[kind,label.slice(0,80)];
+    lastPolicySend=-Infinity;
+  }
   function join(transport,name=roomName,turn={},channel=name){
     if(room)return;
     finishes.clear();
     if(name!==roomName)retainedOffset=0;
     roomName=name;
     selfId=transport.selfId;
-    connectionIssue=turn.unavailable?'TURN relay unavailable · Waiting for peers':'';
+    connectionIssue='';
+    waitingForPrivateHost=Boolean(turn.locked);
     const config={appId:'pelagic-sailing-v1',relayConfig:{urls:relays}};
     if(turn.servers)config.turnConfig=turn.servers;
     let active;
     active=room=joinFleetRoom(transport,config,channel,{
       onJoinError({error,peerId}){
-        if(!active||room!==active||participants.has(peerId)||!error.includes('after exchanging SDP'))return;
+        if(!active||room!==active||participants.has(peerId)||!String(error).includes('after exchanging SDP'))return;
         const firstFailure=!failedPeers.has(peerId);
         failedPeers.set(peerId,performance.now()+60000);
-        connectionIssue=turn.unavailable?'Peer found · TURN relay unavailable':
-          turn.servers?'Peer found · WebRTC connection failed':'Peer found · Direct link failed · No TURN relay configured';
+        connectionIssue=turn.servers?'Peer found · Connection failed. Retrying…':
+          'Peer found · Direct connection failed. Try Firefox on Android or connect both devices to the same Wi-Fi.';
         report();
         if(firstFailure)active.recover(12000);
       }
@@ -377,6 +387,14 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(room!==active||!participants.has(peerId)||!Number.isInteger(turns)||turns<0||turns>100)return;
       if(turns)penalties.set(peerId,turns);
       else penalties.delete(peerId);
+    };
+    controlPolicies.clear();
+    policyChannel=room.makeAction('seat-policy');
+    policyChannel.onMessage=(policy,{peerId})=>{
+      if(room!==active||!participants.has(peerId)||!Array.isArray(policy)||policy.length!==2)return;
+      const [kind,label]=policy;
+      if(typeof kind==='string'&&/^[a-z]{1,12}$/.test(kind)&&typeof label==='string'&&label.length<=80&&label.trim())
+        controlPolicies.set(peerId,[kind,label.trim()]);
     };
     chatChannel=room.makeAction('room-chat');
     chatChannel.onMessage=(message,{peerId})=>{
@@ -497,6 +515,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       failedPeers.delete(id);
       if(!failedPeers.size)connectionIssue='';
       lastSend=-Infinity;
+      lastPolicySend=-Infinity;
       participants.add(id);npc.join(id);lifts.publish(id);
       const peer=peers.get(id);
       if(peer){peer.leftAt=undefined;peer.lastRotorDraw=undefined;peer.awaitingPose=true;peer.driveTime=peer.driveRPM=undefined;}
@@ -513,6 +532,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(room!==active)return;
       lifts.leave(id);participants.delete(id);currentPosePeers.delete(id);npc.leave(id);lampStates.delete(id);
       wakeOptOut.delete(id);seaClock.peers.delete(id);gustReports.delete(id);
+      controlPolicies.delete(id);
       clearWake(id);
       const peer=peers.get(id);
       if(peer){peer.leftAt=performance.now();trafficChanged=true;}
@@ -588,6 +608,10 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     if(participants.size&&now-lastPenaltySend>=1500){
       lastPenaltySend=now;
       penaltyChannel.send(ourPenalty).catch(()=>{});
+    }
+    if(ourPolicy&&participants.size&&now-lastPolicySend>=3000){
+      lastPolicySend=now;
+      policyChannel.send(ourPolicy).catch(()=>{});
     }
     if(shownHost!==npc.owner){
       shownHost=npc.owner;report();
@@ -894,7 +918,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     return [...participants].map(id=>{
       const peer=peers.get(id);
       const model=peer?.kind==='boat'?(peer.cat?'hobie':'sloop'):peer?.kind;
-      return {id,name:roster.get(id)??'Player',model,penalty:penalties.get(id)??0};
+      return {id,name:roster.get(id)??'Player',model,penalty:penalties.get(id)??0,controlPolicy:controlPolicies.get(id)};
     });
   }
   const carrierPosition=new T.Vector3(),carrierTarget=new T.Vector3();
@@ -1024,5 +1048,5 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   }
   return {lifts,liftCarrier,collisionBodies,seatRemoteRiders,drawPlacards,join,leave,recover:()=>room?.recover(),setResetHandler,resetFleet,frame,sendChat,sendEncounter,receiveEncounter,recordFinish,fleetNumber,playerName,npcName,raceWinner:finishes.get,hostCruiser:()=>peers.get(npc.owner)?.cruiser,detachView,attachView,resumeClock,get connected(){return Boolean(room);},get peerCount(){return participants.size;},setPenalty(turns){
     if(ourPenalty!==turns){ourPenalty=turns;lastPenaltySend=-Infinity;}
-  },lamps,cruisers,drones,submarines,imagingHit,contacts,rotorWakes,droneContacts,nearbyDeck,nearbyDecks,npc,vessels,players,contactPeers,contactTilts,get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
+  },setControlPolicy,lamps,cruisers,drones,submarines,imagingHit,contacts,rotorWakes,droneContacts,nearbyDeck,nearbyDecks,npc,vessels,players,contactPeers,contactTilts,get hasPeers(){return participants.size>0;},needsTraffic(periodic){return trafficChanged || (periodic && boatCount>0);},seaTime,changeWeather,windAnchor,wakeSources,setWakeReception,get wantsWakeSource(){return !!room && participants.size>wakeOptOut.size;},get visible(){return [...peers.values()].filter(peer=>peer.mesh?.group.visible||peer.drone?.visible||peer.motorboat?.visible||peer.sub?.visible).length;}};
 }

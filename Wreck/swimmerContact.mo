@@ -1,6 +1,6 @@
 within Wreck;
 function swimmerContact "Reaction between a rounded swimmer probe and nearby scan surfaces"
-  import MultiBodyLie.Collision;
+  import Collision = .Collision;
   input Real p[3],cy,sy,v[3],radius,damping;
   output Real contact[5] "Forward, port, up, compressive load and signed gap";
 protected

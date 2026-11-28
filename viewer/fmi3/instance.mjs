@@ -1,6 +1,6 @@
-export async function loadInstance(name,inputs,read=fetch){
+export async function loadInstance(name,inputs,read=fetch,optionalInputs){
   const factory=await prepareInstance(name,read);
-  return factory(inputs);
+  return factory(inputs,optionalInputs);
 }
 
 // A training batch can pin one model version and share its binary across
@@ -26,7 +26,11 @@ export async function prepareInstance(name,read=fetch,shareBinary=false){
     let available=first;
     return async inputs=>{const initial=available;available=null;return bindInstance(name,metadata,initial??await create({...options}),inputs);};
   }
-  return async inputs=>bindInstance(name,metadata,await create({...options}),inputs);
+  return async (inputs,optionalInputs)=>{
+    const compatible=optionalInputs&&Object.keys(optionalInputs).filter(name=>Object.hasOwn(metadata.variables,name));
+    const initial=compatible?.length?{...inputs,...Object.fromEntries(compatible.map(name=>[name,optionalInputs[name]]))}:inputs;
+    return bindInstance(name,metadata,await create({...options}),initial);
+  };
 }
 
 function bindInstance(name,metadata,m,inputs,shared=false){

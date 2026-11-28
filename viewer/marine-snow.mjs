@@ -1,10 +1,46 @@
 import {currentVelocities} from './physics-view.mjs';
 
+export function waterParticleLighting(T){
+  const lampCount=2,aim=new T.Vector3();
+  const uniforms={ambientLight:{value:1},
+    lampPosition:{value:Array.from({length:lampCount},()=>new T.Vector3())},
+    lampDirection:{value:Array.from({length:lampCount},()=>new T.Vector3())},
+    beam:{value:Array.from({length:lampCount},()=>new T.Vector2())}};
+  const vertexShader=`
+    uniform float ambientLight;
+    uniform vec2 beam[${lampCount}];
+    uniform vec3 lampPosition[${lampCount}],lampDirection[${lampCount}];
+    float particleLampLight(vec3 point){
+      float light=0.;
+      for(int i=0;i<${lampCount};i++){
+        float range=beam[i].y;
+        if(range<=0.)continue;
+        vec3 offset=point-lampPosition[i];
+        float distanceToLamp=length(offset),cone=beam[i].x;
+        light+=smoothstep(cone,min(1.,cone+.065),dot(offset/max(.01,distanceToLamp),lampDirection[i]))
+          *(1.-smoothstep(.5*range,range,distanceToLamp))/(1.+.10*distanceToLamp*distanceToLamp);
+      }
+      return min(1.,light);
+    }`;
+  return {uniforms,vertexShader,update(lights,ambient){
+    uniforms.ambientLight.value=ambient;
+    for(let i=0;i<lampCount;i++){
+      const light=lights?.[i],beam=uniforms.beam.value[i];
+      beam.set(light?Math.cos(light.angle):1,light?.distance??0);
+      if(!light)continue;
+      const position=uniforms.lampPosition.value[i];
+      light.getWorldPosition(position);
+      light.target.getWorldPosition(aim);
+      uniforms.lampDirection.value[i].subVectors(aim,position).normalize();
+    }
+  }};
+}
+
 // Neutral suspended particles sample the same mean-current field as the sub.
 // Wrapping the fixed pool at the far edges keeps the water still in world
 // coordinates as the camera pans, without allocating particles during a dive.
-export function marineSnow(T,scene,mobile){
-  const batch=125,count=batch*(mobile?6:12),radius=6.5,span=2*radius;
+export function marineSnow(T,scene,mobile,lighting){
+  const batch=125,count=batch*(mobile?10:20),radius=6.5,span=2*radius;
   const position=new Float32Array(count*3),velocity=new Float32Array(count*3);
   const grain=new Float32Array(count),query=new Float64Array(batch*3);
   for(let i=0;i<count;i++){
@@ -17,27 +53,23 @@ export function marineSnow(T,scene,mobile){
   geometry.setAttribute('grain',new T.BufferAttribute(grain,1));
   const material=new T.ShaderMaterial({
     transparent:true,depthWrite:false,
-    uniforms:{surface:{value:0},pixels:{value:1},lampPosition:{value:new T.Vector3()},
-      lampDirection:{value:new T.Vector3()},coneCos:{value:1},beamRange:{value:0},daylight:{value:1}},
+    uniforms:{surface:{value:0},pixels:{value:1},time:{value:0},...lighting.uniforms},
     vertexShader:`
       attribute float grain;
-      uniform float surface,pixels,coneCos,beamRange,daylight;
-      uniform vec3 lampPosition,lampDirection;
+      uniform float surface,pixels,time;
       varying float brightness;
+      ${lighting.vertexShader}
       void main(){
-        vec3 eyeOffset=position-cameraPosition;
-        float dist=length(eyeOffset);
-        vec3 fromLamp=position-lampPosition;
-        float r=length(fromLamp);
-        float lit=0.;
-        if(beamRange>0.)lit=smoothstep(coneCos,min(1.,coneCos+.065),dot(fromLamp/max(.01,r),lampDirection))
-          *(1.-smoothstep(.5*beamRange,beamRange,r))/(1.+.12*r*r);
-        brightness=(.055+.32*daylight+.55*lit)*mix(.4,1.,grain)
-          *(1.-smoothstep(4.1,6.4,dist))*smoothstep(.12,.48,dist)
-          *smoothstep(.015,.13,surface-position.z);
+        float dist=length(position-cameraPosition);
+        float diameter=max(1.45,pixels*clamp(1.+(1.+2.35*grain)/max(.55,dist),1.15,3.2))
+          *mix(.25,1.,pow(grain,3.));
+        float turn=sin(time*mix(.72,1.65,grain)+71.*grain)+.28*sin(time*.92+43.*grain);
+        float glint=smoothstep(-.65,.63,turn);
+        brightness=(.39*ambientLight+.78*particleLampLight(position))*mix(.46,1.,grain)
+          *(1.-smoothstep(4.4,6.4,dist))*smoothstep(.12,.48,dist)
+          *smoothstep(.015,.13,surface-position.z)*glint*min(1.,diameter*diameter);
         gl_Position=projectionMatrix*viewMatrix*vec4(position,1.);
-        // Keep fine sediment visible when adaptive resolution drops below one.
-        gl_PointSize=max(1.25,pixels*clamp(.85+(1.+2.1*grain)/max(.55,dist),1.05,3.));
+        gl_PointSize=max(1.,diameter);
       }`,
     fragmentShader:`
       varying float brightness;
@@ -51,7 +83,7 @@ export function marineSnow(T,scene,mobile){
   cloud.name='Suspended sediment';cloud.frustumCulled=false;cloud.visible=false;
   scene.add(cloud);
   let lastTime,nextSample=-Infinity,cursor=0;
-  const center=new T.Vector3(),aim=new T.Vector3(),uniforms=material.uniforms;
+  const center=new T.Vector3(),uniforms=material.uniforms;
   function sample(start,probe,environment,ambient){
     if(probe&&environment?.every(Number.isFinite)){
       query.set(position.subarray(start*3,(start+batch)*3));
@@ -81,15 +113,7 @@ export function marineSnow(T,scene,mobile){
       }else if(time>=nextSample){
         sample(cursor,probe,environment,ambient);cursor=(cursor+batch)%count;nextSample=time+.22;
       }
-      uniforms.surface.value=surface;uniforms.pixels.value=pixels;
-    },
-    lighting(light,daylight){
-      uniforms.daylight.value=daylight;uniforms.beamRange.value=light?.distance??0;
-      if(!light)return;
-      light.getWorldPosition(uniforms.lampPosition.value);
-      light.target.getWorldPosition(aim);
-      uniforms.lampDirection.value.subVectors(aim,uniforms.lampPosition.value).normalize();
-      uniforms.coneCos.value=Math.cos(light.angle);
+      uniforms.surface.value=surface;uniforms.pixels.value=pixels;uniforms.time.value=time;
     },
     dispose(){scene.remove(cloud);geometry.dispose();material.dispose();}
   };

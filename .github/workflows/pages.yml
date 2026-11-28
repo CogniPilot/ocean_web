@@ -18,14 +18,29 @@ jobs:
           repository: CogniPilot/microduck_web
           ref: f567b8c452d5c759436a568ffad5632dc1046916
           path: .deps/microduck_web
+      - uses: actions/checkout@v4
+        with:
+          repository: CogniPilot/electrode_web
+          ref: 626c38c96933010210c030aaad96db7f694dba9a
+          path: .deps/electrode-web
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
       - run: npm install --prefix .deps/ocean-component --no-save @bytecodealliance/jco-transpile@0.23.0
+      - name: Build the on-demand RDD2 ground station
+        working-directory: .deps/electrode-web
+        env:
+          ELECTRODE_WEB_BASE_PATH: /${{ github.event.repository.name }}/electrode
+        run: |
+          git apply "$GITHUB_WORKSPACE/patches/electrode-web-embedded.patch"
+          npm ci
+          npm run build
       - run: scripts/package-pages.sh build/pages --world
         env:
+          OCEAN_ELECTRODE_URL: /${{ github.event.repository.name }}/electrode/
           OCEAN_LOBBY_ENDPOINT: ${{ vars.OCEAN_LOBBY_ENDPOINT }}
           OCEAN_TURN_ENDPOINT: ${{ vars.OCEAN_TURN_ENDPOINT }}
+      - run: cp -a .deps/electrode-web/apps/web/build build/pages/electrode
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

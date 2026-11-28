@@ -3,8 +3,8 @@ function bedContact "Piccard viewport and support points against the triangulate
   input Real pos[3],T[3,3],velocity[3],omega[3];
   output Real force[3],moment[3];
 protected
-  MultiBodyLie.Collision.ContactPoint contact;
-  MultiBodyLie.Collision.Material material(k=5200,d=.8,mu=.22,eps=.0003,v_eps=.12);
+  .Collision.ContactPoint contact;
+  .Collision.Material material(k=5200,d=.8,mu=.22,eps=.0003,v_eps=.12);
   Real parts[PiccardSolids.count,7],patch[4,5];
   Integer i0,j0,ix,jy,cell,axis;
   Real west,south,a,b,c,d,x,y,nx,ny,clearance,flatElevation;
@@ -81,8 +81,8 @@ algorithm
     else (h,normal):=bedPatchPlane(pos[1]+arm[1],pos[2]+arm[2],west,south,patch);normal:=normal/sqrt(normal*normal);end if;
     gap:=(pos[3]+arm[3]-h)*normal[3];
     if gap<.003 then
-      contact:=MultiBodyLie.Collision.ContactPoint(gap=gap,n=normal,armA=arm,armB=zeros(3));
-      f:=MultiBodyLie.Collision.contactForce(contact,velocity+cross(w,arm),material);
+      contact:=.Collision.ContactPoint(gap=gap,n=normal,armA=arm,armB=zeros(3));
+      f:=.Collision.contactForce(contact,velocity+cross(w,arm),material);
       weight:=.003-gap;total:=total+weight;
       force:=force+weight*f;moment:=moment+weight*cross(arm,f);
     end if;

@@ -1,6 +1,7 @@
 import {abyssSite} from './harbor-sites.mjs';
 import {wreckSites} from './red-sea-sites.mjs';
 import {contour} from './cruiser-chart.mjs';
+import {raceGateEnds} from './regatta.mjs';
 
 export function harborMap(canvas,terrain,race,summary,abyss=abyssSite,signal){
   const ctx=canvas.getContext('2d');
@@ -34,8 +35,9 @@ export function harborMap(canvas,terrain,race,summary,abyss=abyssSite,signal){
     if(canvas.width!==Math.round(width*dpr))canvas.width=Math.round(width*dpr);
     if(canvas.height!==Math.round(height*dpr))canvas.height=Math.round(height*dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    const pin=race&&[race.get('pinEast'),race.get('pinNorth')];
-    const committee=race&&[race.get('committeeEast'),race.get('committeeNorth')];
+    const gate=race&&raceGateEnds(race);
+    const pin=gate&&[gate[0],gate[1]];
+    const committee=gate&&[gate[2],gate[3]];
     const start=race&&pin.map((x,i)=>(x+committee[i])/2);
     const northings=race?.get('markNorth');
     const marks=race?Array.from(race.get('markEast'),(x,i)=>[x,northings[i]]):[];

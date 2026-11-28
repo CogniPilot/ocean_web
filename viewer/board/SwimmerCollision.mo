@@ -1,5 +1,5 @@
 package SwimmerCollision "MultiBodyLie shapes in the whale's articulated body frames"
-  import MultiBodyLie.Collision;
+  import Collision = .Collision;
   import MultiBodyLie.Frames.axisRotationT;
 
   function whale "Shape kind, origin, shape-to-body rotation by rows, and size"

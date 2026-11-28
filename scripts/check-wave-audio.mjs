@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {hoistWaterEntry,hullLappingMix,hullWashMix,waveAmbience} from '../viewer/regatta.mjs';
+import {hoistWaterEntry,hullLappingMix,hullWashMix,surfaceSlap,waveAmbience} from '../viewer/regatta.mjs';
 
 const silent={swell:0,crest:0,wake:0};
 const probes=waveAmbience();
@@ -60,17 +60,23 @@ const glide=hullWashMix(knot,0,0,true),cruise=hullWashMix(6*knot,0,0,true);
 assert(glide.gurgle>0&&glide.gurgle<.20*cruise.gurgle&&glide.rush===0);
 assert(glide.gurgleRate<.8&&cruise.gurgleRate>1);
 assert(hullWashMix(0,.3,0,true).gurgle>0,'Swell can still lap a stationary Hobie');
-assert(hullWashMix(13*knot,0,0,true).rush>.60);
 assert.equal(hullWashMix(knot,0,0).gurgleRate,1);
 assert(hullWashMix(0,.3,0).gurgle>0);
-const slow=hullWashMix(1,0,0),crossfade=hullWashMix(6*1852/3600,0,0),fast=hullWashMix(13*1852/3600,0,0);
+const slow=hullWashMix(1,0,0);
 assert(slow.gurgle>.2&&slow.rush===0);
-assert(crossfade.gurgle>.2&&crossfade.rush>.3);
-assert(fast.gurgle===0&&fast.rush>.60);
 assert.deepEqual(hullWashMix(-4,0,0),hullWashMix(4,0,0));
-for(let speed=1.35;speed<=4.5;speed+=.01){
-  const {gurgle,rush}=hullWashMix(speed,0,0);
-  assert(Math.hypot(gurgle,rush)>.35,'Hull wash stays audible throughout the blend');
+for(const catamaran of [false,true]){
+  for(const speed of [6,9.9,10]){
+    const {gurgle,rush}=hullWashMix(speed*knot,.3,.2,catamaran);
+    assert(gurgle>.2&&rush===0,'The fast wash stays silent through ten knots');
+  }
+  const crossfade=hullWashMix(11.5*knot,0,0,catamaran),fast=hullWashMix(13*knot,0,0,catamaran);
+  assert(crossfade.gurgle>.2&&crossfade.rush>.3);
+  assert(fast.gurgle===0&&fast.rush>.60);
+  for(let speed=10;speed<=13;speed+=.05){
+    const {gurgle,rush}=hullWashMix(speed*knot,0,0,catamaran);
+    assert(Math.hypot(gurgle,rush)>.35,'Hull wash stays audible throughout the blend');
+  }
 }
 assert.equal(hullLappingMix(true,0,undefined),1);
 for(const z of [-10,-.30,.26,.73])assert.equal(hullLappingMix(true,z,undefined),0);
@@ -90,3 +96,18 @@ for(const z of [.13,-.06,.09,-.09])assert.equal(entry(lower,z),false,'Waves must
 assert.equal(entry(recover,.3),false);
 assert.equal(entry(lower,-.02),true,'A recovered sub can make another entry');
 assert.equal(entry({rider:null},-.4),false);
+
+const slap=surfaceSlap(.10,.65,.4);
+assert.equal(slap(0,-.02),0,'already submerged on join');
+assert.equal(slap(.10,.20),0,'re-entry armed above water');
+assert.equal(slap(.15,.08),0,'still airborne');
+assert.equal(slap(.15,.08),0,'duplicate display frames preserve the previous sample');
+assert(slap(.20,-.03)>2,'downward crossing plays once');
+assert.equal(slap(.24,-.09),0,'no repeats while immersed');
+assert.equal(slap(.30,.16),0);
+assert.equal(slap(.36,-.01),0,'cooldown suppresses a second strike in the same splash');
+assert.equal(slap(.56,.12),0);
+assert.equal(slap(.75,.02),0);
+assert.equal(slap(.83,-.015),0,'slow immersion is silent');
+assert.equal(slap(.9,.25),0);
+assert.equal(slap(1.4,-.02),0,'a pause drops the crossing');

@@ -1,0 +1,56 @@
+diff --git a/Marine/Environment/SwimmerWake.mo b/Marine/Environment/SwimmerWake.mo
+index 2d9ee3a..4461c71 100644
+--- a/Marine/Environment/SwimmerWake.mo
++++ b/Marine/Environment/SwimmerWake.mo
+@@ -80,13 +80,36 @@ model SwimmerWake "Moving free-surface patch driven by displaced swimmer volume"
+       (1+h*(.55+max(0,6-min(min(i,j),min(n-i+1,n-j+1))))) else 0 for i in 1:n};
+   end velocityRow;
+ 
++  function breakingRow
++    input Real before[n],here[n],after[n],velocity[n],foam[n],cell,dt;
++    output Real row[3,n];
++  protected
++    constant Real criticalSlope=.58;
++    Real difference[4],spill[4],rate,diffusion;
++  algorithm
++    row:={here,velocity,foam*exp(-.91*dt)};
++    diffusion:=min(.20,2*dt);
++    for i in 2:n-1 loop
++      difference:={here[i-1]-here[i],here[i+1]-here[i],before[i]-here[i],after[i]-here[i]};
++      spill:={max(0,difference[k]-criticalSlope*cell)+min(0,difference[k]+criticalSlope*cell) for k in 1:4};
++      // A steep face spills into its lower neighbour. Opposite fluxes
++      // conserve surface volume away from the open boundary.
++      rate:=max(abs(spill))/cell;
++      if rate>0 then
++        row[1,i]:=here[i]+diffusion*sum(spill);
++        row[2,i]:=velocity[i]/(1+18*dt*rate);
++        row[3,i]:=1-(1-row[3,i])*exp(-4*dt*rate);
++      end if;
++    end for;
++  end breakingRow;
++
+   function advancePatch
+     input Real old[3,n,n],before[12,5],now[12,5],origin[2],previousOrigin[2],cell,dt,remaining,entry[5],trigger;
+     output Real grid[3,n,n];
+     output Real life;
+   protected
+     Integer dx,dy,steps;
+-    Real x,y,radius,speed,change,foam,wet,h,stamps[24,5],impactCell[3],height[n,n],velocity[n,n],foamField[n,n];
++    Real x,y,radius,speed,change,foam,wet,h,stamps[24,5],impactCell[3],height[n,n],velocity[n,n],foamField[n,n],adjusted[3,n];
+   algorithm
+     grid:=zeros(3,n,n);
+     life:=max(0,remaining-dt);
+@@ -130,9 +153,10 @@ model SwimmerWake "Moving free-surface patch driven by displaced swimmer volume"
+       end for;
+       height:=height+h*velocity;
+     end for;
+-    grid[1,:,:]:=height;
+-    grid[2,:,:]:=velocity;
+-    grid[3,:,:]:=foamField*exp(-.91*dt);
++    for j in 2:n-1 loop
++      adjusted:=breakingRow(height[j-1,:],height[j,:],height[j+1,:],velocity[j,:],foamField[j,:],cell,dt);
++      for channel in 1:3 loop grid[channel,j,:]:=adjusted[channel,:];end for;
++    end for;
+   end advancePatch;
+ equation
+   when sample(0,.1) then

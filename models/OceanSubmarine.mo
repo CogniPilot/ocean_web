@@ -3,6 +3,7 @@ model OceanSubmarine "Submarine with onboard navigation and a shared sea"
   parameter Real surveyAtStartup=1;
   input Real imagingSonar(start=0) "Request a sonar ping independently of optical acquisition and mapping";
   input Real idleCamera(start=0),subManual(start=1),subPilot[4],subMode(start=0),subAttitudePilot[2];
+  input Real subBallastTrim(start=-1);
   input Real peerCruisers[9,14](each start=0),peerLiftStates[9,2](each start=0);
   input Real animalTraffic[10,9](each start=0),animalJoints[10,4](each start=0);
   input Real mappedCurrent[4](each start=0) "Coverage and local mean ENU current at Piccard";
@@ -13,7 +14,7 @@ model OceanSubmarine "Submarine with onboard navigation and a shared sea"
   input Real subHoistQuaternion[4](each start=0),subHoistAngularVelocity[3](each start=0);
   Wreck.Plant sub(mappedCurrent=mappedCurrent,animalTraffic=animalTraffic,animalJoints=animalJoints,flood=subFlood,peerCruisers=peerCruisers,peerLiftStates=peerLiftStates,hoist=subHoist,hoistUp=subHoistUp,hoistQuaternion=subHoistQuaternion,
     hoistAngularVelocity=subHoistAngularVelocity,scanConstraints=scanConstraints,seaClockOffset=seaClockOffset,seaState=seaState,windSpeed=windSpeed,windDirection=windBearing,
-    sensor=sensor,elevationRanges=elev,navigationUp=estimate[3],navigationUpValid=if estimate[9]>0 then 1 else 0,manual=subManual,pilot=subPilot,manualMode=subMode,attitudePilot=subAttitudePilot,
+    sensor=sensor,elevationRanges=elev,navigationUp=estimate[3],navigationUpValid=if estimate[9]>0 then 1 else 0,manual=subManual,pilot=subPilot,manualMode=subMode,attitudePilot=subAttitudePilot,ballastTrim=subBallastTrim,
     hullSurfaceOffset=receiverWater[1],propSurfaceOffset=receiverWater[2:7]);
   discrete Real previousGyro[3](each start=0,each fixed=true);
   final parameter Real beams[1017,3]=Wreck.Perception.directions();

@@ -21,6 +21,7 @@ const yieldTurn=()=>new Promise(resolve=>setTimeout(resolve,0));
 
 async function train(request,id){
   const automatic=request.lanes==='auto',seed=request.seed??58429;
+  const maximizeThroughput=request.physics==='cuda';
   let lanes=automatic?4:Number(request.lanes??4);
   if(!Number.isInteger(lanes)||lanes<1)throw Error('Count must be a positive whole number.');
   const stage=message=>{if(id===generation)postMessage({type:'stage',message});};
@@ -40,7 +41,6 @@ async function train(request,id){
     stage('Loading and compiling swim controller…');
     experiment=await loadSwimPolicy(fetch,initial);
     let schedule=seed,round=0,steps=0,best=-Infinity,bestWeights=initial,bestRound=0;
-    const start=performance.now();
     async function run(weights,validation,probe=false){
       // Keep exactly the selected number of physical instances active.
       // Groups of four exploration histories may span successive batches.
@@ -108,7 +108,7 @@ async function train(request,id){
           }
           for(let tick=0;tick<decisionSteps;tick++){
             if(id!==generation)return null;
-            if(probe&&tick===0)probeStart=performance.now();
+            if(probe&&tick===(maximizeThroughput?1:0))probeStart=performance.now();
             for(const a of actors)a.policy.stroke(a.model,a.pose);
             const tickStart=performance.now();
             const emit=request.physics==='cuda'||probe||(tick+1)%8===0||tickStart+tickDuration-lastFrame>=150,log=(block*decisionSteps+tick+1)%100===0;
@@ -123,9 +123,12 @@ async function train(request,id){
                 a.model.logSample=a.model.get('diveLog');a.model.set('priorLog',a.model.logSample);a.nextLogTime++;
               }
             }
-            if(probe){
+            if(probe&&probeStart!==undefined){
               const milliseconds=performance.now()-probeStart;
-              if(tick===4||milliseconds>=250){sendFrames();return {steps:tick+1,milliseconds};}
+              const measuredSteps=tick+(maximizeThroughput?0:1);
+              if(measuredSteps===5||(!maximizeThroughput&&milliseconds>=250)){
+                sendFrames();return {steps:measuredSteps,milliseconds};
+              }
             }
             if(!probe)steps+=lanes;
             tickDuration=performance.now()-tickStart;
@@ -143,11 +146,14 @@ async function train(request,id){
     if(automatic){
       const memory=self.navigator?.deviceMemory;
       const ceiling=physics.label==='CPU WASM'&&memory&&memory<=4?Math.max(4,memory*4):physics.maxLanes;
-      lanes=await calibrateCount({groupSize:1,stepSeconds:.01,maximum:ceiling,stepsToUpdate:3*blockCount*decisionSteps,
-        onProbe:count=>publish('sizing',{count}),
-        probe:async count=>{lanes=count;return run(initial,true,true);}
+      lanes=await calibrateCount({groupSize:maximizeThroughput&&ceiling>=4?4:1,stepSeconds:.01,maximum:ceiling,
+        stepsToUpdate:3*blockCount*decisionSteps,maximizeThroughput,
+        onProbe:(count,best)=>publish('sizing',{count,best}),
+        probe:async count=>{lanes=count;const sample=await run(initial,true,true);if(!sample)throw Error('Stopped');return sample;}
       });
     }
+    if(id!==generation)return;
+    const start=performance.now();
     publish('ready',{lanes,actions:initial.length,features:initial[0].length,steps,round,physics:physics.label,update:request.backend});
     const baseline=await run(initial,true);if(!baseline)return;best=baseline.metrics[0];
     publish('progress',{round,steps,score:best,baseline:best,bestRound,phase:'baseline',metrics:baseline.metrics,weights:initial});
@@ -165,7 +171,7 @@ async function train(request,id){
         physicsDispatches:physics.dispatches,roundMs:performance.now()-t,updateMs,phase:'round'});
       if(request.rounds&&round>=request.rounds)break;
     }
-  }finally{experiment?.dispose?.();physics?.close();learner.close();}
+  }finally{experiment?.dispose?.();await physics?.close();learner.close();}
 }
 
 let running;

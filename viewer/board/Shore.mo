@@ -1,4 +1,6 @@
 package Shore "Beach and convex shoreline boulders in east, north, up coordinates"
+  import Geometry = .Collision;
+  import Collision = .Collision;
   // BEGIN BAKED
   constant Real rocks[46,13]=[36.918666,50.4818769,0.0546509,1.2236195,0.5208195,0.5762196,0.254188,-0.7568849,0.2067527,1.0821336,0.5268973,-0.6976057,0.5018164;
 27.8436435,49.823778,-0.5012133,1.6249961,-0.5190957,-0.1877656,0.3979261,-0.0685292,-0.9039069,-0.5159145,0.3958481,-0.2558404,0.395664;
@@ -244,7 +246,8 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
   function committeeVertices "Committee launch hull in its forward, port and up frame"
     output Real vertices[42,3];
   protected
-    constant Real stations[6,2]=[-3,.88;-2.7,1.02;-.7,1.10;1,1.01;2.1,.72;3.2,.025];
+    // The 190 Montauk's published hull envelope is 5.89 m by 2.43 m.
+    constant Real stations[6,2]=[-2.91,.90;-2.59,1.10;-.65,1.215;1,1.18;2.10,.84;2.98,.03];
     constant Real section[7,2]=[1,.78;.91,.24;.58,-.13;0,-.30;-.58,-.13;-.91,.24;-1,.78];
   algorithm
     for i in 1:6 loop
@@ -291,12 +294,37 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     faces:=[1,3,2;2,3,4;5,6,7;6,8,7;1,2,5;2,6,5;3,7,4;4,7,8;1,5,3;3,5,7;2,4,6;4,8,6];
   end boxFaces;
 
-  function committeeFittings "Solid shelter roof, console and motor housing"
-    output Real vertices[3,8,3];
+  constant Real committeePadCenter[3]={0,0,2.36};
+  constant Real committeePadHalf[2]={.80,.62};
+  constant Real committeeRoofHalf[2]={.925,.725};
+  constant Real committeeMastX=2.58;
+  constant Real committeeMastTop=4 "Start/finish sighting point height in the committee boat frame";
+  constant Real committeeBoard[5]={1.47,.58,-.17,.58,1.96} "Width, height and positive-side center of the course board";
+  constant Integer committeeFittingCount=17;
+
+  function committeeFittings "Shelter, motor, mast, roof supports and course boards"
+    output Real vertices[committeeFittingCount,8,3];
   algorithm
     vertices[1,:,:]:=boxVertices({0,0,1.16},{.475,.38,.43});
-    vertices[2,:,:]:=boxVertices({0,0,2.32},{.925,.725,.04});
-    vertices[3,:,:]:=boxVertices({-3.13,0,.58},{.26,.24,.34});
+    vertices[2,:,:]:=boxVertices(committeePadCenter-{0,0,.04},cat(1,committeeRoofHalf,{.04}));
+    vertices[3,:,:]:=boxVertices({-3.14,0,.76},{.27,.22,.23});
+    vertices[4,:,:]:=boxVertices({committeeMastX,0,2.495},{.033,.033,1.505});
+    for i in 1:2 loop
+      for j in 1:2 loop
+        vertices[4+2*(i-1)+j,:,:]:=boxVertices({if i==1 then -.75 else .55,if j==1 then -.53 else .53,1.555},{.027,.027,.765});
+      end for;
+      vertices[8+i,:,:]:=boxVertices({committeeBoard[3],(2*i-3)*committeeBoard[4],committeeBoard[5]},
+        {.5*committeeBoard[1],.012,.5*committeeBoard[2]});
+    end for;
+    vertices[11,:,:]:=boxVertices({.3835,0,1.775},{.040,.398,.19});
+    // The outboard's mast-height powerhead, midsection, drive leg and gearcase
+    // use separate envelopes so the space on either side of the leg stays open.
+    vertices[12,:,:]:=boxVertices({-3.17,0,.39},{.145,.096,.18});
+    vertices[13,:,:]:=boxVertices({-3.20,0,.01},{.11,.068,.265});
+    vertices[14,:,:]:=boxVertices({-3.26,0,-.265},{.145,.09,.095});
+    vertices[15,:,:]:=boxVertices({1.70,0,.70},{.45,.63,.10});
+    vertices[16,:,:]:=boxVertices({-1.30,0,1.04},{.36,.56,.26});
+    vertices[17,:,:]:=boxVertices({-2.42,0,.885},{.255,.67,.10});
   end committeeFittings;
 
   function committeeGap
@@ -305,7 +333,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     output Real result[4];
   algorithm
     result:={1e3,0,0,0};
-    if abs(p[2])>1.10+margin or p[1]< -3-margin or p[1]>3.2+margin or p[3]< -.30-margin or p[3]>1.044+margin then
+    if abs(p[2])>1.215+margin or p[1]< -2.91-margin or p[1]>2.98+margin or p[3]< -.30-margin or p[3]>1.018+margin then
       return;
     end if;
     result:=hullMeshGap(p,vertices,faces);
@@ -339,15 +367,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
       vertices[5+k,:,:]:=boxVertices({.156*sx,.195*sy,-.052},{.023,.024,.052});
     end for;
   end droneParts;
-  function closestEdge
-    input Real p[3],a[3],b[3];
-    output Real closest[3];
-  protected Real edge[3],u;
-  algorithm
-    edge:=b-a;
-    u:=min(1,max(0,(p-a)*edge/max(1e-12,edge*edge)));
-    closest:=a+u*edge;
-  end closestEdge;
+  function closestEdge = Geometry.closestSegmentPoint;
 
   function pontoonGap "Signed distance and normal of the nearest face of the closed triangle mesh"
     input Real p[3],vertices[96,3],margin;
@@ -406,68 +426,9 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     end if;
   end cruiserGap;
 
-  function insideHull "Ray parity through a watertight hull, with a submicrometre edge offset"
-    input Real p[3],vertices[:,3];
-    input Integer faces[:,3];
-    output Boolean inside;
-  protected
-    Real a[3],b[3],c[3],y,z,det,u,v;
-  algorithm
-    inside:=false;
-    y:=p[2]+1e-8;z:=p[3]+1.4142e-8;
-    for i in 1:size(faces,1) loop
-      a:=vertices[faces[i,1],:];b:=vertices[faces[i,2],:];c:=vertices[faces[i,3],:];
-      if max(a[1],max(b[1],c[1]))>p[1] and y>=min(a[2],min(b[2],c[2])) and y<=max(a[2],max(b[2],c[2]))
-        and z>=min(a[3],min(b[3],c[3])) and z<=max(a[3],max(b[3],c[3])) then
-        b:=b-a;c:=c-a;
-        det:=b[2]*c[3]-b[3]*c[2];
-        if abs(det)>1e-12 then
-          u:=((y-a[2])*c[3]-(z-a[3])*c[2])/det;
-          v:=(b[2]*(z-a[3])-b[3]*(y-a[2]))/det;
-          if u>=0 and v>=0 and u+v<1 and a[1]+u*b[1]+v*c[1]>p[1] then
-            inside:=not inside;
-          end if;
-        end if;
-      end if;
-    end for;
-  end insideHull;
+  function insideHull = Geometry.insideTriangleMesh;
 
-  function hullMeshGap "Distance and contact normal at the nearest triangle"
-    input Real p[3],vertices[:,3];
-    input Integer faces[:,3];
-    input Boolean twoSided=false;
-    input Integer firstFace=1,lastFace=size(faces,1),firstCap=size(faces,1)+1;
-    output Real result[4];
-  protected
-    Real a[3],b[3],c[3],n[3],q[3],edge[3],delta[3],gap,best,d2,sgn,normal[3];
-  algorithm
-    best:=1e6;sgn:=1;normal:={0,0,1};
-    for i in 1:size(faces,1) loop
-      if (i>=firstFace and i<=lastFace) or i>=firstCap then
-        a:=vertices[faces[i,1],:];b:=vertices[faces[i,2],:];c:=vertices[faces[i,3],:];
-        gap:=max(0,max(min(a[1],min(b[1],c[1]))-p[1],p[1]-max(a[1],max(b[1],c[1]))));
-        if gap*gap<best then
-          n:=cross(b-a,c-a);
-          n:=n/sqrt(max(1e-12,n*n));
-          gap:=(p-a)*n;
-          q:=p-gap*n;
-          if cross(b-a,q-a)*n<0 or cross(c-b,q-b)*n<0 or cross(a-c,q-c)*n<0 then
-            q:=closestEdge(p,a,b);
-            edge:=closestEdge(p,b,c);
-            if (p-edge)*(p-edge)<(p-q)*(p-q) then q:=edge;end if;
-            edge:=closestEdge(p,c,a);
-            if (p-edge)*(p-edge)<(p-q)*(p-q) then q:=edge;end if;
-          end if;
-          delta:=p-q;d2:=delta*delta;
-          if d2<best then
-            best:=d2;sgn:=if twoSided or gap>=0 then 1 else -1;
-            normal:=if d2>1e-10 then sgn*delta/sqrt(d2) else n;
-          end if;
-        end if;
-      end if;
-    end for;
-    result:=cat(1,{sgn*sqrt(best)},normal);
-  end hullMeshGap;
+  function hullMeshGap = Geometry.triangleMeshGap;
   function smoothStep
     input Real x;
     output Real blend;
@@ -503,49 +464,62 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
   // Pass the mesh tables once so each indexed lookup uses the same immutable data.
   function rockSurface "Deepest boulder surface inside the broad-phase bounds"
     input Real pos[3],sand[4],boulders[46,13],facets[80,4];
+    input Boolean candidates[46]=fill(true,46);
     output Real surface[4] "Normal and signed clearance";
   protected
-    Real delta[3],gradient[3],local[3],inv[3,3],bestNormal[3],normal[3],distance,highest,clearance;
-    Integer facet;
+    Real inv[3,3],normal[3],clearance;
+    Geometry.ContactPoint hit;
   algorithm
     normal:=sand[1:3];clearance:=sand[4];
     for rock in 1:46 loop
-      delta:=pos-boulders[rock,1:3];
-      if delta*delta<boulders[rock,4]^2 then
+      if candidates[rock] and Geometry.sphereBoundsOverlap(pos,0,boulders[rock,1:3],boulders[rock,4]) then
         inv:=[boulders[rock,5],boulders[rock,6],boulders[rock,7];
           boulders[rock,8],boulders[rock,9],boulders[rock,10];
           boulders[rock,11],boulders[rock,12],boulders[rock,13]];
-        local:=inv*delta;highest:=-1e6;bestNormal:={0,0,1};facet:=1;
-        while facet<=80 and highest<min(0,clearance) loop
-          gradient:=transpose(inv)*facets[facet,1:3];
-          distance:=(facets[facet,1:3]*local-facets[facet,4])/sqrt(gradient*gradient);
-          if distance>highest then highest:=distance;bestNormal:=gradient/sqrt(gradient*gradient);end if;
-          facet:=facet+1;
-        end while;
-        if highest<min(0,clearance) then clearance:=highest;normal:=bestNormal;end if;
+        hit:=Geometry.pointConvexPlanes(pos-boulders[rock,1:3],inv,facets,min(0,clearance));
+        if hit.gap<min(0,clearance) then clearance:=hit.gap;normal:=hit.n;end if;
       end if;
     end for;
     surface:={normal[1],normal[2],normal[3],clearance};
   end rockSurface;
+
+  function rockCandidates "Boulders that can overlap an entire rigid body's bounding sphere"
+    input Real position[3],radius;
+    output Boolean candidates[46];
+    output Real highest "Upper bound of the selected boulders";
+  algorithm
+    highest:=-13.7;
+    for i in 1:46 loop
+      candidates[i]:=Geometry.sphereBoundsOverlap(position,radius,rocks[i,1:3],rocks[i,4]);
+      if candidates[i] then highest:=max(highest,rocks[i,3]+rocks[i,4]);end if;
+    end for;
+  end rockCandidates;
   function aboveFlatBottom "Conservative sphere clear of both the island mesh and the level seabed"
     input Real east,north,z,radius;
     output Boolean clear;
   algorithm
     clear:=z-radius> -13.7 and (abs(east-36)>29+radius or abs(north-40)>23+radius);
   end aboveFlatBottom;
+  function sandHeightUpperBound "Upper bound on interpolated sand height inside a horizontal footprint"
+    input Real east,north,radius;
+    output Real height;
+  protected
+    Real x,y;
+  algorithm
+    // Include all possible vertices of the triangles under this footprint.
+    x:=max(0,abs(east-36)-radius-58/74);y:=max(0,abs(north-40)-radius-46/62);
+    height:=max(-13.7,4.31-4.2*((x/17)^2+(y/11)^2));
+  end sandHeightUpperBound;
   function clearOfShore "Conservative clearance for a footprint with known lowest elevation"
     input Real east,north,lowest,radius;
     output Boolean clear;
   protected
-    Real x,y,dx,dy,r;
+    Real dx,dy,r;
   algorithm
     clear:=false;
     if lowest<=-13.7 then return;end if;
     if abs(east-36)>29+radius or abs(north-40)>23+radius then clear:=true;return;end if;
-    // Every point on the sand triangle is bounded by its highest vertex. Extend
-    // the footprint by a grid cell to include the vertices used for interpolation.
-    x:=max(0,abs(east-36)-radius-58/74);y:=max(0,abs(north-40)-radius-46/62);
-    if lowest<=4.31-4.2*((x/17)^2+(y/11)^2) then return;end if;
+    if lowest<=sandHeightUpperBound(east,north,radius) then return;end if;
     for i in 1:46 loop
       r:=rocks[i,4];
       if lowest<=rocks[i,3]+r then
@@ -557,10 +531,12 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
   end clearOfShore;
   function skinContact "Compressive terrain force on one swimmer skin point, in level heading axes"
     input Real pos[3],cy,sy,velocity[3],damping,radius=0;
+    input Boolean candidates[46]=fill(true,46);
     output Real contact[5] "Force XYZ, normal load, signed clearance";
   protected
     constant Real dx=58/74,dy=46/62;
     Real surface[4],normal[3],n[3],slip[3],force[3],east,north,h,t,u,v,height,clearance,load,support,normalSpeed;
+    Geometry.ContactPoint point;
   algorithm
     east:=pos[1]-36;north:=pos[2]-40;(height,normal):=Wreck.Bathymetry.plane(pos[1],pos[2]);
     if abs(east)<=29 and abs(north)<=23 then
@@ -577,9 +553,11 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
       end if;
       if height< -13.7 then height:=-13.7;normal:={0,0,1};end if;
     end if;
-    normal:=normal/sqrt(normal*normal);clearance:=(pos[3]-height)*normal[3];
+    normal:=normal/sqrt(normal*normal);
+    point:=Geometry.planeSphere({pos[1],pos[2],height},normal,pos,zeros(3),0);
+    clearance:=point.gap;
     if abs(east)<22 and abs(north)<15 and abs(pos[3])<6 then
-      surface:=rockSurface(pos,{normal[1],normal[2],normal[3],clearance},rocks,planes);
+      surface:=rockSurface(pos,{normal[1],normal[2],normal[3],clearance},rocks,planes,candidates);
       normal:=surface[1:3];clearance:=surface[4];
     end if;
     clearance:=clearance-radius;
@@ -594,53 +572,6 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     end if;
     contact:={force[1],force[2],force[3],load,clearance};
   end skinContact;
-  function rockTriangle "Clip a real contact triangle to a convex boulder and return its contact point"
-    input Real tri[3,3] "Vertices in the vessel body frame",face[:,4] "Unit convex planes in that frame";
-    output Real hit[7] "Penetration, surface normal, body contact point";
-  protected
-    Real polygon[83,3],clipped[83,3],a[3],b[3],n[3],pa,pb,point[3],depth;
-    Integer count,newCount;
-    Boolean allInside,allOutside;
-  algorithm
-    hit:=zeros(7);
-    polygon:=zeros(83,3);clipped:=zeros(83,3);
-    count:=3;polygon[1:3,:]:=tri;
-    for f in 1:size(face,1) loop
-      n:=face[f,1:3];newCount:=0;
-      allInside:=true;allOutside:=true;
-      for i in 1:count loop
-        pb:=polygon[i,:]*n-face[f,4];
-        allInside:=allInside and pb<=0;allOutside:=allOutside and pb>0;
-      end for;
-      if allOutside then return;end if;
-      if not allInside then
-        a:=polygon[count,:];pa:=a*n-face[f,4];
-        for i in 1:count loop
-          b:=polygon[i,:];pb:=b*n-face[f,4];
-          if (pa<0 and pb>0) or (pa>0 and pb<0) then
-            newCount:=newCount+1;
-            clipped[newCount,:]:=a+(b-a)*(pa/(pa-pb));
-          end if;
-          if pb<=0 then
-            newCount:=newCount+1;clipped[newCount,:]:=b;
-          end if;
-          a:=b;pa:=pb;
-        end for;
-        if newCount<3 then return;end if;
-        count:=newCount;
-        for i in 1:count loop polygon[i,:]:=clipped[i,:];end for;
-      end if;
-    end for;
-    point:=zeros(3);
-    for i in 1:count loop point:=point+polygon[i,:];end for;
-    point:=point/count;
-    hit[1]:=1e6;hit[5:7]:=point;
-    for f in 1:size(face,1) loop
-      depth:=face[f,4]-face[f,1:3]*point;
-      if depth<hit[1] then hit[1]:=depth;hit[2:4]:=face[f,1:3];end if;
-    end for;
-    annotation(Inline=false);
-  end rockTriangle;
 
   function hobiePlatform "Tessellated trampoline underside, crowned crossbeams and side rails"
     output Real corners[32,4,3];
@@ -695,8 +626,9 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     output Real wrench[6];
   protected
     Real bodyToWorld[3,3],inv[3,3],bodyNormals[3,3],face[80,4],tri[3,3],radius;
-    Real delta[3],center[3],gradient[3],normal[3],arm[3],v[3],slip[3],force[3],distance;
-    Real hit[7],best[7],support,scale;
+    Real delta[3],center[3],gradient[3],normal[3],arm[3],force[3],distance,scale;
+    Collision.ContactPoint hit,best,point;
+    Collision.Material rock(k=100000,d=1.5,mu=.42,eps=1e-6,v_eps=.08);
     Integer corner;
   algorithm
     wrench:=zeros(6);
@@ -713,7 +645,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
           face[f,1:3]:=gradient/scale;
           face[f,4]:=(facets[f,4]+gradient*center)/scale;
         end for;
-        best:=zeros(7);
+        best:=Collision.ContactPoint(0,zeros(3),zeros(3),zeros(3));
         for surface in 1:3 loop
           if surface==1 or abs(center[2]-(5-2*surface)*spacing)<=radius+.20 then
             for j in 1:(if surface==1 then 64 else 188) loop
@@ -730,17 +662,16 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
                 distance:=distance+max(0,max(min(tri[:,axis])-center[axis],center[axis]-max(tri[:,axis])))^2;
               end for;
               if distance<radius^2 then
-                hit:=rockTriangle(tri,face);
-                if hit[1]>best[1] then best:=hit;end if;
+                hit:=Collision.triangleConvex(tri,face,center);
+                if hit.gap<best.gap then best:=hit;end if;
               end if;
             end for;
           end if;
         end for;
-        if best[1]>0 then
-          normal:=rotation*best[2:4];arm:=rotation*best[5:7];
-          v:=velocity+cross(spin,arm);slip:=v-(v*normal)*normal;
-          support:=max(0,100000*best[1]-1800*min(1,best[1]/.012)*(v*normal));
-          force:=support*(normal-.42*slip/sqrt(.08^2+slip*slip));
+        if best.gap<0 then
+          normal:=rotation*best.n;arm:=rotation*best.armA;
+          point:=Collision.ContactPoint(best.gap,normal,arm,rotation*best.armB);
+          force:=Collision.contactForce(point,velocity+cross(spin,arm),rock);
           wrench[1:3]:=wrench[1:3]+force;wrench[4:6]:=wrench[4:6]+cross(arm,force);
         end if;
       end if;
@@ -748,25 +679,185 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     annotation(Inline=false);
   end hobieRockContact;
 
+  function orient2 "Signed area of a projected triangle, multiplied by two"
+    input Real a[2],b[2],c[2];
+    output Real value;
+  algorithm
+    value:=(b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1]);
+  end orient2;
+
+  function sandTriangleWitness "Deepest compressive witness in the overlap of a hull and sand triangle"
+    input Real hull[3,3],sand[3,2],normal[3],offset;
+    output Real best[4] "Penetration, then the hull witness position";
+  protected
+    Real projected[3,2]=hull[:,1:2];
+    Real det,penetration,u,v,crossing,depth;
+    Real p[3],q[2],a[2],b[2],c[2],d[2];
+    Integer nextI,nextJ;
+  algorithm
+    best:=zeros(4);
+    det:=orient2(projected[1,:],projected[2,:],projected[3,:]);
+    if det>=-1e-10 or (cross(hull[2,:]-hull[1,:],hull[3,:]-hull[1,:])*normal)>=0 or
+      min(hull*normal)>=offset then return;end if;
+    // The height difference is affine over the projected intersection.
+    // Its maximum occurs at an enclosed vertex or an edge crossing.
+    for i in 1:3 loop
+      q:=projected[i,:];p:=hull[i,:];
+      penetration:=offset-p*normal;
+      if penetration>best[1] and orient2(sand[1,:],sand[2,:],q)>=-1e-10 and
+        orient2(sand[2,:],sand[3,:],q)>=-1e-10 and orient2(sand[3,:],sand[1,:],q)>=-1e-10 then
+        best:=cat(1,{penetration},p);
+      end if;
+      q:=sand[i,:];
+      u:=orient2(projected[1,:],q,projected[3,:])/det;
+      v:=orient2(projected[1,:],projected[2,:],q)/det;
+      if u>=-1e-10 and v>=-1e-10 and u+v<=1+1e-10 then
+        depth:=hull[1,3]+u*(hull[2,3]-hull[1,3])+v*(hull[3,3]-hull[1,3]);
+        p:=cat(1,q,{depth});penetration:=offset-p*normal;
+        if penetration>best[1] then best:=cat(1,{penetration},p);end if;
+      end if;
+      nextI:=mod(i,3)+1;
+      a:=projected[i,:];b:=projected[nextI,:]-a;
+      for j in 1:3 loop
+        nextJ:=mod(j,3)+1;
+        c:=sand[j,:]-a;d:=sand[nextJ,:]-sand[j,:];
+        crossing:=b[1]*d[2]-b[2]*d[1];
+        if abs(crossing)>1e-12 then
+          u:=(c[1]*d[2]-c[2]*d[1])/crossing;
+          v:=(c[1]*b[2]-c[2]*b[1])/crossing;
+          if u>=0 and u<=1 and v>=0 and v<=1 then
+            p:=hull[i,:]+u*(hull[nextI,:]-hull[i,:]);penetration:=offset-p*normal;
+            if penetration>best[1] then best:=cat(1,{penetration},p);end if;
+          end if;
+        end if;
+      end for;
+    end for;
+    annotation(Inline=false);
+  end sandTriangleWitness;
+
+  function hobieSandManifold "Deepest triangle witness in each fore, center and aft pontoon segment"
+    input Real pos[3],heading,rotation[3,3],spacing;
+    input Real vertices[96,3];
+    input Integer faces[188,3];
+    output Real manifold[6,7] "Body anchor, world terrain normal, world plane offset";
+  protected
+    constant Real dx=58/74,dy=46/62;
+    Real center[3],bodyToWorld[3,3],up[3],deepOffset;
+    Real world[96,3],tri[3,3],lowest[3],highest[3],cell[3,2],support[4],deepest[4],deepNormal[3];
+    Real x,y,z0,zE,zN,zEN,offset,length,ch,sh,reach,height;
+    Integer i0,i1,j0,j1,i,j,patch;
+  algorithm
+    manifold:=zeros(6,7);patch:=1;
+    if abs(pos[1]-36)>31 or abs(pos[2]-40)>26 then return;end if;
+    reach:=sqrt(2.52^2+(abs(spacing)+.185)^2+.37^2);
+    height:=pos[3]-abs(rotation[3,:])*{2.52,abs(spacing)+.185,.37};
+    if height>sandHeightUpperBound(pos[1],pos[2],reach) then return;end if;
+    ch:=cos(heading);sh:=sin(heading);
+    bodyToWorld:=[ch,-sh,0;sh,ch,0;0,0,1]*rotation;
+    center:=pos-{36,40,0};
+    for hull in 1:2 loop
+      for j in 1:96 loop
+        world[j,:]:=center+bodyToWorld*(vertices[j,:]+{0,(3-2*hull)*spacing,0});
+      end for;
+      deepest:=zeros(4);deepNormal:={0,0,1};deepOffset:=0;
+      for face in 1:188 loop
+        tri:={world[faces[face,j],:] for j in 1:3};
+        lowest:={min(tri[:,j]) for j in 1:3};highest:={max(tri[:,j]) for j in 1:3};
+        if lowest[3]<=sandHeightUpperBound(36+(lowest[1]+highest[1])/2,40+(lowest[2]+highest[2])/2,
+          max(highest[1]-lowest[1],highest[2]-lowest[2])/2) then
+          i0:=integer(floor((lowest[1]+29)/dx));i1:=integer(floor((highest[1]+29)/dx));
+          j0:=integer(floor((lowest[2]+23)/dy));j1:=integer(floor((highest[2]+23)/dy));
+          i:=i0;
+          while i<=i1 loop
+            x:=-29+i*dx;
+            j:=j0;
+            while j<=j1 loop
+              y:=-23+j*dy;
+              z0:=terrain(x,y);zE:=terrain(x+dx,y);zN:=terrain(x,y+dy);zEN:=terrain(x+dx,y+dy);
+              if lowest[3]<=max({z0,zE,zN,zEN}) then
+                for half in 1:2 loop
+                  if half==1 then
+                    up:={-(zE-z0)/dx,-(zN-z0)/dy,1};offset:=up*{x,y,z0};
+                    cell:=[x,y;x+dx,y;x,y+dy];
+                  else
+                    up:={-(zEN-zN)/dx,-(zEN-zE)/dy,1};offset:=up*{x+dx,y+dy,zEN};
+                    cell:=[x+dx,y+dy;x,y+dy;x+dx,y];
+                  end if;
+                  length:=sqrt(up*up);up:=up/length;offset:=offset/length;
+                  support:=sandTriangleWitness(tri,cell,up,offset);
+                  if support[1]>deepest[1] then deepest:=support;deepNormal:=up;deepOffset:=offset;end if;
+                end for;
+              end if;
+              j:=j+1;
+            end while;
+            i:=i+1;
+          end while;
+        end if;
+        // Faces are ordered along the pontoon, with two triangles per ring panel.
+        if face==32 or face==80 or face==188 then
+          if deepest[1]>0 then
+            manifold[patch,:]:=cat(1,transpose(bodyToWorld)*(deepest[2:4]-center),deepNormal,{deepOffset+deepNormal*{36,40,0}});
+          end if;
+          deepest:=zeros(4);patch:=patch+1;
+        end if;
+      end for;
+    end for;
+    annotation(Inline=false);
+  end hobieSandManifold;
+
+  function sandManifoldWrench "Evaluate the contact gap and velocity continuously on the active manifold"
+    input Real pos[3],heading,rotation[3,3],velocity[3],spin[3],manifold[6,7];
+    output Real wrench[6] "Force and moment in level heading axes";
+  protected
+    constant Real stiffness[3]={85000,130000,70000};
+    Real worldToLevel[3,3],ch,sh;
+    Real arm[3],normal[3],worldNormal[3],gap,force[3];
+    Collision.ContactPoint point;
+    Collision.Material material;
+  algorithm
+    wrench:=zeros(6);
+    if max(manifold[:,6])<=0 then return;end if;
+    ch:=cos(heading);sh:=sin(heading);
+    worldToLevel:=[ch,sh,0;-sh,ch,0;0,0,1];
+    for i in 1:6 loop
+      if manifold[i,6]>0 then
+        arm:=rotation*manifold[i,1:3];worldNormal:=manifold[i,4:6];
+        normal:=worldToLevel*worldNormal;
+        gap:=worldNormal*pos+normal*arm-manifold[i,7];
+        if gap<0 then
+          material:=Collision.Material(stiffness[mod(i-1,3)+1],1,.48,1e-6,.08);
+          point:=Collision.ContactPoint(gap,normal,arm,arm-gap*normal);
+          force:=Collision.contactForce(point,velocity+cross(spin,arm),material);
+          wrench[1:3]:=wrench[1:3]+force;wrench[4:6]:=wrench[4:6]+cross(arm,force);
+        end if;
+      end if;
+    end for;
+    annotation(Inline=false);
+  end sandManifoldWrench;
+
   function contact
     input Real pos[3],heading,rotation[3,3],velocity[3],spin[3],xs[7],widths[7],spacing;
+    input Boolean pointRocks=true "Use point boulder contacts for hulls without a face mesh";
     output Real wrench[6] "Force and moment in the level heading frame";
   algorithm
     if abs(pos[1]-36)>31 or abs(pos[2]-40)>26 then
       wrench:=zeros(6);
     else
-      wrench:=islandContact(pos,heading,rotation,velocity,spin,xs,widths,spacing,rocks,planes);
+      wrench:=islandContact(pos,heading,rotation,velocity,spin,xs,widths,spacing,rocks,planes,pointRocks);
     end if;
   end contact;
   function islandContact "Sand and boulder contact within the island bounds"
     input Real pos[3],heading,rotation[3,3],velocity[3],spin[3],xs[7],widths[7],spacing;
     input Real boulders[46,13],facets[80,4];
+    input Boolean pointRocks=true;
     output Real wrench[6] "Force and moment in the level heading frame";
   protected
-    Real arm[3],p[3],normal[3],delta[3],n[3],v[3],slip[3],force[3],localPoint[3];
-    Real x,y,h,t,z,dx,dy,penetration,d,support,weight,along,beam,depth,highest;
+    Real arm[3],p[3],normal[3],delta[3],n[3],force[3],localPoint[3];
+    Real x,y,h,t,z,dx,dy,penetration,d,along,beam,depth,highest,length;
+    Collision.ContactPoint point;
+    Collision.Material sand(k=if spacing>0 then 15000 else 9750,d=1,mu=.48,eps=1e-6,v_eps=.08);
     Integer nearby[46],count,r,f;
-    Real reach,maxBeam;
+    Real reach,maxBeam,halfLength,halfWidth,halfHeight,lowest;
     Real ch,sh,profile[3],inv[3,3],q[3],gradient[3],magnitude;
   algorithm
     wrench:=zeros(6);
@@ -774,16 +865,22 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     // A rotation preserves distance from the hull origin. Screen rocks
     // once for the whole vessel before testing the unchanged hull samples.
     maxBeam:=max(abs(widths));
-    reach:=sqrt(max(abs(xs))^2+(abs(spacing)+.69*max(maxBeam,max(pontoon[:,2])))^2
-      +max(max(abs(pontoon[:,3:4])),.19*(.48+1.55*maxBeam))^2);
+    halfLength:=max(abs(xs));
+    halfWidth:=abs(spacing)+.69*max(maxBeam,max(pontoon[:,2]));
+    halfHeight:=max(max(abs(pontoon[:,3:4])),.19*(.48+1.55*maxBeam));
+    reach:=sqrt(halfLength^2+halfWidth^2+halfHeight^2);
+    lowest:=pos[3]-abs(rotation[3,:])*{halfLength,halfWidth,halfHeight};
     nearby:=fill(0,46);count:=0;
-    for rock in 1:46 loop
-      delta:=pos-boulders[rock,1:3];
-      if delta*delta<(reach+boulders[rock,4])^2 then
-        count:=count+1;
-        nearby[count]:=rock;
-      end if;
-    end for;
+    if pointRocks then
+      for rock in 1:46 loop
+        delta:=pos-boulders[rock,1:3];
+        if delta*delta<(reach+boulders[rock,4])^2 then
+          count:=count+1;
+          nearby[count]:=rock;
+        end if;
+      end for;
+    end if;
+    if count==0 and lowest>sandHeightUpperBound(pos[1],pos[2],reach)+1e-8 then return;end if;
     for hull in 1:(if spacing>0 then 2 else 1) loop
       for j in 1:13 loop
         along:=.5*(xs[div(j+1,2)]+xs[div(j+2,2)]);
@@ -795,44 +892,45 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
           localPoint:={along,(3-2*hull)*spacing+side*.69*(if spacing>0 then profile[1] else beam),depth};
           arm:=rotation*localPoint;
           p:=pos+{ch*arm[1]-sh*arm[2],sh*arm[1]+ch*arm[2],arm[3]};
-          x:=p[1]-36;y:=p[2]-40;
-          // Same triangles and diagonal as the 74 x 62 rendered sand grid.
-          dx:=58/74;dy:=46/62;
-          h:=-29+dx*floor((x+29)/dx);t:=-23+dy*floor((y+23)/dy);
-          if (x-h)/dx+(y-t)/dy<=1 then
-            z:=terrain(h,t);
-            normal:={-(terrain(h+dx,t)-z)/dx,-(terrain(h,t+dy)-z)/dy,1};
-            z:=z-normal[1]*(x-h)-normal[2]*(y-t);
-          else
-            z:=terrain(h+dx,t+dy);
-            normal:={-(z-terrain(h,t+dy))/dx,-(z-terrain(h+dx,t))/dy,1};
-            z:=z-normal[1]*(x-h-dx)-normal[2]*(y-t-dy);
-          end if;
-          penetration:=(z-p[3])/sqrt(normal*normal);normal:=normal/sqrt(normal*normal);
-          for candidate in 1:count loop
-            r:=nearby[candidate];
-            delta:=p-boulders[r,1:3];
-            if delta*delta<boulders[r,4]^2 then
-              inv:=[boulders[r,5],boulders[r,6],boulders[r,7];boulders[r,8],boulders[r,9],boulders[r,10];boulders[r,11],boulders[r,12],boulders[r,13]];
-              q:=inv*delta;highest:=-1e6;n:={0,0,1};
-              f:=1;
-              // One separating plane rules out a stronger contact at this point.
-              while f<=80 and highest < -max(0,penetration) loop
-                gradient:=transpose(inv)*facets[f,1:3];magnitude:=sqrt(gradient*gradient);
-                d:=(facets[f,1:3]*q-facets[f,4])/magnitude;
-                if d>highest then highest:=d;n:=gradient/magnitude;end if;
-                f:=f+1;
-              end while;
-              if -highest>penetration then penetration:=-highest;normal:=n;end if;
+          if count>0 or p[3]<=sandHeightUpperBound(p[1],p[2],0)+1e-8 then
+            x:=p[1]-36;y:=p[2]-40;
+            // Same triangles and diagonal as the 74 x 62 rendered sand grid.
+            dx:=58/74;dy:=46/62;
+            h:=-29+dx*floor((x+29)/dx);t:=-23+dy*floor((y+23)/dy);
+            if (x-h)/dx+(y-t)/dy<=1 then
+              z:=terrain(h,t);
+              normal:={-(terrain(h+dx,t)-z)/dx,-(terrain(h,t+dy)-z)/dy,1};
+              z:=z-normal[1]*(x-h)-normal[2]*(y-t);
+            else
+              z:=terrain(h+dx,t+dy);
+              normal:={-(z-terrain(h,t+dy))/dx,-(z-terrain(h+dx,t))/dy,1};
+              z:=z-normal[1]*(x-h-dx)-normal[2]*(y-t-dy);
             end if;
-          end for;
-          if penetration>0 then
-            n:={ch*normal[1]+sh*normal[2],-sh*normal[1]+ch*normal[2],normal[3]};
-            v:=velocity+cross(spin,arm);slip:=v-(v*n)*n;
-            weight:=if spacing>0 then 1 else .65;
-            support:=weight*max(0,15000*penetration-520*(v*n));
-            force:=support*(n-.48*slip/sqrt(.08^2+slip*slip));
-            wrench[1:3]:=wrench[1:3]+force;wrench[4:6]:=wrench[4:6]+cross(arm,force);
+            length:=sqrt(normal*normal);
+            penetration:=(z-p[3])/length;normal:=normal/length;
+            for candidate in 1:count loop
+              r:=nearby[candidate];
+              delta:=p-boulders[r,1:3];
+              if delta*delta<boulders[r,4]^2 then
+                inv:=[boulders[r,5],boulders[r,6],boulders[r,7];boulders[r,8],boulders[r,9],boulders[r,10];boulders[r,11],boulders[r,12],boulders[r,13]];
+                q:=inv*delta;highest:=-1e6;n:={0,0,1};
+                f:=1;
+                // One separating plane rules out a stronger contact at this point.
+                while f<=80 and highest < -max(0,penetration) loop
+                  gradient:=transpose(inv)*facets[f,1:3];magnitude:=sqrt(gradient*gradient);
+                  d:=(facets[f,1:3]*q-facets[f,4])/magnitude;
+                  if d>highest then highest:=d;n:=gradient/magnitude;end if;
+                  f:=f+1;
+                end while;
+                if -highest>penetration then penetration:=-highest;normal:=n;end if;
+              end if;
+            end for;
+            if penetration>0 then
+              n:={ch*normal[1]+sh*normal[2],-sh*normal[1]+ch*normal[2],normal[3]};
+              point:=Collision.ContactPoint(-penetration,n,arm,arm+penetration*n);
+              force:=Collision.contactForce(point,velocity+cross(spin,arm),sand);
+              wrench[1:3]:=wrench[1:3]+force;wrench[4:6]:=wrench[4:6]+cross(arm,force);
+            end if;
           end if;
         end for;
       end for;

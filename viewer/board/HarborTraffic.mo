@@ -31,9 +31,11 @@ model HarborTraffic "Shared background swimmers, sailing pilot and camera drone 
   output Real whaleShapeFrames[7,16] "MultiBodyLie shape tables in the displayed whale frame";
   output Real whaleContact[2],whaleFinLift[2] "Normal load (N), minimum gap (m); port and starboard lift (N)";
   parameter Real initialFish[10]={1.65,0,0,0,0,0,0,0,0,0};
+  parameter Real initialSharkForebody[2]={0,0};
+  output Real sharkForebody[2] "Anterior spine yaw and yaw rate";
   output Real sharkTrunkFlex "Anterior trunk flexion in radians";
   parameter Real initialSharkBank[2]={0,0};
-  GreatWhite whiteShark(enableContacts=enableContacts,startState=initialFish,startBank=initialSharkBank,directDrive=sharkDirect,actuators=sharkActuators,
+  GreatWhite whiteShark(enableContacts=enableContacts,startState=initialFish,startBank=initialSharkBank,startForebody=initialSharkForebody,directDrive=sharkDirect,actuators=sharkActuators,
     swimWeights=sharkPolicyWeights,swimCommand={sharkPilot[3],sharkTurn,sharkPilot[2],sharkBank});
   output Real fish[10],sharkTailForce,sharkTailPower,sharkFin;
   output Real sharkBankState[2] "Roll and roll rate";
@@ -168,7 +170,10 @@ equation
   whale={swimmer.x[1],swimmer.x[2],swimmer.x[3],swimmer.x[10],swimmer.x[6]};
   // Arm the blow underwater and release it once the blowholes clear the surface.
   der(state[14])=if swimmer.blowholeHeight<localSurface-.20 then -min(12,max(0,8*(state[14]+.06))) elseif swimmer.blowholeHeight>localSurface or state[14]>.005 then 1 else 0;
-  breathAge=state[14];der(state[15])=(-npcContact[1]*sin(state[4])+npcContact[2]*cos(state[4]))/265-3*state[15];
+  // Take another breath during a sustained surface interval. As soon as
+  // the blowholes submerge, suppress the spout and let the timer re-arm.
+  breathAge=if noEvent(swimmer.blowholeHeight<=localSurface or state[14]<0) then -1 else noEvent(mod(state[14],7.5));
+  der(state[15])=(-npcContact[1]*sin(state[4])+npcContact[2]*cos(state[4]))/265-3*state[15];
 
   when sample(0,.05) then
     priorHeight=swimmer.x[3]-localSurface;
@@ -199,6 +204,7 @@ equation
   whiteShark.bankCommand=if sharkPilot[1]>.5 then sharkBank else 0;
   sharkBankState=whiteShark.bank;
   sharkTrunkFlex=whiteShark.trunkFlex;
+  sharkForebody=whiteShark.forebody;
   fish=whiteShark.x;sharkTailForce=whiteShark.tailThrust;sharkTailPower=whiteShark.shaftPower;sharkFin=whiteShark.finAngle;
   der(state[10])=whiteShark.velocity[1];der(state[11])=whiteShark.velocity[2];der(state[12])=fish[2];
   followWhale=if droneSubject>1.5 then 1 elseif droneSubject>.5 then 0 else .5-.5*tanh(3*cos(state[1]*.055));

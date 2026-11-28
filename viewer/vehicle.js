@@ -72,7 +72,8 @@ function surveyVehicle(T,housing){
     return makeRotor(T,sub,id,center,axes[id],blades,plastic);
   });
   sub.add(guards,liners,motors,spokes);
-  // Two pressure-rated forward lamps flank the viewport on the side plates.
+  // The side plates end at x=.3005 m. Each lens clears the leading edge
+  // while the bracket still sits over the plate.
   const housingGeometry=new T.CylinderGeometry(.015,.015,.048,20);
   const bracketGeometry=new T.BoxGeometry(.023,.019,.012);
   const lensGeometry=new T.CircleGeometry(.012,20);
@@ -82,10 +83,10 @@ function surveyVehicle(T,housing){
     const beam=new T.Vector3(1,side*.025,-.015).normalize();
     const light=new T.SpotLight(0xc8f0ff,22.5,18,.55,.38,1.3);
     const barrel=new T.Mesh(housingGeometry,plastic);
-    barrel.position.set(.222,side*.109,.071);
+    barrel.position.set(.301,side*.109,.071);
     barrel.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),beam);
     const bracket=new T.Mesh(bracketGeometry,plastic);
-    bracket.position.set(.222,side*.109,.058);
+    bracket.position.set(.289,side*.109,.058);
     light.name=name;light.target.name=name+' target';
     light.position.copy(barrel.position).addScaledVector(beam,.0245);
     light.target.position.copy(light.position).addScaledVector(beam,7.5);

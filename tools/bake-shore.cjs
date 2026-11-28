@@ -1,24 +1,37 @@
-// Bake the actual display mesh into convex collision planes; run from the repository root.
-const fs=require('node:fs'),vm=require('node:vm');
-const T=require('../viewer/vendor/three.min.js');
-const ctx={T,scene:new T.Scene(),harborBed:{height:()=>0}};
-vm.runInNewContext(fs.readFileSync('viewer/visuals.js','utf8')+'\nislandTextures=()=>({}); islandPalms=()=>{}; islandScrub=()=>{}; land=coast(T,scene,false);',ctx);
-ctx.scene.updateMatrixWorld(true);
-const rocks=[];
-ctx.land.traverse(o=>{if(o.geometry?.type==='IcosahedronGeometry')rocks.push(o);});
-if(!rocks.length)throw Error('No shoreline rocks found');
-const planes=[],centers=[];
-const rows=a=>'['+a.map(row=>row.map(x=>Number(x.toFixed(7))).join(',')).join(';\n')+']';
-for(const rock of rocks){
-  const center=rock.getWorldPosition(new T.Vector3()),v=rock.geometry.attributes.position;
-  const inv=new T.Matrix3().setFromMatrix4(rock.matrixWorld).invert().transpose();
-  centers.push([...center.toArray(),Math.max(...rock.scale.toArray()),...inv.elements]);
-  if(planes.length)continue;
-  for(let i=0;i<v.count;i+=3){
-    const [a,b,c]=[i,i+1,i+2].map(j=>new T.Vector3().fromBufferAttribute(v,j));
+// Derive the convex rock contact tables from the authored shoreline GLB.
+const {readFile,writeFile}=require('node:fs/promises');
+const {join}=require('node:path');
+
+async function bake(){
+  const {readIslandAsset}=await import('../scripts/read-island-asset.mjs');
+  const asset=await readIslandAsset();
+  const T=globalThis.THREE;
+  const rocks=asset.children.filter(node=>node.userData.shoreRock);
+  if(!rocks.length)throw Error('No shoreline boulders in harbor-island.glb');
+  const localToEnu=new T.Matrix4().makeRotationX(Math.PI/2);
+  const enuToLocal=new T.Matrix4().makeRotationX(-Math.PI/2);
+  const position=new T.Vector3(),rotation=new T.Quaternion(),scale=new T.Vector3();
+  const centers=rocks.map(rock=>{
+    const world=rock.matrixWorld.clone().multiply(enuToLocal);
+    world.decompose(position,rotation,scale);
+    const dual=new T.Matrix3().setFromMatrix4(world).invert().transpose();
+    return [...position.toArray(),Math.max(scale.x,scale.y,scale.z),...dual.elements];
+  });
+  const geometry=rocks[0].geometry;
+  const vertices=geometry.attributes.position,indices=geometry.index?.array;
+  const point=i=>new T.Vector3().fromBufferAttribute(vertices,indices?.[i]??i).applyMatrix4(localToEnu);
+  const planes=[];
+  for(let i=0;i<(indices?.length??vertices.count);i+=3){
+    const a=point(i),b=point(i+1),c=point(i+2);
     const n=b.sub(a).cross(c.sub(a)).normalize();
     planes.push([...n.toArray(),n.dot(a)]);
   }
+  const rows=values=>'['+values.map(row=>row.map(value=>Number(value.toFixed(7))).join(',')).join(';\n')+']';
+  const file=join(__dirname,'../viewer/board/Shore.mo');
+  const source=await readFile(file,'utf8');
+  const baked=source.replace(/  \/\/ BEGIN BAKED[\s\S]*?  \/\/ END BAKED/,
+    '  // BEGIN BAKED\n  constant Real rocks['+centers.length+',13]='+rows(centers)+';\n'+
+    '  constant Real planes['+planes.length+',4]='+rows(planes)+';\n  // END BAKED');
+  if(baked!==source)await writeFile(file,baked);
 }
-const path='viewer/board/Shore.mo',source=fs.readFileSync(path,'utf8');
-fs.writeFileSync(path,source.replace(/  \/\/ BEGIN BAKED[\s\S]*?  \/\/ END BAKED/,'  // BEGIN BAKED\n  constant Real rocks['+rocks.length+',13]='+rows(centers)+';\n  constant Real planes['+planes.length+',4]='+rows(planes)+';\n  // END BAKED'));
+bake().catch(error=>{console.error(error);process.exitCode=1;});

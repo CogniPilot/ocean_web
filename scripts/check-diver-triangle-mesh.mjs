@@ -19,6 +19,16 @@ const up=face.map(([x,y])=>[x,y,1]);
 assert(movingTriangleContact(face,up,wall,ref),'small triangle inside a large swept face, clear of all vertex paths');
 const wallOutside=wall.map(([x,y,z])=>[x+1,y+1,z]);
 assert(!movingTriangleContact(face,up,wallOutside,ref));
+const plating=[[-5,-4,0],[5,-4,0],[0,6,0]];
+for(const sign of [-1,1]){
+  const before=face.map(([x,y])=>[x,y,sign*.02]);
+  const after=face.map(([x,y])=>[x,y,-sign*.15]);
+  const hit=movingTriangleContact(before,after,plating,[0,0,-sign*.06]);
+  assert(hit,'a thin plate catches a fin even when the swept midpoint has crossed it');
+  near(hit.normal[2],sign);
+  near(hit.fraction,.02/.17);
+  assert(!movingTriangleContact(before,before,plating,ref),'clearance on either side remains open');
+}
 const row=new Float64Array(88);row[3]=-5;row[43]=150;row[48]=5;
 const flat=()=>-20,start=diverContactRig(T),peer=diverContactRig(T);
 const cave=[-27.5,-30,-45.15];

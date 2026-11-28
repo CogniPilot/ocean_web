@@ -1,5 +1,6 @@
 within Wreck;
-package SharkContact "Contact between the articulated great-white collision mesh and harbor geometry"
+package SharkContact "Contact between articulated triangle meshes and harbor geometry"
+  import Collision = .Collision;
   function floorPatch "Deepest point of a convex body over the footprint of one terrain triangle"
     input Real a[3],b[3],c[3],points[48,3];
     input Integer count,first,last,faces[92,3];
@@ -117,11 +118,12 @@ package SharkContact "Contact between the articulated great-white collision mesh
     annotation(Inline=false);
   end seabed;
 
-  function solid "Clip shark facets to a finite convex obstacle, retaining a surface witness"
+  function solid "Clip mesh facets to a finite convex obstacle, retaining a surface witness"
     input Real points[48,3],lo[3],hi[3],obstacle[:,4];
     input Integer first,last,faces[92,3];
     output Real best[7];
-  protected Real tri[3,3],hit[7];
+  protected Real tri[3,3];
+    Collision.ContactPoint hit;
     Integer face;
   algorithm
     best:=zeros(7);
@@ -130,8 +132,8 @@ package SharkContact "Contact between the articulated great-white collision mesh
       for j in 1:3 loop tri[j,:]:=points[faces[face,j],:];end for;
       if min(tri[:,1])<=hi[1] and max(tri[:,1])>=lo[1] and min(tri[:,2])<=hi[2] and max(tri[:,2])>=lo[2]
           and min(tri[:,3])<=hi[3] and max(tri[:,3])>=lo[3] then
-        hit:=Shore.rockTriangle(tri,obstacle);
-        if hit[1]>best[1] then best:=hit;end if;
+        hit:=Collision.triangleConvex(tri,obstacle,zeros(3));
+        if -hit.gap>best[1] then best:=cat(1,{-hit.gap},hit.n,hit.armA);end if;
       end if;
       face:=face+1;
     end while;

@@ -4,7 +4,7 @@ function sharkSubLoad "Force and moment in ENU on Piccard from a rigged shark"
   input Real traffic[10,9],angles[10,4],position[3],worldToSub[3,3],velocity[3],omegaBody[3];
   output Real wrench[6];
 protected
-  Real shapeFrames[6,3,4],T[3,3],arm[3],p[3],hit[4],n[3],relative[3],load,best,force[3];
+  Real shapeFrames[7,3,4],T[3,3],arm[3],p[3],hit[4],n[3],relative[3],load,best,force[3];
   // Sample Piccard's dome, barrel and lower skid with their local cover radii (metres).
   constant Real probes[7,4]=[.225,0,.025,.139;0,0,.025,.143;-.21,0,.025,.139;
     .18,.135,-.095,.072;.18,-.135,-.095,.072;-.19,.135,-.095,.072;-.19,-.135,-.095,.072];

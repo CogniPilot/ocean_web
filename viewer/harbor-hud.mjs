@@ -22,10 +22,17 @@ export function harborHud(signal,role){
     try{localStorage.setItem(key,JSON.stringify(preferences));}catch{}
   }
   const enabled=(id,initial=id==='racePanel')=>typeof preferences[id]==='boolean'?preferences[id]:initial;
+  const hudMinimize=byId('hudMinimize'),hudReadouts=byId('hudReadouts');
   function header(){
     for(const name of ['telemetry','performance','fpv'])document.body.dataset['hud'+name[0].toUpperCase()+name.slice(1)]=String(enabled(name,name!=='telemetry'));
+    const expanded=enabled('headerExpanded',true),label=expanded?'Minimize instruments':'Expand instruments';
+    hudReadouts.hidden=!expanded;
+    hudMinimize.setAttribute('aria-expanded',String(expanded));
+    hudMinimize.setAttribute('aria-label',label);
+    hudMinimize.title=label;
   }
   header();
+  hudMinimize.addEventListener('click',()=>{save('headerExpanded',hudReadouts.hidden);header();},{signal});
   const compassDefault=role==='boat'||role==='drone';
   const audioShortcuts=new Set(['sound','hudMusic']);
   const pinned=id=>enabled('pin-'+id,audioShortcuts.has(id));
@@ -57,18 +64,28 @@ export function harborHud(signal,role){
     const input=panelInputs.get(id);
     (input&&selected==='instruments'?input:byId('hudInstruments')).focus({preventScroll:true});
   }
+  function setPanelVisible(id,visible){
+    const details=byId(id);
+    if(id==='racePanel')details.dataset.hudDismissed=String(!visible);
+    details.open=visible&&(id!=='racePanel'||enabled('racePanelExpanded',true));
+  }
+  const panelVisible=id=>id==='racePanel'?enabled(id):byId(id).open;
   for(const [id,label] of Object.entries(panelNames)){
     const details=byId(id);
-    details.open=enabled(id);
+    setPanelVisible(id,enabled(id));
     let returnFocus=false;
     details.querySelector('summary').addEventListener('click',event=>{
       if(event.defaultPrevented)return;
+      if(id==='racePanel'){
+        save('racePanelExpanded',!details.open);
+        return;
+      }
       returnFocus=details.open;
       save(id,!details.open);
     },{signal});
     details.addEventListener('toggle',()=>{
       const input=panelInputs.get(id);
-      if(input)input.checked=details.open;
+      if(input)input.checked=panelVisible(id);
       if(returnFocus&&!details.open)panelFocus(id);
       returnFocus=false;
     },{signal});
@@ -79,7 +96,7 @@ export function harborHud(signal,role){
     close.setAttribute('aria-label','Close '+label);
     details.querySelector('summary').after(close);
     function dismiss(){
-      details.open=false;save(id,false);
+      save(id,false);setPanelVisible(id,false);
       const input=panelInputs.get(id);
       if(input)input.checked=false;
       panelFocus(id);
@@ -121,7 +138,7 @@ export function harborHud(signal,role){
     for(const [id,label] of Object.entries(panelNames)){
       const details=byId(id);
       if(!available(details))continue;
-      const row=check(label,details.open,v=>{details.open=v;save(id,v);});
+      const row=check(label,panelVisible(id),v=>{save(id,v);setPanelVisible(id,v);});
       const input=row.querySelector('input');input.setAttribute('aria-controls',id);
       panelInputs.set(id,input);panels.append(row);
     }
@@ -205,10 +222,10 @@ export function harborHud(signal,role){
   openPanel(enabled('controls')?'controls':null);
   byId('hudReset').addEventListener('click',()=>{
     try{localStorage.removeItem('ocean.racePanel.open');}catch{}
-    for(const field of ['telemetry','performance','fpv',...Object.keys(panelNames),'compass-'+role,'mastPanel',...Object.keys(shortcuts).map(id=>'pin-'+id)]){
+    for(const field of ['telemetry','performance','fpv','headerExpanded','racePanelExpanded',...Object.keys(panelNames),'compass-'+role,'mastPanel',...Object.keys(shortcuts).map(id=>'pin-'+id)]){
       delete preferences[field];
     }
-    for(const id of Object.keys(panelNames))byId(id).open=enabled(id);
+    for(const id of Object.keys(panelNames))setPanelVisible(id,enabled(id));
     const compass=byId('showCompass');
     if(!compass.hidden && (compass.getAttribute('aria-pressed')==='true')!==compassDefault)compass.click();
     if(!byId('mastPanel').hidden)byId('mastCapture').click();

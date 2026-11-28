@@ -101,9 +101,15 @@ function facePatch(tri,face,normal){
 // the other three vertices, swept edges, and existing triangle intersections.
 // The parent samples two subintervals per host tick to track rotating bones.
 export function movingTriangleContact(first,last,obstacle,reference,ground=false){
-  const winding=unitNormal(obstacle);if(!winding)return;let normal=winding;
-  if(ground?normal[2]<0:planeDistance(reference,obstacle,normal)<0)normal=scale(normal,-1);
-  const start=first.map(p=>planeDistance(p,obstacle,normal)),end=last.map(p=>planeDistance(p,obstacle,normal));
+  const winding=unitNormal(obstacle);if(!winding)return;
+  const start=first.map(p=>planeDistance(p,obstacle,winding));
+  const end=last.map(p=>planeDistance(p,obstacle,winding));
+  // Use the arrival side of a separated face. A fast fin can carry the
+  // swept link midpoint across a thin plate before the contact is sampled.
+  const firstLow=Math.min(...start),firstHigh=Math.max(...start);
+  const side=ground?winding[2]:firstLow>1e-8?1:firstHigh< -1e-8?-1:planeDistance(reference,obstacle,winding);
+  const normal=side<0?scale(winding,-1):winding;
+  if(side<0)for(let j=0;j<3;j++){start[j]=-start[j];end[j]=-end[j];}
   if(Math.min(...start,...end)>pad||(!ground&&Math.max(...start,...end)<-pad))return;
   let point=null,fraction=1;
   for(let j=0;j<3;j++){

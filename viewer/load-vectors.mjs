@@ -169,10 +169,10 @@ export function loadVectors(T,scene,canvas,probe,signal){
     }
   }
   function begin(camera){frameCamera=camera;count=0;scale=1;}
-  function endFrame(){
+  function endFrame(labels=true){
     for(let i=count;i<pool.length;i++){pool[i].force.visible=false;pool[i].arc.visible=false;}
     probe.hidden=true;
-    if(!pointer||!count)return;
+    if(!labels||!pointer||!count)return;
     const box=canvas.getBoundingClientRect();
     let best=24,selected;
     for(let i=0;i<count;i++){

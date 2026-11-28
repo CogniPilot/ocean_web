@@ -1,14 +1,14 @@
 // Verify the actual indexed mesh against the height function used by vehicles and sonar.
 import assert from 'node:assert/strict';
-import {readFile} from 'node:fs/promises';
+import {readIslandAsset} from './read-island-asset.mjs';
 import {createRequire} from 'node:module';
-import {runInNewContext} from 'node:vm';
 
 const require=createRequire(import.meta.url);
 const T=require('../viewer/vendor/three.min.js');
 const bed=require('../viewer/bathymetry.js');
-const visuals=await readFile(new URL('../viewer/visuals.js',import.meta.url),'utf8');
-const geo=runInNewContext(visuals+'\nharborTerrainGeometry(T)',{T,harborBed:bed});
+const glb=await readIslandAsset();
+const terrain=glb.children.find(node=>node.userData.shelf);
+const geo=terrain.geometry.clone().applyMatrix4(terrain.matrixWorld);
 const positions=geo.getAttribute('position'),indices=geo.index.array;
 const verts=Array.from({length:positions.count},(_,i)=>new T.Vector3().fromBufferAttribute(positions,i));
 const edges=new Map(),neighbors=verts.map(()=>[]);

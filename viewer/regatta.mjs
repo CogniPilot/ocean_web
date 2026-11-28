@@ -2,15 +2,27 @@ import {inboardMixer} from './inboard-audio.mjs';
 import {droneMixer} from './drone-audio.mjs';
 import {piccardImpactDetector,piccardKnock,piccardMixer} from './piccard-audio.mjs';
 import {showInLowWaterCapture} from './render-layers.mjs';
+import {committeePad} from './spawn-sites.mjs';
+import {padMaterial} from './landing-tags.mjs';
+import {drawMontauk} from './committee-boat.mjs';
 
 // Compass bearing clockwise from true north in the east/north world frame.
 export function trueBearing(east,north){
   const degrees=(Math.round(Math.atan2(east,north)*180/Math.PI)+360)%360;
   return String(degrees).padStart(3,'0')+'°T';
 }
+export function raceGateEnds(race){
+  if(race.has('startGateEnds'))return race.get('startGateEnds');
+  return race.getMany(['pinEast','pinNorth','committeeEast','committeeNorth']);
+}
+function raceGateCenter(race){
+  const [pe,pn,ce,cn]=raceGateEnds(race);
+  return [(pe+ce)/2,(pn+cn)/2];
+}
 export function firstLeg(race){
-  const e=race.get('markEast')[0]-(race.get('committeeEast')+race.get('pinEast'))/2;
-  const n=race.get('markNorth')[0]-(race.get('committeeNorth')+race.get('pinNorth'))/2;
+  const [x,y]=raceGateCenter(race);
+  const e=race.get('markEast')[0]-x;
+  const n=race.get('markNorth')[0]-y;
   return trueBearing(e,n);
 }
 // The line midpoint gives a single course-to-steer reference for an open gate.
@@ -20,8 +32,7 @@ export function raceTarget(race,stage,east,north){
     x=race.get('markEast')[stage-2];y=race.get('markNorth')[stage-2];
     label='Mark '+(stage-1);
   }else if(stage===0 || stage===1 || stage===4){
-    x=(race.get('committeeEast')+race.get('pinEast'))/2;
-    y=(race.get('committeeNorth')+race.get('pinNorth'))/2;
+    [x,y]=raceGateCenter(race);
     label=stage===4?'Finish':'Start';
   }else return null;
   const de=x-east,dn=y-north,range=Math.hypot(de,dn);
@@ -130,6 +141,7 @@ export function courseScene(T,scene,race){
   const group=new T.Group();scene.add(group);
   const mat=(color,roughness=.55)=>new T.MeshStandardMaterial({color,roughness});
   const white=mat(0xf1ede0),navy=mat(0x152c36),metal=mat(0xb7c0bc,.27);
+  const whaler=race.has('committeePadGeometry');
   const mesh=(parent,geometry,material,x,y,z)=>{
     const o=new T.Mesh(geometry,material);o.position.set(x,y,z);parent.add(o);return o;
   };
@@ -138,45 +150,98 @@ export function courseScene(T,scene,race){
     const o=mesh(parent,new T.CylinderGeometry(r,r,d.length(),8),material,0,0,0);
     o.position.copy(v).lerp(w,.5);o.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.normalize());return o;
   }
+  const padMaterials=[];
+  function addHelipad(parent,width,length,site){
+    const pad=new T.Group();parent.add(pad);
+    pad.name='Helipad marking';
+    const material=padMaterial(T,site,width,length);
+    padMaterials.push(material);
+    mesh(pad,new T.PlaneGeometry(width,length),material,0,0,.0025);
+    pad.traverse(showInLowWaterCapture);
+    return pad;
+  }
   const boat=new T.Group();boat.position.set(race.get('committeeEast'),race.get('committeeNorth'),0);boat.rotation.order='ZYX';boat.rotation.z=race.get('windBearing')+Math.PI;group.add(boat);
-  const vertices=[],indices=[];
-  const stations=[[-3,.88],[-2.7,1.02],[-.7,1.10],[1,1.01],[2.1,.72],[3.2,.025]];
-  for(const [x,w] of stations){
-    const rise=Math.max(0,x-1)*.12;
-    for(const [y,z] of [[w,.78],[w*.91,.24],[w*.58,-.13],[0,-.30],[-w*.58,-.13],[-w*.91,.24],[-w,.78]])vertices.push(x,y,z+rise);
+  const pad=whaler?race.get('committeePadGeometry'):
+    [committeePad.aft,0,committeePad.top,committeePad.width,committeePad.length];
+  const [padX,padY,padZ,padWidth,padLength]=pad;
+  if(whaler)drawMontauk(T,boat,pad,{mesh,rod,mat,white,navy,metal});
+  else{
+    const vertices=[],indices=[];
+    const stations=[[-3,.88],[-2.7,1.02],[-.7,1.10],[1,1.01],[2.1,.72],[3.2,.025]];
+    for(const [x,w] of stations){
+      const rise=Math.max(0,x-1)*.12;
+      for(const [y,z] of [[w,.78],[w*.91,.24],[w*.58,-.13],[0,-.30],[-w*.58,-.13],[-w*.91,.24],[-w,.78]])vertices.push(x,y,z+rise);
+    }
+    for(let i=0;i<stations.length-1;i++){
+      for(let j=0;j<7;j++){const a=7*i+j,b=7*i+(j+1)%7;indices.push(a,b,b+7,a,b+7,a+7);}
+    }
+    for(const end of [0,35])for(let i=1;i<6;i++)indices.push(end,end+i,end+i+1);
+    const hull=new T.BufferGeometry();hull.setAttribute('position',new T.Float32BufferAttribute(vertices,3));hull.setIndex(indices);hull.computeVertexNormals();
+    white.side=T.DoubleSide;mesh(boat,hull,white,0,0,0);
+    for(const sign of [-1,1])for(let i=1;i<stations.length;i++){
+      const rim=([x,w])=>[x,sign*w,.76+Math.max(0,x-1)*.12];
+      rod(boat,rim(stations[i-1]),rim(stations[i]),.032,navy);
+    }
+    mesh(boat,new T.BoxGeometry(.95,.76,.86),white,0,0,1.16);
+    mesh(boat,new T.BoxGeometry(.06,.78,.42),mat(0x64808a),.40,0,1.80);
+    for(const x of [-.75,.55])for(const y of [-.53,.53])rod(boat,[x,y,.79],[x,y,2.32],.027,metal);
+    mesh(boat,new T.BoxGeometry(1.85,1.45,.08),white,0,0,2.32);
   }
-  for(let i=0;i<stations.length-1;i++){
-    for(let j=0;j<7;j++){const a=7*i+j,b=7*i+(j+1)%7;indices.push(a,b,b+7,a,b+7,a+7);}
+  function drawOutboard(parent,offset){
+    const outboard=new T.Group();outboard.position.x=offset;parent.add(outboard);
+    const cowling=mat(0x141b22,.25),gearcase=mat(0x222b32,.48);
+    const shroud=new T.LatheGeometry([[0,0],[.18,0],[.235,.055],[.252,.16],[.246,.35],[.20,.44],
+      [.128,.46],[0,.46]].map(([radius,z])=>new T.Vector2(radius,z)),24);
+    const cover=mesh(outboard,shroud,cowling,-.06,0,.53);
+    cover.rotation.x=Math.PI/2;cover.scale.x=1.10;cover.scale.z=.86;
+    mesh(outboard,new T.BoxGeometry(.23,.29,.17),gearcase,.06,0,.67);
+    mesh(outboard,new T.BoxGeometry(.24,.19,.34),gearcase,-.09,0,.39).rotation.y=.16;
+    mesh(outboard,new T.BoxGeometry(.17,.13,.52),gearcase,-.12,0,.01).rotation.y=.10;
+    mesh(outboard,new T.BoxGeometry(.34,.29,.022),gearcase,-.12,0,-.13);
+    const hub=mesh(outboard,new T.CylinderGeometry(.063,.090,.25,14),gearcase,-.18,0,-.26);
+    hub.rotation.z=Math.PI/2;
+    const propeller=new T.Group();propeller.position.set(-.32,0,-.26);outboard.add(propeller);
+    for(let i=0;i<3;i++){
+      const angle=i*Math.PI*2/3,blade=mesh(propeller,new T.SphereGeometry(.105,12,8),metal,0,
+        .093*Math.cos(angle),.093*Math.sin(angle));
+      blade.scale.set(.15,1,.40);blade.rotation.x=angle;
+    }
+    mesh(outboard,new T.BoxGeometry(.15,.035,.20),gearcase,-.06,0,-.38).rotation.y=-.25;
+    for(const side of [-1,1])
+      mesh(outboard,new T.BoxGeometry(.25,.004,.026),mat(0xb72c26,.40),-.07,side*.207,.81);
+    return {outboard,propeller};
   }
-  for(const end of [0,35])for(let i=1;i<6;i++)indices.push(end,end+i,end+i+1);
-  const hull=new T.BufferGeometry();hull.setAttribute('position',new T.Float32BufferAttribute(vertices,3));hull.setIndex(indices);hull.computeVertexNormals();
-  white.side=T.DoubleSide;mesh(boat,hull,white,0,0,0);
-  for(const sign of [-1,1])for(let i=1;i<stations.length;i++){
-    const rim=([x,w])=>[x,sign*w,.76+Math.max(0,x-1)*.12];
-    rod(boat,rim(stations[i-1]),rim(stations[i]),.032,navy);
+  drawOutboard(boat,whaler?-3.08:-3.17);
+  function createWhaler(){
+    const group=new T.Group();
+    group.name='Boston Whaler 190';scene.add(group);
+    drawMontauk(T,group,null,{mesh,rod,mat,white,navy,metal});
+    const {outboard,propeller}=drawOutboard(group,-3.08);
+    batchScenery(T,group);
+    group.traverse(showInLowWaterCapture);
+    return {group,draw(engine,dt){
+      outboard.rotation.z=-engine[3];
+      propeller.rotation.x+=engine[0]*dt*Math.PI/95*Math.sign(engine[2]);
+    }};
   }
-  mesh(boat,new T.BoxGeometry(.95,.76,.86),white,0,0,1.16);
-  const glass=mat(0x64808a);mesh(boat,new T.BoxGeometry(.06,.78,.42),glass,.40,0,1.80);
-  for(const x of [-.75,.55])for(const y of [-.53,.53])rod(boat,[x,y,.79],[x,y,2.32],.027,metal);
-  mesh(boat,new T.BoxGeometry(1.85,1.45,.08),white,0,0,2.32);
-  mesh(boat,new T.BoxGeometry(.52,.48,.68),navy,-3.13,0,.58);
-  rod(boat,[0,0,2.34],[0,0,4],.033,metal);
-  // Aft landing pad shares the height and extent of the Modelica deck.
-  mesh(boat,new T.BoxGeometry(1.45,1.3,.012),navy,-1.98,0,.777);
-  for(const y of [-.22,.22])mesh(boat,new T.BoxGeometry(.65,.065,.008),white,-1.98,y,.786);
-  mesh(boat,new T.BoxGeometry(.065,.47,.008),white,-1.98,0,.786);
+  const mastTop=race.has('committeeMastTop')?race.get('committeeMastTop'):4;
+  const bowMast=race.has('committeeMastX'),mastX=bowMast?race.get('committeeMastX'):0;
+  rod(boat,[mastX,0,bowMast?.99:2.34],[mastX,0,mastTop],.033,metal);
+  addHelipad(boat,padWidth,padLength,'committee').position.set(padX,padY,padZ);
   batchScenery(T,boat);
   boat.children.forEach(showInLowWaterCapture);
   // Keep the hoist attached to the mast while the free edge streams downwind.
   const cloth=new T.PlaneGeometry(.98,.72,12,3),flagMaterial=mat(0xff671a);flagMaterial.side=T.DoubleSide;
-  const flag=mesh(boat,cloth,flagMaterial,0,0,3.60);flag.name='Committee wind flag';showInLowWaterCapture(flag);
+  const flag=mesh(boat,cloth,flagMaterial,mastX,0,3.60);flag.name='Committee wind flag';showInLowWaterCapture(flag);
   const uv=cloth.attributes.uv,verticesFlag=cloth.attributes.position,localWind=new T.Vector2();
   cloth.boundingSphere=new T.Sphere(new T.Vector3(),1.4);
   const canvas=document.createElement('canvas');canvas.width=512;canvas.height=168;
   const ctx=canvas.getContext('2d'),texture=new T.CanvasTexture(canvas);
   const boardMaterial=new T.MeshBasicMaterial({map:texture});
+  const [boardWidth,boardHeight,boardX,boardY,boardZ]=race.has('committeeBoardGeometry')
+    ?race.get('committeeBoardGeometry'):[2.2,.82,-.28,.57,1.83];
   for(const side of [-1,1]){
-    const board=mesh(boat,new T.PlaneGeometry(2.2,.82),boardMaterial,-.28,side*.57,1.83);
+    const board=mesh(boat,new T.PlaneGeometry(boardWidth,boardHeight),boardMaterial,boardX,side*boardY,boardZ);
     board.rotation.order='ZXY';board.rotation.x=Math.PI/2;board.rotation.z=side<0?0:Math.PI;
   }
   const marks=[];
@@ -196,14 +261,31 @@ export function courseScene(T,scene,race){
     const eye=mesh(group,new T.TorusGeometry(w*.11,w*.025,6,12),metal,x,y,z+w*.38);
     eye.rotation.x=Math.PI/2;
   }
-  const ropePositions=new T.BufferAttribute(new Float32Array(4*4*3),3);
-  const ropeMesh=new T.BufferGeometry();ropeMesh.setAttribute('position',ropePositions);
-  const ropes=new T.LineSegments(ropeMesh,new T.LineBasicMaterial({color:0x665c42}));
-  ropes.name='Anchor rodes';ropes.frustumCulled=false;group.add(ropes);
+  const ropes=new T.Group();ropes.name='Anchor rodes';group.add(ropes);
+  const ropeMaterial=mat(0x665c42,.89);
+  const spans=Array.from({length:4},(_,i)=>{
+    const radius=i===3?.013:.008;
+    const geometry=new T.CylinderGeometry(radius,radius,1,8);
+    return [mesh(ropes,geometry,ropeMaterial,0,0,0),mesh(ropes,geometry,ropeMaterial,0,0,0)];
+  });
+  const ropeAxis=new T.Vector3(0,1,0),ropeDelta=new T.Vector3();
+  const anchor=new T.Vector3(),liftPoint=new T.Vector3(),fairlead=new T.Vector3();
+  function placeSpan(span,a,b){
+    ropeDelta.subVectors(b,a);
+    const length=ropeDelta.length();
+    span.visible=length>.001;
+    if(!span.visible)return;
+    span.position.copy(a).lerp(b,.5);
+    span.scale.y=length;
+    span.quaternion.setFromUnitVectors(ropeAxis,ropeDelta.divideScalar(length));
+  }
   let previous;
-  function update(label,time=0,sampleWind){
+  function setDeckPose(){
     const [x,y,z,yaw,roll,pitch]=race.get('deckState');
     boat.position.set(x,y,z);boat.rotation.set(roll,-pitch,yaw,'ZYX');
+  }
+  function update(label,time=0,sampleWind){
+    setDeckPose();
     const ends=race.get('fairlead');
     for(let i=0;i<4;i++){
       const j=3*i,ax=anchorPoints[j],ay=anchorPoints[j+1],az=anchorPoints[j+2];
@@ -211,12 +293,12 @@ export function courseScene(T,scene,race){
       // Draw paid-out slack resting on the bottom followed by a lifted span.
       const bedRun=Math.min(run,Math.max(0,(paid[i]**2-run**2-h**2)/(2*Math.max(.001,paid[i]-run))));
       const f=bedRun/Math.max(.001,run);
-      ropePositions.setXYZ(4*i,ax,ay,az+.025);
-      ropePositions.setXYZ(4*i+1,ax+f*dx,ay+f*dy,az+.025);
-      ropePositions.setXYZ(4*i+2,ax+f*dx,ay+f*dy,az+.025);
-      ropePositions.setXYZ(4*i+3,ends[j],ends[j+1],ends[j+2]);
+      anchor.set(ax,ay,az+.025);
+      liftPoint.set(ax+f*dx,ay+f*dy,az+.025);
+      fairlead.fromArray(ends,j);
+      placeSpan(spans[i][0],anchor,liftPoint);
+      placeSpan(spans[i][1],liftPoint,fairlead);
     }
-    ropePositions.needsUpdate=true;
     if(sampleWind){
       sampleWind(boat.position.x,boat.position.y,localWind);
       const speed=localWind.length(),tension=1-Math.exp(-speed/3);
@@ -241,7 +323,8 @@ export function courseScene(T,scene,race){
     ctx.font='bold 35px monospace';ctx.fillText('S – 1p – 2p – F',256,99);
     ctx.fillStyle='#ffbe52';ctx.font='bold 43px monospace';ctx.fillText(label,256,151);texture.needsUpdate=true;
   }
-  return {update,committee:boat,marks};
+  return {update,setDeckPose,committee:boat,marks,addHelipad,createWhaler,flag,padSize:[padWidth,padLength],
+    setPadIllumination(intensity){for(const material of padMaterials)material.emissiveIntensity=intensity;}};
 }
 export function sailFlapRate(){
   const sampleRate=32,windowSize=96,firstFrequency=.5,frequencyStep=.25,binCount=47;
@@ -412,11 +495,12 @@ export function waveAmbience(){
 export function hullWashMix(speed,swell,wake,catamaran=false){
   if(!Number.isFinite(speed))return {gurgle:0,rush:0,gurgleRate:1};
   const flow=Math.abs(speed);
-  const transition=Math.max(0,Math.min(1,(flow-1.35)/3.15));
+  const speedKnots=flow/(1852/3600);
+  const transition=Math.max(0,Math.min(1,(speedKnots-10)/3));
   const blend=transition*transition*(3-2*transition);
   // The narrow Hobie hulls make very little wash at a slow glide. Build up
   // both the strength and the cadence of the bubbles toward six knots.
-  const cruise=Math.min(1,flow/(6*1852/3600));
+  const cruise=Math.min(1,speedKnots/6);
   const lowFlow=catamaran?.56*cruise*cruise*(3-2*cruise):.52*flow/(.55+flow);
   const low=Math.min(1,lowFlow+.45*swell+.45*wake);
   const high=Math.min(1,.90*flow/(1.45+flow)+.22*wake);
@@ -451,9 +535,29 @@ export function hoistWaterEntry(){
   };
 }
 
+// A slap needs prior clearance and a downward crossing of the moving water.
+export function surfaceSlap(clearanceToArm,speedToTrigger,quietTime){
+  let priorTime,priorClearance,armed=false,last=-Infinity;
+  return (time,clearance)=>{
+    if(time===priorTime)return 0;
+    const dt=time-priorTime;
+    let speed=0;
+    if(!(dt>0&&dt<.24))armed=false;
+    if(clearance>clearanceToArm)armed=true;
+    else if(armed&&clearance<=0&&priorClearance>0){
+      armed=false;
+      const entry=(priorClearance-clearance)/dt;
+      if(entry>=speedToTrigger&&time-last>=quietTime){last=time;speed=entry;}
+    }
+    if(dt<0)last=-Infinity;
+    priorTime=time;priorClearance=clearance;
+    return speed;
+  };
+}
+
 export function raceAudio(T){
   let engines,audio,wind,filter,noise,rain,weather,enabled=false,lastMix=-Infinity;
-  let submerged,effects,luffGain,flapOscillator,flapRate,level=.15;
+  let submerged,effects,luffGain,flapOscillator,flapRate,level=1;
   let rainPlaying=false,lastWet=-Infinity;
   function startRain(){
     if(!rain.paused)return;
@@ -679,7 +783,7 @@ export function raceAudio(T){
     }
     submerged.gain.setTargetAtTime(.36*(1-exposure),lastMix,.35);
     const wet=storm?exposure:0;
-    weather.gain.setTargetAtTime(wet,lastMix,.20);
+    weather.gain.setTargetAtTime(.5*wet,lastMix,.20);
     if(wet>0){lastWet=wall;if(!rainPlaying)startRain();}
     else if(rainPlaying&&wall-lastWet>=1.2)stopRain();
     filter.frequency.setTargetAtTime(180+Math.min(30,speed)*53,audio.currentTime,.4);
@@ -787,6 +891,7 @@ export function raceAudio(T){
   }
   function wildlife(kind,distance,pan,underwater,strength){
     if(!enabled||audio.state!=='running'||distance>240)return;
+    if(kind==='fluke slap'){waterSlap(distance,pan,Number(underwater),strength,true);return;}
     if(kind==='fin'){
       if(!level||distance>12||strength<=0)return;
       const t=audio.currentTime,source=audio.createBufferSource(),band=audio.createBiquadFilter();
@@ -840,7 +945,8 @@ export function raceAudio(T){
     band.frequency.setValueAtTime(cutoff,t);band.frequency.exponentialRampToValueAtTime(cutoff*(impact?.16:.48),t+length);
     band.Q.value=impact?.68:.86;stereo.pan.value=pan;
     const peak=strength*(impact?1.65:.95)/(1+distance/18);
-    gain.gain.setValueAtTime(.0001,t);gain.gain.exponentialRampToValueAtTime(Math.max(.001,peak),t+(impact?.055:.09));
+    gain.gain.setValueAtTime(.0001,t);gain.gain.exponentialRampToValueAtTime(Math.max(.001,peak),t+(impact?.055:.045));
+    if(kind==='spout')gain.gain.exponentialRampToValueAtTime(Math.max(.001,peak*.22),t+.29);
     gain.gain.exponentialRampToValueAtTime(.0001,t+length);
     src.connect(band).connect(gain).connect(stereo).connect(effects);
     src.onended=()=>{for(const n of [src,band,gain,stereo])n.disconnect();};
@@ -902,6 +1008,22 @@ export function raceAudio(T){
       }));
     }
     return entryBuffers.get(variant);
+  }
+  function waterSlap(distance,balance,wet,strength,fluke=false){
+    const reach=fluke?65:27;
+    if(!enabled||!level||audio.state!=='running'||distance>reach||!(strength>0))return;
+    const at=audio.currentTime,variant=splashVariant++%2+1;
+    void entryRecording(variant).then(buffer=>{
+      if(!buffer||!enabled||!level||audio.state!=='running'||audio.currentTime-at>.28)return;
+      const sound=audio.createBufferSource(),pan=audio.createStereoPanner(),gain=audio.createGain(),filter=audio.createBiquadFilter();
+      sound.buffer=buffer;sound.playbackRate.value=(fluke?.69:1.16)+.16*(variant-1);
+      pan.pan.value=balance;filter.type='lowpass';
+      filter.frequency.value=(fluke?8600:11500)*(1-wet)+1250*wet;
+      gain.gain.value=(fluke?1.1:.72)*(1-.35*wet)*Math.min(1,strength)/(1+distance/(fluke?13:6))*(1-distance/reach);
+      sound.connect(filter).connect(gain).connect(pan).connect(effects);
+      sound.onended=()=>{for(const node of [sound,filter,gain,pan])node.disconnect();};
+      sound.start();
+    });
   }
   function hoistWater(local,peers,surface,camera,wet,running){
     if(!enabled||!level||!running){launches.clear();return;}
@@ -992,7 +1114,7 @@ export function raceAudio(T){
       if(audio&&audio.state!=='closed')void audio.close().catch(()=>{});
     }};
   let outputFailed=false;
-  const effectsMethods={update,water,signal,finishGun,thunder,wildlife,imagingHit,motorSound,droneSound,submarineSound,hoistWater,structureImpact,floodSound,whaleSong};
+  const effectsMethods={update,water,signal,finishGun,thunder,wildlife,imagingHit,motorSound,droneSound,submarineSound,hoistWater,structureImpact,floodSound,whaleSong,waterSlap};
   for(const [name,mix] of Object.entries(effectsMethods)){
     mixer[name]=(...args)=>{
       if(outputFailed)return;

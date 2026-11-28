@@ -184,7 +184,7 @@ export function firstPersonInstruments(canvas){
     ctx.fillStyle=ctx.strokeStyle;ctx.fillText(text,x,y);
   }
   return function draw(values,fov,height,target){
-    const {roll,pitch,yaw,speed,level,sub,vertical}=values;
+    const {roll,pitch,yaw,speed,level,sub,vertical,mode}=values;
     const w=canvas.clientWidth,h=canvas.clientHeight,dpr=Math.min(2,devicePixelRatio);
     if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){
       canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);
@@ -240,6 +240,8 @@ export function firstPersonInstruments(canvas){
       box(x,0,v.toFixed(1));ctx.fillText(label,x,64);
     }
     if(!sub)ctx.fillText('V/S '+vertical.toFixed(1)+' m/s',0,h*.36);
-    canvas.setAttribute('aria-label',(sub?'Piccard Sub':'Drone')+' heading '+Math.round(heading)%360+' degrees true, '+(sub?'depth ':'altitude ')+level.toFixed(1)+' metres, speed '+speed.toFixed(1)+' metres per second'+(target?', '+target.label+' bearing '+target.bearing+', '+Math.round(target.range)+' metres':''));
+    if(mode)box(0,h*(sub?.36:.44),mode);
+    const description=(sub?'Piccard Sub':'Drone')+' heading '+Math.round(heading)%360+' degrees true, '+(sub?'depth ':'altitude ')+level.toFixed(1)+' metres, speed '+speed.toFixed(1)+' metres per second'+(mode?', mode '+mode:'')+(target?', '+target.label+' bearing '+target.bearing+', '+Math.round(target.range)+' metres':'');
+    if(canvas.getAttribute('aria-label')!==description)canvas.setAttribute('aria-label',description);
   };
 }

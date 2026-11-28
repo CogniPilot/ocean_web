@@ -1,12 +1,14 @@
 import {diverWreckStart} from './harbor-sites.mjs';
 import {getAppliedPolicy} from './live-training-tasks.mjs';
 import {sharkSegments} from './shark-inertia.mjs';
+import {pivots as sharkPivots} from './shark-contact-data.mjs';
 import {diverObstacles} from './diver-contact.mjs';
 import {diverContactRig} from './scuba-diver.mjs';
 import {whaleCameraGuard} from './whale-camera.mjs';
 import {mantaVisual,swimmerObservation,wildlifeObservations,wildlifeActorId} from './manta.mjs';
-import {divePacket,gullIndex,individualSwimmer,writeAnimalContacts} from './npc-room.mjs';
+import {divePacket,gullIndex,individualSwimmer,sharkForebodyOffset,writeAnimalContacts} from './npc-room.mjs';
 import {whaleEffects} from './whale-effects.mjs';
+import {emitReentrySpray,surfaceSpray,waterStreaks} from './water-spray.mjs';
 import {feedingHarbor} from './feeding-harbor.mjs';
 import {greatWhiteLength} from './wildlife-wake.mjs';
 import {GLTFLoader} from './vendor/gltf-loader.mjs';
@@ -133,11 +135,22 @@ export async function marineAnimal(T,name,length,caustics,tideUniform){
   let articulate,edgePoints;
   if(name==='whale')model.position.set(0,0,0);
   group.updateMatrixWorld(true);
-  function joint(name,axis,label){
+  function joint(name,axis,label,pivot){
     const bone=model.getObjectByName(T.PropertyBinding.sanitizeNodeName(name)),rest=bone.quaternion.clone();
-    const local=(axis??new T.Vector3(0,-1,0)).applyQuaternion(bone.getWorldQuaternion(new T.Quaternion()).invert());
+    const direction=axis??new T.Vector3(0,-1,0);
+    const local=direction.clone().applyQuaternion(bone.getWorldQuaternion(new T.Quaternion()).invert());
     bone.userData.physicsJoint={axis:local.toArray(),label};
-    const swing=new T.Quaternion();return angle=>bone.quaternion.copy(rest).multiply(swing.setFromAxisAngle(local,angle));
+    const swing=new T.Quaternion();
+    if(!pivot)return angle=>bone.quaternion.copy(rest).multiply(swing.setFromAxisAngle(local,angle));
+    // The face is already skinned to a single bone. Pivot its whole assembly
+    // at the anterior spine rather than turning it in place at the eye.
+    const anchor=bone.parent.worldToLocal(group.localToWorld(new T.Vector3(...pivot)));
+    const parentAxis=direction.clone().applyQuaternion(bone.parent.getWorldQuaternion(new T.Quaternion()).invert());
+    const offset=bone.position.clone().sub(anchor);
+    return angle=>{
+      bone.quaternion.copy(rest).multiply(swing.setFromAxisAngle(local,angle));
+      bone.position.copy(offset).applyAxisAngle(parentAxis,angle).add(anchor);
+    };
   }
   if(name==='whale'){
     // Select vertices along the textured flukes' trailing UV seam once. Their
@@ -176,10 +189,12 @@ export async function marineAnimal(T,name,length,caustics,tideUniform){
     };
   }else{
     const lateral=(name,label)=>joint(name,new T.Vector3(0,0,1),label);
+    const anterior=joint('Face',new T.Vector3(0,0,1),'Anterior spine yaw',sharkPivots.at(-1));
     const trunk=lateral('Spine2','Trunk flex'),peduncle=lateral('Spine3','Peduncle sweep'),tail=lateral('Tail','Caudal feather');
     const port=joint('Bone',null,'Port pectoral incidence'),starboard=joint('Bone001',null,'Starboard pectoral incidence');
     articulate=state=>{
       const flex=state[202]??0,bend=state[70]??0;
+      anterior(state[sharkForebodyOffset]??0);
       trunk(flex);peduncle(bend-flex);tail((state[72]??0)-bend);
       port(state[319]??state[201]??0);starboard(state[320]??state[201]??0);
     };
@@ -259,7 +274,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
         if(signal.aborted||visuals.get(id)!==entry){visual.dispose?.();return;}
         visual.group.userData.swimmer={id,kind:animal.kind};
         entry.visual=visual;
-        if(whale)entry.effects=whaleEffects(T,scene,sampleSurface);
+        if(whale)entry.effects=whaleEffects(T,scene,sampleSurface,playSound);
         visual.group.visible=false;
         scene.add(visual.group);
       }).catch(console.error);
@@ -270,7 +285,8 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       ...(frame.length>=70?{initialFish:[...frame.slice(65,70),...(frame.length>=75?frame.slice(70,75):[0,0,0,0,0])]}:{}),
       ...(frame.length>=81?{initialGuidance:frame.slice(75,81)}:{}),
       ...(frame.length>=205?{initialSharkBank:frame.slice(203,205)}:{}),
-      ...(frame.length>=207?{initialSwimReserve:frame.slice(205,207)}:{})}:{};
+      ...(frame.length>=207?{initialSwimReserve:frame.slice(205,207)}:{}),
+      ...(frame.length>=sharkForebodyOffset+2?{initialSharkForebody:frame.slice(sharkForebodyOffset,sharkForebodyOffset+2)}:{})}:{};
   }
   function useSpawn(seed,animal){
     if(!animal?.spawn||animal.frame)return;
@@ -287,10 +303,11 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     const isWhale=a.kind==='whale',pose=isWhale?(frame?.slice(17,21)??[2,-18,-3,0]):(frame?.slice(9,13)??[9,-12,-4,0]);
     const clock=frame?.[0]??0;
 
-    let turn=0,pitch=0,effort=0,age=-1,roll=0,sprint=false;
+    let turn=0,pitch=0,effort=0,age=-1,roll=0,sprint=false,shark;
     if(a.seat){
       const command=room.command(a.id);
       const {axes,bank,breach}=command;sprint=command.sprint;
+      shark=command.shark;
       roll=bank*1.4;
       turn=axes[0];pitch=axes[1]*.88;effort=(axes[2]+1)*.5;
       if(breach&&(a.breachAt==null||clock-a.breachAt>(isWhale?25:10)))a.breachAt=clock;
@@ -298,7 +315,8 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     }else a.breachAt=undefined;
     const [e,n]=pose;
     return {
-      ...(isWhale?{}:{sharkDirect:a.seat&&age<0&&!sprint?2:0}),
+      ...(isWhale?{}:{sharkDirect:a.seat&&shark?.mode!=='deterministic'&&age<0&&!sprint?2:0,
+        ...(shark?.weights?{sharkPolicyWeights:shark.weights}:{})}),
       [isWhale?'whalePilot':'sharkPilot']:[Number(Boolean(a.seat)),pitch,effort,age],
       [isWhale?'whalePrey':'sharkPrey']:!a.seat&&frame?feeding.prey(a,frame,clock):[0,0,0,0,0],
       [isWhale?'whaleTurn':'sharkTurn']:turn,
@@ -536,7 +554,7 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
       const ids=actor.id==='harbor'?['shark','whale']:[actor.id];
       for(const id of ids){
         const animal=room.animals.get(id);
-        if(!animal||animal.seat!==room.self||!['shark','whale','manta'].includes(animal.kind))continue;
+        if(!animal||animal.seat!==room.self||!['whale','manta'].includes(animal.kind))continue;
         const command=room.command(id);
         if(command?.breach||command?.sprint||animal.breachAt!=null)continue;
         const policy=getAppliedPolicy(animal.kind);
@@ -599,6 +617,11 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
         entry.effects.update(row,row[0],v,wind);
       }else{
         v.group.position.fromArray(row,9);v.group.rotation.set(row[203],-row[67],row[12],'ZYX');v.articulate(row);
+        if(row.length>=201){
+          const nearSurface=Math.abs(row[11]-sampleSurface(row[9],row[10]))<2.5;
+          if(nearSurface&&!entry.effects)entry.effects=sharkSpray(T,scene,sampleSurface,v.group);
+          entry.effects?.update(row,nearSurface);
+        }
       }
     }
   }
@@ -692,4 +715,39 @@ export function harborTraffic(T,scene,fleet,sampleSurface,playSound,caustics,tid
     const index=gullIndex(id);
     return index>=0?room.habitat.gulls[index]:room.animals.get(id)?.frame??(individualSwimmer(room.animals.get(id)?.kind)?null:current);
   }};
+}
+
+function sharkSpray(T,scene,surface,group){
+  const runoffPoints=[[-2.12,0,.48],[-2.15,0,-.46],[.14,.94,-.31],[.14,-.94,-.31]];
+  const frames=['Tail','Tail','Bone','Bone001'].map(name=>group.userData.collisionRig.get(name));
+  const spray=surfaceSpray(T,scene,'Great white breach spray',14,surface),areas=new Float64Array(14);
+  let sampled=-Infinity,previousHeight,reentry;
+  return {update(row,nearSurface){
+    const time=row[0];
+    spray.draw(time);
+    reentry?.draw(time);
+    if(!nearSurface){previousHeight=undefined;return;}
+    if(time>=sampled&&time-sampled<.039)return;
+    if(time<sampled||time-sampled>.5)previousHeight=undefined;
+    sampled=time;group.updateWorldMatrix(true,true);
+    const [x,y,height,yaw]=row.slice(9,13),z=surface(x,y),gap=height-z;
+    if(previousHeight>0&&gap<=0&&row[66]<-.8){
+      reentry??=waterStreaks(T,scene,'Great white reentry spray',120);
+      emitReentrySpray(reentry,{x,y,z,time,yaw,eastSpeed:row[65]*Math.cos(yaw),northSpeed:row[65]*Math.sin(yaw),
+        downSpeed:-row[66],halfBeam:.75,halfLength:1.4});
+      reentry.draw(time);
+    }
+    previousHeight=gap;
+    for(const [i,point] of runoffPoints.entries()){
+      const position=spray.positions[i].fromArray(point),frame=frames[i];
+      if(frame)position.applyMatrix4(frame.inverseRest).applyMatrix4(frame.bone.matrixWorld);
+      else position.applyMatrix4(group.matrixWorld);
+    }
+    for(let i=0;i<10;i++){
+      const k=141+i*5,position=spray.positions[4+i];
+      position.set(row[k],row[k+1],row[11]);
+      areas[4+i]=row[k+2]*row[k+4];
+    }
+    spray.sample(time,areas,row[65],row[12],runoffPoints.length);
+  },dispose(){spray.dispose();reentry?.dispose();}};
 }

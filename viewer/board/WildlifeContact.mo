@@ -10,7 +10,7 @@ function WildlifeContact "Boat contact against moving animal envelopes in ENU"
 protected
   Real a[9],dx,dy,dz,c,s,cp,sp,cr,sr,fore,across,ex,ey,ez,along,side,up;
   Real armE,armN,best,nx,ny,mag,speedNormal,lever,force;
-  Real frames[6,3,4],frame[3,3],hit[4],normal[3],lx,ly,lz,penetration,width;
+  Real frames[7,3,4],frame[3,3],hit[4],normal[3],lx,ly,lz,penetration,width;
 algorithm
   wrench:=Wreck.mantaVesselLoad(traffic,articulation,boat,velocity,hullLength,halfWidth,spacing,draft);
   for k in 1:10 loop

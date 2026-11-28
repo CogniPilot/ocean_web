@@ -1,0 +1,13 @@
+diff --git a/apps/web/src/routes/+page.svelte b/apps/web/src/routes/+page.svelte
+index dbb5eaf..31556d4 100644
+--- a/apps/web/src/routes/+page.svelte
++++ b/apps/web/src/routes/+page.svelte
+@@ -847,7 +847,7 @@
+     });
+ 
+     syncKeyboardRemote(keyboardRemoteActive, keyboardRevision);
+-    connect();
++    if (new URLSearchParams(window.location.search).get('connect') !== '0') connect();
+ 
+     return () => {
+       clearInterval(autopilotTimer);
