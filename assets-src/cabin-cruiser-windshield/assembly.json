@@ -1,0 +1,11 @@
+{
+  "frontOutline": [[1.19, -0.85, 1.65], [1.19, 0.85, 1.65], [0.63, 0.83, 2.09], [0.63, -0.83, 2.09]],
+  "portOutline": [[-0.83, 1.00, 1.34], [1.19, 0.85, 1.65], [0.63, 0.83, 2.09], [-0.35, 0.89, 2.14]],
+  "sideMullion": {"lowerFraction": 0.54, "upperFraction": 0.28},
+  "flangeWidth": 0.027,
+  "flangeDepth": 0.028,
+  "outerCornerRadius": 0.038,
+  "gasketWidth": 0.008,
+  "glassThickness": 0.006,
+  "wiperPivots": [[1.176, -0.43, 1.676], [1.176, 0.43, 1.676]]
+}

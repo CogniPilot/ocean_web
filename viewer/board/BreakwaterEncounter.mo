@@ -15,6 +15,7 @@ model BreakwaterEncounter "Cruiser encounter, sampled swimmer dynamics and conta
   constant Real cabinCeiling=1.16 "Height at the crown of the forward cabin [m]";
   constant Real floodCapacity[6]={floodedArea[i]*(if mod(i,3)==0 then cabinCeiling-soleZ else 1.23) for i in 1:6};
   input Real activate,tide;
+  input Real bilgePump=0;
   input Real boat[6] "Position and ZYX roll, pitch and yaw";
   input Real vesselVelocity[3],angularVelocity[3] "ENU velocities at hull frame origin";
   input Real vesselMass;
@@ -28,6 +29,7 @@ model BreakwaterEncounter "Cruiser encounter, sampled swimmer dynamics and conta
   discrete output Real victimHealth[targetCount,2](each start=0,each fixed=true);
   output Real waterVolume[6](each start=0,each fixed=true);
   output Real flooding[6,5] "Water volume, signed flow, hole area, inside local level and outside water head";
+  output Real bilgeState[4] "Retained water, inflow, pumped flow and passive outflow in litres and litres per second";
   output Real hullHealth,waterMass;
   output Real sinkState "0 afloat, 1 flooding, 2 submerged";
   output Real collisionForce[3],collisionMoment[3] "Balanced impulse transmitted to cruiser [N, N.m], resolved in ENU";
@@ -38,6 +40,7 @@ protected
   discrete Real memory[8](each start=0,each fixed=true)
     "Start time, retreat deadline, panel, contact deadline, east/north/up impulse, bite deadline";
   Real R[3,3],openingDepth[6],deckOvertop[6],cabinOvertop[6],interiorHead[6],head[6],jetFlow[6],opening[6],floodMassArm[3],gravityArm[3,3];
+  Real pumpFlow,totalWater;
   Real dz,offset[3],portRange,starboardRange,oscillation,cockpitHead;
   function hullRotation
     input Real roll,pitch,yaw;
@@ -68,7 +71,7 @@ protected
     contact:={1e3,0,0,0,0,0,0,0};
     scale:=length/4.8;
     local:=transpose(frame)*(position-boat[1:3]);
-    if abs(local[1])>4+2.6*scale or abs(local[2])>1.4+2.6*scale
+    if abs(local[1])>5.5+2.6*scale or abs(local[2])>1.62+2.6*scale
       or local[3]>2.2+2.6*scale or local[3]<-.8-2.6*scale then return;end if;
     orientation:=transpose(frame)*hullRotation(0,-pitch,yaw);
     for i in 1:size(body,1) loop
@@ -276,11 +279,15 @@ equation
        else -.62*sqrt(-2*g*head[i])*max(0,min(1,waterVolume[i]/.025)))+
        (.48*deckOvertop[i]*sqrt(2*g*deckOvertop[i])+.075*sqrt(2*g*cabinOvertop[i]))*
        max(0,min(1,(floodCapacity[i]-waterVolume[i])/.025));
-    der(waterVolume[i])=jetFlow[i];
-    flooding[i,:]={waterVolume[i],jetFlow[i],opening[i],soleZ+waterVolume[i]/floodedArea[i],openingDepth[i]};
+    der(waterVolume[i])=jetFlow[i]-pumpFlow*max(0,waterVolume[i])/max(1e-8,totalWater);
+    flooding[i,:]={waterVolume[i],der(waterVolume[i]),opening[i],soleZ+waterVolume[i]/floodedArea[i],openingDepth[i]};
   end for;
   hullHealth=sum(integrity)/6;
-  waterMass=rho*sum(waterVolume);
+  totalWater=sum(waterVolume);
+  pumpFlow=noEvent(if bilgePump>.5 then .0012*max(0,min(1,totalWater/.006)) else 0);
+  bilgeState=1000*{totalWater,sum(max(0,jetFlow[i]) for i in 1:6),pumpFlow,
+    sum(max(0,-jetFlow[i]) for i in 1:6)};
+  waterMass=rho*totalWater;
   sinkState=noEvent(if boat[3]<tide-1.10 and waterMass>2100 then 2 elseif sum(opening)>0 then 1 else 0);
   collisionForce=if noEvent(shark[1]>0 and time<memory[4]) then memory[5:7]/.125 else zeros(3);
   collisionMoment=cross({impact[7],impact[8],impact[6]-boat[3]},collisionForce);

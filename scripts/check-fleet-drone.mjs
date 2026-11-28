@@ -58,7 +58,10 @@ try{
   }
   const aircraft={rotorAngles:[0,0,0,0],rotorSpeeds:[740,750,760,770]};
   const start=performance.now();
-  pilot.frame(start,null,false,null,null,airframe,'drone',false,aircraft);
+  const fly=(now,poseTime)=>pilot.frame(now,null,false,null,null,airframe,'drone',false,aircraft,
+    undefined,undefined,undefined,undefined,undefined,poseTime);
+  const poseMessages=()=>sent.filter(row=>row.from==='pilot'&&row.name==='sail-pose').length;
+  fly(start,1);
   await deliver();
   const combined=sent.find(row=>row.from==='pilot'&&row.target==='observer'&&row.name==='sail-pose');
   assert.equal(combined.data.length,52,'A current peer gets pose and speeds in the same packet');
@@ -75,12 +78,19 @@ try{
   assert.equal(observer.droneContacts([1,2,7],start+63)[0],0,'Ignore coincident spawns');
   assert.equal(observer.droneContacts([1,2,6],start+63)[0],1,'A distinct nearby player arms drone contacts');
   assert.deepEqual(Array.from(observer.droneContacts([1.21,2,7],start+63).slice(0,8)),[1,1,2,7,1,0,0,0]);
+  const announced=poseMessages();
+  for(const elapsed of [150,500,1500,3000])fly(start+elapsed,1);
+  await deliver();
+  assert.equal(poseMessages(),announced,'A stalled solver cannot renew a pose timestamp');
   draw(start+3600);
   assert(ghost.visible,'A delayed snapshot must not hide a connected peer');
   assert.equal(observer.drones.length,0);
   assert.equal(observer.rotorWakes([1,2,6],start+3600)[0],0,'A frozen visual must not emit stale downwash');
 
   assert.equal(observer.droneContacts([1,2,7],start+3600)[0],0,'Stale poses must not produce contact');
+  fly(start+3700,1.01);
+  await deliver();
+  assert.equal(poseMessages(),announced+2,'Publishing resumes as soon as the solver completes a new step');
 
   const receiver=networks.get('observer');
   receiver.onPeerLeave('pilot');
@@ -125,7 +135,7 @@ try{
   }
   const rpm=[1234,-2000,0,5200,-123,586];
   const sendRPM=time=>pilot.frame(time,null,false,null,vehicle,null,'sub',true,
-    null,null,null,0,0,rpm);
+    null,null,null,0,0,rpm,2);
   sendRPM(start+6000);await deliver();showSub();
   assert.deepEqual(proxy.userData.thrusterRPM,rpm);
   const drive=sent.find(row=>row.name==='sub-drive');
@@ -148,6 +158,15 @@ try{
       assert.equal(proxy.getObjectByName(name+' lens').visible,on);
     }
   }
+  pilot.seaTime(2,start+8500,true);
+  pilot.seaTime(2,start+8800,true);
+  pilot.seaTime(2,start+9100,false);
+  for(let i=0;pending.length&&i<10;i++)await deliver();
+  const pilotAnnouncements=sent.filter(row=>row.from==='pilot');
+  const pauses=pilotAnnouncements.filter(row=>row.name==='sea-clock-pause');
+  assert(pauses.some(row=>row.data===true) && pauses.some(row=>row.data===false));
+  const clockPackets=pilotAnnouncements.filter(row=>row.name==='sea-clock');
+  assert(clockPackets.length && clockPackets.every(row=>row.data.length===2),'Keep the existing clock wire shape');
   console.log('Combined drone packets, legacy fallback, prop animation, stale poses and reconnect passed.');
 }finally{
   observer.leave();

@@ -10,12 +10,15 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
   input Real windAnchor[5](each start=0);
   input Real windSpeed(start=11),windBearing(start=prevailingBearing),seaState,epoch;
   input Real raceStart=0,finishAllowed=1;
+  input Real vmgPenaltySide=1 "Signed direction of the current penalty turn";
   input Real jibHalyardInput=.55;
   input Real sailingManual(start=1),rudder,trim,vang(start=.5),downhaul(start=.5),outhaul(start=.65),deckManual,mainCar,jibCar,jibSheet;
   input Real manualJibAssist(start=1);
   input Real ballastManual,ballastX,ballastY,traffic[4,9];
   input Real trafficTilt[4,2]=zeros(4,2),npcTilt[5,2]=zeros(5,2);
   input Real npcVessels[5,9]=zeros(5,9);
+  Real fleetTraffic[10,9],raceMarks[3,2],penaltyTarget[2],upwind;
+  Real clearingPenalty,penaltyTurning;
   Real sailLandingWrench[6],committeeLandingWrench[6],windProbe[2];
   input Real swimmerWater[15](each start=0) "Local swimmer-wave elevations at twelve hull panels, centre elevation, forward and port slopes";
   input Real animalJoints[10,4]=zeros(10,4);
@@ -37,7 +40,9 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     foilY=if hobie then {1.02,1.02,-1.02,-1.02} else zeros(4),
     foilArea=if hobie then {.62,.11,.62,.11} else {.115,.044,0,0},
     aspect=if hobie then {.65,3.4,.65,3.4} else {3.5,2.6,1,1},
-    raceGoal={1,race.pilotTarget[1],race.pilotTarget[2]},manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,outhaulInput=outhaul,
+    raceGoal=cat(1,{1},if clearingPenalty>.5 then penaltyTarget else race.pilotTarget),
+    tacticalCourse={penaltyTurning,boat.heading+.64*vmgPenaltySide,1},
+    manualHelm=sailingManual,rudderInput=rudder,trimInput=trim,vangInput=vang,downhaulInput=downhaul,outhaulInput=outhaul,
     deckManual=deckManual,jibHalyardInput=jibHalyardInput,mainCarInput=mainCar,jibCarInput=jibCar,jibTrimInput=jibSheet,manualJibAssist=manualJibAssist,reachTrial=0,
     ballastManual=ballastManual,ballastCmdX=ballastX,ballastCmdY=ballastY,traffic=traffic,
     trafficTilt=trafficTilt,sceneTilt=cat(1,npcTilt,[race.launchPose[2],-race.launchPose[3]]),
@@ -96,6 +101,13 @@ partial model OceanRace "Shared dynamics for the Hobie, sea, wind and race commi
     end for;
   end sampleHydroSurface;
 equation
+  upwind=if windSpeed>.05 then atan2(-wind.localNorth,-wind.localEast) else windBearing+Modelica.Constants.pi;
+  fleetTraffic=cat(1,traffic,boat.sceneTraffic);
+  raceMarks=[race.pinEast,race.pinNorth;race.markEast[1],race.markNorth[1];race.markEast[2],race.markNorth[2]];
+  clearingPenalty=noEvent(if hobie and sailingManual<.5 and finishAllowed<.5 and penaltyTurning<.5 then 1 else 0);
+  penaltyTarget=SailingTactics.penaltyEscape({boat.east,boat.north},boat.heading,upwind,fleetTraffic,raceMarks);
+  penaltyTurning=noEvent(if hobie and sailingManual<.5 and finishAllowed<.5 and
+    SailingTactics.roomToTurn({boat.east,boat.north},fleetTraffic,raceMarks) then 1 else 0);
   when sample(0,.025) then
     animalWrench=WildlifeContact(animals,{boat.east,boat.north,boat.heave,boat.heel,boat.pitch,boat.heading},
       {boat.ve,boat.vn,boat.yawRate},boat.totalMass,if hobie then 5.04 else 2.32,

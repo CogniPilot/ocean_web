@@ -12,16 +12,18 @@ export function raceClock(stage,next,elapsed,heatAge,early=false,roomHeat=false)
 
 export function raceGroundTrack(){
   let key,last,speed;
-  return (id,position,time)=>{
+  return (id,position,time,current)=>{
     if(key!==id||!position||!Number.isFinite(time)||!last||time<last.time){
       key=id;last=null;speed=undefined;
     }
     if(position&&Number.isFinite(time)&&(!last||time>last.time)){
       if(last){
-        const dt=time-last.time,distance=Math.hypot(position[0]-last.x,position[1]-last.y);
-        speed=distance<=12+80*Math.min(dt,.5)?distance/dt:undefined;
+        const dt=time-last.time,dx=position[0]-last.x,dy=position[1]-last.y;
+        const dz=current?(position[2]??0)-last.z:0;
+        speed=Math.hypot(dx,dy,dz)<=12+80*Math.min(dt,.5)?Math.hypot(
+          dx/dt-(current?.[0]??0),dy/dt-(current?.[1]??0),dz/dt-(current?.[2]??0)):undefined;
       }
-      last={x:position[0],y:position[1],time};
+      last={x:position[0],y:position[1],z:position[2]??0,time};
     }
     return speed;
   };

@@ -54,7 +54,7 @@ model HobieFleetPilot "Modelica race navigation, steering, contact and penalty t
   end samplePontoons;
   discrete Real contactFlag(start=0,fixed=true);
   Real markRange,buoyTraffic[3,9],finishAlong,finishAcross;
-  Real goal[2],windward[2],crosswind[2],startLine[2],turnPoint[2],turnHeading;
+  Real goal[2],windward[2],startLine[2],turnPoint[2],turnHeading,marks[3,2];
   final parameter Real startBearing=prevailing+Modelica.Constants.pi;
   Real courseUp[2],courseSide[2];
 
@@ -99,7 +99,6 @@ equation
   wind=sqrt(windEast^2+windNorth^2);
   upwind=if wind>.05 then atan2(-windNorth,-windEast) else startBearing;
   windward={cos(upwind),sin(upwind)};
-  crosswind={-windward[2],windward[1]};
   // Allow each NPC its own lane, while favouring the upwind end of a biased line.
   courseUp=race.lineUp;courseSide=-race.lineRight;
   startLine=race.gateCenter+courseSide*min(.38*race.span,max(-.38*race.span,lane+.07*race.span*(courseSide*windward)));
@@ -108,7 +107,8 @@ equation
   along=({east,north}-startLine)*courseUp;
   across=({east,north}-startLine)*courseSide;
   seconds=max(0,raceStart-utc);
-  turnPoint={east,north}-12*windward+4*crosswind;
+  marks=[race.pinEast,race.pinNorth;race.markEast[1],race.markNorth[1];race.markEast[2],race.markNorth[2]];
+  turnPoint=SailingTactics.penaltyEscape({east,north},heading,upwind,traffic,marks);
   goal=if owed>.5 and not turning then turnPoint
     elseif race.earlyStart>.5 then startLine-18*courseUp
     elseif race.stage==0 and seconds>27 then startLine-40*courseUp-13*courseSide
@@ -116,7 +116,8 @@ equation
       (if along>1 then startLine-18*courseUp else startLine+14*courseUp)
     elseif race.stage==4 then race.gateCenter+courseUp*(if finishReady then -26 else 22)
     else race.pilotTarget;
-  pace=if race.stage==0 and seconds>27 then min(1,max(.0,sqrt((goal-{east,north})*(goal-{east,north}))/5))
+  pace=if owed>.5 then 1
+    elseif race.stage==0 and seconds>27 then min(1,max(.0,sqrt((goal-{east,north})*(goal-{east,north}))/5))
     elseif race.stage==0 and along<0 then min(1,max(.05,(-along)/(max(.4,seconds+.5)*max(.45,abs(speed)))))
     else 1;
   pose={east,north,boat.heave,heading,speed,ve,vn,yawRate};
@@ -136,12 +137,11 @@ equation
         abs(east-traffic[i,2])+abs(north-traffic[i,3])<7 and traffic[i,1]>.5) then 100 else 0 for i in 1:10};
     oldMark=if markLoad>1 or (pre(oldMark)>1 and markRange<7) then 100 else 0;
     owed=if initial() then initialPenalty else max(0,pre(owed)+contactFlag-(if pre(arc)>=2*Modelica.Constants.pi-.02 then 1 else 0));
-    turning=pre(owed)>.5 and SailingTactics.roomToTurn({east,north},traffic,
-      [race.pinEast,race.pinNorth;race.markEast[1],race.markNorth[1];race.markEast[2],race.markNorth[2]]);
+    turning=pre(owed)>.5 and SailingTactics.roomToTurn({east,north},traffic,marks);
     turnSide=if turning and not pre(turning) then
       (if SailingTactics.wrap(upwind-heading)>=0 then 1 else -1) else pre(turnSide);
     arc=if turning and pre(turning) and pre(arc)<2*Modelica.Constants.pi-.02 and pre(contactFlag)<.5 then
-      max(0,pre(arc)+turnSide*SailingTactics.wrap(heading-pre(headingBefore))) else 0;
+      max(0,pre(arc)+(if abs(speed)>.30 then turnSide*SailingTactics.wrap(heading-pre(headingBefore)) else 0)) else 0;
     headingBefore=heading;
     course=if turning then turnHeading else
       SailingTactics.chooseCourse({east,north},heading,speed,goal,upwind,wind,1.035,pre(course),cat(1,traffic,buoyTraffic));

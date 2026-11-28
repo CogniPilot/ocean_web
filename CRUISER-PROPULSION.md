@@ -1,4 +1,12 @@
-# Cabin cruiser propulsion model
+# Sundancer 320 propulsion and reference shaft model
+
+The playable Sea Ray Sundancer 320 uses a 10.01 m hull with a 3.23 m beam and 21° transom deadrise. Its design displacement is 6,890 kg and the simulated tank holds 598 L. The 182 L/h full-throttle rate is estimated from the published 142 mi range at 48 mph with 90% usable fuel. The 47–49 mph wide-open throttle range is the calibration target. [2025 European brochure](https://www.searay.com/content/dam/searay/sundancer-series/sundancer-320-eu/2025-sundancer-320-europe-model-brochure.pdf)
+
+The twin sterndrive model shares a throttle and steering command between both drives. It evaluates the immersed fraction of each propeller disk at its own location. Forward thrust is limited by a reduced-order load curve and the rated combined 448 kW power, with a fixed efficiency factor. At high speed a planing-resistance curve sets the equilibrium speed. Drive geometry and tank location are estimates based on the layout. The model supplies a net disk for each drive's coaxial propellers.
+
+## Standalone shaft and rudder reference
+
+The following fixed-shaft component remains available for standalone tests and other craft.
 
 The 7.6 m, 3,250 kg cruiser uses body axes with forward (x), port (y), and up (z). Signed shaft speed is positive ahead. Positive helm command turns the bow to port under ahead flow. It rotates the rudder stock toward negative yaw because the blade trails its hinge.
 
@@ -55,8 +63,4 @@ The test reports machine-readable component sweeps and the coupled vessel's ahea
 
 At ahead bollard speed the model adds 12.38 m/s to the washed portion of the rudder. Full port helm gives a 4.34 kN starboard force at the foil. Starboard helm mirrors that result. The coasting case retains wet-disk drag and rudder authority in the incoming flow.
 
-In the coupled calm-water run the speed settled near 7.51 m/s ahead and -3.44 m/s astern. Two seconds after applying full port helm, yaw rates were +0.634 rad/s ahead and -0.107 rad/s astern. After six seconds of neutral, speeds had decayed to 2.01 m/s ahead and -1.50 m/s astern. Reapplying throttle within the neutral window preserved the warm start. A separate restart after ten seconds of neutral required cranking again.
-
-The public FMI diagnostics under `propulsion` include `axialAdvance` in m/s, `advanceCoefficient` and `advanceCoefficientValid`, `propellerThrust` in N, `shaftTorque` in N·m, `shaftPower` in W, `diskInduction` and `slipstreamAtRudder` in m/s, wet and washed area fractions, actual `rudderAngle` in rad, and `rudderForce` in body-frame N. `advanceCoefficientValid` is 1 while the shaft is turning fast enough to report a ratio. `driveGeometry` connects the solver dimensions and pivots to the visual assembly.
-
-The ahead fit is an open-water series estimate at its reference Reynolds number. The model bounds the fit in oblique operating regimes and approximates coasting with drag from a stopped wet disk. Inflow uses rigid-body motion relative to the model's mean current. Aft surface samples set immersion. Wave-orbital changes to inflow, cavitation, and a measured four-quadrant astern map would require additional data. The hull and installation factors remain uncalibrated against full-scale sea trials.
+The coupled portion of the test exercises the Sundancer's twin-drive geometry, warm and cold starts, forward and reverse thrust, coastdown, and port helm. Modelica exports both propeller load vectors, their geometry, individual local water sampling and aggregate immersed disk fraction.

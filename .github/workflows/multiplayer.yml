@@ -29,4 +29,6 @@ jobs:
       - run: npx playwright install --with-deps chromium ${{ matrix.engine }}
       - run: node scripts/check-fleet-room.mjs
       - run: node scripts/check-npc-room.mjs
+      - run: node scripts/check-fleet-sea-clock.mjs
+      - run: node scripts/check-fleet-drone.mjs
       - run: node scripts/check-fleet-browser.cjs ${{ matrix.engine }}

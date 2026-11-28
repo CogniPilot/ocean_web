@@ -5,12 +5,11 @@
   box-sizing:border-box;width:min(620px,calc(100vw - var(--edge) - 12px));
   max-height:calc(100dvh - 30px);padding:0 14px 12px;
   overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;
-  background:#0a2834;color:#edf6f4;border:1px solid #5a7e85;
-  border-radius:12px;box-shadow:0 6px 26px #02182070;
+  box-shadow:0 6px 26px #02182070;
 }
 #harborMap > div:first-child {
   position:sticky;top:0;z-index:1;min-height:54px;gap:10px;
-  margin-inline:-14px;padding-inline:14px;background:#0a2834;
+  margin-inline:-14px;padding-inline:14px;background:#0a2531;
   border-bottom:1px solid #375662;
 }
 #harborMap h2 {font:normal 22px/1.2 Georgia,serif}
@@ -36,8 +35,7 @@
 #harborMapRoster {color:#afe0d8}
 body #roomChat[open] {
   box-sizing:border-box;width:min(345px,calc(100vw - var(--hud-gutter)*2));max-height:calc(100dvh - var(--hud-header-bottom,66px) - 21px);
-  overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;background:#0a2936;
-  border:1px solid #5a7e85;border-radius:9px;box-shadow:0 4px 18px #02182055;
+  overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;box-shadow:0 4px 18px #02182055;
 }
 #roomChat[open]>summary {
   box-sizing:border-box;min-height:46px;padding:12px 76px 10px 12px;color:#ecf6f1;
@@ -95,7 +93,7 @@ body > header:has(#roomChat[open]:not([hidden])) {z-index:4}
 #vehiclePicker .entry-spawn-row {display:flex;align-items:center;gap:6px;margin-bottom:9px}
 #vehiclePicker .entry-spawn-row select {flex:1;min-width:0;width:0;margin:0}
 #vehiclePicker #entryMapOpen {flex:none;min-height:44px;margin:0;font-size:14px}
-#entryMap {box-sizing:border-box;width:min(650px,calc(100vw - 16px));max-height:calc(100dvh - 16px);padding:14px;overflow:auto;overscroll-behavior:contain;background:#0a2834;color:#ecf5f2;border:1px solid #688b8e;border-radius:12px}
+#entryMap {box-sizing:border-box;width:min(650px,calc(100vw - 16px));max-height:calc(100dvh - 16px);padding:14px;overflow:auto;overscroll-behavior:contain}
 #entryMap::backdrop {background:#061c29bf}
 #entryMap :is(button,select) {font:inherit;min-height:44px;touch-action:manipulation}
 #entryMap .entry-map-header,#entryMap .entry-map-footer {display:flex;align-items:center;justify-content:space-between;gap:10px}

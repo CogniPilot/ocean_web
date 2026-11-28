@@ -1,35 +1,76 @@
+import {boatAnchorView} from './boat-anchor.mjs';
 import {liftMechanism,liftX,hingeY,davitReach,tipZ,bridleHeight} from './stern-lift.mjs';
 import {showInLowWaterCapture} from './render-layers.mjs';
 import {sonarMount} from './cruiser-sonar-view.mjs';
+import {loadVehicleShell,vehicleShell} from './vehicle-assets.mjs';
 
-// Seven-and-a-half metre inboard sportfisher. Bow +X, port +Y, up +Z.
-// Underside lens centres in the boat frame, 23 mm below the bottom plating.
+const cruiserWindshield='cabin-cruiser-windshield',cruiserCockpit='sea-ray-sundancer-320-cockpit';
+let windshieldReady=false,cockpitReady=false;
+export async function preloadCruiserWindshield(){
+  const results=await Promise.allSettled([
+    Promise.resolve(loadVehicleShell(cruiserWindshield)).then(()=>{windshieldReady=true;}),
+    Promise.resolve(loadVehicleShell(cruiserCockpit)).then(()=>{cockpitReady=true;}),
+  ]);
+  const failures=results.filter(result=>result.status==='rejected').map(result=>result.reason);
+  if(failures.length)throw new AggregateError(failures,'Sea Ray Sundancer 320 asset load');
+}
+
+// Shore.cruiserVertices uses these same hull dimensions and 21° bottom face.
+// Body frame is bow +X, port +Y, up +Z.
+const hullSections=[[-3.74,1.22,.80,-.49],[-3.53,1.38,.82,-.56],[-2.75,1.55,.87,-.67],
+  [-1.55,1.615,.92,-.73],[-.20,1.61,.96,-.76],[1.05,1.55,1.02,-.72],[2.10,1.42,1.11,-.61],
+  [2.85,1.29,1.17,-.55],[3.52,1.11,1.22,-.45],[4.30,.83,1.27,-.25],[4.94,.51,1.31,.02],[5.48,.015,1.35,.32]];
+const hullPlating=[[1,1],[.972,.65],[.85,.23],[0,0]];
+const deadriseTangent=Math.tan(21*Math.PI/180),CHINE=.23;
+const bowX=hullSections.at(-1)[0],sternX=hullSections[0][0];
+const stemRake=x=>1.18*Math.max(0,(x-1.5)/(bowX-1.5))**2;
+const transomCurve=x=>.14*Math.max(0,(-3.39-x)/.35);
+const chineHeight=(half,keel)=>keel+.85*half*deadriseTangent;
+const interpolate=(a,b,t)=>a+(b-a)*t;
+function hullSection(x){
+  const index=hullSections.findIndex((row,i)=>i&&row[0]>=x);
+  if(index<0)return hullSections.at(-1);
+  const prev=hullSections[index-1],next=hullSections[index];
+  const t=Math.max(0,(x-prev[0])/(next[0]-prev[0]));
+  return [x,...prev.slice(1).map((value,j)=>interpolate(value,next[j+1],t))];
+}
+function hullPoint([x,half,top,keel],side,fraction,t){
+  const chine=chineHeight(half,keel);
+  return [x-stemRake(x)*(1-t)+transomCurve(x)*fraction*fraction,side*half*fraction,
+    t<CHINE?interpolate(keel,chine,t/CHINE):interpolate(chine,top,(t-CHINE)/(1-CHINE))];
+}
+function bottomFixture(station,fraction,clearance){
+  const [x,y,z]=hullPoint(hullSection(station),1,fraction,CHINE*fraction/.85);
+  return [x,y,z-clearance];
+}
+// Lens faces are set just below the bottom plating.
 export const hullLamps=[-1,1].flatMap(side=>[
-  [-3.599,side*.759,-.288],[-2.750,side*.864,-.380],[-.200,side*.905,-.437],
-  [1.590,side*.761,-.358],[2.765,side*.395,-.083]
-]);
-// Lens centre and sight target in hull coordinates. The keel image is bow-up.
+  [-3.58,.63],[-2.75,.65],[-.20,.63],[1.59,.57],[3.66,.44]
+].map(([station,fraction])=>{
+  const [x,y,z]=bottomFixture(station,fraction,.023);return [x,side*y,z];
+}));
+const [bowLensX,bowLensY,bowLensZ]=bottomFixture(3.82,.24,.034);
+const [sideLensX,sideLensY,sideLensZ]=bottomFixture(-.38,.79,.048);
 export const cruiserUnderwaterViews={
-  motorBow:[[2.40,-.22,-.451],[8.63,-.22,-2.901]],
-  // Port of the skeg, at the foot of the transom below the swim platform.
-  motorStern:[[-3.775,.17,-.58],[-9.98,.17,-3.02]],
-  motorPort:[[-.38,1.20,-.45],[-.38,7.4,-3.20]],
-  motorStarboard:[[-.38,-1.20,-.45],[-.38,-7.4,-3.20]],
+  motorBow:[[bowLensX,-bowLensY,bowLensZ],[8.63,-bowLensY,-2.901]],
+  // The stern lens sits on centreline between the two drives.
+  motorStern:[[-3.805,.03,-.426],[-9.98,.03,-3.02]],
+  motorPort:[[sideLensX,sideLensY,sideLensZ],[-.38,7.4,-3.20]],
+  motorStarboard:[[sideLensX,-sideLensY,sideLensZ],[-.38,-7.4,-3.20]],
   motorKeel:[[.45,0,-.88],[.45,0,-2],[1,0,0]]
 };
-// Broad, overlapping lobes from the paired stern, midship and bow emitters.
-// Coordinates/radii are metres in the body frame. The stern pair is brightest.
+// Overlapping underwater illumination from the twin lamp rows.
 export const hullGlowLobes=[-1,1].flatMap(side=>[
-  {center:[-3.02,side*.76,-.86],radius:[1.52,1.34,.95],weight:.61},
-  {center:[-.70,side*.86,-.95],radius:[1.48,1.21,.96],weight:.34},
-  {center:[1.62,side*.70,-.76],radius:[1.18,1.10,.82],weight:.27}
+  {center:[-3.02,side*.90,-.86],radius:[1.52,1.36,.95],weight:.61},
+  {center:[-.70,side*.99,-.95],radius:[1.55,1.29,.96],weight:.34},
+  {center:[2.00,side*.79,-.76],radius:[1.46,1.16,.82],weight:.27}
 ]);
 export const searchlightHeight=2.74;
-// Roof, raked cabin front, foredeck and aft cockpit in boat coordinates.
-// For each surface z=base+slope*x; the last pairs are its x and half-beam bounds.
+// Opaque surfaces that block the searchlight. Each has z=base+slope*x.
 const deckPanels=[
-  [2.207,0,-1.24,.82,.98,.93],[2.51,-.728,1.19,1.83,.85,.65],
-  [.902,.117,1.18,2.93,1.02,.58],[.824,.137,2.93,3.80,.58,.012],[.54,0,-3.72,1.12,1.05,1.14],[.185,0,-4.16,-3.65,.93,1.05]
+  [2.22,0,-1.43,.91,1.06,.92],[2.51,-.728,1.19,1.83,.85,.65],
+  [.953,.079,1.18,2.85,1.52,1.19],[1.003,.064,2.85,4.30,1.19,.75],
+  [.99,.065,4.30,5.48,.75,.01],[.54,0,-3.70,1.18,1.06,1.12],[.203,0,-4.53,-3.57,1.04,1.24]
 ];
 function deckHit(origin,d,range){
   let distance=range;
@@ -44,10 +85,6 @@ function deckHit(origin,d,range){
   return distance;
 }
 const glslFloat=n=>Number.isInteger(n)?n.toFixed(1):String(n);
-const hullSections=[[-3.74,1.07,.77,-.39],[-3.53,1.19,.78,-.44],[-2.75,1.29,.80,-.52],
-  [-1.55,1.36,.84,-.57],[-.20,1.35,.91,-.61],[1.05,1.24,1.00,-.58],[2.1,1.00,1.11,-.49],
-  [2.93,.67,1.20,-.32],[3.49,.33,1.27,-.06],[3.80,.018,1.32,.25]];
-const hullPlating=[[1,1],[.993,.87],[.972,.65],[.931,.43],[.85,.23],[.57,.12],[.27,.045],[0,0]];
 const cabinPorts={stations:[1.64,2.15],height:.69,radiusX:.157,radiusZ:.118};
 // Use an inset of the same stations as the render hull to exclude the
 // exterior water surface from the sealed hull and recessed cockpit.
@@ -67,28 +104,35 @@ export const cruiserHullGLSL=`
      const [start,...left]=hullSections[i];
      return `${i?'else ':''}if(station<=${glslFloat(end)})return mix(vec3(${left.map(glslFloat).join(',')}),vec3(${right.map(glslFloat).join(',')}),clamp((station-(${glslFloat(start)}))/${glslFloat(end-start)},0.,1.));`;
    }).join('\n')}
-   return vec3(.018,1.32,.25);
+   return vec3(.015,1.35,.32);
  }
- float cruiserStemX(float station,float z,vec3 shape){
-   float rake=.8*pow(max(0.,(station-1.5)/2.3),2.);
-   float alongHeight=clamp((z-shape.z)/(shape.y-shape.z),0.,1.);
-   return station-rake*(1.-alongHeight);
+ float cruiserHeightFraction(float z,vec3 section){
+   float chine=section.z+.85*section.x*${glslFloat(deadriseTangent)};
+   if(z<chine)return ${CHINE}*(z-section.z)/(chine-section.z);
+   return ${CHINE}+${1-CHINE}*(z-chine)/(section.y-chine);
+ }
+ float cruiserStemX(float station,float z,vec3 section){
+   float rake=1.18*pow(max(0.,(station-1.5)/${bowX-1.5}),2.);
+   return station-rake*(1.-clamp(cruiserHeightFraction(z,section),0.,1.));
+ }
+ float cruiserHalfFraction(float t){
+   if(t<.23)return .85*t/.23;
+   if(t<.65)return mix(.85,.972,(t-.23)/.42);
+   return mix(.972,1.,(t-.65)/.35);
  }
  bool cruiserWaterExcluded(vec3 world){
    for(int i=0;i<5;i++){
      if(i>=cruiserCount)break;
      vec4 pose=cruiserPose[i];
      vec2 d=world.xy-pose.xy;
-     if(dot(d,d)>18.)continue;
+     if(dot(d,d)>34.)continue;
      vec3 p=cruiserLocal(world,pose,cruiserTilt[i]);
-     if(p.x < -3.74 || p.x > 3.72 || abs(p.y)>1.37 || p.z < -.76 || p.z > 1.36)continue;
+     if(p.x < ${sternX} || p.x > ${bowX} || abs(p.y)>1.62 || p.z < -.77 || p.z > 1.36)continue;
      float station=p.x;
      if(p.x>1.5){
-       // Invert the forefoot's station-dependent rake at this height, just as
-       // the hull loft moves each section aft below the deck line.
-       if(p.x>=cruiserStemX(3.8,p.z,cruiserSectionAt(3.8))-.006)continue;
-       float lo=p.x,hi=3.8;
-       for(int stepIndex=0;stepIndex<7;stepIndex++){
+       if(p.x>=cruiserStemX(${bowX},p.z,cruiserSectionAt(${bowX}))-.006)continue;
+       float lo=p.x,hi=${bowX};
+       for(int stepIndex=0;stepIndex<8;stepIndex++){
          float mid=(lo+hi)*.5;
          if(cruiserStemX(mid,p.z,cruiserSectionAt(mid))<p.x)lo=mid;
          else hi=mid;
@@ -96,13 +140,10 @@ export const cruiserHullGLSL=`
        station=(lo+hi)*.5;
      }
      vec3 section=cruiserSectionAt(station);
-     float transom=-3.74+.14*pow(min(1.,abs(p.y)/1.07),2.);
-     if(p.x<transom+.004)continue;
-     float keel=section.z-.18*clamp((3.5-station)/2.1,0.,1.);
-     if(p.z<=keel || p.z>=section.y+.045)continue;
-     float t=(p.z-keel)/(section.y-keel);
-     float shape=mix(.80,.987,smoothstep(.2,1.,t))*min(1.,t/.31);
-     if(abs(p.y)<section.x*shape-.018)return true;
+     float transom=${sternX}+.14*pow(min(1.,abs(p.y)/1.22),2.);
+     if(p.x<transom+.004 || p.z<=section.z || p.z>=section.y+.025)continue;
+     float width=section.x*cruiserHalfFraction(cruiserHeightFraction(p.z,section));
+     if(abs(p.y)<width-.018)return true;
    }
    return false;
  }`;
@@ -135,9 +176,9 @@ function installSearchlightDepth(T){
       }else directLight.color*=spotColor.rgb;
     }`);
 }
-const defaultDriveGeometry=[.46,.95,-3.11,0,-.95,Math.atan(.36/1.8),-3.50,0,-.89,.34,.43];
+const defaultDriveGeometry=[.40,.58,-3.74,-.84,.37];
 function foilLoft(T,sections,point){
-  const samples=24,positions=[],indices=[];
+  const samples=18,positions=[],indices=[];
   for(let section=0;section<sections;section++){
     for(let index=0;index<samples;index++){
       const angle=2*Math.PI*index/samples;
@@ -160,88 +201,103 @@ function foilLoft(T,sections,point){
   geometry.computeVertexNormals();
   return geometry;
 }
-function cruiserDrive(T,group,geometry=defaultDriveGeometry){
-  const [diameter,pitchRatio,px,py,pz,incline,rx,ry,rz,chord,span]=geometry;
-  const wheelCenter=new T.Vector3(px,py,pz),axis=new T.Vector3(Math.cos(incline),0,Math.sin(incline));
-  const bronze=new T.MeshStandardMaterial({color:0x917248,metalness:.68,roughness:.36,side:T.DoubleSide});
-  const steel=new T.MeshStandardMaterial({color:0x838b84,metalness:.72,roughness:.30});
-  function mesh(parent,part,material){
-    const item=new T.Mesh(part,material);
-    parent.add(item);
+function cruiserDrive(T,group,geometry,collectPart,addBatch){
+  const [diameter,halfSpacing,transom,shaftZ,axleOffset]=geometry?.length===5?geometry:defaultDriveGeometry;
+  const cast=new T.MeshStandardMaterial({color:0x1f2529,metalness:.31,roughness:.44,side:T.DoubleSide});
+  const rubber=new T.MeshStandardMaterial({color:0x252727,roughness:.78});
+  const steel=new T.MeshStandardMaterial({color:0x9ea8aa,metalness:.65,roughness:.29});
+  const propellerMetal=new T.MeshStandardMaterial({color:0xb1b7ba,metalness:.77,roughness:.31,side:T.DoubleSide});
+  const propellers=[],drives=[],firstFixture=group.children.length;
+  const v3=(x,y,z)=>new T.Vector3(x,y,z);
+  function mesh(parent,geometry,material,position){
+    const item=new T.Mesh(geometry,material);
+    if(position)item.position.set(...position);
+    parent.add(item);return item;
+  }
+  function rod(parent,start,end,radius,material){
+    const a=v3(...start),delta=v3(...end).sub(a);
+    const item=mesh(parent,new T.CylinderGeometry(radius,radius,delta.length(),12),material);
+    item.position.copy(a).addScaledVector(delta,.5);
+    item.quaternion.setFromUnitVectors(v3(0,1,0),delta.normalize());
     return item;
   }
-  function cylinder(parent,start,end,radius,material){
-    const offset=end.clone().sub(start);
-    const item=mesh(parent,new T.CylinderGeometry(radius,radius,offset.length(),16),material);
-    item.position.copy(start).lerp(end,.5);
-    item.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),offset.normalize());
-    return item;
-  }
-  const mount=new T.Group();
-  mount.position.copy(wheelCenter);
-  mount.quaternion.setFromUnitVectors(new T.Vector3(1,0,0),axis);
-  mount.userData.physicsJoint={axis:[1,0,0],label:'Propeller shaft'};
-  group.add(mount);
-  cylinder(group,wheelCenter.clone().addScaledVector(axis,.03),wheelCenter.clone().addScaledVector(axis,1.82),.022,steel);
-  const bearing=wheelCenter.clone().addScaledVector(axis,.23);
-  cylinder(group,bearing.clone().addScaledVector(axis,-.08),bearing.clone().addScaledVector(axis,.08),.043,bronze);
-  // The swept shaft strut spans the hull attachment and the shaft bearing.
-  const strut=mesh(group,foilLoft(T,2,(row,u,t)=>{
-    const root=row===0,anchor=bearing.clone().add(new T.Vector3(root?.22:0,0,root?.31:0));
-    const length=root?.29:.15;
-    return [anchor.x+length*(.45-u),anchor.y+.17*length*t,anchor.z];
-  }),bronze);
-  strut.name='Shaft support strut';
-
-  const propeller=new T.Group();
-  propeller.name='Bronze propeller';
-  mount.add(propeller);
+  const hubGeometry=new T.LatheGeometry(
+    [[-.066,.023],[-.052,.039],[.040,.046],[.054,.026]].map(([x,r])=>new T.Vector2(r,x)),18);
   const radius=diameter/2;
-  // Turned hub and the exposed locking nut share the shaft axis.
-  const profile=[[-.30,.085],[-.27,.13],[-.19,.16],[.09,.18],[.20,.16],[.25,.115]];
-  const hub=mesh(propeller,new T.LatheGeometry(
-    profile.map(([x,r])=>new T.Vector2(radius*r,radius*x)),32),bronze);
-  hub.rotation.z=-Math.PI/2;
-  const nut=mesh(propeller,new T.CylinderGeometry(.024,.024,.024,6),bronze);
-  nut.position.x=-.30*radius;nut.rotation.z=-Math.PI/2;
-  const sections=29,root=.12;
-  const radii=[],chords=[];
-  // Rounded blade tip, a broad outer working section and a thick, narrow root.
-  for(let i=0;i<sections;i++){
-    const u=.5*(1-Math.cos(Math.PI*i/(sections-1)));
-    radii.push(root+(1-root)*u);
-    chords.push((.30+1.2*u)*Math.sqrt(1-u*u)+.012);
-  }
-  const chordIntegral=radii.slice(1).reduce((sum,r,i)=>
-    sum+.5*(chords[i]+chords[i+1])*(r-radii[i]),0);
-  const chordScale=.50*Math.PI/(3*chordIntegral);
-  const blade=foilLoft(T,sections,(row,u,t)=>{
-    const fraction=radii[row],r=radius*fraction,width=radius*chords[row]*chordScale;
-    const pitch=Math.atan(pitchRatio*diameter/(2*Math.PI*r));
-    // With positive shaft rotation the rounded leading edge travels into +theta.
-    const chordwise=(.43-u)*width,normal=width*((.17-.105*fraction)*t+.075*u*(1-u));
-    const angle=-.56*fraction**2+(Math.cos(pitch)*chordwise-Math.sin(pitch)*normal)/r;
-    return [Math.sin(pitch)*chordwise+Math.cos(pitch)*normal-.13*radius*fraction**2,r*Math.cos(angle),r*Math.sin(angle)];
-  });
-  for(let i=0;i<3;i++)mesh(propeller,blade,bronze).rotation.x=2*Math.PI*i/3;
+  // Adjustable propeller planes straddle the single effective disk used by
+  // TwinSterndrive. The leading and trailing propellers counter-rotate.
+  const bladeGeometries=[1,-1].map(hand=>foilLoft(T,17,(row,u,t)=>{
+    const v=row/16,r=radius*(.22+.78*v),width=radius*(.15+.97*v)*Math.sqrt(1.012-v*v);
+    const beta=Math.atan(.94*diameter/(2*Math.PI*r)),chord=(.43-u)*width;
+    const normal=.18*width*t,theta=hand*(-.50*v*v+(Math.cos(beta)*chord-Math.sin(beta)*normal)/r);
+    return [Math.sin(beta)*chord+Math.cos(beta)*normal-.10*radius*v*v,r*Math.cos(theta),r*Math.sin(theta)];
+  }));
+  for(const [side,name] of [[1,'Port'],[-1,'Starboard']]){
+    const y=side*halfSpacing;
+    mesh(group,new T.BoxGeometry(.15,.30,.43),cast,[transom+.015,y,-.085]);
+    rod(group,[transom-.073,y,-.166],[transom+.006,y,-.166],.116,rubber);
+    for(const dx of [-.066,-.045,-.024]){
+      const rib=mesh(group,new T.TorusGeometry(.107,.009,6,16),rubber,[transom+dx,y,-.166]);
+      rib.rotation.y=Math.PI/2;
+    }
+    for(const dy of [-.113,.113])for(const z of [-.234,.075]){
+      const fastener=mesh(group,new T.CylinderGeometry(.016,.016,.021,6),steel,[transom-.068,y+dy,z]);
+      fastener.rotation.z=Math.PI/2;
+    }
+    const drive=new T.Group();drive.name=name+' sterndrive';drive.position.set(transom,y,shaftZ);
+    drive.userData.physicsJoint={axis:[0,0,1],label:name+' sterndrive steering axis'};
+    group.add(drive);drives.push(drive);
 
-  const rudder=new T.Group();
-  rudder.name='Steering rudder';
-  rudder.position.set(rx,ry,rz);
-  rudder.userData.physicsJoint={axis:[0,0,1],label:'Rudder hinge'};
-  group.add(rudder);
-  cylinder(rudder,new T.Vector3(0,0,.05),new T.Vector3(0,0,.39),.025,steel);
-  // A spade rudder hangs clear of the hull on its stock. The toe is
-  // narrower and swept aft. The mean chord sets the Modelica planform area.
-  const stations=[[-.50,.54,.13],[-.493,.66,.10],[-.47,.77,.08],
-    [-.39,.86,.06],[0,1.04,0],[.40,1.12,-.025],[.48,1.10,-.025],[.50,1.02,-.025]];
-  const meanChord=stations.slice(1).reduce((sum,[z,w],i)=>
-    sum+(z-stations[i][0])*(w+stations[i][1])/2,0);
-  mesh(rudder,foilLoft(T,stations.length,(row,u,t)=>{
-    const [z,w,sweep]=stations[row],width=chord*w/meanChord;
-    return [(.25-u)*width-sweep*chord,.14*width*t,z*span];
-  }),bronze);
-  return {propeller,rudder};
+    const stations=[
+      [-.148,-axleOffset+.068,.104,.032],[-.06,-axleOffset+.061,.218,.068],
+      [.03,-axleOffset+.085,.258,.095],[.24,-axleOffset+.111,.291,.090],
+      [.43,-axleOffset+.119,.318,.101],[.66,-axleOffset+.147,.324,.118],
+      [.762,-axleOffset+.169,.262,.110],[.842,-axleOffset+.174,.220,.082]
+    ];
+    mesh(drive,foilLoft(T,stations.length,(row,u,t)=>{
+      const [z,x,chord,half]=stations[row];
+      return [x+(.54-u)*chord,11*half*t,z];
+    }),cast);
+    mesh(drive,new T.BoxGeometry(.414,.312,.025),cast,[-axleOffset+.080,0,.252]);
+    mesh(drive,new T.BoxGeometry(.306,.241,.020),cast,[-axleOffset+.094,0,.445]);
+    rod(drive,[-axleOffset-.071,0,0],[-axleOffset+.139,0,0],.042,cast);
+    for(const sign of [-1,1]){
+      rod(drive,[-.017,sign*.135,.565],[-axleOffset+.122,sign*.105,.428],.017,steel);
+      rod(drive,[-axleOffset+.160,sign*.114,.454],[-.011,sign*.138,.575],.031,cast);
+    }
+    const disk=new T.Group();
+    disk.name=name+' propeller disk';disk.position.set(-axleOffset,0,0);drive.add(disk);
+    for(const [index,direction] of [[0,1],[1,-1]]){
+      const rotor=new T.Group();
+      rotor.name=name+(index?' aft propeller':' forward propeller');
+      rotor.position.x=index?-.047:.037;
+      rotor.scale.setScalar(index?.91:1);
+      if(index)rotor.rotation.x=Math.PI/3;
+      rotor.userData.physicsJoint={axis:[1,0,0],label:rotor.name};
+      disk.add(rotor);propellers.push({rotor,direction});
+      const hub=mesh(rotor,hubGeometry,propellerMetal);hub.rotation.z=-Math.PI/2;
+      for(let i=0;i<3;i++){
+        mesh(rotor,bladeGeometries[index],propellerMetal).rotation.x=2*Math.PI*i/3;
+      }
+    }
+  }
+  // Keep each drive pivot and propeller shaft independent while batching
+  // their rigid fittings for repeated fleet views.
+  const discarded=new Set();
+  function batchFixtures(parent,fixtures){
+    const materials=new Map();
+    for(const item of fixtures.filter(child=>child.isMesh)){
+      item.updateMatrix();
+      collectPart(item.geometry.clone(),0xffffff,item.matrix,item.material,materials);
+      discarded.add(item.geometry);item.removeFromParent();
+    }
+    for(const [material,batch] of materials)showInLowWaterCapture(addBatch(parent,material,batch));
+  }
+  batchFixtures(group,group.children.slice(firstFixture));
+  for(const drive of drives)batchFixtures(drive,drive.children);
+  for(const {rotor} of propellers)batchFixtures(rotor,rotor.children);
+  for(const geometry of discarded)geometry.dispose();
+  return {propellers,drives};
 }
 
 function portHoist(T,hull,{fittings,collectPart,addBatch,metal,steel}){
@@ -369,7 +425,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     fixture.visible=fixedLightCount||on;
     fixture.intensity=on?fixture.userData.ratedIntensity:0;
   }
-  const group=new T.Group();group.name='Cabin cruiser';group.rotation.order='ZYX';
+  const group=new T.Group();group.name='Sea Ray Sundancer 320';group.rotation.order='ZYX';
   const ivory=0xe7e9df,white=0xf4f4eb,wood=0x966943,plank=0xae865d,trim=0x253b40,
     steel=0xb8c9c8,brass=0xb29255,upholstery=0xdfddca;
   const solid=new T.MeshStandardMaterial({vertexColors:true,side:T.DoubleSide,roughness:.62}),
@@ -377,37 +433,82 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     glass=new T.MeshPhongMaterial({color:0x6e9da2,transparent:true,opacity:.32,specular:0xccdfe4,
       shininess:85,side:T.DoubleSide,depthWrite:false});
   const panelCentres=[-2.56,-.25,2.10,-2.56,-.25,2.10];
-  const integrity=panelCentres.map(()=>({value:100})),breachRadius=panelCentres.map(()=>({value:0}));
-  const panelMaterials=[...integrity].map((condition,index)=>{
+  const damage=panelCentres.map(x=>({
+    condition:{value:100},radius:{value:0},centre:{value:new T.Vector2(x,-.30)},
+  }));
+  const panelMaterials=damage.map(({condition,radius,centre},index)=>{
     const material=solid.clone();
     material.name='Hull panel '+(index+1);
     material.onBeforeCompile=shader=>{
       shader.uniforms.panelCondition=condition;
-      shader.uniforms.holeRadius=breachRadius[index];
-      shader.uniforms.holeX={value:panelCentres[index]};
+      shader.uniforms.holeRadius=radius;
+      shader.uniforms.holeCentre=centre;
+      shader.uniforms.fractureSeed={value:5.23+index*13.61};
       shader.vertexShader='varying vec3 hullPoint;\n'+shader.vertexShader.replace('#include <begin_vertex>',
         '#include <begin_vertex>\n hullPoint=position;');
-      shader.fragmentShader='varying vec3 hullPoint;uniform float panelCondition,holeRadius,holeX;\n'+
-        shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+      shader.fragmentShader=`varying vec3 hullPoint;
+        uniform float panelCondition,holeRadius,fractureSeed;
+        uniform vec2 holeCentre;
+        float hashFracture(float x){return fract(sin(x*43.853)*2517.31);}
+      `+shader.fragmentShader.replace('#include <color_fragment>',`
+          #include <color_fragment>
           vec2 portSize=vec2(${cabinPorts.radiusX},${cabinPorts.radiusZ});
           vec2 portA=(hullPoint.xz-vec2(${cabinPorts.stations[0]},${cabinPorts.height}))/portSize;
           vec2 portB=(hullPoint.xz-vec2(${cabinPorts.stations[1]},${cabinPorts.height}))/portSize;
           if(abs(hullPoint.y)>.54&&min(dot(portA,portA),dot(portB,portB))<1.)discard;
-          vec2 rel=hullPoint.xz-vec2(holeX,-.30);
-          float bearing=atan(rel.y,rel.x);
-          float edge=holeRadius*(1.+.15*sin(9.*bearing)+.12*sin(17.*bearing));
-          float gap=length(rel);
-          if(holeRadius>0.&&gap<edge)discard;
-          float rim=(1.-smoothstep(edge,edge+.10,gap))*step(.001,holeRadius);
-          float worn=1.-panelCondition/100.;
-          float pores=sin(132.*hullPoint.x+19.*hullPoint.z)*sin(96.*hullPoint.z);
-          diffuseColor.rgb=mix(diffuseColor.rgb,diffuseColor.rgb*vec3(.62,.53,.43),.50*worn+.30*rim);
-          diffuseColor.rgb*=1.-.16*worn*step(.6,pores);
-        `);
+
+          float wear=clamp(1.-panelCondition/100.,0.,1.);
+          float roughFibreglass=0.;
+          diffuseColor.rgb*=mix(vec3(1.),vec3(.75,.69,.57),wear*.42);
+          if(holeRadius>.002){
+            vec2 rel=hullPoint.xz-holeCentre;
+            float range=length(rel);
+            if(range<holeRadius*1.4+.14){
+              float angle=atan(rel.y,rel.x);
+              float sector=24.*(angle/6.283185307+.5);
+              float tooth=hashFracture(mod(floor(sector),24.)+fractureSeed);
+              float next=hashFracture(mod(floor(sector)+1.,24.)+fractureSeed);
+              float torn=mix(tooth,next,fract(sector))-.5;
+              float subSector=sector*3.+fractureSeed;
+              float splinter=(1.-abs(2.*fract(subSector)-1.))
+                *hashFracture(mod(floor(subSector),72.)+fractureSeed);
+              float edge=holeRadius*(1.+.112*sin(3.*angle+fractureSeed)
+                +.076*cos(7.*angle-fractureSeed)+.28*torn+.047*splinter);
+              float lip=range-edge;
+              if(lip<0.)discard;
+
+              // The innermost strip is dark wet resin. The torn laminate
+              // outside it catches light in short radial strands.
+              float width=clamp(holeRadius*.57,.023,.074)*mix(.65,1.2,tooth);
+              float chip=1.-smoothstep(.62*width,width,lip);
+              float layer=smoothstep(.002,.22*width,lip);
+              float grainSlot=floor(sector*12.+fractureSeed);
+              float strand=hashFracture(grainSlot+tooth*17.);
+              vec2 chips=floor(hullPoint.xz*420.);
+              float speckle=hashFracture(dot(chips,vec2(3.31,11.9))+fractureSeed);
+              float fibers=(.14+.60*smoothstep(.39,.75,strand)+.26*speckle)
+                *(1.-smoothstep(.36*width,.98*width,lip));
+              float wetSide=.52+.48*smoothstep(-.9,.72,cos(angle+.77));
+              vec3 resin=vec3(.049,.041,.031)*wetSide;
+              vec3 laminate=mix(vec3(.30,.238,.163),vec3(.88,.82,.69),fibers);
+              diffuseColor.rgb=mix(diffuseColor.rgb,mix(resin,laminate,layer),chip);
+
+              // Thin cracks spread into the gelcoat past the exposed layers.
+              float crackCount=31.*(angle/6.283185307+.5);
+              float crackId=floor(crackCount);
+              float fleck=hashFracture(crackId+fractureSeed*2.);
+              float crackLine=abs(fract(crackCount+fleck*.41+lip*(.72-fleck))- .46);
+              float crackMask=(1.-smoothstep(.018,.056,crackLine))
+                *(1.-smoothstep(width,width+.10*fleck,lip))*step(.59,fleck);
+              diffuseColor.rgb*=1.-.41*crackMask;
+              roughFibreglass=max(chip,.56*crackMask);
+            }
+          }
+        `).replace('#include <roughnessmap_fragment>',
+          '#include <roughnessmap_fragment>\n roughnessFactor=mix(roughnessFactor,.96,roughFibreglass);');
     };
     return material;
   });
-  const panelMeshes=[];
   // Hull, pilothouse and fittings are fixed relative to one another. Bake them
   // by surface finish so a distant peer's grab rails take a single draw call.
   const batches=new Map(),v3=(x,y,z)=>new T.Vector3(x,y,z);
@@ -460,6 +561,12 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     return {part,box,rod};
   }
   const {part,box,rod}=fittings();
+  const interior=cockpitReady?vehicleShell(cruiserCockpit):null;
+  if(interior){
+    interior.name='Sundancer 320 cockpit';
+    interior.traverse(showInLowWaterCapture);
+    group.add(interior);
+  }
   function pad(x,y,z,l,w,h,color,material=solid){
     part(new T.SphereGeometry(1,16,10),color,[x,y,z],null,[l,w,h],material);
   }
@@ -482,199 +589,339 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
     g.setAttribute('position',new T.Float32BufferAttribute(rows.flat(2),3));
     g.setIndex(indices);g.computeVertexNormals();part(g,color,null,null,null,material);
   }
-  // Keep the deck and chine fixed while deepening the keel below the chine.
-  // The forefoot rises into the raked stem. Port and starboard share the keel.
-  const widths=new T.CatmullRomCurve3(hullSections.map(([x,w,top])=>v3(x,w,top))),
-    keels=new T.CatmullRomCurve3(hullSections.map(([x,w,top,k])=>v3(x,k,0)));
-  const sections=[];
-  for(let i=0;i<=36;i++){
-    const {x,y:w,z:top}=widths.getPoint(i/36),k=keels.getPoint(i/36).y;
-    const rake=Math.max(0,(x-1.5)/2.3)**2*.8,round=Math.max(0,(-3.39-x)/.35)*.14;
-    const keelDrop=.18*Math.min(1,Math.max(0,(3.5-x)/2.1));
-    function point(side,f,t){
-      return [x-rake*(1-t)+round*f*f,side*w*f,k+(top-k)*t-keelDrop*Math.max(0,1-t/.23)];
-    }
-    sections.push({x,w,top,k,point});
+  // The render loft samples the same stations and cross-sections as the
+  // collision hull, with subdivisions for the raked forefoot and curved transom.
+  const stations=hullSections.flatMap(([x],index)=>{
+    if(index===hullSections.length-1)return [x];
+    const next=hullSections[index+1][0],segments=Math.ceil((next-x)/.20);
+    return Array.from({length:segments},(_,i)=>interpolate(x,next,i/segments));
+  });
+  const sections=stations.map(x=>{
+    const dimensions=hullSection(x),[,w,top,k]=dimensions;
+    return {x,w,top,k,point:(side,f,t)=>hullPoint(dimensions,side,f,t)};
+  });
+  const blue=0x153e60,ivoryBottom=0xf2f1e8,glassBand=0x16242d;
+  function heightFraction(section,z){
+    const {w,top,k}=section,chine=chineHeight(w,k);
+    return T.MathUtils.clamp(z<chine?CHINE*(z-k)/(chine-k):CHINE+(1-CHINE)*(z-chine)/(top-chine),0,1);
   }
+  function beamFraction(t){
+    if(t<CHINE)return .85*t/CHINE;
+    if(t<.65)return interpolate(.85,.972,(t-CHINE)/(.65-CHINE));
+    return interpolate(.972,1,(t-.65)/.35);
+  }
+  function platingPoint(section,side,t,offset=0){
+    if(!offset)return section.point(side,beamFraction(t),t);
+    const point=section.point(side,beamFraction(t),t);
+    point[1]+=side*offset;
+    return point;
+  }
+  const splits=[0,sections.findIndex(k=>k.x>=-1.40),sections.findIndex(k=>k.x>=.95),sections.length-1];
   for(const side of [-1,1]){
-    const row=(k,f,t)=>k.point(side,f,t);
-    const splits=[0,sections.findIndex(k=>k.x>=-1.40),sections.findIndex(k=>k.x>=.95),sections.length-1];
     for(let i=0;i<3;i++){
-      const plating=sections.slice(splits[i],splits[i+1]+1),material=panelMaterials[i+(side>0?0:3)];
-      surface(plating.map(k=>hullPlating.slice(0,5).map(([f,t])=>row(k,f,t))),ivory,material);
-      surface(plating.map(k=>hullPlating.slice(4).map(([f,t])=>row(k,f,t))),0x9f9e96,material);
+      const span=sections.slice(splits[i],splits[i+1]+1),material=panelMaterials[i+(side>0?0:3)];
+      surface(span.map(k=>hullPlating.map(([,t])=>platingPoint(k,side,Math.max(t,heightFraction(k,.044))))),blue,material);
+      surface(span.map(k=>hullPlating.map(([,t])=>platingPoint(k,side,Math.min(t,heightFraction(k,.018))))),ivoryBottom,material);
+      surface(span.map(k=>[.044,.018].map(z=>platingPoint(k,side,heightFraction(k,z)))),white,material);
     }
-    // Molded lifting strakes fade into the forward V rather than extending
-    // all the way to the bow. The bottom remains one continuous plating mesh.
-    for(const [fraction,t,slope] of [[.27,.045,.25],[.57,.12,.393]]){
-      surface(sections.filter(k=>k.x<2.8).map(k=>{
-        const fade=Math.min(1,Math.max(0,(2.8-k.x)/1.4));
-        const width=.06*fade,outer=row(k,fraction+width,t+slope*width);
-        const upper=row(k,fraction,t);
-        return [upper,[outer[0],outer[1],outer[2]-.033*fade],outer];
-      }),0xb9bab0);
+    // The stainless insert caps the dark sheer-side rub rail.
+    surface(sections.map(k=>[.999,.982].map(t=>platingPoint(k,side,t,.006))),trim);
+    surface(sections.map(k=>[.996,.990].map(t=>platingPoint(k,side,t,.009))),steel,metal);
+
+    // The strakes break away with the surrounding fiberglass.
+    for(let i=0;i<3;i++){
+      const run=sections.slice(splits[i],splits[i+1]+1).filter(k=>k.x<3.80);
+      const material=panelMaterials[i+(side>0?0:3)];
+      for(const fraction of [.27,.56]){
+        surface(run.map(k=>{
+          const fade=T.MathUtils.clamp((3.80-k.x)/1.58,0,1),span=.060*fade;
+          const outer=k.point(side,fraction+span,CHINE*(fraction+span)/.85);
+          const root=k.point(side,fraction,CHINE*fraction/.85);
+          return [root,[outer[0],outer[1],outer[2]-.026*fade],outer];
+        }),ivoryBottom,material);
+      }
     }
-    // The bootstripe follows the design waterline, including the raked forefoot.
-    function stripe(k,z){
-      const t=Math.max(0,Math.min(1,(z-k.k)/(k.top-k.k)));
-      const f=t>.43?.931+(t-.43)*.041/.22:t>.23?.85+(t-.23)*.081/.20:.85*t/.23;
-      return row(k,f+.005,t);
-    }
-    surface(sections.map(k=>[stripe(k,.070),stripe(k,.025)]),trim);
-    surface(sections.map(k=>[row(k,1.003,.986),row(k,1.006,.946)]),trim);
-    surface(sections.map(k=>[row(k,1,1),row(k,.83,1)]),white);
-    const window=sections.filter(k=>k.x>-.55&&k.x<1.43);
+    // The black hull window band lies over the port openings and shares their
+    // clip material, so the cabin views and flooding can still see through.
+    const window=sections.filter(k=>k.x>.97&&k.x<3.39);
     surface(window.map((k,i)=>{
-      const u=i/(window.length-1),height=.092*Math.sqrt(Math.max(0,Math.sin(Math.PI*u)));
-      const mid=.77+.055*u;
-      return [row(k,.975+(mid+height-.65)*.09,mid+height),row(k,.975+(mid-height-.65)*.09,mid-height)];
-    }),0x22383f);
+      const u=i/(window.length-1);
+      const span=.151*Math.pow(Math.max(0,Math.sin(Math.PI*u)),.61),center=.713+.074*u;
+      return [center+span,center-span].map(z=>platingPoint(k,side,heightFraction(k,z),.003));
+    }),glassBand,panelMaterials[2+(side>0?0:3)]);
   }
   const stern=sections[0],stem=sections.at(-1);
   for(const end of [stern,stem]){
-    surface(hullPlating.map(([beam,height])=>Array.from({length:17},(_,i)=>{
-      const across=(i-8)/8;
-      return end.point(Math.sign(across),Math.abs(across)*beam,height);
-    })),ivory);
+    const boot=heightFraction(end,.042);
+    for(const [color,above] of [[ivoryBottom,false],[blue,true]]){
+      if(above?boot>=1:boot<=0)continue;
+      surface(hullPlating.map(([,height])=>{
+        const t=above?Math.max(boot,height):Math.min(boot,height);
+        return Array.from({length:13},(_,i)=>{
+          const across=(i-6)/6;
+          return end.point(Math.sign(across),Math.abs(across)*beamFraction(t),t);
+        });
+      }),color);
+    }
   }
   const [sonarX,sonarY,sonarZ]=sonarMount;
+  const [, , , sonarKeel]=hullSection(sonarX);
+  rod([sonarX,sonarY,sonarKeel+.02],[sonarX-.04,sonarY,sonarZ+.024],.058,trim);
   pad(sonarX-.06,sonarY,sonarZ+.029,.17,.095,.047,trim);
-  surface(sections.filter(k=>k.x>1.15).map(k=>[k.point(1,.86,1),[k.x,0,k.top+.035],k.point(-1,.86,1)]),white);
-  // Recessed cockpit sole, coamings, varnished cap rail and engine box.
-  // Loft the sole to the inside of the cockpit. A rectangular slab protrudes
-  // through both topsides where the beam narrows at the transom.
-  const cockpit=sections.filter(k=>k.x>=-3.53&&k.x<=1.20);
-  surface(cockpit.map(k=>[-1,1].map(side=>[k.x,side*k.w*.84,.535])),plank);
-  for(let i=-8;i<=8;i++)box(-2.24,i*.12,.537,2.48,.009,.004,wood);
-  const aftCockpit=sections.filter(k=>k.x<-.8);
-  // Continue the teak cap around the curved transom with mitred corners.
-  const cap=[];
-  for(let i=-12;i<=12;i++){
-    const y=i/12;
-    cap.push([.97,.85].map((f,edge)=>{
-      const [x,beam,z]=stern.point(Math.sign(y),Math.abs(y)*f,1);
-      return [x+(edge?.12:0)*(1-y*y),beam,z+.009];
-    }));
-  }
-  surface(cap,wood);
-  for(const s of [-1,1]){
-    surface(aftCockpit.map(k=>[.85,.97].map(f=>{
-      const [x,y,z]=k.point(s,f,1);return [x,y,z+.009];
-    })),wood);
-    surface(aftCockpit.slice(1).map(k=>{
-      const [x,y,z]=k.point(s,.84,1);return [[x,y,z],[x,y,.535]];
+
+  // The cockpit sole stays at the CAD assembly's mounting datum. Wider
+  // outboard gunwales meet the molded coamings along a separate inner line.
+  const cockpit=sections.filter(k=>k.x<1.27);
+  function wellHalf(k){return Math.min(1.10,.89*k.w);}
+  surface(cockpit.map(k=>[-1,1].map(side=>{
+    const p=k.point(side,wellHalf(k)/k.w,heightFraction(k,.535));p[2]=.535;return p;
+  })),interior?0xddddda:plank);
+  if(!interior)for(let i=-8;i<=8;i++)box(-2.24,i*.12,.537,2.48,.009,.004,wood);
+  for(const side of [-1,1]){
+    surface(cockpit.map(k=>[k.point(side,1,1),k.point(side,wellHalf(k)/k.w,1)]),white);
+    surface(cockpit.map(k=>{
+      const top=k.point(side,wellHalf(k)/k.w,1),base=k.point(side,wellHalf(k)/k.w,heightFraction(k,.535));
+      base[2]=.535;return [top,base];
     }),ivory);
-    if(s<0)for(const x of [-3.23,-2.94])rod([x,s*1.08,.78],[x+.04,s*1.05,.95],.022,steel);
-    if(s<0)rod([-3.26,s*1.05,.96],[-2.87,s*1.05,.96],.025,steel);
   }
-  // Low engine hatch leaves the middle of the fishing cockpit clear.
-  box(-2.13,0,.55,1.03,.75,.026,wood);
-  for(let j=-2;j<=2;j++)box(-2.13,j*.126,.568,1.01,.011,.006,plank);
-  for(const side of [-1]){
-    box(-2.52,side*.84,.68,1.70,.43,.24,ivory);
-    for(const x of [-2.94,-2.11])cushion(x,side*.84,.80,.79,.43,.076,upholstery);
-    cushion(-2.53,side*1.045,.87,1.64,.09,.16,upholstery);
+  // Aft ends of the cockpit lining meet the forward face of the transom.
+  surface(Array.from({length:15},(_,i)=>{
+    const f=(i-7)/7*wellHalf(stern)/stern.w;
+    const point=t=>stern.point(Math.sign(f),Math.abs(f),t);
+    return [point(1),point(heightFraction(stern,.535))];
+  }),ivory);
+  for(const x of [-3.31,-2.91]){
+    const k=hullSection(x),top=k[2];
+    rod([x,-1.12,top],[x+.015,-1.12,top+.14],.021,steel);
   }
-  box(-3.38,0,.68,.36,1.17,.24,ivory);
-  cushion(-3.38,0,.80,.36,1.17,.076,upholstery);
+  rod([-3.31,-1.12,hullSection(-3.31)[2]+.141],[-2.89,-1.12,hullSection(-2.91)[2]+.141],.022,steel);
+
+  // The forward lounge sits in a molded foredeck well. Its two access
+  // walkways retain the sheer height all the way to the bow roller.
+  const foredeck=sections.filter(k=>k.x>1.15);
+  surface(foredeck.map(k=>{
+    const recess=T.MathUtils.clamp(Math.min((k.x-2.72)/.48,(4.69-k.x)/.46),0,1);
+    const edge=k.w*(.56+.16*recess),z=k.top-.11*recess,shoulder=Math.min(.98*k.w,edge+.053);
+    return [[k.x,k.w,k.top],[k.x,shoulder,k.top+.007],[k.x,edge,z],
+      [k.x,-edge,z],[k.x,-shoulder,k.top+.007],[k.x,-k.w,k.top]];
+  }),ivory);
+  box(3.24,0,1.157,1.23,1.31,.095,ivory);
+  for(const y of [-.45,0,.45]){
+    cushion(3.35,y,1.203,1.270,.417,.084,upholstery);
+    part(roundedSeat(.173,.424,.386),upholstery,[2.614,y,1.182],new T.Euler(0,-.29,0));
+    part(roundedSeat(.124,.354,.128),white,[2.527,y,1.521],new T.Euler(0,-.29,0));
+  }
+  for(const side of [-1,1]){
+    cushion(3.05,side*.705,1.265,.71,.103,.067,upholstery);
+    const [x,y,z]=hullPoint(hullSection(4.02),side,.73,1);
+    pad(x,y,z+.014,.053,.049,.015,steel,metal);
+    pad(x,y,z+.021,.031,.030,.010,trim);
+  }
+  rod([5.07,0,1.341],[5.46,0,1.371],.056,steel);
+  for(const side of [-1,1]){
+    rod([5.32,side*.095,1.369],[5.51,side*.040,1.381],.019,steel);
+  }
+  // The flush engine access hatch sits under the Piccard cradle.
+  box(-2.45,0,.540,1.40,.91,.012,trim);
+  box(-2.45,0,.546,1.365,.876,.012,ivory);
+  if(!interior){
+    box(-2.52,-.84,.68,1.70,.43,.24,ivory);
+    for(const x of [-2.94,-2.11])cushion(x,-.84,.80,.79,.43,.076,upholstery);
+    cushion(-2.53,-1.045,.87,1.64,.09,.16,upholstery);
+    box(-3.38,0,.68,.36,1.17,.24,ivory);
+    cushion(-3.38,0,.80,.36,1.17,.076,upholstery);
+  }
   const setLift=portHoist(T,group,{fittings,collectPart,addBatch,metal,steel});
-  // Rounded swim platform, inset transom gate, folding boarding ladder.
-  const platform=new T.Shape();platform.moveTo(-3.65,-1.06);platform.lineTo(-4.05,-1.04);
-  platform.quadraticCurveTo(-4.18,-1.03,-4.18,-.85);platform.lineTo(-4.18,.85);
-  platform.quadraticCurveTo(-4.18,1.03,-4.05,1.04);platform.lineTo(-3.65,1.06);platform.closePath();
-  part(new T.ExtrudeGeometry(platform,{depth:.072,bevelEnabled:true,bevelSize:.025,bevelThickness:.014,bevelSegments:2}),white,[0,0,.10]);
-  for(const side of [-1,1])rod([-4.10,side*.85,.12],[-3.62,side*.70,-.10],.022,steel);
-  for(const y of [-.84,-.38]){rod([-3.80,y,.21],[-4.16,y,.21],.020,steel);rod([-4.16,y,.21],[-4.18,y,-.25],.020,steel);}
-  for(const z of [.10,-.09,-.25])rod([-4.18,-.84,z],[-4.18,-.38,z],.017,steel);
-  box(-3.745,.18,.55,.033,1.12,.40,trim);box(-3.766,.18,.55,.034,1.085,.375,white);
-  rod([-3.79,-.20,.63],[-3.79,-.05,.63],.016,steel);
-  for(const side of [-1,1])for(let i=0;i<4;i++)box(-2.59+.10*i,side*.618,.67,.05,.012,.080,trim);
+  // Integral swim platform with a recessed four-step ladder and a
+  // starboard walk-through beside the raised transom seat back.
+  const platform=new T.Shape();
+  platform.moveTo(-3.55,-1.23);platform.lineTo(-4.29,-1.22);
+  platform.quadraticCurveTo(-4.51,-1.18,-4.51,-.99);platform.lineTo(-4.51,.99);
+  platform.quadraticCurveTo(-4.51,1.18,-4.29,1.22);platform.lineTo(-3.55,1.23);platform.closePath();
+  part(new T.ExtrudeGeometry(platform,{depth:.076,bevelEnabled:true,bevelSize:.020,bevelThickness:.014,
+    bevelSegments:3}),white,[0,0,.111]);
+  part(roundedSeat(.694,1.73,.006),0xbcb9ac,[-4.062,.15,.204]);
+  for(let i=-5;i<=6;i++)box(-4.062,.15+i*.13,.212,.635,.007,.002,0x9d998c);
+  part(roundedSeat(.355,.289,.008),trim,[-4.223,-.835,.206]);
+  for(let i=0;i<4;i++)rod([-4.34+i*.075,-.962,.227],[-4.34+i*.075,-.711,.227],.013,steel);
+  for(const y of [-.973,-.698])rod([-4.365,y,.224],[-4.080,y,.224],.014,steel);
+  surface([[[-3.788,-.56,.195],[-3.785,1.08,.195]],
+    [[-3.778,-.56,.535],[-3.772,1.07,.535]],
+    [[-3.756,-.56,.805],[-3.751,1.07,.805]],
+    [[-3.628,-.54,.916],[-3.592,1.014,.916]]],ivory);
+  for(const y of [-.272,.270,.804]){
+    box(-3.772,y,.379,.030,.477,.311,0xb0b5b1,new T.Euler(0,-.12,0));
+    box(-3.788,y,.380,.032,.453,.282,white,new T.Euler(0,-.12,0));
+    rod([-3.817,y-.057,.492],[-3.817,y+.057,.492],.013,steel);
+  }
+  for(const y of [-1.086,-.618])rod([-3.798,y,.213],[-3.674,y,.780],.021,steel);
+  surface([[[-3.794,-1.069,.222],[-3.792,-.631,.222]],
+    [[-3.678,-1.069,.764],[-3.674,-.631,.764]]],0x747d79);
+  rod([-3.690,-.924,.739],[-3.681,-.758,.739],.018,steel);
+  for(const side of [-1,1]){
+    const y=side*1.13;
+    rod([-4.11,y,.213],[-4.01,y,.358],.018,steel);
+    rod([-3.80,y,.213],[-3.75,y,.358],.018,steel);
+    rod([-4.01,y,.358],[-3.75,y,.358],.019,steel);
+  }
+  const windshield=windshieldReady?vehicleShell(cruiserWindshield):null;
+  if(windshield){
+    windshield.name='Pilothouse glazing';
+    windshield.traverse(showInLowWaterCapture);
+    group.add(windshield);
+  }
   // The pilothouse is open aft. Sloping solid quarter panels carry the roof,
   // while the wheelhouse side windows and two raked screens remain see-through.
   for(const s of [-1,1]){
     surface([[[-1.85,s*1.06,.77],[-1.75,s*1.04,1.02],[-1.63,s*1.01,1.14]],
       [[-1.18,s*1.05,.79],[-1.18,s*1.01,1.42],[-1.12,s*.99,1.24]],
       [[-.83,s*1.05,.82],[-.83,s*1.005,1.24],[-.83,s*1.00,1.34]]],white);
-    surface([[[-.84,s*1.05,.82],[-.83,s*1.00,1.34]],[[.50,s*.98,.94],[.50,s*.94,1.57]],[[1.26,s*.88,1.0],[1.19,s*.85,1.65]],[[1.82,s*.65,1.10],[1.83,s*.64,1.19]]],white);
-    const A=[-.83,s*1.00,1.34],B=[1.19,s*.85,1.65],C=[.63,s*.83,2.09],D=[-.35,s*.89,2.14];
-    surface([[A,D],[B,C]],0xffffff,glass);
-    for(const [u,v] of [[A,D],[A,B],[C,D],[B,C],[[.27,s*.92,1.51],[-.08,s*.866,2.13]]])rod(u,v,.029,trim);
+    // The molded shoulder covers the dash and joins the lower glass frame.
+    surface([[[-.84,s*1.05,.82],[-.83,s*1.022,1.34],[-.83,s*1.00,1.34]],
+      [[-.24,s*1.058,.875],[-.24,s*1.038,1.455],[-.24,s*.956,1.431]],
+      [[.27,s*1.036,.923],[.27,s*1.024,1.632],[.27,s*.921,1.512]],
+      [[.54,s*1.009,.944],[.54,s*.991,1.634],[.54,s*.902,1.55]],
+      [[1.26,s*.88,1.0],[1.19,s*.862,1.65],[1.19,s*.85,1.65]],
+      [[1.82,s*.65,1.10],[1.83,s*.649,1.19],[1.83,s*.64,1.19]]],white);
+    if(!windshield){
+      const A=[-.83,s*1.00,1.34],B=[1.19,s*.85,1.65],C=[.63,s*.83,2.09],D=[-.35,s*.89,2.14];
+      surface([[A,D],[B,C]],0xffffff,glass);
+      for(const [u,v] of [[A,D],[A,B],[C,D],[B,C],[[.27,s*.92,1.51],[-.08,s*.866,2.13]]])rod(u,v,.029,trim);
+      rod(A,D,.021,steel);
+    }
     surface([[[-1.82,s*1.035,.93],[-1.54,s*1.035,1.07]],
       [[-1.57,s*1.01,1.28],[-1.31,s*1.01,1.38]],
       [[-1.33,s*.97,1.68],[-1.09,s*.97,1.74]],
       [[-1.17,s*.93,2.01],[-.94,s*.93,2.02]],
       [[-1.21,s*.90,2.13],[-.96,s*.90,2.14]]],white);
-    rod([-.83,s*1.00,1.34],[-.35,s*.89,2.14],.021,steel);
     rod([-1.56,s*1.02,1.10],[.51,s*.86,2.12],.016,steel);
     for(const x of [.74,1.34]){
       const y=x<1?.957:.847,z=1.225;
       pad(x,s*y,z,.158,.027,.058,steel,metal);pad(x,s*(y+.025),z,.123,.015,.038,trim);
     }
-    const forward=sections.filter((k,i)=>k.x>-.65&&(i%2===0||i===36));
-    const rail=forward.map(k=>[k.x,s*k.w*.94,k.top+.39]);
-    rail.forEach((a,i)=>{if(i)rod(rail[i-1],a,.017,steel);if(i%3===0||i===rail.length-1)rod([a[0]-.035,a[1],a[2]-.39],a,.015,steel);});
+    // The hull rail follows the broader side deck around the bow lounge.
+    const forward=sections.filter((k,i)=>k.x>1.05&&(i%2===0||i===sections.length-1));
+    const rail=forward.map(k=>[k.x,s*k.w*.94,k.top+.37]);
+    rail.forEach((a,i)=>{
+      if(i)rod(rail[i-1],a,.017,steel);
+      if(i%3!==0&&i!==rail.length-2)return;
+      const base=[a[0]-.036,a[1],a[2]-.37];
+      pad(...base,.041,.032,.012,steel,metal);rod(base,a,.014,steel);
+    });
     rod([-.75,s*.82,2.24],[.48,s*.77,2.23],.019,steel);
     for(const x of [-.75,.48])rod([x,s*.80,2.16],[x,s*.80,2.24],.015,steel);
   }
-  const B=[1.19,-.85,1.65],C=[.63,-.83,2.09],D=[.63,.83,2.09],A=[1.19,.85,1.65];
-  surface([[B,C],[A,D]],0xffffff,glass);
-  for(const [u,v] of [[B,A],[A,D],[D,C],[C,B],[[1.19,0,1.65],[.63,0,2.09]]])rod(u,v,.030,trim);
-  surface([[[1.19,-.85,1.65],[1.19,.85,1.65]],[[1.83,-.65,1.19],[1.83,.65,1.19]],[[2.04,-.48,1.10],[2.04,.48,1.10]]],ivory);
-  // Cambered roof with rounded corners and a dark drip moulding.
-  const rim=new T.Shape();rim.moveTo(-1.24,-.78);rim.quadraticCurveTo(-1.24,-1.02,-1.01,-1.02);
-  rim.lineTo(.57,-.95);rim.quadraticCurveTo(.82,-.95,.82,-.70);rim.lineTo(.82,.70);
-  rim.quadraticCurveTo(.82,.95,.57,.95);rim.lineTo(-1.01,1.02);rim.quadraticCurveTo(-1.24,1.02,-1.24,.78);rim.closePath();
-  for(const [z,color,depth] of [[2.12,trim,.026],[2.15,white,.046]])
-    part(new T.ExtrudeGeometry(rim,{depth,bevelEnabled:true,bevelSegments:2,bevelSize:.022,bevelThickness:.012}),color,[0,0,z]);
-  // Visible interior, including the companionway and the starboard helm.
-  box(.39,0,.97,.68,1.79,.83,ivory);
-  box(.33,-.39,1.40,.37,1.00,.21,trim);
-  // Twin recessed helm displays face the seated operator. Draw bezel, chart,
-  // sonar trace and separate switch bank on a single instrument face.
-  const consoleTilt=new T.Euler(0,-.26,0);
-  if(!sonarCanvas)for(const y of [-.61,-.19]){
-    box(.101,y,1.54,.048,.39,.245,trim,consoleTilt);
-    box(.064,y,1.54,.012,.342,.195,y<-.5?0x1d393d:0x427487,consoleTilt);
-    for(let i=0;i<6;i++){
-      const yy=y-.14+.050*i,zz=y<-.5?1.50+.03*Math.sin(i*1.7):1.49+.01*i;
-      box(.052,yy,zz,.010,.04,.017,y<-.5?0xd9ad64:0x99ac70,consoleTilt);
-    }
+  if(!windshield){
+    const B=[1.19,-.85,1.65],C=[.63,-.83,2.09],D=[.63,.83,2.09],A=[1.19,.85,1.65];
+    surface([[B,C],[A,D]],0xffffff,glass);
+    for(const [u,v] of [[B,A],[A,D],[D,C],[C,B],[[1.19,0,1.65],[.63,0,2.09]]])rod(u,v,.030,trim);
   }
-  box(.025,-.48,1.26,.065,.87,.16,trim);
-  box(.013,-.02,1.28,.06,.04,.20,wood);
-  box(.00,-.90,1.18,.33,.18,.105,ivory);
-  pad(-.01,-.90,1.238,.12,.061,.043,steel,metal);
-  rod([-.04,-.90,1.23],[.019,-.90,1.37],.016,steel);
-  pad(.019,-.90,1.38,.044,.032,.026,trim);
-  const wheelCenter=v3(-.11,-.51,1.37);
-  rod([.06,-.51,1.30],wheelCenter.toArray(),.045,trim);
-  pad(-.128,-.51,1.37,.027,.042,.042,steel,metal);
-  part(new T.TorusGeometry(.143,.012,8,40),steel,wheelCenter.toArray(),new T.Euler(0,Math.PI/2,0),null,metal);
-  part(new T.TorusGeometry(.146,.009,8,40),trim,[-.115,-.51,1.37],new T.Euler(0,Math.PI/2,0));
-  for(let i=0;i<3;i++){const a=i*2.094;rod(wheelCenter.toArray(),[-.11,-.51+.14*Math.cos(a),1.37+.14*Math.sin(a)],.008,steel);}
-  for(const s of [-1,1]){
-    rod([-.62,s*.53,.54],[-.62,s*.53,.90],.055,steel);
-    cushion(-.63,s*.53,.90,.49,.44,.09,upholstery);cushion(-.83,s*.53,1.00,.11,.44,.22,upholstery);
-    box(-1.06,s*.923,1.34,.23,.05,.092,wood);
+  surface([[[1.19,-.85,1.65],[1.19,.85,1.65]],[[1.83,-.65,1.19],[1.83,.65,1.19]],[[2.04,-.48,1.10],[2.04,.48,1.10]]],ivory);
+  // Rounded fiberglass hardtop with a dark retractable canvas insert.
+  const rim=new T.Shape();
+  rim.moveTo(-1.43,-.78);rim.quadraticCurveTo(-1.43,-1.08,-1.12,-1.08);
+  rim.lineTo(.66,-.92);rim.quadraticCurveTo(.91,-.90,.91,-.67);rim.lineTo(.91,.67);
+  rim.quadraticCurveTo(.91,.90,.66,.92);rim.lineTo(-1.12,1.08);
+  rim.quadraticCurveTo(-1.43,1.08,-1.43,.78);rim.closePath();
+  for(const [z,color,depth] of [[2.115,trim,.022],[2.144,white,.059]]){
+    part(new T.ExtrudeGeometry(rim,{depth,bevelEnabled:true,bevelSegments:3,bevelSize:.022,bevelThickness:.016}),
+      color,[0,0,z]);
+  }
+  part(roundedSeat(1.51,1.45,.019),0x3c4449,[-.236,0,2.204]);
+  part(roundedSeat(1.438,1.38,.012),0x252d35,[-.231,0,2.230]);
+  for(const x of [-.67,-.22,.21])box(x,0,2.243,.010,1.34,.004,0x3e444a);
+  for(const side of [-1,1]){
+    const s=side;
+    surface([[[-1.78,s*1.045,1.00],[-1.62,s*1.044,1.09]],
+      [[-1.33,s*.981,1.68],[-1.10,s*.982,1.77]],[[-1.16,s*.945,2.119],[-.954,s*.944,2.119]]],0x436073);
+  }
+  if(!interior){
+    // Visible interior, including the companionway and the starboard helm.
+    box(.39,0,.97,.68,1.79,.83,ivory);
+    box(.33,-.39,1.40,.37,1.00,.21,trim);
+    // Twin recessed helm displays face the seated operator. Draw bezel, chart,
+    // sonar trace and separate switch bank on a single instrument face.
+    const consoleTilt=new T.Euler(0,-.26,0);
+    if(!sonarCanvas)for(const y of [-.61,-.19]){
+      box(.101,y,1.54,.048,.39,.245,trim,consoleTilt);
+      box(.064,y,1.54,.012,.342,.195,y<-.5?0x1d393d:0x427487,consoleTilt);
+      for(let i=0;i<6;i++){
+        const yy=y-.14+.050*i,zz=y<-.5?1.50+.03*Math.sin(i*1.7):1.49+.01*i;
+        box(.052,yy,zz,.010,.04,.017,y<-.5?0xd9ad64:0x99ac70,consoleTilt);
+      }
+    }
+    box(.025,-.48,1.26,.065,.87,.16,trim);
+    box(.013,-.02,1.28,.06,.04,.20,wood);
+    box(.00,-.90,1.18,.33,.18,.105,ivory);
+    pad(-.01,-.90,1.238,.12,.061,.043,steel,metal);
+    rod([.06,-.51,1.30],[-.11,-.51,1.37],.045,trim);
+    for(const s of [-1,1]){
+      rod([-.62,s*.53,.54],[-.62,s*.53,.90],.055,steel);
+      cushion(-.63,s*.53,.90,.49,.44,.09,upholstery);cushion(-.83,s*.53,1.00,.11,.44,.22,upholstery);
+      box(-1.06,s*.923,1.34,.23,.05,.092,wood);
+    }
   }
   rod([-.28,.18,2.22],[-.47,.18,3.00],.018,steel);
   rod([-.45,.18,2.87],[-.49,.18,3.18],.007,steel);
   rod([.09,-.51,2.22],[-.20,-.51,3.64],.009,steel);
-  pad(.17,0,2.24,.21,.17,.065,white);
-  rod([.17,0,2.23],[.17,0,2.40],.046,white);
-  const radar=new T.Mesh(new T.SphereGeometry(1,18,8),new T.MeshStandardMaterial({color:white,roughness:.42}));
-  radar.name='Rotating radar scanner';radar.position.set(.17,0,2.43);radar.scale.set(.075,.35,.044);group.add(radar);
-  // Recessed hull ports behind stainless bezels.
-  for(const side of [-1,1]){
-    pad(-1.61,side*1.33,.62,.18,.027,.047,steel,metal);
-    pad(-1.61,side*1.355,.62,.147,.012,.032,trim);
-  }
+  pad(-.96,0,2.226,.18,.16,.049,white);
+  rod([-.96,0,2.235],[-.96,0,2.36],.066,white);
+  const domeProfile=[[0,0],[.164,0],[.193,.026],[.193,.108],[.181,.137],[.149,.151],[0,.159]];
+  const radome=new T.LatheGeometry(domeProfile.map(([radius,height])=>new T.Vector2(radius,height)),28);
+  radome.rotateX(Math.PI/2);
+  const radar=showInLowWaterCapture(new T.Mesh(radome,new T.MeshStandardMaterial({color:white,roughness:.38})));
+  radar.name='Marine radar dome';radar.position.set(-.96,0,2.354);group.add(radar);
   for(const s of [-1,1]){pad(.67,s*.91,2.14,.083,.027,.038,s>0?0x9a2926:0x277e50);}
-  const {propeller,rudder}=cruiserDrive(T,group,driveGeometry);
+  const {propellers,drives}=cruiserDrive(T,group,driveGeometry,collectPart,addBatch);
   const fixed=(geometry,color,parent=group,basic=false)=>{
     const material=basic?new T.MeshBasicMaterial({color}):new T.MeshStandardMaterial({color,roughness:.44});
     const m=new T.Mesh(geometry,material);parent.add(m);return m;
   };
+  function fallbackHelmPivot(name,center){
+    const pivot=new T.Group();pivot.name=name;pivot.position.set(...center);group.add(pivot);
+    return pivot;
+  }
+  const wheelName='Steering_wheel_pivot';
+  const steeringWheel=interior?.getObjectByName(wheelName)??fallbackHelmPivot(wheelName,[-.11,-.51,1.37]);
+  const throttleLevers=['port','starboard'].map((side,index)=>{
+    const name='Throttle_'+side+'_pivot';
+    return interior?.getObjectByName(name)??fallbackHelmPivot(name,[-.01,-.86-index*.072,1.238]);
+  });
+  const wheelAxis=interior?v3(-.981625,.190822,0).normalize():v3(-1,0,0);
+  if(!interior){
+    const rim=showInLowWaterCapture(fixed(new T.TorusGeometry(.143,.013,8,40),trim,steeringWheel));
+    rim.rotation.y=Math.PI/2;
+    const hub=showInLowWaterCapture(fixed(new T.SphereGeometry(.041,16,8),steel,steeringWheel));
+    hub.scale.x=.58;
+    for(let i=0;i<3;i++){
+      const angle=i*2*Math.PI/3;
+      const spoke=showInLowWaterCapture(fixed(new T.BoxGeometry(.013,.124,.016),steel,steeringWheel));
+      spoke.rotation.x=angle;
+      spoke.position.set(0,.071*Math.cos(angle),.071*Math.sin(angle));
+    }
+    for(const lever of throttleLevers){
+      const arm=showInLowWaterCapture(fixed(new T.CylinderGeometry(.014,.014,.141,12),steel,lever));
+      arm.rotation.x=Math.PI/2;arm.position.z=.07;
+      const grip=showInLowWaterCapture(fixed(new T.SphereGeometry(1,12,8),trim,lever));
+      grip.position.z=.144;grip.scale.set(.038,.032,.025);
+    }
+  }
+  const helmTravel=T.MathUtils.degToRad(150),leverTravel=T.MathUtils.degToRad(55);
+  function setSteeringWheel(rudderAngle){
+    steeringWheel.quaternion.setFromAxisAngle(wheelAxis,T.MathUtils.clamp(-rudderAngle/.52,-1,1)*helmTravel);
+  }
+  function setHelmControls(portThrottle,rudderAngle,starboardThrottle=portThrottle){
+    const portTravel=T.MathUtils.clamp(portThrottle,-1,1)*leverTravel;
+    const starboardTravel=T.MathUtils.clamp(starboardThrottle,-1,1)*leverTravel;
+    if(interior){
+      throttleLevers[0].rotation.z=-portTravel;
+      throttleLevers[1].rotation.z=-starboardTravel;
+    }else{
+      throttleLevers[0].rotation.y=portTravel;
+      throttleLevers[1].rotation.y=starboardTravel;
+    }
+    setSteeringWheel(rudderAngle);
+  }
   const cabin=new T.Group();cabin.name='Forward cabin';group.add(cabin);
   const cabinObjects=new Map();
   let electricalPower=true;
@@ -685,18 +932,29 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
   const deckObjects=new Map(),helmIndicators=new Map(),wiperPivots=[];
   const companionway=new T.Group();companionway.name='Companionway door';
   companionway.position.set(-.020,.42,1.02);group.add(companionway);
-  cabinPart(new T.BoxGeometry(.055,.63,.61),0x4c3a2b,[0,0,0],companionway);
-  cabinPart(new T.BoxGeometry(.025,.55,.53),0x8f724e,[-.036,0,0],companionway);
-  for(let i=0;i<4;i++)cabinPart(new T.BoxGeometry(.012,.50,.006),0x6b5139,
-    [-.051,0,-.173+i*.106],companionway);
+  cabinPart(new T.BoxGeometry(.055,.63,.61),interior?0x3b4141:0x4c3a2b,[0,0,0],companionway);
+  cabinPart(new T.BoxGeometry(.025,.59,.565),interior?0xe7e6df:0x8f724e,[-.036,0,0],companionway);
+  if(!interior)for(let i=0;i<4;i++)cabinPart(new T.BoxGeometry(.008,.54,.005),0x6b5139,
+    [-.050,0,-.173+i*.106],companionway);
   const latch=cabinPart(new T.CylinderGeometry(.013,.013,.105,10),0xbac5c5,[-.069,.15,.072],companionway);
   latch.rotation.x=Math.PI/2;deckObjects.set('cabin',companionway);
-  for(const [i,id] of ['search','underwater','wipers','anchor'].entries()){
+  for(const [i,id] of ['search','underwater','wipers','anchor','bilge'].entries()){
     const mount=new T.Group();
-    mount.name=id+' switch';mount.position.set(-.034,-.62+i*.101,1.275);group.add(mount);
+    mount.name=id+' switch';mount.position.set(-.034,interior?-.448+i*.074:-.62+i*.101,1.272);group.add(mount);
     cabinPart(new T.BoxGeometry(.020,.066,.061),0x293d40,[0,0,0],mount);
-    const rocker=cabinPart(new T.BoxGeometry(.016,.043,.038),0x5b6765,[-.014,0,0],mount);
+    const rocker=cabinPart(new T.BoxGeometry(.016,.043,.038),id==='bilge'?0x8a4631:0x5b6765,[-.014,0,0],mount);
     const light=cabinPart(new T.BoxGeometry(.009,.022,.009),0x61726a,[-.024,0,.012],mount);
+    if(id==='bilge'&&sonarCanvas){
+      const labelCanvas=document.createElement('canvas');labelCanvas.width=128;labelCanvas.height=36;
+      const ctx=labelCanvas.getContext('2d');
+      ctx.fillStyle='#253230';ctx.fillRect(0,0,128,36);
+      ctx.font='bold 27px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+      ctx.fillStyle='#f1ede0';ctx.fillText('BILGE',64,20);
+      const labelTexture=new T.CanvasTexture(labelCanvas);labelTexture.colorSpace=T.SRGBColorSpace;
+      const label=cabinPart(new T.PlaneGeometry(.062,.018),0xffffff,[-.022,0,-.042],mount);
+      label.material.map=labelTexture;
+      label.rotation.set(Math.PI/2,0,-Math.PI/2,'ZXY');
+    }
     helmIndicators.set(id,{rocker,light});deckObjects.set(id,mount);
   }
   function setHelmSwitch(id,on){
@@ -718,47 +976,7 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
   }
   function setWiper(angle){for(const pivot of wiperPivots)pivot.rotation.z=angle-.68;}
   setWiper(0);
-  const anchorMesh=new T.Group();anchorMesh.name='Bow anchor';anchorMesh.visible=false;group.add(anchorMesh);
-  const anchorMetal=0x8f9a9a;
-  cabinPart(new T.BoxGeometry(.028,.032,.29),anchorMetal,[0,0,-.12],anchorMesh);
-  cabinPart(new T.CylinderGeometry(.014,.014,.29,10),anchorMetal,[0,0,-.23],anchorMesh);
-  for(const sign of [-1,1]){
-    const fluke=cabinPart(new T.BoxGeometry(.16,.12,.016),anchorMetal,[.045,sign*.102,-.24],anchorMesh);
-    fluke.rotation.y=-.44;
-  }
-  // Nominal 12 mm braid. A WebGL line occupies a full render pixel even
-  // when its projected diameter is much smaller than a pixel.
-  const rodeSegments=16,rodeRadius=.006;
-  const rode=new T.InstancedMesh(new T.CylinderGeometry(rodeRadius,rodeRadius,1,8,1,true),
-    new T.MeshStandardMaterial({color:0x928775,roughness:.94}),rodeSegments);
-  rode.name='Anchor rode';rode.instanceMatrix.setUsage(T.DynamicDrawUsage);
-  rode.frustumCulled=false;rode.visible=false;group.add(rode);
-  const link=new T.Object3D(),from=v3(0,0,0),to=v3(0,0,0),along=v3(0,0,0),localY=v3(0,1,0);
-  const anchorPoint=v3(0,0,0),rollerPoint=v3(0,0,0),anchorRotation=new T.Quaternion();
-  function setAnchor(row){
-    if(!row){anchorMesh.visible=false;rode.visible=false;return;}
-    anchorMesh.visible=true;
-    group.updateWorldMatrix(true,false);
-    const paid=row[10];
-    anchorPoint.fromArray(row);rollerPoint.fromArray(row,7);
-    group.worldToLocal(anchorPoint);group.worldToLocal(rollerPoint);
-    anchorMesh.position.copy(anchorPoint);
-    anchorMesh.quaternion.copy(group.quaternion).invert().multiply(anchorRotation.fromArray([row[4],row[5],row[6],row[3]]));
-    rode.visible=paid>.22;
-    if(!rode.visible)return;
-    const slack=Math.min(1.4,.22*Math.max(0,paid-anchorPoint.distanceTo(rollerPoint)));
-    from.copy(rollerPoint);
-    for(let i=1;i<=rodeSegments;i++){
-      const u=i/rodeSegments;
-      to.lerpVectors(rollerPoint,anchorPoint,u);
-      to.z-=4*u*(1-u)*(1-u)*slack;
-      along.subVectors(to,from);link.scale.y=along.length();
-      link.quaternion.setFromUnitVectors(localY,along.normalize());
-      link.position.lerpVectors(from,to,.5);link.updateMatrix();
-      rode.setMatrixAt(i-1,link.matrix);from.copy(to);
-    }
-    rode.instanceMatrix.needsUpdate=true;
-  }
+  const setAnchor=boatAnchorView(T,group);
   // Intersect the rendered plating triangles so fittings and joinery follow
   // both the narrowing bow in plan and the V of the lower hull in section.
   const bowPlating=sections.filter(section=>section.x>1)
@@ -973,19 +1191,24 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
   function updateDamage(health,flood,panels,time){
     setCabinWater(.5*(flood[13]+flood[28]));
     for(let i=0;i<floodingEffects.length;i++){
-      integrity[i].value=health[i];
-      breachRadius[i].value=Math.sqrt(Math.max(0,flood[5*i+2])/Math.PI);
-      if(panelMeshes[i])panelMeshes[i].visible=health[i]>.01;
       const {sign,spray,particles,level}=floodingEffects[i],rate=flood[5*i+1],o=3*i;
+      const panel=damage[i],holeArea=Math.max(0,flood[5*i+2]);
+      panel.condition.value=health[i];
+      panel.radius.value=Math.sqrt(holeArea/Math.PI);
+      if(holeArea&&sign*panels[o+1]>0)panel.centre.value.set(panels[o],panels[o+2]);
       level.position.z=flood[5*i+3];
       level.visible=flood[5*i]>.025&&(i%3!==2||level.position.z<cabinSole);
       spray.visible=rate>.002&&(i%3!==2||cabinWaterLevel<cabinRoof(cabinFore));
       if(!spray.visible)continue;
+      const originX=holeArea?panel.centre.value.x:panels[o],dims=hullSection(originX);
+      const [,w,top,keel]=dims;
+      const originZ=holeArea?panel.centre.value.y:top-.025;
+      const throughHull=sign*w*beamFraction(heightFraction({w,top,k:keel},originZ));
       for(let k=0;k<60;k++){
         const u=(k/60+time*(1.0+rate*1.7))%1,splay=Math.sin(k*2.3);
-        particles[3*k]=panels[o]+splay*(.022+.20*u);
-        particles[3*k+1]=panels[o+1]-sign*.68*u;
-        particles[3*k+2]=(flood[5*i+2]>0?panels[o+2]:.47)+.05*u*Math.cos(k*8.2)-.47*u*u;
+        particles[3*k]=originX+splay*(.022+.20*u);
+        particles[3*k+1]=throughHull-sign*.68*u;
+        particles[3*k+2]=originZ+.05*u*Math.sin(k*8.2)-.47*u*u;
       }
       spray.geometry.attributes.position.needsUpdate=true;
       spray.material.opacity=Math.min(.82,.25+rate*8);
@@ -998,7 +1221,8 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
   const emitters=new T.InstancedMesh(disk,new T.MeshBasicMaterial({color:0xffd38a}),hullLamps.length);
   emitters.name='Underwater downlight lenses';emitters.visible=false;group.add(emitters);
   const underwaterLamps=hullLamps.map(([x,y,z],i)=>{
-    part(bezel.clone(),steel,[x,y,z+.015],null,null,metal);
+    const zone=x<sections[splits[1]].x?0:x<sections[splits[2]].x?1:2;
+    part(bezel.clone(),steel,[x,y,z+.015],null,null,panelMaterials[zone+(y>0?0:3)]);
     emitters.setMatrixAt(i,new T.Matrix4().makeTranslation(x,y,z));
     const flood=i===1||i===8;
     const led=new T.SpotLight(0xffc476,flood?122:62,flood?22:11,.91,.89,1.25);
@@ -1025,14 +1249,16 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
       rod(behind(.006),behind(.003),.031,0x234450);
       continue;
     }
-    // The stern housing seats in the lower transom near the keel.
+    // The side camera mounts are part of the two midship hull plates.
+    const cameraMaterial=id==='motorPort'?panelMaterials[1]:
+      id==='motorStarboard'?panelMaterials[4]:metal;
     if(id!=='motorKeel' && id!=='motorStern'){
       const [x,y,z]=behind(.18);
-      rod([x,y,-.16],[x,y,z],.041,steel);
+      rod([x,y,-.16],[x,y,z],.041,steel,cameraMaterial);
     }
-    rod(behind(.23),behind(.022),.067,trim);
-    rod(behind(.025),behind(.006),.069,steel);
-    rod(behind(.006),behind(.003),.052,0x234450);
+    rod(behind(.23),behind(.022),.067,trim,cameraMaterial);
+    rod(behind(.025),behind(.006),.069,steel,cameraMaterial);
+    rod(behind(.006),behind(.003),.052,0x234450,cameraMaterial);
   }
   const swivel=new T.Group();swivel.name='Roof searchlight';swivel.userData.physicsJoint={axis:[0,0,1],label:'Searchlight swivel'};swivel.position.set(.56,0,searchlightHeight);group.add(swivel);
   rod([.56,0,2.18],[.56,0,searchlightHeight-.035],.043,steel);
@@ -1073,40 +1299,54 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
        gl_FragColor=vec4(1.,.91,.72,.10*pow(v.y,2.));
      }`}));swivel.add(beam);
   beam.geometry.rotateZ(Math.PI/2);beam.scale.set(15,2.6,2.6);beam.position.x=7.61;
-  for(const [material,batch] of batches){
-    const m=showInLowWaterCapture(addBatch(group,material,batch));
-    const panel=panelMaterials.indexOf(material);if(panel>=0)panelMeshes[panel]=m;
-  }
-  // Fit the sonar view and chart to the local helm. The display faces aft and
-  // slightly upward, allowing the helmsman to see through the windshield.
-  let panel,panelScreen,lastPanel=-Infinity;
+  for(const [material,batch] of batches)showInLowWaterCapture(addBatch(group,material,batch));
+  let panel,lastPanel=-Infinity;
+  const panelScreens=[];
   if(sonarCanvas){
-    const canvas=document.createElement('canvas');canvas.width=512;canvas.height=176;
-    const ctx=canvas.getContext('2d'),texture=new T.CanvasTexture(canvas);
-    texture.colorSpace=T.SRGBColorSpace;
-    const face=new T.Mesh(new T.PlaneGeometry(.82,.265),new T.MeshBasicMaterial({map:texture}));
-    panelScreen=face.material;
-    face.position.set(.033,-.40,1.55);
-    face.rotation.set(Math.PI/2,0,-Math.PI/2,'ZXY');
-    face.rotateX(-.28);group.add(face);
-    panel=(rpm)=>{
-      const heading=group.rotation.z;
-      ctx.fillStyle='#152028';ctx.fillRect(0,0,512,176);
-      ctx.drawImage(sonarCanvas,22,27,208,117);
-      ctx.drawImage(chartCanvas,307,27,156,117);
+    function createDisplay(name,width,height,position,pixelWidth,pixelHeight){
+      const canvas=document.createElement('canvas');canvas.width=pixelWidth;canvas.height=pixelHeight;
+      const texture=new T.CanvasTexture(canvas);texture.colorSpace=T.SRGBColorSpace;
+      const face=new T.Mesh(new T.PlaneGeometry(width,height),new T.MeshBasicMaterial({map:texture}));
+      face.name=name;face.position.set(...position);
+      face.rotation.set(Math.PI/2,0,-Math.PI/2,'ZXY');
+      face.rotateX(-.28);group.add(face);panelScreens.push(face.material);
+      return {ctx:canvas.getContext('2d'),texture,width:pixelWidth,height:pixelHeight};
+    }
+    function paintScreen(display,image,title,footer,x=0,width=display.width){
+      const {ctx,height,texture}=display;
+      ctx.fillStyle='#152028';ctx.fillRect(x,0,width,height);
+      const contentHeight=height-49;
+      const scale=Math.min((width-14)/image.width,contentHeight/image.height);
+      const sourceWidth=scale*image.width,sourceHeight=scale*image.height;
+      ctx.drawImage(image,x+(width-sourceWidth)/2,25+(contentHeight-sourceHeight)/2,sourceWidth,sourceHeight);
       ctx.fillStyle='#d6e8ec';ctx.font='bold 14px sans-serif';
-      ctx.fillText('3D IMAGING SONAR',10,19);ctx.fillText('HARBOR CHART',271,19);
-      ctx.font='13px monospace';ctx.fillText('0–'+sonarCanvas.dataset.range+' m',10,163);ctx.fillText(Math.round(Math.abs(rpm))+' RPM',133,163);
-      const bearing=(450-heading*180/Math.PI)%360;
-      ctx.fillText('HDG '+Math.round(bearing)+'°',270,163);
+      ctx.fillText(title,x+9,17);
+      ctx.font='13px monospace';ctx.fillText(footer,x+9,height-10);
       texture.needsUpdate=true;
-    };
+    }
+    if(interior){
+      // Independent displays fit the two 320's recessed bezels.
+      const chart=createDisplay('Live harbor chart',.235,.130,[-.031,-.405,1.518],320,176);
+      const sonar=createDisplay('Live imaging sonar',.235,.130,[-.031,-.689,1.518],320,176);
+      panel=rpm=>{
+        const bearing=(450-group.rotation.z*180/Math.PI)%360;
+        paintScreen(chart,chartCanvas,'HARBOR CHART','HDG '+Math.round(bearing)+'°');
+        paintScreen(sonar,sonarCanvas,'3D IMAGING SONAR','0–'+sonarCanvas.dataset.range+' m   '+Math.round(Math.abs(rpm))+' RPM');
+      };
+    }else{
+      const combined=createDisplay('Live sonar and chart display',.82,.265,[.033,-.40,1.55],512,176);
+      panel=rpm=>{
+        const bearing=(450-group.rotation.z*180/Math.PI)%360;
+        paintScreen(combined,sonarCanvas,'3D IMAGING SONAR','0–'+sonarCanvas.dataset.range+' m   '+Math.round(Math.abs(rpm))+' RPM',0,256);
+        paintScreen(combined,chartCanvas,'HARBOR CHART','HDG '+Math.round(bearing)+'°',256,256);
+      };
+    }
   }
   beam.visible=false;
   function setElectricalPower(on){
     if(electricalPower===on)return;
     electricalPower=on;
-    panelScreen?.color.setHex(on?0xffffff:0x000000);
+    for(const screen of panelScreens)screen.color.setHex(on?0xffffff:0x000000);
     if(on)return;
     setCabinLight(false);setRadio(false);
     emitters.visible=beam.visible=lens.visible=false;
@@ -1135,8 +1375,12 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
   let previousTime,shaftRPM=0;
   function update(t,rpm,steer,settings,seaTime=t){
     if(electricalPower)radar.rotation.z=(seaTime%2.5)*(2*Math.PI/2.5);
-    if(previousTime!==undefined)propeller.rotation.x+=(t-previousTime)*rpm*Math.PI/30;
-    previousTime=t;shaftRPM=rpm;rudder.rotation.z=steer;
+    if(previousTime!==undefined){
+      const advance=(t-previousTime)*rpm*Math.PI/30;
+      for(const {rotor,direction} of propellers)rotor.rotation.x=(rotor.rotation.x+direction*advance)%(2*Math.PI);
+    }
+    for(const drive of drives)drive.rotation.z=steer;
+    previousTime=t;shaftRPM=rpm;setSteeringWheel(steer);
     if(electricalPower&&panel&&t-lastPanel>=.2){panel(rpm);lastPanel=t;}
     emitters.visible=electricalPower&&Boolean(settings[1]);
     for(const led of underwaterLamps)switchFixture(led,emitters.visible);
@@ -1148,11 +1392,15 @@ export function cabinCruiser(T,sonarCanvas,chartCanvas,driveGeometry){
   function dispose(){
     depthMap.dispose();
     const geometries=new Set(),materials=new Set();
-    group.traverse(o=>{if(o.geometry)geometries.add(o.geometry);if(o.material)materials.add(o.material);});
+    group.traverse(o=>{
+      if(o.userData.sharedVehicleAsset)return;
+      if(o.geometry)geometries.add(o.geometry);
+      if(o.material)materials.add(o.material);
+    });
     for(const g of geometries)g.dispose();
     for(const m of materials){m.map?.dispose();m.dispose();}
   }
   const lamps=[{swivel,light,beam,lens,under:underwaterLamps[1]},{under:underwaterLamps[8]}];
-  return {group,setLift,update,updateDamage,cabinObjects,deckObjects,setCabinLight,setRadio,setElectricalPower,setWiper,setHelmSwitch,setAnchor,lamps,searchlight:{swivel,light},underwaterLamps,preloadLighting,dispose,
+  return {group,setLift,update,updateDamage,cabinObjects,deckObjects,setCabinLight,setRadio,setElectricalPower,setWiper,setHelmSwitch,setHelmControls,setAnchor,lamps,searchlight:{swivel,light},underwaterLamps,preloadLighting,dispose,
     get cabinWaterLevel(){return cabinWaterLevel;},get shaftRPM(){return shaftRPM;}};
 }

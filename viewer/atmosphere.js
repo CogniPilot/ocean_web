@@ -1155,7 +1155,7 @@ function atmosphere(scene,{waterCaptureLayer,objectDrawRange,cruiserSurface,hobi
  function updateHullFoam(strips,time,speed,cat,cruiser=false,jets,frame,sternTrail){
    if(cruiser)sternField.sample(sternTrail);
    else trails?.sample(strips,time,speed,cat);
-   if(cat||(cruiser&&jets&&frame)){
+   if(cat||jets&&frame){
      spray??=makeSpray(THREE,scene,'Bow spray',4,sampleSurface,{bow:true});
      if(jets&&frame){spray.sampleShoulders(time,jets,frame);return;}
      if(!strips)return;

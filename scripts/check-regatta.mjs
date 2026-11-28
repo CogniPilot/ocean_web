@@ -37,8 +37,11 @@ for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
   near(dx*Math.cos(angle)+dy*Math.sin(angle),0);
   const east=race.get('markEast'),north=race.get('markNorth');
   const marks=east.map((v,i)=>[v,north[i]]);
-  for(const [stage,label,point] of [[0,'Start',center],[1,'Start',center],[2,'Mark 1',marks[0]],
-    [3,'Mark 2',marks[1]],[4,'Finish',center]]){
+  // Bearing and range follow the two moving endpoints of the actual gate.
+  const [pinE,pinN,committeeE,committeeN]=race.get('startGateEnds');
+  const gateCenter=[.5*(pinE+committeeE),.5*(pinN+committeeN)];
+  for(const [stage,label,point] of [[0,'Start',gateCenter],[1,'Start',gateCenter],[2,'Mark 1',marks[0]],
+    [3,'Mark 2',marks[1]],[4,'Finish',gateCenter]]){
     const target=raceTarget(race,stage,point[0]-3,point[1]-4);
     assert.equal(target.label,label);assert.equal(target.bearing,'037°T');near(target.range,5);
     near(target.angle,Math.atan2(4,3));
@@ -47,6 +50,11 @@ for(const angle of [Math.atan2(4,10),Math.PI/2,-2.5]){
   assert.equal(raceTarget(race,5,...center),null);
   const points=[center,...marks,center];
   for(let i=1;i<points.length;i++)near(Math.hypot(...points[i].map((v,j)=>v-points[i-1][j])),200);
+  // Feed a fixed course for the scorer timing examples. The harbor model
+  // otherwise moves the moorings independently of the synthetic UTC jumps.
+  race.set('coursePoints',[...pin,...marks.flat(),...committee]);
+  race.set('courseGateEnds',[...pin,...committee]);
+  race.set('externalCourse',1);
   const move=(p,t)=>{
     race.set('east',p[0]);race.set('north',p[1]);race.set('utc',t);race.advance(.05);
     return race.get('stage');
@@ -97,6 +105,10 @@ console.log('Three wind bearings passed start, port roundings at 4 m and 7 m, fi
 const hullRace=await loadInstance('Regatta',{...startGate,windBearing:0,utc:299,raceStart:300,
   hullStations:[-2.52,-1.9,-.9,.15,1.12,1.95,2.52],hullWidths:[.09,.156,.185,.184,.155,.093,.009],hullOffset:1.02,
   racerState:[1,Math.PI,0,0,.2,0,0,0,0,0,0]},read);
+hullRace.set('coursePoints',[hullRace.get('pinEast'),hullRace.get('pinNorth'),
+  ...hullRace.get('markEast').flatMap((east,i)=>[east,hullRace.get('markNorth')[i]]),
+  hullRace.get('committeeEast'),hullRace.get('committeeNorth')]);
+hullRace.set('externalCourse',1);
 function moveHull(distance,utc){
   hullRace.set('east',hullRace.get('gateEast')+distance);
   hullRace.set('north',hullRace.get('gateNorth'));

@@ -4,7 +4,8 @@ import {piccardImpactDetector,piccardKnock,piccardMixer} from './piccard-audio.m
 import {showInLowWaterCapture} from './render-layers.mjs';
 import {committeePad} from './spawn-sites.mjs';
 import {padMaterial} from './landing-tags.mjs';
-import {drawMontauk} from './committee-boat.mjs';
+import {vehicleShell} from './vehicle-assets.mjs';
+import {boatAnchorView} from './boat-anchor.mjs';
 
 // Compass bearing clockwise from true north in the east/north world frame.
 export function trueBearing(east,north){
@@ -164,64 +165,26 @@ export function courseScene(T,scene,race){
   const pad=whaler?race.get('committeePadGeometry'):
     [committeePad.aft,0,committeePad.top,committeePad.width,committeePad.length];
   const [padX,padY,padZ,padWidth,padLength]=pad;
-  if(whaler)drawMontauk(T,boat,pad,{mesh,rod,mat,white,navy,metal});
-  else{
-    const vertices=[],indices=[];
-    const stations=[[-3,.88],[-2.7,1.02],[-.7,1.10],[1,1.01],[2.1,.72],[3.2,.025]];
-    for(const [x,w] of stations){
-      const rise=Math.max(0,x-1)*.12;
-      for(const [y,z] of [[w,.78],[w*.91,.24],[w*.58,-.13],[0,-.30],[-w*.58,-.13],[-w*.91,.24],[-w,.78]])vertices.push(x,y,z+rise);
-    }
-    for(let i=0;i<stations.length-1;i++){
-      for(let j=0;j<7;j++){const a=7*i+j,b=7*i+(j+1)%7;indices.push(a,b,b+7,a,b+7,a+7);}
-    }
-    for(const end of [0,35])for(let i=1;i<6;i++)indices.push(end,end+i,end+i+1);
-    const hull=new T.BufferGeometry();hull.setAttribute('position',new T.Float32BufferAttribute(vertices,3));hull.setIndex(indices);hull.computeVertexNormals();
-    white.side=T.DoubleSide;mesh(boat,hull,white,0,0,0);
-    for(const sign of [-1,1])for(let i=1;i<stations.length;i++){
-      const rim=([x,w])=>[x,sign*w,.76+Math.max(0,x-1)*.12];
-      rod(boat,rim(stations[i-1]),rim(stations[i]),.032,navy);
-    }
-    mesh(boat,new T.BoxGeometry(.95,.76,.86),white,0,0,1.16);
-    mesh(boat,new T.BoxGeometry(.06,.78,.42),mat(0x64808a),.40,0,1.80);
-    for(const x of [-.75,.55])for(const y of [-.53,.53])rod(boat,[x,y,.79],[x,y,2.32],.027,metal);
-    mesh(boat,new T.BoxGeometry(1.85,1.45,.08),white,0,0,2.32);
-  }
-  function drawOutboard(parent,offset){
-    const outboard=new T.Group();outboard.position.x=offset;parent.add(outboard);
-    const cowling=mat(0x141b22,.25),gearcase=mat(0x222b32,.48);
-    const shroud=new T.LatheGeometry([[0,0],[.18,0],[.235,.055],[.252,.16],[.246,.35],[.20,.44],
-      [.128,.46],[0,.46]].map(([radius,z])=>new T.Vector2(radius,z)),24);
-    const cover=mesh(outboard,shroud,cowling,-.06,0,.53);
-    cover.rotation.x=Math.PI/2;cover.scale.x=1.10;cover.scale.z=.86;
-    mesh(outboard,new T.BoxGeometry(.23,.29,.17),gearcase,.06,0,.67);
-    mesh(outboard,new T.BoxGeometry(.24,.19,.34),gearcase,-.09,0,.39).rotation.y=.16;
-    mesh(outboard,new T.BoxGeometry(.17,.13,.52),gearcase,-.12,0,.01).rotation.y=.10;
-    mesh(outboard,new T.BoxGeometry(.34,.29,.022),gearcase,-.12,0,-.13);
-    const hub=mesh(outboard,new T.CylinderGeometry(.063,.090,.25,14),gearcase,-.18,0,-.26);
-    hub.rotation.z=Math.PI/2;
-    const propeller=new T.Group();propeller.position.set(-.32,0,-.26);outboard.add(propeller);
-    for(let i=0;i<3;i++){
-      const angle=i*Math.PI*2/3,blade=mesh(propeller,new T.SphereGeometry(.105,12,8),metal,0,
-        .093*Math.cos(angle),.093*Math.sin(angle));
-      blade.scale.set(.15,1,.40);blade.rotation.x=angle;
-    }
-    mesh(outboard,new T.BoxGeometry(.15,.035,.20),gearcase,-.06,0,-.38).rotation.y=-.25;
-    for(const side of [-1,1])
-      mesh(outboard,new T.BoxGeometry(.25,.004,.026),mat(0xb72c26,.40),-.07,side*.207,.81);
-    return {outboard,propeller};
-  }
-  drawOutboard(boat,whaler?-3.08:-3.17);
+  boat.add(vehicleShell('boston-whaler-190'));
   function createWhaler(){
     const group=new T.Group();
     group.name='Boston Whaler 190';scene.add(group);
-    drawMontauk(T,group,null,{mesh,rod,mat,white,navy,metal});
-    const {outboard,propeller}=drawOutboard(group,-3.08);
-    batchScenery(T,group);
+    const shell=vehicleShell('boston-whaler-190');
+    const outboard=shell.getObjectByName('Outboard'),propeller=shell.getObjectByName('Propeller');
+    const wheel=shell.getObjectByName('SteeringWheel'),lever=shell.getObjectByName('ThrottleLever');
+    const anchorSwitch=shell.getObjectByName('AnchorSwitch'),bilgeSwitch=shell.getObjectByName('BilgeSwitch');
+    const deckObjects=new Map([['anchor',anchorSwitch],['bilge',bilgeSwitch]].filter(([,object])=>object));
+    group.add(shell);
+    const setAnchor=boatAnchorView(T,group);
     group.traverse(showInLowWaterCapture);
-    return {group,draw(engine,dt){
+    return {group,setAnchor,deckObjects,maxRPM:5900,draw(engine,dt,throttle,anchorLowered,bilgeOn){
+      this.shaftRPM=engine[0];
       outboard.rotation.z=-engine[3];
-      propeller.rotation.x+=engine[0]*dt*Math.PI/95*Math.sign(engine[2]);
+      if(wheel)wheel.rotation.x=-engine[3]/.55*1.5*Math.PI;
+      if(lever)lever.rotation.y=.85*throttle;
+      if(anchorSwitch)anchorSwitch.rotation.y=anchorLowered?.22:-.22;
+      if(bilgeSwitch)bilgeSwitch.rotation.y=bilgeOn?.22:-.22;
+      propeller.rotation.x+=engine[0]*dt*(2*Math.PI/60)/1.92*Math.sign(engine[2]);
     }};
   }
   const mastTop=race.has('committeeMastTop')?race.get('committeeMastTop'):4;
@@ -229,7 +192,7 @@ export function courseScene(T,scene,race){
   rod(boat,[mastX,0,bowMast?.99:2.34],[mastX,0,mastTop],.033,metal);
   addHelipad(boat,padWidth,padLength,'committee').position.set(padX,padY,padZ);
   batchScenery(T,boat);
-  boat.children.forEach(showInLowWaterCapture);
+  boat.traverse(showInLowWaterCapture);
   // Keep the hoist attached to the mast while the free edge streams downwind.
   const cloth=new T.PlaneGeometry(.98,.72,12,3),flagMaterial=mat(0xff671a);flagMaterial.side=T.DoubleSide;
   const flag=mesh(boat,cloth,flagMaterial,mastX,0,3.60);flag.name='Committee wind flag';showInLowWaterCapture(flag);

@@ -40,7 +40,7 @@ async function handle(request){
     const onProgress=request.reportProgress?progress=>self.postMessage({progress}):undefined;
     session=await openFmuSession({index,base,parameters,instanceName:'ocean_web',onProgress});
     const variables=new Map(index.variables.map(v=>[v.name,v]));
-    singleBow=Boolean(request.singleBow&&variables.has('sternFoamTrail'));
+    singleBow=Boolean(request.singleBow&&variables.has('bowSources'));
     bowLength=request.bowLength??8;
     breakingBows=Boolean(request.breakingBows&&(!request.singleBow||singleBow));
     const initial={};
@@ -109,7 +109,7 @@ async function handle(request){
           'stripEast','stripNorth','stripZ','stripForce','stripVolume','panelSea',...battenFields],'physics'],
         [1,['boat.rigCollision'],'physics'],
         [1,['boat.rigForce','boat.rigMoment','boat.origin','boat.foilLoad','boat.foilArm'],'loads'],
-        [5,['sub.contactMoment','sub.wetTorque','propulsion.propellerCenter','propulsion.rudderCenter','propulsion.propellerForce','propulsion.rudderForce','propulsion.shaftReaction'],'loads'],
+        [5,['sub.contactMoment','sub.wetTorque','propulsion.propellerCenter','propulsion.rudderCenter','propulsion.propellerForce','propulsion.rudderForce','propulsion.shaftReaction','propulsorLoads','buoyancyLoads'],'loads'],
         [20,['boatWater.tile']],[20,['sensor'],'dvl'],[20,['ping'],'camera'],[windDt*100,['wind.field']]
       ];
       for(const [interval,candidates,subscription] of schedules){

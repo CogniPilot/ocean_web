@@ -8,7 +8,7 @@ cp viewer/model-training{,-paths}.mjs viewer/training-{camera,fleet-view,model-r
 cp viewer/harbor-hud.{css,mjs} viewer/harbor-aux.css "$out/"
 cp viewer/{drone-flow,drone-sensors,landing-tags}.mjs "$out/"
 cp viewer/vendor/apriltag-wasm.{mjs,wasm} "$out/vendor/"
-cp viewer/committee-boat.mjs "$out/"
+cp viewer/boat-anchor.mjs "$out/"
 cp viewer/fmi3/HobieCoursePrediction.{json,mjs,wasm,fmu} "$out/fmi3/"
 cp viewer/{sail-training-tasks,sail-training-helm,hobie-race-policies}.mjs "$out/"
 cp viewer/{rig-selection,load-vectors,wildlife-loads,physics-geometry}.mjs "$out/"
@@ -37,7 +37,7 @@ touch "$out/.nojekyll"
 if [[ ${2:-} == --world ]]; then
   node scripts/prepare-world-runtime.mjs "$out/world"
   node scripts/prepare-world-runtime.mjs "$out/sailing" viewer/fmi3/OceanSailing.fmu OceanSailing
-  for pair in 'sloop OceanSloop' 'submarine OceanSubmarine' 'flight OceanFlight' 'motorboat OceanMotorboat' 'whaler OceanWhaler' 'habitat OceanHabitat'; do
+  for pair in 'sloop OceanSloop' 'submarine OceanSubmarine' 'flight OceanFlight' 'motorboat OceanMotorboat' 'whaler BostonWhaler190' 'habitat OceanHabitat'; do
     read -r directory model <<< "$pair"
     node scripts/prepare-world-runtime.mjs "$out/$directory" "viewer/fmi3/$model.fmu" "$model"
   done

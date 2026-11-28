@@ -3,6 +3,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 compiler=${RUMOCA:-.deps/rumoca-upstream/target/debug/rumoca}
 bash scripts/prepare-wreck-sensor-mounts.sh
+# The articulated contact meshes are generated from the render assets.
+if [[ ! -f Wreck/WhaleSurface.mo || ! -f Wreck/SharkSurface.mo || viewer/assets/whale.glb -nt Wreck/WhaleSurface.mo || viewer/assets/shark.glb -nt Wreck/SharkSurface.mo || tools/build-swimmer-hulls.mjs -nt Wreck/WhaleSurface.mo ]]; then
+  node tools/build-swimmer-hulls.mjs --modelica-only
+fi
 lib=build/world-libs
 mkdir -p "$lib"
 for package in "$PWD"/.deps/marine-models/*/package.mo "$PWD"/.deps/msl/*/package.mo "$PWD"/Wreck/package.mo; do
@@ -16,16 +20,17 @@ case ${1:-OceanWorld} in
   OceanSloop) modelName=OceanSloop; defaultOut=build/ocean-sloop ;;
   OceanSubmarine) modelName=OceanSubmarine; defaultOut=build/ocean-submarine ;;
   OceanFlight) modelName=OceanFlight; defaultOut=build/ocean-flight ;;
-  OceanWhaler) modelName=OceanWhaler; defaultOut=build/ocean-whaler ;;
+  BostonWhaler190) modelName=BostonWhaler190; defaultOut=build/ocean-whaler ;;
   OceanMotorboat) modelName=OceanMotorboat; defaultOut=build/ocean-motorboat ;;
   OceanHabitat) modelName=OceanHabitat; defaultOut=build/ocean-habitat ;;
-  *) echo "Expected OceanWorld, OceanSailing, OceanSloop, OceanSubmarine, OceanFlight, OceanMotorboat, OceanWhaler or OceanHabitat" >&2; exit 2 ;;
+  *) echo "Expected OceanWorld, OceanSailing, OceanSloop, OceanSubmarine, OceanFlight, OceanMotorboat, BostonWhaler190 or OceanHabitat" >&2; exit 2 ;;
 esac
 roots=(--source-root "$lib" --source-root models/OceanRace.mo)
 case $modelName in
   OceanSloop) roots+=(--source-root models/OceanSailing.mo) ;;
-  OceanSubmarine|OceanFlight|OceanHabitat|OceanWhaler) roots+=(--source-root models/OceanMission.mo) ;;
-  OceanMotorboat) roots+=(--source-root models/OceanMission.mo --source-root viewer/board/BreakwaterEncounter.mo --source-root models/CruiserAnchor.mo --source-root models/CruiserPropulsion.mo) ;;
+  OceanSubmarine|OceanFlight|OceanHabitat) roots+=(--source-root models/OceanMission.mo) ;;
+  BostonWhaler190) roots+=(--source-root models/OceanMission.mo --source-root models/CruiserAnchor.mo --source-root models/SurfaceHullWake.mo) ;;
+  OceanMotorboat) roots+=(--source-root models/OceanMission.mo --source-root viewer/board/BreakwaterEncounter.mo --source-root models/CruiserAnchor.mo --source-root models/TwinSterndrive.mo --source-root models/SurfaceHullWake.mo) ;;
 esac
 for model in MantaContact SwimmerCollision WildlifeContact Shore SailingTactics Sailboat SailMembrane MarineWind WakeSpectrum BowWavePatch RegattaBase Regatta SharedRegatta Rdd2Survey; do
   roots+=(--source-root "viewer/board/$model.mo")

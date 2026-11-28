@@ -96,6 +96,7 @@ function drawGhost(T,scene,peer,kind,template,offset,p,d,f){
 export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,chat,onFinish){
   let remoteAirframe,loadingAirframe,remoteSub,loadingSub,retrySubAt=0,retryAirframeAt=0;
   let selfId,room,action,lastSend=-Infinity,participants=new Set();
+  let lastPoseTime,lastPoseKind;
   let connectionIssue='';
   let waitingForPrivateHost=false;
   const failedPeers=new Map();
@@ -184,7 +185,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
 
   let trafficChanged=false,boatCount=0;
   let roster=new Map();
-  let seaClock,clockChannel,lastClockSend=-Infinity,retainedOffset=0;
+  let seaClock,clockChannel,clockPauseChannel,lastClockSend=-Infinity,retainedOffset=0,clockPaused=false;
   let shownHost,chatChannel,lapChannel,penaltyChannel,ourPenalty=0,lastPenaltySend=-Infinity;
   const penalties=new Map();
   const controlPolicies=new Map();
@@ -335,7 +336,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(peer.kind==='boat'||peer.kind==='motorboat'){boatCount--;trafficChanged=true;}
       peers.delete(id);}
   }
-  function leave(){lifts.bind(null);resetChannel=null;lastReset=pendingReset=undefined;finishes.clear();finishChannel=null;if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;seaClock=null;clockChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();currentPosePeers.clear();failedPeers.clear();report();}
+  function leave(){lifts.bind(null);resetChannel=null;lastReset=pendingReset=undefined;finishes.clear();finishChannel=null;if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;lastPoseTime=lastPoseKind=undefined;seaClock=null;clockChannel=clockPauseChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();currentPosePeers.clear();failedPeers.clear();report();}
   function setControlPolicy(kind,label){
     if(typeof kind!=='string'||typeof label!=='string')return;
     if(ourPolicy?.[0]===kind&&ourPolicy[1]===label)return;
@@ -440,6 +441,11 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     clockChannel.onMessage=(sample,{peerId})=>{
       if(room===active)seaClock.observe(peerId,sample,performance.now());
     };
+    // Leave the two-field clock message readable by existing clients.
+    clockPauseChannel=room.makeAction('sea-clock-pause');
+    clockPauseChannel.onMessage=(paused,{peerId})=>{
+      if(room===active)seaClock.observePause(peerId,paused,performance.now());
+    };
     if(weather){
       weatherRows={};
       for(const [key,value] of Object.entries(weather.read())){
@@ -538,6 +544,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       lastSend=-Infinity;
       lastPolicySend=-Infinity;
       participants.add(id);npc.join(id);lifts.publish(id);
+      if(clockPaused)clockPauseChannel.send(true,{target:id}).catch(()=>{});
       const peer=peers.get(id);
       if(peer){peer.leftAt=undefined;peer.lastRotorDraw=undefined;peer.awaitingPose=true;peer.driveTime=peer.driveRPM=undefined;}
       poseProtocol.send(poseFormat,{target:id}).catch(()=>{});
@@ -552,7 +559,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     room.onPeerLeave=id=>{
       if(room!==active)return;
       lifts.leave(id);participants.delete(id);currentPosePeers.delete(id);npc.leave(id);lampStates.delete(id);
-      wakeOptOut.delete(id);seaClock.peers.delete(id);gustReports.delete(id);
+      wakeOptOut.delete(id);seaClock.remove(id);gustReports.delete(id);
       controlPolicies.delete(id);
       clearWake(id);
       const peer=peers.get(id);
@@ -613,7 +620,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       }
     };report();
   }
-  function frame(now,s,cat,extra,sub,drone,kind,lampOn,aircraft,motor,motorState,radarTime,mastRotation,subRPM){
+  function frame(now,s,cat,extra,sub,drone,kind,lampOn,aircraft,motor,motorState,radarTime,mastRotation,subRPM,poseTime){
     lamps.length=cruisers.length=drones.length=submarines.length=0;
     tickFinishes(now);
     if(!room)return;
@@ -655,10 +662,12 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       sentLamp=lampOn;
       lampChannel.send(lampOn).catch(()=>{if(room && sentLamp===lampOn)sentLamp=undefined;});
     }
-    if(now-lastSend>=100 && participants.size){
-      lastSend=now;
+    // Packet stamps are still the sender's monotonic wall time. A stalled
+    // physics sample may remain visible locally, but it cannot renew a peer's contacts.
+    if(now-lastSend>=100 && participants.size && Number.isFinite(poseTime) &&
+      (poseTime!==lastPoseTime || kind!==lastPoseKind)){
       let packet;
-      if(kind==='boat'){
+      if(kind==='boat'&&s){
         packet=new Float32Array(packetFloats);packet.set(s.subarray?s.subarray(0,207):s.slice(0,207));
         packet[207]=Number(cat);packet.set(extra,208);packet[215]=now/1000;
         // Standalone sailboats have no sub pose. Use two of its inactive
@@ -673,7 +682,10 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
         const vehicle=kind==='drone'?drone:kind==='sub'?sub:null;
         if(vehicle)packet=posePacket(kind,now,vehicle);
       }
-      if(kind==='sub'&&subRPM?.length===6&&subRPM.every(Number.isFinite)){
+      if(packet){
+        lastSend=now;lastPoseTime=poseTime;lastPoseKind=kind;
+      }
+      if(packet&&kind==='sub'&&subRPM?.length===6&&subRPM.every(Number.isFinite)){
         // Optional telemetry keeps rigid pose packets compatible with older rooms.
         const data=new Uint8Array(16),view=new DataView(data.buffer);
         view.setFloat32(0,now/1000,true);
@@ -910,7 +922,11 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       .forEach(({row},i)=>vesselDecks.set(row,14*(i+reserved)));
     return vesselDecks;
   }
-  function seaTime(local,now){
+  function seaTime(local,now,paused){
+    if(typeof paused==='boolean'&&paused!==clockPaused){
+      clockPaused=paused;
+      if(participants.size)clockPauseChannel.send(paused).catch(()=>{});
+    }
     if(!room)return local+retainedOffset;
     const phase=seaClock.sample(local,now,npc.owner);
     if(participants.size && now-lastClockSend>=250){
@@ -1050,7 +1066,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   }
   function resumeClock(phase){
     retainedOffset=phase;
-    if(seaClock)seaClock.offset=phase;
+    seaClock?.resume(phase);
+    lastPoseTime=lastPoseKind=undefined;
     lastWakeStamp=-Infinity;
   }
   function seatRemoteRiders(localCruiser){

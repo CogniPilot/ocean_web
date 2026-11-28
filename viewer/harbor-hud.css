@@ -1,22 +1,24 @@
 /* Small stable HUD in the world view. Vehicle-specific details open on demand. */
-body > header,body > footer {
+:root {
   --hud-edge:color-mix(in srgb,#a2d6d0 33%,transparent);
-  border:1px solid var(--hud-edge);
-  background:#06232eed;
-  box-shadow:0 2px 9px #03141c36;
-  border-radius:8px;
+  --hud-accent:#f8a441;
+  --hud-surface:#071f2be8;
+  --hud-radius:5px;
+}
+.hud-panel {
+  color:#eff7f5;background:var(--hud-surface);
+  border:1px solid var(--hud-edge);border-left:3px solid var(--hud-accent);
+  border-radius:var(--hud-radius);box-shadow:0 2px 9px #03141c36;
 }
 body > header,body > header:has(#dial:not([hidden])) {
   top:max(12px,env(safe-area-inset-top));left:max(var(--hud-gutter),env(safe-area-inset-left));
   width:fit-content;min-width:0;max-width:min(390px,60vw);padding:8px 12px;
 }
-body > header {border-left:3px solid var(--hud-accent)}
 body > header>small:first-child {display:none}
 #tabRoster {
   position:fixed;z-index:9;top:50%;left:50%;transform:translate(-50%,-50%);
   width:min(540px,calc(100vw - 24px));max-height:75dvh;overflow:auto;
-  padding:12px 16px;background:#06232ef5;color:#e3f3ef;border:1px solid #42696e;
-  border-left:3px solid var(--hud-accent);border-radius:8px;
+  padding:12px 16px;
   box-shadow:0 8px 32px #03141c99;
 }
 #tabRoster h2 {margin:0 0 8px;font:normal 21px/1.2 Georgia,serif}
@@ -54,7 +56,6 @@ body[data-hud-fpv=false] #flightHud {display:none}
 body[data-hud-telemetry=true] header #readout {display:block}
 header #dial {width:205px}
 header #dial.race-navigation {width:270px}
-#raceSidebar,body > footer {background:#071f2be8;border-left:3px solid var(--hud-accent);border-radius:4px}
 body > footer {left:max(var(--hud-gutter),env(safe-area-inset-left));right:auto;bottom:max(12px,env(safe-area-inset-bottom));width:fit-content;max-width:calc(100vw - 2 * var(--hud-gutter))}
 body > footer:has(#vehiclePanel:not([hidden])) {width:min(450px,calc(100vw - 2 * var(--hud-gutter)))}
 .control-toolbar {padding:3px}

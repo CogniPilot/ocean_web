@@ -1,10 +1,13 @@
 """Build the marine vehicle shells with Blender. Coordinates are metres (X forward, Z up)."""
-import json
 import math
 import re
+import sys
 from pathlib import Path
 import bpy
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from piccard_blender import build_piccard
 
 DEST = Path(__file__).resolve().parents[1] / "viewer/assets"
 
@@ -307,8 +310,7 @@ def hobie_frame(stations):
 
 
 def export(name):
-    bpy.ops.export_scene.gltf(filepath=str(DEST/(name+'.glb')),export_format='GLB',export_yup=True,
-                               export_extras=(name=="survey-pressure-housing"))
+    bpy.ops.export_scene.gltf(filepath=str(DEST/(name+'.glb')),export_format='GLB',export_yup=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
 
 
@@ -337,118 +339,4 @@ for face in mesh.polygons:
         face.material_index=1
 export('sloop-hull')
 
-def cylinder(name,x,r,length,material,vertices=48):
-    bpy.ops.mesh.primitive_cylinder_add(vertices=vertices,radius=r,depth=length,
-        location=(x,0,.05),rotation=(0,math.pi/2,0))
-    obj=bpy.context.object
-    obj.name=name
-    obj.data.materials.append(material)
-    for p in obj.data.polygons:
-        p.use_smooth=len(p.vertices)==4
-
-def finish(name, rgb, metal=0, rough=.5):
-    material = bpy.data.materials.new(name)
-    material.use_nodes = True
-    shader = material.node_tree.nodes.get("Principled BSDF")
-    shader.inputs["Base Color"].default_value = (*rgb, 1)
-    shader.inputs["Metallic"].default_value = metal
-    shader.inputs["Roughness"].default_value = rough
-    return material
-
-
-def block(name, pos, dimensions, material, bevel=.0015):
-    bpy.ops.mesh.primitive_cube_add(size=1, location=pos)
-    obj = bpy.context.object
-    obj.name = name
-    obj.dimensions = dimensions
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    edges = obj.modifiers.new("Machined edges", "BEVEL")
-    edges.width = bevel
-    edges.segments = 2
-    bpy.ops.object.modifier_apply(modifier=edges.name)
-    obj.data.materials.append(material)
-
-
-def cable(points, material):
-    curve = bpy.data.curves.new("Motor lead", "CURVE")
-    curve.dimensions = '3D'
-    curve.resolution_u = 5
-    curve.bevel_depth = .003
-    curve.bevel_resolution = 2
-    spline = curve.splines.new('BEZIER')
-    spline.bezier_points.add(len(points)-1)
-    for point, xyz in zip(spline.bezier_points, points):
-        point.co = xyz
-        point.handle_left_type = point.handle_right_type = 'AUTO'
-    obj = bpy.data.objects.new("Motor lead", curve)
-    bpy.context.collection.objects.link(obj)
-    curve.materials.append(material)
-    bpy.context.view_layer.objects.active = obj
-    bpy.ops.object.select_all(action='DESELECT')
-    obj.select_set(True)
-    bpy.ops.object.convert(target='MESH')
-
-
-tube = finish('Graphite pressure vessel', (.063,.066,.069), .22, .56)
-frame = finish('Black frame and clamps', (.027,.030,.034), .18, .41)
-rubber = finish('Motor guards and cables', (.016,.020,.024), .08, .34)
-alloy = finish('Machined hardware', (.48,.53,.56), .68, .29)
-pack = finish('Yellow equipment pack', (.78,.46,.033), .07, .47)
-cylinder('Pressure housing', 0, .085, .525, tube)
-for x in (-.15,.13):
-    cylinder('Saddle clamp', x, .0915, .0335, frame, 20)
-    block('Clamp foot', (x,0,.0435), (.039,.229,.018), frame)
-    for y in (-.1005,.1005):
-        block('Clamp nut', (x,y,.056), (.0115,.0115,.0075), alloy)
-for x in (-.265,.265):
-    cylinder('Viewport flange', x,.09,.012,frame)
-    for i in range(12):
-        a = 2*math.pi*i/12
-        cylinder('Flange fastener', x+math.copysign(.008,x), .0045,.005,alloy,6)
-        bpy.context.object.location.y = .083*math.cos(a)
-        bpy.context.object.location.z += .083*math.sin(a)
-
-# Keep mounts in the physical body frame even when Blender batches the shell.
-plant = (DEST.parents[1]/"Wreck/package.mo").read_text()
-def motor_table(name):
-    rows = re.search(r"parameter Real " + name + r"\[6,3\]=\[([^\]]+)\]", plant)[1]
-    return [list(map(float,row.split(","))) for row in rows.split(";")]
-
-mounts = motor_table("propMount")
-axes = motor_table("propAxis")
-for side in (-1,1):
-    y = side*.109
-    # Open central ports in the side plates.
-    for x in (-.178,.178):
-        block('Longitudinal side plate', (x,y,.0075), (.245,.0075,.0955), frame)
-    block('Upper plate bridge',(0,y,.0455),(.115,.0075,.0195),frame)
-    block('Equipment tray rail',(0,y,-.0715),(.6025,.0095,.015),frame)
-    block('Lower pack',(-.02,side*.046,-.0625),(.365,.08,.042),pack,.0055)
-    drive_x = mounts[0][0]
-    cable([(drive_x,side*.16,.0075),(drive_x+.025,side*.17,-.04),(.115,side*.1425,-.07),
-           (.01,side*.12,-.077),(-.06,side*.10,-.06)], rubber)
-    for x, motor_y, z in mounts:
-        if side*motor_y > 0:
-            block('Thruster mounting lug',(x,side*.122,z-.0265),(.0275,.035,.013),frame)
-for x in (-.265,-.10,.215):
-    block('Lower tray crossmember',(x,0,-.0885),(.016,.2225,.0095),alloy)
-block('Equipment tray',(-.01,0,-.0845),(.495,.20,.0065),frame)
-
-# Magnetic landing face, backed by two narrow longitudinal strips on the existing tube collars.
-for y in (-.022,.022):
-    block('Pickup bearer',(-.01,y,.1415),(.31,.012,.007),frame,.001)
-steel_plate=finish('Piccard magnetic pickup steel',(.21,.24,.24),.66,.43)
-block('Piccard pickup plate',(0,0,.1475),(.10,.068,.005),steel_plate,.0015)
-
-# Combine opaque fixed geometry by finish for local and multiplayer vehicles.
-for material in (tube,frame,rubber,alloy,pack):
-    bpy.ops.object.select_all(action='DESELECT')
-    parts = [o for o in bpy.context.scene.objects if o.active_material == material]
-    for obj in parts:
-        obj.select_set(True)
-    bpy.context.view_layer.objects.active = parts[0]
-    bpy.ops.object.join()
-    if material == frame:
-        bpy.context.object.name = 'PiccardFrame'
-        bpy.context.object['thrusterLayout'] = json.dumps(dict(mounts=mounts,axes=axes))
-export('survey-pressure-housing')
+build_piccard()

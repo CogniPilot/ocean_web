@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="ocean-lobby-endpoint" content=""><meta name="ocean-turn-endpoint" content=""><meta name="ocean-electrode-url" content=""><title>ocean_web · Ocean robotics</title><style>
-:root{--hud-gutter:14px;--hud-accent:#f8a441}
-*{box-sizing:border-box}body{margin:0;background:#092f39;color:#f0f8f6;font:15px system-ui,sans-serif}canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}header,footer{position:fixed;left:max(var(--hud-gutter),env(safe-area-inset-left));background:#061f2cd9;border:1px solid #b3dfdf40;border-radius:9px;padding:15px 20px}header{top:20px;pointer-events:none}h1{font:normal clamp(23px,3vw,36px) Georgia,serif;margin:.12em 0}small,output{font:12px ui-monospace,monospace;color:#a4e4d9}footer{bottom:18px;max-width:calc(100% - 24px)}select,button{background:#103540;color:#effdf9;border:1px solid #659995;border-radius:5px;padding:7px}button[aria-pressed=true]{background:#2c655d}label{font-size:13px}p{margin:8px 0 0;color:#c7dcdf;font-size:13px}nav{margin-top:8px;display:flex;gap:5px}button{touch-action:none}a{color:#c5eee5}
-aside{position:fixed;right:18px;top:20px;background:#071f2be8;border-left:3px solid var(--hud-accent);padding:10px 16px;border-radius:4px;display:grid;gap:2px}#countdown{font:600 clamp(26px,4vw,54px)/1.05 ui-monospace,monospace;color:#ffc371}#raceStatus{font-size:12px}footer{max-height:43vh;overflow:auto}@media(max-width:650px){header{max-width:55%;padding:8px}aside{right:6px;max-width:40%;padding:7px}footer{padding:8px}}
-#harborMap{position:fixed;inset:auto 14px 14px auto;margin:0;width:clamp(298px,33vw,460px);max-height:47dvh;overflow:auto;padding:9px 10px;background:#0b2938;color:#eff7f5;border:1px solid #65878b;border-radius:9px}
+:root{--hud-gutter:14px}
+*{box-sizing:border-box}body{margin:0;background:#092f39;color:#f0f8f6;font:15px system-ui,sans-serif}canvas{position:fixed;inset:0;width:100%;height:100%;touch-action:none}body>header,footer{position:fixed;left:max(var(--hud-gutter),env(safe-area-inset-left));padding:15px 20px}body>header{top:20px;pointer-events:none}h1{font:normal clamp(23px,3vw,36px) Georgia,serif;margin:.12em 0}small,output{font:12px ui-monospace,monospace;color:#a4e4d9}footer{bottom:18px;max-width:calc(100% - 24px)}select,button{background:#103540;color:#effdf9;border:1px solid #659995;border-radius:5px;padding:7px}button[aria-pressed=true]{background:#2c655d}label{font-size:13px}p{margin:8px 0 0;color:#c7dcdf;font-size:13px}nav{margin-top:8px;display:flex;gap:5px}button{touch-action:none}a{color:#c5eee5}
+aside{position:fixed;right:18px;top:20px;padding:10px 16px;display:grid;gap:2px}#countdown{font:600 clamp(26px,4vw,54px)/1.05 ui-monospace,monospace;color:#ffc371}#raceStatus{font-size:12px}footer{max-height:43vh;overflow:auto}@media(max-width:650px){header{max-width:55%;padding:8px}aside{right:6px;max-width:40%;padding:7px}footer{padding:8px}}
+#harborMap{position:fixed;inset:auto 14px 14px auto;margin:0;width:clamp(298px,33vw,460px);max-height:47dvh;overflow:auto;padding:9px 10px}
 #harborMap>div{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 #spawnForm label{display:block}#spawnPoint,#respawnVehicle{max-width:100%}
 #spawnHint:not(:empty),#spawnStatus:not(:empty){display:block;margin-top:.3rem;line-height:1.35}
@@ -37,7 +37,7 @@ aside{position:fixed;right:18px;top:20px;background:#071f2be8;border-left:3px so
 #racePenalty{padding:.45em .65em;background:#8c2237;color:#fff;border-radius:4px;font-variant-numeric:tabular-nums}
  [hidden]{display:none!important}#dial{position:static;width:274px;max-width:100%;height:auto;inset:auto;display:block}nav{flex-wrap:wrap}#droneCovariance{display:block;white-space:pre-line}#setup{margin-top:6px}@media(pointer:coarse){footer{right:6px;bottom:6px;max-width:none}button,select{min-height:36px}}#flightHud{position:fixed;left:50%;top:50%;width:min(96vw,680px);height:min(64vh,510px);translate:-50% -50%;pointer-events:none}
 #vehiclePicker{color:#ecf6f5;background:#0b2938;border:1px solid #5c868b;border-radius:12px;padding:clamp(18px,4vw,36px);width:min(460px,calc(100vw - 50px));box-sizing:border-box}#vehiclePicker::backdrop{background:#071d27e6}#vehiclePicker h2{font:32px Georgia,serif;margin:0 0 18px}#vehiclePicker form{display:grid;gap:5px}#vehiclePicker button{min-height:46px}
-#subPanel{position:fixed;right:12px;top:145px;background:#092632;padding:8px;border-radius:4px}
+#subPanel{position:fixed;right:12px;top:145px;padding:8px}
 #subPanel:has(details[open]){width:min(430px,48vw)}
 #dvlMapLegend{display:none}#subPanel:has(#sonarMap:checked) #dvlMapLegend{display:block}
 #subPanel summary{cursor:pointer;font:13px ui-monospace,monospace;color:#a4e4d9}
@@ -78,8 +78,8 @@ aside{position:fixed;right:18px;top:20px;background:#071f2be8;border-left:3px so
 #mastPanel canvas{position:static;display:block;width:min(240px,26vh,100%);height:auto;aspect-ratio:1;margin:6px auto;background:#02070b}
 #mastPanel select,#mastPanel button{font-size:12px}
 header:has(#dial:not([hidden])):has(+ #flightHud[hidden]){padding:6px 10px}header:has(#dial:not([hidden]))>small{display:none}header:has(#dial:not([hidden])) h1{font-size:19px}header:has(#dial.sailing-wind:not([hidden])) #readout{display:none}header:has(#dial:not([hidden])) #runStats{font-size:10px}
-#animalSensors{position:fixed;right:12px;top:12px;background:#102b36ed;color:#c7eeed;padding:8px;font:12px monospace;border-radius:5px}#animalSonar{position:static;display:block;width:min(320px,40vw);height:auto}#fishFinder summary{cursor:pointer}#fleetRoster+#fishFinder{margin-top:6px}
-#motorSensors{position:fixed;right:clamp(8px,2vw,24px);top:20px;padding:8px 12px;background:#092632ed;border:1px solid #65999580;border-radius:5px;color:#c7eeed;font:12px ui-monospace,monospace}
+#animalSensors{position:fixed;right:12px;top:12px;padding:8px;font:12px monospace}#animalSonar{position:static;display:block;width:min(320px,40vw);height:auto}#fishFinder summary{cursor:pointer}#fleetRoster+#fishFinder{margin-top:6px}
+#motorSensors{position:fixed;right:clamp(8px,2vw,24px);top:20px;padding:8px 12px;font:12px ui-monospace,monospace}
 #motorSensors summary{cursor:pointer;padding:3px 0}#motorSensors:has(#cruiserCameras[open]){width:min(320px,44vw)}
 #motorSensors{max-height:min(65dvh,calc(100dvh - var(--panel-height,80px) - 34px));overflow:auto}
 #motorSensors details+details{border-top:1px solid #65999570;margin-top:5px;padding-top:4px}
@@ -110,7 +110,7 @@ header:has(#dial:not([hidden])):has(+ #flightHud[hidden]){padding:6px 10px}heade
   #cruiserChartCanvas{max-height:max(150px,calc(100dvh - var(--panel-height,80px) - 355px));object-fit:contain;background:#91bdcd}
   #motorSensors:has(#cruiserCameras[open]) .camera-grid canvas{max-height:18dvh;object-fit:contain}
 }
-footer{bottom:14px;width:min(540px,calc(100% - 28px));max-height:min(58dvh,560px);padding:0;display:flex;flex-direction:column;overflow:hidden;background:#071f2cf2}
+footer{bottom:14px;width:min(540px,calc(100% - 28px));max-height:min(58dvh,560px);padding:0;display:flex;flex-direction:column;overflow:hidden}
 footer button,footer select,footer input[type="text"]{min-height:36px;font:inherit;font-size:13px}
 footer button{touch-action:manipulation;cursor:pointer}
 footer button[aria-expanded="true"]#settings{background:#2c655d;border-color:#9fd0bd}
@@ -235,7 +235,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
   </div>
 </section>
 <canvas id="view" tabindex="0" aria-label="Interactive ocean simulation"></canvas>
-<section id="tabRoster" aria-labelledby="tabRosterTitle" hidden>
+<section class="hud-panel" id="tabRoster" aria-labelledby="tabRosterTitle" hidden>
   <h2 id="tabRosterTitle">Players &amp; NPCs</h2>
   <table><thead><tr><th scope="col">Name</th><th scope="col">Model</th><th scope="col">Control policy</th></tr></thead><tbody id="tabFleetEntries"></tbody></table>
 </section>
@@ -248,9 +248,9 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
   <use href="#diverLens" fill="none" stroke="#628381" stroke-opacity=".55" stroke-width="2" vector-effect="non-scaling-stroke"/>
 </svg>
 <div id="crtOverlay" aria-hidden="true"><div class="crt-glass"></div></div>
-<canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header><small>OCEAN_WEB / RUMOCA FMI 3</small><div class="hud-heading"><button id="hudMinimize" type="button" aria-label="Minimize instruments" aria-controls="hudReadouts" aria-expanded="true" title="Minimize instruments"></button><h1>Sailboat</h1><div id="hudAudio" role="group" aria-label="Audio shortcuts"><button id="hudMusic" type="button" aria-label="Music" aria-pressed="false" title="Play music"><span aria-hidden="true">♫</span></button></div></div><output id="vesselLoss" role="status" aria-live="polite" hidden></output>
+<canvas id="physicsCanvas" aria-hidden="true" hidden></canvas><div id="fpvVideo" aria-hidden="true" hidden></div><header class="hud-panel"><small>OCEAN_WEB / RUMOCA FMI 3</small><div class="hud-heading"><button id="hudMinimize" type="button" aria-label="Minimize instruments" aria-controls="hudReadouts" aria-expanded="true" title="Minimize instruments"></button><h1>Sailboat</h1><div id="hudAudio" role="group" aria-label="Audio shortcuts"><button id="hudMusic" type="button" aria-label="Music" aria-pressed="false" title="Play music"><span aria-hidden="true">♫</span></button></div></div><output id="vesselLoss" role="status" aria-live="polite" hidden></output>
 <div id="hudReadouts"><output id="hudBrief" aria-live="off"></output><output id="readout" aria-live="off">Starting vehicle…</output><output id="hudRaceStatus" aria-live="off">Race · Waiting for start</output><output id="feedingHeat" aria-live="off" hidden></output><output id="subAim" aria-live="off" hidden></output><output id="subBattery" aria-live="off" hidden></output><output id="runStats" aria-live="off">— FPS · —× real time</output><canvas class="race-navigation" id="dial" width="548" height="264" hidden></canvas><output id="droneCovariance" aria-live="off" hidden></output><output id="cruiserIntegrity" hidden></output><div id="cabinControls" hidden><button id="cabinLight" type="button" aria-pressed="false">Cabin light</button> <button id="cabinRadio" type="button" aria-label="Cabin radio" aria-pressed="false">Radio <span id="cabinRadioState" aria-hidden="true">Off</span></button><output id="cabinRadioStatus" aria-live="polite"></output></div></div>
-<details id="roomChat" hidden>
+<details class="hud-panel" id="roomChat" hidden>
 <summary id="roomChatTitle">Room chat</summary>
 <button id="chatClose" type="button" aria-label="Close room chat">Close</button>
 <ol id="chatLog" role="log" aria-label="Messages" aria-live="polite"></ol>
@@ -269,7 +269,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
   <output id="flightModeStatus" aria-live="polite"></output>
 </div>
 </header>
-<section id="motorSensors" aria-label="Cruiser sensors" hidden><details id="cruiserSonarPanel" data-view="sonar"><summary>Argos 350 · 3D imaging sonar</summary>
+<section class="hud-panel" id="motorSensors" aria-label="Cruiser sensors" hidden><details id="cruiserSonarPanel" data-view="sonar"><summary>Argos 350 · 3D imaging sonar</summary>
 <div class="sonar-controls"><label>Range <select id="cruiserSonarRange"><option value="100">100 m</option><option value="200">200 m</option><option value="350">350 m</option></select></label> <span class="sonar-spec">90° fan · 18 kn limit</span>
 <div class="sonar-tabs"><button type="button" data-pane="sonar" aria-pressed="true">Sonar</button><button type="button" data-pane="chart" aria-pressed="false">Chart</button></div></div>
 <div class="sonar-desk"><div class="sonar-pane">
@@ -277,13 +277,13 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <section class="chart-pane" aria-label="Local harbor chart"><div class="chart-heading"><span>Harbor chart</span><button id="cruiserChartFit" type="button" aria-pressed="false">Fit sonar range</button></div>
 <canvas width="480" height="360" id="cruiserChartCanvas" aria-label="Chart of the simulated harbor with depth contours, wreck dive sites, boat and sonar coverage."></canvas></section>
 </div></details><details id="cruiserCameras"><summary>Underwater cameras</summary><label><input id="cameraKeelLamp" type="checkbox" aria-keyshortcuts="X"> Underwater lights (X)</label> <label class="echo-view">Feed <select id="echoCamera"><option value="all">All cameras</option><option value="motorBow">Bow</option><option value="motorStern">Stern</option><option value="motorPort">Port</option><option value="motorStarboard">Starboard</option><option value="motorKeel">Keel (down)</option></select></label><div class="camera-grid"><figure><figcaption>Bow</figcaption><canvas data-camera="motorBow" width="256" height="144" aria-label="Live underwater bow camera"></canvas></figure><figure><figcaption>Stern</figcaption><canvas data-camera="motorStern" width="256" height="144" aria-label="Live underwater stern camera"></canvas></figure><figure><figcaption>Port</figcaption><canvas data-camera="motorPort" width="256" height="144" aria-label="Live underwater port camera"></canvas></figure><figure><figcaption>Starboard</figcaption><canvas data-camera="motorStarboard" width="256" height="144" aria-label="Live underwater starboard camera"></canvas></figure><figure><figcaption>Keel (down)</figcaption><canvas data-camera="motorKeel" width="256" height="144" aria-label="Live downward-facing keel camera"></canvas></figure></div><button id="openCamera" disabled>Open selected feed in main view</button></details></section>
-<section id="animalSensors" aria-label="Animal sensors" hidden><details id="fishFinder"><summary>Fish finder · <output id="fishCaught">0 fish caught</output></summary><canvas id="animalSonar" width="320" height="140" aria-label="Forward sonar in plan and elevation, range 15 metres"></canvas></details></section>
-<canvas id="flightHud" role="img" hidden></canvas><section id="subPanel" hidden><details id="subSensors"><summary>Imaging sonar</summary><div class="sensor-images"><figure><figcaption>Forward imaging sonar</figcaption><canvas id="sonarFan" width="320" height="185" aria-label="Sonar echoes by bearing and range, 18 metres ahead"></canvas></figure></div><label><input type="checkbox" id="sonarMap"> Sonar map</label><small id="dvlMapLegend">White points show DVL bottom-lock hits. Soft marks show fan echoes with uncertain elevation.</small></details><details id="subOptical"><summary>Optical camera</summary><div class="sensor-images"><canvas id="sensorCam" width="320" height="238" aria-label="Forward RGB camera for computer vision"></canvas></div></details></section><aside id="raceSidebar" aria-label="Race and fleet">
+<section class="hud-panel" id="animalSensors" aria-label="Animal sensors" hidden><details id="fishFinder"><summary>Fish finder · <output id="fishCaught">0 fish caught</output></summary><canvas id="animalSonar" width="320" height="140" aria-label="Forward sonar in plan and elevation, range 15 metres"></canvas></details></section>
+<canvas id="flightHud" role="img" hidden></canvas><section class="hud-panel" id="subPanel" hidden><details id="subSensors"><summary>Imaging sonar</summary><div class="sensor-images"><figure><figcaption>Forward imaging sonar</figcaption><canvas id="sonarFan" width="320" height="185" aria-label="Sonar echoes by bearing and range, 18 metres ahead"></canvas></figure></div><label><input type="checkbox" id="sonarMap"> Sonar map</label><small id="dvlMapLegend">White points show DVL bottom-lock hits. Soft marks show fan echoes with uncertain elevation.</small></details><details id="subOptical"><summary>Optical camera</summary><div class="sensor-images"><canvas id="sensorCam" width="320" height="238" aria-label="Forward RGB camera for computer vision"></canvas></div></details></section><aside class="hud-panel" id="raceSidebar" aria-label="Race and fleet">
 <details id="racePanel" open>
 <summary><span>Race committee</span><output id="countdown" aria-label="Next fleet start">—</output></summary>
 <div><small id="raceCourse"></small><output id="raceStatus"></output><output id="raceWinner" aria-live="polite" hidden></output></div>
 <p id="racePenalty" role="status" hidden></p><section id="bestLaps" aria-label="Best laps"><label>Leaderboard <select aria-label="Leaderboard event"></select></label><small></small><ol tabindex="0" aria-label="Leaderboard results" hidden></ol><p>No finished laps yet.</p><button id="clearRoomLeaderboard" type="button" hidden>Clear room leaderboard</button></section>
-</details><details id="fleetRoster"><summary>Players &amp; NPCs <span id="fleetCount"></span></summary><div><table aria-label="Players and NPCs"><thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead><tbody id="fleetEntries"></tbody></table></div></details><section id="mastPanel" aria-label="Live mast cameras" hidden><button type="button" id="mastClose" aria-label="Close mast cameras">Close</button><label>Mast camera <select id="mastPort"><option value="0">Forward</option><option value="1">Port</option><option value="2">Aft</option><option value="3">Starboard</option></select></label><canvas id="mastImage" width="256" height="256" aria-label="Live mast fisheye image"></canvas><button type="button" id="mastExport">Export calibrated capture</button></section></aside><footer aria-label="Simulator controls">
+</details><details id="fleetRoster"><summary>Players &amp; NPCs <span id="fleetCount"></span></summary><div><table aria-label="Players and NPCs"><thead><tr><th scope="col">Name</th><th scope="col">Model</th></tr></thead><tbody id="fleetEntries"></tbody></table></div></details><section id="mastPanel" aria-label="Live mast cameras" hidden><button type="button" id="mastClose" aria-label="Close mast cameras">Close</button><label>Mast camera <select id="mastPort"><option value="0">Forward</option><option value="1">Port</option><option value="2">Aft</option><option value="3">Starboard</option></select></label><canvas id="mastImage" width="256" height="256" aria-label="Live mast fisheye image"></canvas><button type="button" id="mastExport">Export calibrated capture</button></section></aside><footer class="hud-panel" aria-label="Simulator controls">
 <div class="control-toolbar"><div class="control-row">
 <button type="button" id="harborMapButton" aria-controls="harborMap" aria-expanded="false" aria-haspopup="dialog" aria-keyshortcuts="M">Map</button>
 <button id="collapsePanel" aria-controls="vehicleControls" aria-expanded="false">Controls</button>
@@ -295,7 +295,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <section id="vehiclePanel" aria-labelledby="hudMenuTitle" hidden>
 <div class="hud-drawer-head"><h2 id="hudMenuTitle">Controls</h2><button type="button" id="hudDone">Close</button></div>
 <div id="vehicleControls" class="control-fields quick-controls"><div class="control-grid">
-<label class="control-select"><span>Model</span><select id="controlTarget" disabled><option value="boat">Hobie 16</option><option id="otherSailboat" value="sloop">Pilothouse sloop</option><option value="motorboat">Motorboat: cabin cruiser</option><option value="whaler">Boston Whaler 190</option><option value="drone">Drone: RDD2</option><option value="sub">Sub: Piccard</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option><option value="gull">Herring gull</option></select></label>
+<label class="control-select"><span>Model</span><select id="controlTarget" disabled><option value="boat">Hobie 16</option><option id="otherSailboat" value="sloop">Pilothouse sloop</option><option value="motorboat">Sea Ray Sundancer 320</option><option value="whaler">Boston Whaler 190</option><option value="drone">Drone: RDD2</option><option value="sub">Sub: Piccard</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option><option value="gull">Herring gull</option></select></label>
 <label class="control-select"><span>Camera</span><select id="cameraDepth"><option value="deck">Orbit</option><option value="line">Waterline</option><option value="keel">Under hull</option><option hidden id="droneFpvOption" value="fpv">Drone FPV</option><option hidden id="droneDownOption" value="droneDown">Downward camera</option><option hidden id="onboardOption" value="onboard">Piccard Sub FPV</option><option value="gull" hidden disabled>Gull cam</option><option value="whale" hidden disabled>Whale cam</option><option value="shark" hidden disabled>Shark cam</option><option value="manta" hidden disabled>Manta cam</option><option value="diver" hidden disabled>Diver orbit</option><option value="diverEyes" hidden disabled>Diver first person</option></select></label>
 <label class="control-select" id="hobieControllerLabel" hidden><span>Helm controller</span><select id="hobieController"><option value="manual">Manual</option><option value="vmg">VMG autopilot</option><option value="rl">RL policy</option></select></label>
 <label class="control-select" id="diverModeLabel" hidden><span>Dive mode</span><select id="diverMode"><option value="manual">Manual</option><option value="learned">Learned swim</option><option value="auto">Auto patrol</option></select></label>
@@ -313,7 +313,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button type="button" id="gullCall" hidden>Caw</button>
 <button type="button" id="goBelow" hidden>Go below</button>
 </div>
-<p id="whalerKeys" hidden>W/S throttle ahead or astern · A/D steer the outboard</p>
+<p id="whalerKeys" hidden>W/S throttle · Shift full throttle · A/D steer · C anchor</p>
 <section class="control-row" id="animalPilot" hidden><button type="button" id="animalFeed">Feed (F)</button> <button id="animalBreach" type="button">Breach</button> <span id="swimKeys"></span></section>
 <details class="control-pane" data-boat><summary>Sail trim</summary>
 <label id="policyCourseField" hidden>Policy point of sail <select id="policyCourse"><option value="hold">Hold initial wind angle</option><option value="45">Port close-hauled · 45°</option><option value="90">Port beam reach · 90°</option><option value="135">Port broad reach · 135°</option><option value="175">Port run · 175°</option><option value="-45">Starboard close-hauled · 45°</option><option value="-90">Starboard beam reach · 90°</option><option value="-135">Starboard broad reach · 135°</option><option value="-175">Starboard run · 175°</option></select></label>
@@ -366,21 +366,24 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <input id="shaftLever" type="range" min="-100" max="100" value="0" aria-describedby="shaftLeverScale"><div class="control-scale" id="shaftLeverScale"><span>Astern</span><span>Ahead</span></div></div>
 </div>
 <div class="control-row">
-<label class="control-check"><input id="searchLamp" type="checkbox" aria-keyshortcuts="Z"><span>Searchlight (Z)</span></label>
-<label class="control-check"><input id="keelLamp" type="checkbox" aria-keyshortcuts="X"><span>Underwater lights (X)</span></label>
+<label class="control-check" data-cruiser-control><input id="searchLamp" type="checkbox" aria-keyshortcuts="Z"><span>Searchlight (Z)</span></label>
+<label class="control-check" data-cruiser-control><input id="keelLamp" type="checkbox" aria-keyshortcuts="X"><span>Underwater lights (X)</span></label>
 <button type="button" id="anchorSwitch" aria-keyshortcuts="C" aria-pressed="false" hidden>Lower anchor (C)</button>
 <button id="moveSternLift" aria-keyshortcuts="Space" type="button" hidden>Launch over port side</button><output id="sternLiftStatus" hidden></output>
 <output id="anchorReadout" hidden></output>
-<button id="lampCenter" type="button">Center searchlight</button>
+<button id="bilgeSwitch" type="button" aria-pressed="false" hidden>Bilge pump</button>
+<output id="bilgeReadout" hidden></output>
+<button id="lampCenter" type="button" data-cruiser-control>Center searchlight</button>
 <label class="control-check" id="wiperControl" hidden><input id="wiperSwitch" type="checkbox"><span>Windshield wipers</span></label>
 </div>
-<div class="control-grid">
+<div class="control-grid" data-cruiser-control>
 <div class="control-slider"><div class="control-label"><label for="lampYaw">Searchlight bearing</label><output id="yawDegrees">0°</output></div>
 <input id="lampYaw" type="range" min="-150" max="150" value="0" aria-describedby="lampYawScale"><div class="control-scale" id="lampYawScale"><span>Starboard</span><span>Port</span></div></div>
 <div class="control-slider"><div class="control-label"><label for="lampTilt">Searchlight elevation</label><output id="tiltDegrees">−12°</output></div>
 <input id="lampTilt" type="range" min="-65" max="15" value="-12" aria-describedby="lampTiltScale"><div class="control-scale" id="lampTiltScale"><span>Down</span><span>Up</span></div></div>
 </div>
-<p id="motorKeys">W/S throttle · A/D helm · Arrows aim searchlight · Z/X lights · Space hoist · C anchor</p>
+<output id="fuelReadout" hidden aria-label="Fuel remaining and consumption"></output>
+<p id="motorKeys" data-cruiser-control>W/S throttle · Shift full throttle · A/D helm · Arrows aim searchlight · Z/X lights · Space hoist · C anchor</p>
 </div></details>
 
 </div>
@@ -478,7 +481,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <details class="control-pane" id="wildlifeSpawn"><summary>Spawn NPC</summary>
 <div class="control-fields">
 <div class="control-row">
-<label class="control-select"><span>NPC model</span><select id="spawnKind" aria-label="NPC model"><option value="hobie">Hobie 16</option><option value="sloop">Pilothouse sloop</option><option value="motorboat">Cabin cruiser</option><option value="drone">RDD2 drone</option><option value="sub">Piccard submarine</option><option value="gull">Herring gull</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option></select></label>
+<label class="control-select"><span>NPC model</span><select id="spawnKind" aria-label="NPC model"><option value="hobie">Hobie 16</option><option value="sloop">Pilothouse sloop</option><option value="motorboat">Sea Ray Sundancer 320</option><option value="drone">RDD2 drone</option><option value="sub">Piccard submarine</option><option value="gull">Herring gull</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option></select></label>
 <label class="control-select" id="npcControllerLabel"><span>Hobie controller</span><select id="npcController"></select></label>
 <label class="control-select" id="npcDiveSiteLabel" hidden><span>Dive site</span><select id="npcDiveSite"></select></label>
 <button id="spawnAnimal" type="button">Spawn NPC</button> <button id="spawnHobieRace" type="button" title="Add four Hobie 16s to the same race, one per controller">Race all four controllers</button>
@@ -609,7 +612,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <select id="vehicleType">
 <option value="hobie">Hobie 16</option>
 <option value="diver">Scuba diver</option>
-<option value="motorboat">Inboard cabin cruiser</option>
+<option value="motorboat">Sea Ray Sundancer 320</option>
 <option value="whaler">Boston Whaler 190</option>
 <option value="sloop">Pilothouse sloop</option>
 <option value="drone">RDD2 drone</option>
@@ -624,11 +627,11 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <button id="entryModelTraining" type="button" aria-haspopup="dialog" aria-controls="modelTraining">Model training</button>
 </form><output id="fleetLaunchStatus" aria-live="polite"></output>
 </dialog>
-<dialog id="entryMap" aria-labelledby="entryMapTitle"><div class="entry-map-header"><h2 id="entryMapTitle">Choose a spawn point</h2><button type="button" id="entryMapBack" autofocus>Back</button></div>
+<dialog class="hud-panel" id="entryMap" aria-labelledby="entryMapTitle"><div class="entry-map-header"><h2 id="entryMapTitle">Choose a spawn point</h2><button type="button" id="entryMapBack" autofocus>Back</button></div>
 <canvas id="entryMapCanvas" tabindex="0" aria-label="Spawn map. Select a pin, drag or use arrow keys to pan, and pinch or use plus and minus to zoom."></canvas>
 <nav aria-label="Spawn map navigation"><button id="entryMapOut" type="button" aria-label="Zoom out">−</button><button id="entryMapIn" type="button" aria-label="Zoom in">+</button><button id="entryMapFit" type="button">Fit map</button></nav>
 <div class="entry-map-footer"><label for="entryMapChoice">Spawn point<select id="entryMapChoice"></select></label><button type="button" id="entryMapUse">Use spawn point</button></div></dialog>
-<script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="subsea-materials.js"></script><script src="vehicle.js?viewport=2"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="island-landscape.js"></script><script src="bathymetry.js"></script><script src="visuals.js"></script><dialog id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
+<script src="vendor/three.min.js"></script><script src="propulsion.js"></script><script src="subsea-materials.js"></script><script src="vehicle.js?viewport=2"></script><script src="atmosphere.js"></script><script src="fauna.js"></script><script src="island-landscape.js"></script><script src="bathymetry.js"></script><script src="visuals.js"></script><dialog class="hud-panel" id="harborMap" aria-labelledby="harborMapTitle"><div><h2 id="harborMapTitle">Harbor chart</h2><form method="dialog"><button type="submit">Close</button></form></div>
 <canvas id="harborMapCanvas" width="680" height="420" tabindex="0" aria-label="Harbor map. Drag or use arrow keys to pan. Pinch or use plus and minus to zoom. Select a spawn pin or use Choose spawn."></canvas>
 <nav class="chart-tools" aria-label="Chart navigation"><button id="mapChooseSpawn" type="button">Choose spawn</button><span class="chart-zoom"><button id="mapZoomOut" type="button" aria-label="Zoom out">−</button><button id="mapZoomIn" type="button" aria-label="Zoom in">+</button><button id="mapFit" type="button">Fit map</button></span></nav>
 <form id="spawnForm" hidden><label>Vehicle <select id="respawnVehicle"></select></label><label>Spawn point <span id="mapSpawnDepth"></span><select id="spawnPoint" aria-describedby="spawnHint"></select></label> <button type="submit">Respawn here</button> <output id="spawnHint" for="spawnPoint" aria-live="polite" aria-atomic="true"></output> <output id="spawnStatus" role="status"></output></form>

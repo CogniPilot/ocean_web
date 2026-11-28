@@ -643,6 +643,10 @@ export function physicsView(T,canvas,status,viewport,select,signal){
     if(options.hulls){
       if(hull?.stations)drawHull(hull,group);
       if(body.strips)drawCruiserStrips(body.strips,body.stripWater,group,body.stripPose);
+      for(let i=0;body.hullPoints&&i<body.hullPoints.length;i+=6){
+        a.fromArray(body.hullPoints,i);
+        dot(a,null,body.hullPoints[i+5]>0?colors.wet:colors.dry,3);
+      }
     }
     if(body.probes&&(options.hulls||pontoonTraces)){
       drawProbes(body.probes);

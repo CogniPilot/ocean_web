@@ -12,18 +12,25 @@ function seamlessLoop(context,recording){
 
 function engineVoice(context,output,recordings){
   const filter=context.createBiquadFilter(),gain=context.createGain(),pan=context.createStereoPanner();
+  const propeller=context.createOscillator(),propellerGain=context.createGain();
   filter.type='lowpass';filter.Q.value=.63;gain.gain.value=0;
   filter.connect(gain).connect(pan).connect(output);
+  propeller.type='triangle';propellerGain.gain.value=0;
+  propeller.connect(propellerGain).connect(pan);propeller.start();
   let last=context.currentTime,loop,starter,cranking=false;
+  function stopLoop(){
+    if(loop){loop.stop();loop.disconnect();loop=null;}
+  }
   function stopStarter(){
     if(starter){starter.stop();starter.disconnect();starter=null;}
   }
   return {
-    set(shaft,distance,balance,underwater,remaining,rate){
-      const load=Math.min(1,Math.abs(shaft)/1850),t=last=context.currentTime;
+    set(boat,distance,balance,underwater,remaining,rate,driving){
+      const shaft=Math.abs(boat.shaftRPM),load=Math.min(1,shaft/(boat.maxRPM??1850)),t=last=context.currentTime;
       const starting=remaining>1e-6;
+      const pitchRate=.62+.92*load;
       if(starting&&!cranking&&recordings.starter){
-        if(loop){loop.stop();loop.disconnect();loop=null;}
+        stopLoop();
         const sound=context.createBufferSource();
         sound.buffer=recordings.starter;
         sound.playbackRate.value=rate;
@@ -35,20 +42,32 @@ function engineVoice(context,output,recordings){
       if(!starting&&recordings.loop&&!loop){
         stopStarter();
         loop=context.createBufferSource();
-        loop.buffer=recordings.loop;loop.loop=true;loop.connect(filter);loop.start();
+        loop.buffer=recordings.loop;
+        loop.loop=true;
+        loop.playbackRate.value=pitchRate;
+        loop.connect(filter);loop.start(t);
       }
       cranking=starting&&Boolean(recordings.starter);
-      loop?.playbackRate.setTargetAtTime(.62+.92*load,t,.09);
+      loop?.playbackRate.setTargetAtTime(pitchRate,t,.09);
       const airCutoff=1750+3000*load,wetCutoff=260+480*load;
       filter.frequency.setTargetAtTime(airCutoff*(wetCutoff/airCutoff)**underwater,t,.16);
+      gain.gain.cancelAndHoldAtTime?.(t);
       gain.gain.setTargetAtTime((starting?.85:.75+.48*load)/(1+distance/9),t,.05);
+      const bladePass=3*shaft/60/(boat.maxRPM===5900?1.92:1);
+      propeller.frequency.setTargetAtTime(Math.max(18,bladePass),t,.08);
+      propellerGain.gain.setTargetAtTime(driving&&!starting?.075*load*(boat.propellerWetFraction??1)/(1+distance/7):0,t,.08);
       pan.pan.setTargetAtTime(Math.max(-1,Math.min(1,balance)),t,.085);
     },
-    fade(){gain.gain.setTargetAtTime(0,context.currentTime,.06);return context.currentTime-last>.7;},
+    fade(){
+      gain.gain.setTargetAtTime(0,context.currentTime,.06);
+      propellerGain.gain.setTargetAtTime(0,context.currentTime,.06);
+      return context.currentTime-last>.7;
+    },
     dispose(){
       stopStarter();
-      if(loop){loop.stop();loop.disconnect();}
-      for(const node of [filter,gain,pan])node.disconnect();
+      stopLoop();
+      propeller.stop();
+      for(const node of [filter,gain,pan,propeller,propellerGain])node.disconnect();
     }
   };
 }
@@ -93,7 +112,7 @@ export function inboardMixer(context,output,decodeRecording){
       }
       if(powered)entry.lastPowered=now;
       active.add(boat);
-      entry.voice.set(boat.shaftRPM,d,balance,underwater,boat.starterRemaining??0,simulationRate);
+      entry.voice.set(boat,d,balance,underwater,boat.starterRemaining??0,simulationRate,powered);
     }
     for(const [boat,{voice}] of voices)if(!active.has(boat)&&voice.fade()){voice.dispose();voices.delete(boat);}
   };

@@ -12,18 +12,13 @@ fetch() {
   fi
   git -C ".deps/$1" checkout -q --detach "$3"
 }
-fetch marine-models https://github.com/CogniPilot/modelica_models 227a1105668047366545728f82499d4ee7cf3f5a
-for model_patch in modelica-column-cholesky modelica-swimmer-breaking modelica-collision-geometry; do
-  patch_file="$root/compiler/$model_patch.patch"
-  if ! git -C .deps/marine-models apply --reverse --check "$patch_file" 2>/dev/null; then
-    git -C .deps/marine-models apply "$patch_file"
-  fi
-done
+fetch marine-models https://github.com/CogniPilot/modelica_models 07d6a4f8486888b8d774ef54a8908190c23431c3
 bash scripts/prepare-wreck-sensor-mounts.sh
 fetch msl https://github.com/modelica/ModelicaStandardLibrary 8ae3d35c24e519cb2996cab20f3b13daf2b0c50a
 node scripts/bathymetry-grid.mjs
 node scripts/wreck-solids.mjs
 node scripts/piccard-solids.mjs
+node tools/build-swimmer-hulls.mjs --modelica-only
 if [[ -n ${RUMOCA:-} ]]; then
   compiler=$RUMOCA
 else

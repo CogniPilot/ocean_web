@@ -1,1 +1,1 @@
-package SailingTactics = Marine.Sailing.SailingTactics "Fleet course decisions for the Hobie 16";
+package SailingTactics = Marine.Sailing.SailingTactics;

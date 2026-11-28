@@ -73,7 +73,7 @@ export const basinTask={
 };
 
 export const motorboatTask={
-  id:'motorboat',label:'Cabin cruiser',plant:'OceanMotorboat',
+  id:'motorboat',label:'Sea Ray Sundancer 320',plant:'OceanMotorboat',
   summary:'Track through-water speed and turning rate with the inboard throttle and rudder.',
   applicationHint:'Active at the cabin cruiser helm.',
   featureNames:['Bias','Speed command','Turn command','Surge','Yaw rate','Roll','Pitch','Shaft speed','Rudder'],

@@ -9,7 +9,7 @@ export function gullIndex(id){
 
 
 export const vesselNpcNames=Object.freeze({
-  hobie:'Hobie 16',sloop:'Pilothouse sloop',motorboat:'Cabin cruiser',drone:'RDD2 drone',sub:'Piccard submarine'
+  hobie:'Hobie 16',sloop:'Pilothouse sloop',motorboat:'Sea Ray Sundancer 320',drone:'RDD2 drone',sub:'Piccard submarine'
 });
 // Diver packets append the 20 Modelica restart states and four gauge outputs to the swimmer pose.
 export const sharkForebodyOffset=321;

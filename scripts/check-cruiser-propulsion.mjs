@@ -66,16 +66,15 @@ const read=async name=>JSON.parse(await readFile(new URL(name,base)));
 const index=await read((await read('manifest.json')).index);
 assert.equal(index.modelName,'OceanMotorboat');
 const outputNames=['engine[1]','engine[2]','engine[3]','engine[4]','starterRemaining','yawRate',
-  'propulsion.axialAdvance','propulsion.advanceCoefficient','propulsion.shaftTorque',
-  'propulsion.shaftPower','propulsion.slipstreamAtRudder','propulsion.rudderForce[2]'];
+  'propellerWetFraction','propulsorLoads[1,2]','propulsorLoads[2,2]',
+  'propulsorLoads[1,4]','propulsorLoads[2,4]','propulsorLoads[1,5]','propulsorLoads[2,5]'];
 async function cruise(throttle){
   const fmu=await openFmuSession({index,base,fetch:fileFetch,
-    parameters:{initialEast:-120,initialNorth:-80,initialHeading:0}});
+    parameters:{initialEast:-120,initialNorth:-80,initialHeading:Math.PI}});
   try{
     const set=values=>fmu.set_inputs(JSON.stringify(Object.entries(values)));
-    const mounts=fmu.bind_outputs(JSON.stringify(['driveGeometry[3]','driveGeometry[5]',
-      'driveGeometry[7]','driveGeometry[9]']));
-    assert.deepEqual(Array.from(fmu.read_bound(mounts)),[-3.11,-.95,-3.50,-.89]);
+    const mounts=fmu.bind_outputs(JSON.stringify([1,2,3,4,5].map(i=>'driveGeometry['+i+']')));
+    assert.deepEqual(Array.from(fmu.read_bound(mounts)),[.40,.58,-3.74,-.84,.37]);
     const get=fmu.bind_outputs(JSON.stringify(outputNames));
     const step=(count,dt)=>{for(let i=0;i<count;i++)fmu.step(dt);};
     const observe=()=>Array.from(fmu.read_bound(get));
@@ -83,21 +82,23 @@ async function cruise(throttle){
     step(8,.05);
     const starting=observe();
     assert(starting[4]>.52&&starting[4]<.67&&starting[2]===0,'The cold starter must hold thrust for one second');
-    step(235,.05);
+    step(740,.05);
     const straight=observe();
     assert(straight.every(Number.isFinite));
-    assert(Math.sign(straight[1])===Math.sign(throttle)&&Math.sign(straight[2])===Math.sign(throttle));
-    assert(Math.sign(straight[8])===Math.sign(throttle)&&straight[9]>0);
-    assert(Math.abs(straight[5])<.08);
+    assert(straight[1]>0&&Math.sign(straight[0])===Math.sign(throttle)&&Math.sign(straight[2])===Math.sign(throttle));
+    assert(straight[6]===1&&straight[7]>.5&&straight[8]<-.5);
+    assert.equal(Math.sign(straight[9]),Math.sign(throttle));
+    assert(Math.abs(straight[9]-straight[10])<.01&&Math.abs(straight[5])<.08);
     set({helmLever:1});
     step(40,.05);
     const turning=observe();
     assert(turning[3]<-.40&&Math.sign(turning[5])===Math.sign(throttle));
-    assert(Math.sign(turning[11])===-Math.sign(throttle));
+    assert.equal(Math.sign(turning[11]),-Math.sign(throttle));
+    assert.equal(Math.sign(turning[12]),-Math.sign(throttle));
     set({helmLever:0,throttleLever:0});
     step(120,.05);
     const coasting=observe();
-    assert(Math.abs(coasting[0])<3&&Math.abs(coasting[2])<30&&Math.abs(coasting[1])<Math.abs(straight[1]));
+    assert(Math.abs(coasting[0])<3&&Math.abs(coasting[2])<30&&coasting[1]<straight[1]);
     set({throttleLever:throttle});
     step(1,.05);
     assert(observe()[4]===0,'Throttle applied within the idle window should keep the engine warm');
@@ -112,6 +113,6 @@ async function cruise(throttle){
 }
 const goingAhead=await cruise(1);
 const backing=await cruise(-1);
-assert(goingAhead.straight[1]>6.5&&goingAhead.straight[1]<9);
-assert(backing.straight[1]<-1&&backing.straight[1]>-5);
+assert(goingAhead.straight[1]/.44704>=47&&goingAhead.straight[1]/.44704<=49.5);
+assert(backing.straight[1]>1&&backing.straight[1]<5);
 console.log(JSON.stringify({coupled:{fields:outputNames,goingAhead,backing}}));

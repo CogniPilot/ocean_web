@@ -165,20 +165,21 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
   function cruiserVertices "Closed hull loft in the cabin cruiser's forward, port and up frame"
     output Real vertices[96,3];
   protected
-    constant Real stations[12,4]=[-3.74,1.07,.77,-.39; -3.53,1.19,.78,-.44; -2.75,1.29,.80,-.52;
-      -1.55,1.36,.84,-.57; -.20,1.35,.91,-.61; 1.05,1.24,1.00,-.58; 2.10,1.00,1.11,-.49;
-      2.55,.85,1.16,-.41; 2.93,.67,1.20,-.32; 3.24,.49,1.24,-.20; 3.49,.33,1.27,-.06; 3.80,.018,1.32,.25];
+    constant Real stations[12,4]=[-3.74,1.22,.80,-.49;-3.53,1.38,.82,-.56;-2.75,1.55,.87,-.67;
+      -1.55,1.615,.92,-.73;-.20,1.61,.96,-.76;1.05,1.55,1.02,-.72;2.10,1.42,1.11,-.61;
+      2.85,1.29,1.17,-.55;3.52,1.11,1.22,-.45;4.30,.83,1.27,-.25;4.94,.51,1.31,.02;5.48,.015,1.35,.32];
     constant Real section[8,2]=[0,1;1,1;.972,.65;.85,.23;0,0;-.85,.23;-.972,.65;-1,1];
-    Real x,w,top,keel,rake,round,drop,f,t;
+    Real x,w,top,keel,rake,round,chine,f,t;
   algorithm
     for i in 1:12 loop
       x:=stations[i,1];w:=stations[i,2];top:=stations[i,3];keel:=stations[i,4];
-      rake:=.8*max(0,(x-1.5)/2.3)^2;
+      rake:=1.18*max(0,(x-1.5)/3.98)^2;
       round:=.14*max(0,(-3.39-x)/.35);
-      drop:=.18*min(1,max(0,(3.5-x)/2.1));
+      chine:=keel+.85*w*tan(21*Modelica.Constants.pi/180);
       for j in 1:8 loop
         f:=section[j,1];t:=section[j,2];
-        vertices[8*(i-1)+j,:]:={x-rake*(1-t)+round*f^2,w*f,keel+(top-keel)*t-drop*max(0,1-t/.23)};
+        vertices[8*(i-1)+j,:]:={x-rake*(1-t)+round*f^2,w*f,
+          if t<.23 then keel+(chine-keel)*t/.23 else chine+(top-chine)*(t-.23)/.77};
       end for;
     end for;
   end cruiserVertices;
@@ -246,13 +247,19 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
   function committeeVertices "Committee launch hull in its forward, port and up frame"
     output Real vertices[42,3];
   protected
-    // The 190 Montauk's published hull envelope is 5.89 m by 2.43 m.
-    constant Real stations[6,2]=[-2.91,.90;-2.59,1.10;-.65,1.215;1,1.18;2.10,.84;2.98,.03];
-    constant Real section[7,2]=[1,.78;.91,.24;.58,-.13;0,-.30;-.58,-.13;-.91,.24;-1,.78];
+    // Sheer, outer chine, inner strake and keel offsets from the CAD stations.
+    constant Real stationWidths[6]={.90,1.10,1.215,1.18,.84,.03};
+    constant Real sectionBeam[7]={1,.88,.54,0,-.54,-.88,-1};
+    constant Real stationX[6,4]=[-2.91,-2.64084,-2.60574,-2.55;-2.59,-2.43890,-2.42288,-2.38360;
+      -.65,-.65,-.65,-.65;1,1,1,1;2.10,2.00848,1.97798,1.93944;2.98,2.6038,2.4784,2.32];
+    constant Real stationZ[6,4]=[.78,.10710,.01936,-.12;.775,.11978,.05033,-.12;.78,.044,.003,-.12;
+      .82,.182,.07071,-.112;.91,.491,.30506,.130;1.018,.64839,.53916,.405];
+    Integer profile;
   algorithm
     for i in 1:6 loop
       for j in 1:7 loop
-        vertices[7*(i-1)+j,:]:={stations[i,1],stations[i,2]*section[j,1],section[j,2]+.12*max(0,stations[i,1]-1)};
+        profile:=4-abs(4-j);
+        vertices[7*(i-1)+j,:]:={stationX[i,profile],stationWidths[i]*sectionBeam[j],stationZ[i,profile]};
       end for;
     end for;
   end committeeVertices;
@@ -307,7 +314,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
   algorithm
     vertices[1,:,:]:=boxVertices({0,0,1.16},{.475,.38,.43});
     vertices[2,:,:]:=boxVertices(committeePadCenter-{0,0,.04},cat(1,committeeRoofHalf,{.04}));
-    vertices[3,:,:]:=boxVertices({-3.14,0,.76},{.27,.22,.23});
+    vertices[3,:,:]:=boxVertices({-3.20,0,.804},{.322,.265,.277});
     vertices[4,:,:]:=boxVertices({committeeMastX,0,2.495},{.033,.033,1.505});
     for i in 1:2 loop
       for j in 1:2 loop
@@ -316,12 +323,12 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
       vertices[8+i,:,:]:=boxVertices({committeeBoard[3],(2*i-3)*committeeBoard[4],committeeBoard[5]},
         {.5*committeeBoard[1],.012,.5*committeeBoard[2]});
     end for;
-    vertices[11,:,:]:=boxVertices({.3835,0,1.775},{.040,.398,.19});
+    vertices[11,:,:]:=boxVertices({.359,0,1.732},{.064,.352,.188});
     // The outboard's mast-height powerhead, midsection, drive leg and gearcase
     // use separate envelopes so the space on either side of the leg stays open.
-    vertices[12,:,:]:=boxVertices({-3.17,0,.39},{.145,.096,.18});
-    vertices[13,:,:]:=boxVertices({-3.20,0,.01},{.11,.068,.265});
-    vertices[14,:,:]:=boxVertices({-3.26,0,-.265},{.145,.09,.095});
+    vertices[12,:,:]:=boxVertices({-3.22,0,.347},{.19,.146,.18});
+    vertices[13,:,:]:=boxVertices({-3.22,0,-.069},{.13,.087,.312});
+    vertices[14,:,:]:=boxVertices({-3.324,0,-.562},{.21,.10,.24});
     vertices[15,:,:]:=boxVertices({1.70,0,.70},{.45,.63,.10});
     vertices[16,:,:]:=boxVertices({-1.30,0,1.04},{.36,.56,.26});
     vertices[17,:,:]:=boxVertices({-2.42,0,.885},{.255,.67,.10});
@@ -333,7 +340,7 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     output Real result[4];
   algorithm
     result:={1e3,0,0,0};
-    if abs(p[2])>1.215+margin or p[1]< -2.91-margin or p[1]>2.98+margin or p[3]< -.30-margin or p[3]>1.018+margin then
+    if abs(p[2])>1.215+margin or p[1]< -2.91-margin or p[1]>2.98+margin or p[3]< -.49-margin or p[3]>1.018+margin then
       return;
     end if;
     result:=hullMeshGap(p,vertices,faces);
@@ -755,6 +762,10 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
     ch:=cos(heading);sh:=sin(heading);
     bodyToWorld:=[ch,-sh,0;sh,ch,0;0,0,1]*rotation;
     center:=pos-{36,40,0};
+    world:=zeros(96,3);tri:=zeros(3,3);lowest:=zeros(3);highest:=zeros(3);
+    cell:=zeros(3,2);support:=zeros(4);deepest:=zeros(4);deepNormal:={0,0,1};up:={0,0,1};
+    x:=0;y:=0;z0:=0;zE:=0;zN:=0;zEN:=0;offset:=0;length:=1;deepOffset:=0;
+    i0:=0;i1:=0;j0:=0;j1:=0;i:=0;j:=0;
     for hull in 1:2 loop
       for j in 1:96 loop
         world[j,:]:=center+bodyToWorld*(vertices[j,:]+{0,(3-2*hull)*spacing,0});
@@ -767,11 +778,14 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
           max(highest[1]-lowest[1],highest[2]-lowest[2])/2) then
           i0:=integer(floor((lowest[1]+29)/dx));i1:=integer(floor((highest[1]+29)/dx));
           j0:=integer(floor((lowest[2]+23)/dy));j1:=integer(floor((highest[2]+23)/dy));
-          i:=i0;
-          while i<=i1 loop
+          // A face on the 5.04 m pontoon fits within twelve cells on either axis.
+          for column in 0:11 loop
+            i:=i0+column;
+            if i>i1 then break;end if;
             x:=-29+i*dx;
-            j:=j0;
-            while j<=j1 loop
+            for row in 0:11 loop
+              j:=j0+row;
+              if j>j1 then break;end if;
               y:=-23+j*dy;
               z0:=terrain(x,y);zE:=terrain(x+dx,y);zN:=terrain(x,y+dy);zEN:=terrain(x+dx,y+dy);
               if lowest[3]<=max({z0,zE,zN,zEN}) then
@@ -788,10 +802,8 @@ package Shore "Beach and convex shoreline boulders in east, north, up coordinate
                   if support[1]>deepest[1] then deepest:=support;deepNormal:=up;deepOffset:=offset;end if;
                 end for;
               end if;
-              j:=j+1;
-            end while;
-            i:=i+1;
-          end while;
+            end for;
+          end for;
         end if;
         // Faces are ordered along the pontoon, with two triangles per ring panel.
         if face==32 or face==80 or face==188 then

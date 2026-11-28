@@ -220,7 +220,7 @@ partial model RegattaBase "Five-minute fleet starts and an equilateral triangula
   algorithm
     away:=2*mark-incoming-outgoing;away:=away/max(.01,sqrt(away*away));
     tangent:={-away[2],away[1]};relative:=position-mark;
-    approach:=mark+10*away-9*tangent;departure:=mark+10*away+9*tangent;
+    approach:=mark+12*away-11*tangent;departure:=mark+12*away+11*tangent;
     gatePosition:={relative*away,relative*tangent};
   end roundingApproach;
   function passedToPort "Cross the outside angle bisector counterclockwise"
@@ -432,7 +432,7 @@ equation
     // Keep the departure target through the crossing. A miss outside the
     // scored segment sends the pilot back to the approach side for another try.
     roundingReady=if stage<>pre(stage) or (stage<>2 and stage<>3) then false
-      elseif markPosition[2]<-2 and markPosition[1]>3 and markPosition[1]<zone-2 then true
+      elseif markPosition[2]<-5 and markPosition[1]>8 and markPosition[1]<zone-2 then true
       elseif markPosition[2]>1 and (markPosition[1]<.70 or markPosition[1]>zone) then false
       else pre(roundingReady);
     started=if stage==2 and pre(stage)<>2 then max(fleetHeat,raceStart) else pre(started);
