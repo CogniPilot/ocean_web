@@ -5,7 +5,7 @@ import {loadInstance} from './fmi3/instance.mjs';
 import {loadVehicleShell,vehicleShell} from './vehicle-assets.mjs';
 import {cabinCruiser} from './motorboat.mjs';
 import {remoteDroneMesh} from './drone.mjs';
-import {vesselNpcNames} from './npc-room.mjs';
+import {vehicleCatalog} from './vehicle-catalog.mjs';
 import {nextFleetStart} from './npc-hobie-race.mjs';
 import {drawRacerFrame,racerFrameSize} from './npc-sailing-frame.mjs';
 import {raceCoursePoints,raceGateEnds} from './regatta.mjs';
@@ -18,7 +18,7 @@ const routes={
   drone:{center:[12,-8],radius:[25,11],speed:5.5,height:8,orbit:5},
   sub:{center:[17,-25],radius:[20,7],speed:1.1,height:-5.5,orbit:5}
 };
-const darkLamps=[0,0,0,0],contactClass={sloop:0,hobie:1,motorboat:2};
+const darkLamps=[0,0,0,0],contactClass=[undefined,1,0,2];
 
 function dispose(group){
   group.removeFromParent();
@@ -53,7 +53,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
   }
   function removeSlowVessel(row,reason){
     if(plannerSession===room.session&&room.removeVessel(row))
-      onError(Error('Removed '+vesselNpcNames[row.kind]+' NPC · '+reason));
+      onError(Error('Removed '+vehicleCatalog[row.kind].label+' NPC · '+reason));
   }
   function createPlanner(slot){
     const worker=new Worker(new URL('./npc-sailing-worker.mjs',import.meta.url),{type:'module'});
@@ -173,7 +173,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
   }
   function rig(kind){
     if(!sailRigs.has(kind)){
-      const cat=kind==='hobie',shell=cat?'hobie-hulls':'sloop-hull';
+      const cat=kind==='hobie',shell=vehicleCatalog[kind].asset;
       const loading=Promise.all([loadVehicleShell(shell),loadInstance(cat?'Hobie16':'Sailboat',{
         windEast:0,windNorth:8})]).then(([,model])=>{
           const panels=cat?readSailPanels(model):null;
@@ -203,8 +203,9 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       return {group,animate(t){rotors.forEach((rotor,i)=>rotor.rotation.z=(i%2?1:-1)*110*t);}};
     }
     if(kind==='sub'){
-      await loadVehicleShell('survey-pressure-housing');
-      return {group:surveyVehicle(T,vehicleShell('survey-pressure-housing'))};
+      const shell=vehicleCatalog[kind].asset;
+      await loadVehicleShell(shell);
+      return {group:surveyVehicle(T,vehicleShell(shell))};
     }
     const {state,foilX,panels,geometry,axes,trim,stays}=await rig(kind);
     const boat=sailboatMesh(T,kind==='hobie',foilX,panels);
@@ -229,7 +230,7 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
     craft.set(id,entry);
     load(row.kind).then(visual=>{
       if(craft.get(id)!==entry){(visual.dispose??(()=>dispose(visual.group)))();return;}
-      entry.visual=visual;visual.group.name=vesselNpcNames[row.kind]+' NPC';scene.add(visual.group);
+      entry.visual=visual;visual.group.name=vehicleCatalog[row.kind].label+' NPC';scene.add(visual.group);
     }).catch(error=>{
       if(craft.get(id)===entry)onError(error);
     });
@@ -338,13 +339,14 @@ export function vesselTraffic(T,scene,surface,windAt,race,room,onError,onFinish,
       observations.push({id,kind:row.kind,hull:({sloop:2,motorboat:3})[row.kind]??0,x:east,y:north,z,yaw:heading,
         heel:roll,pitch,ve:-routes[row.kind].radius[0]*Math.sin(angle)*rate,vn:routes[row.kind].radius[1]*Math.cos(angle)*rate});
       if(!visual)continue;
-      const kind=contactClass[row.kind];
-      if(kind!==undefined)contacts.set([1,east,north,heading,speed*Math.cos(heading),speed*Math.sin(heading),0,z,kind],i*9);
+      const {peerHullClass,landingDeck}=vehicleCatalog[row.kind].capabilities;
+      const shape=contactClass[peerHullClass];
+      if(shape!==undefined)contacts.set([1,east,north,heading,speed*Math.cos(heading),speed*Math.sin(heading),0,z,shape],i*9);
       tilts.set([roll,pitch],2*i);
-      if(trackDecks&&kind!==undefined){
+      if(trackDecks&&landingDeck){
         const pose=[east,north,z,heading,roll,-pitch];
         const twist=deckTwist(pose,entry.deck,pose,time-(entry.deckTime??time));
-        deckRows.push([1,row.kind==='sloop'?2:3,...pose,...twist]);
+        deckRows.push([1,peerHullClass,...pose,...twist]);
         entry.deck=pose;entry.deckTime=time;
       }
       if(visual.cruiser)cruisers.push(visual.cruiser);

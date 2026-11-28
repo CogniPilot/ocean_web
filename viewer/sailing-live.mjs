@@ -51,6 +51,7 @@ import {fishObstacles} from './fish-obstacles.mjs';
 import {harborTraffic} from './harbor-traffic.mjs';
 import {divePacket,gullIndex,vesselNpcNames,npcVesselLimit} from './npc-room.mjs';
 import {chooseVehicle} from './fleet-menu.mjs';
+import {oceanVehicles,vehicleCatalog,vehicleForRole} from './vehicle-catalog.mjs';
 import {validRoomName} from './vendor/names.js';
 import {namedRoomId,observeDirectory,privateRoom,publicChannel,publicRoom,validFleetRoom} from './fleet-directory.mjs';
 import {reserveFleetSeat} from './fleet-seat.mjs';
@@ -58,7 +59,7 @@ import {fleet,loadFleetTurn} from "./fleet.mjs";
 const T=window.THREE,$=id=>document.getElementById(id);
 const renderInterval=1000/30,knotsPerMetrePerSecond=3600/1852;
 const objectDrawRange=5500,longSwell='1.5';
-const directControls=['drone','sub','whale','shark','manta','diver','gull','motorboat','whaler'];
+const directControls=oceanVehicles.filter(vehicle=>vehicle.role!=='boat').map(vehicle=>vehicle.id);
 const profiles={
   fast:{target:20,ratio:.6,min:.4,mesh:48,sky:.375,omitWake:true,skipCaptures:true},
   low:{target:20,ratio:.75,min:.5,capture:.375,reflectSamples:0,mesh:88,sky:.5,omitWake:true},
@@ -165,6 +166,9 @@ async function run(saved=readReset(),carried){
   const lifetime=new AbortController(),{signal}=lifetime;
   const on=(target,type,listener,options)=>target.addEventListener(type,listener,{...options,signal});
   const cleanup=callback=>signal.addEventListener('abort',callback,{once:true});
+  const option=(vehicle,value=vehicle.id)=>new Option(vehicle.label,value);
+  $('vehicleType').replaceChildren(...oceanVehicles.map(vehicle=>option(vehicle)));
+  $('spawnKind').replaceChildren(...oceanVehicles.filter(vehicle=>vehicle.capabilities.npc).map(vehicle=>option(vehicle)));
   for(const id of settingsFields){
     const field=$(id),value=saved?.fields[id];
     if(typeof value==='boolean')field.checked=value;
@@ -236,7 +240,7 @@ async function run(saved=readReset(),carried){
     event.stopImmediatePropagation();
   },{capture:true});
   const joinRoomOnLoad=url.searchParams.has('room')&&url.searchParams.get('join')==='1';
-  const requestedHull=url.searchParams.get('boat');
+  const requestedHull=url.searchParams.get('control')==='sloop'?'Sailboat':url.searchParams.get('boat');
   const mobile=matchMedia('(pointer: coarse)').matches;
   const selector=$('quality');
   let preferred;
@@ -254,10 +258,12 @@ async function run(saved=readReset(),carried){
   const wreckSurvey=url.searchParams.get('demo')==='wreck';
   const initialTarget=wreckSurvey?'sub':url.searchParams.get('control');
   const selectedRole=directControls.includes(initialTarget)?initialTarget:'boat';
-  const fullWorld=!['motorboat','whaler'].includes(selectedRole)&&url.searchParams.get('runtime')==='world'&&requestedHull!=='Sailboat';
-  const sailingMode=requestedHull==='Sailboat'?'sloop':'sailing';
-  const modes={boat:sailingMode,motorboat:'motorboat',whaler:'whaler',drone:'flight',sub:'submarine',whale:'habitat',shark:'habitat',manta:'habitat',diver:'habitat',gull:'habitat'};
-  const mode=['motorboat','whaler'].includes(selectedRole)?selectedRole:fullWorld?'world':packaged?modes[selectedRole]:url.searchParams.get('runtime')==='sailing'?sailingMode:null;
+  const vesselConfig=vehicleForRole(selectedRole,requestedHull!=='Sailboat'),vesselCapabilities=vesselConfig.capabilities;
+  const sailingMode=vehicleForRole('boat',requestedHull!=='Sailboat').runtime;
+  const requestedRuntime=url.searchParams.get('runtime');
+  const fullWorld=!vesselCapabilities.engine&&requestedRuntime==='world'&&requestedHull!=='Sailboat';
+  const mode=vesselCapabilities.engine?vesselConfig.runtime:fullWorld?'world':packaged?vesselConfig.runtime:
+    requestedRuntime==='sailing'?sailingMode:null;
   const cruiserRuntime=carried?.cruiserRuntime??(mode==='motorboat'?{lifetime:new AbortController()}:null);
   let preserveCruiser=false;
   if(cruiserRuntime)cleanup(()=>{if(!preserveCruiser)cruiserRuntime.lifetime.abort();});
@@ -503,6 +509,7 @@ async function run(saved=readReset(),carried){
   }
   const course=courseScene(T,scene,race),tender=mode==='whaler'?course.createWhaler():null,audio=cruiserRuntime?.audio??raceAudio(T);
   const poweredHull=motor??tender,buoyancyPoint=new T.Vector3();
+  const hasHullWake=Boolean(vesselCapabilities.wake||hasBoat);
   const islandTop=world?.get('drone.islandPad')?.[2]??island.userData.islandPadTop;
   const shorePad=course.addHelipad(scene,islandPad.width,islandPad.length,'island');
   shorePad.position.set(islandPad.x,islandPad.y,islandTop);
@@ -2057,6 +2064,77 @@ async function run(saved=readReset(),carried){
   }
   let downwardSensors,landingCueTime=-Infinity;
   const groundStation=$('groundStation'),electrodeFrame=$('electrodeFrame');
+  const missionReady=Boolean(mode==='flight'&&world?.hasControl('stationUp'));
+  let groundPort,groundTime=-Infinity,missionWaypoints=[],missionSequence=0,missionPhase='idle';
+  function holdGroundMission(){
+    if(missionPhase!=='active'&&missionPhase!=='complete')return;
+    missionPhase='holding';
+    drone.manual=true;
+  }
+  function applyGroundWaypoint(){
+    const [east,north,up]=missionWaypoints[missionSequence];
+    drone.station(east,north);
+    world.set('stationUp',up);
+  }
+  function groundCommand(data){
+    if(data?.type!=='command'||!Number.isSafeInteger(data.id))return;
+    const answer=(ok,message)=>groundPort?.postMessage({type:'commandResult',id:data.id,ok,message});
+    if(!drone?.active||!missionReady){
+      answer(false,'Mission control is unavailable for this runtime.');
+      return;
+    }
+    if(data.command==='upload'){
+      const points=data.waypoints;
+      if(!Array.isArray(points)||points.length<1||points.length>7||
+        !points.every(point=>Array.isArray(point)&&point.length===3&&point.every(Number.isFinite)&&
+          Math.abs(point[0])<=1000&&Math.abs(point[1])<=1000&&point[2]>=1&&point[2]<=120)){
+        answer(false,'Enter 1–7 ENU waypoints within 1 km of the origin and 1–120 m up.');
+        return;
+      }
+      holdGroundMission();
+      missionWaypoints=points;missionSequence=0;missionPhase='loaded';
+      answer(true,'Mission uploaded.');
+    }else if(data.command==='start'){
+      if(!missionWaypoints.length){answer(false,'Upload a mission first.');return;}
+      if(drone.disarmed){answer(false,'Arm the RDD2 in Ocean Web before starting.');return;}
+      if(drone.landing||drone.takingOff){answer(false,'Wait for the current flight mode to finish.');return;}
+      if(missionPhase==='complete')missionSequence=0;
+      flightControl.value='0';flightControl.onchange();
+      missionPhase='active';
+      drone.manual=false;
+      applyGroundWaypoint();
+      answer(true,'Mission started.');
+    }else if(data.command==='hold'){
+      holdGroundMission();
+      answer(true,'Holding position.');
+    }
+  }
+  function advanceGroundMission(time){
+    if(time<groundTime+.09||(!groundPort&&missionPhase!=='active'))return;
+    groundTime=time;
+    const {position,velocity,roll,pitch,yaw}=drone.instruments();
+    if(missionPhase==='active'){
+      const [east,north,up]=missionWaypoints[missionSequence];
+      if(Math.hypot(position[0]-east,position[1]-north)<.60&&Math.abs(position[2]-up)<.28&&Math.hypot(...velocity)<.65){
+        if(missionSequence+1===missionWaypoints.length)missionPhase='complete';
+        else{missionSequence++;applyGroundWaypoint();}
+      }
+    }
+    groundPort?.postMessage({type:'telemetry',time,position:Array.from(position),velocity:Array.from(velocity),attitude:[roll,pitch,yaw],
+      armed:!drone.disarmed,mission:{state:missionPhase,sequence:missionSequence,waypoints:missionWaypoints}});
+  }
+  function closeGroundLink(){
+    groundPort?.close();groundPort=undefined;electrodeFrame.replaceChildren();
+  }
+  on(window,'message',event=>{
+    const iframe=electrodeFrame.firstElementChild;
+    if(!groundStation.open||!iframe||groundPort||event.origin!==location.origin||
+      event.source!==iframe.contentWindow||event.data?.type!=='ocean-rdd2-ready')return;
+    const channel=new MessageChannel();
+    groundPort=channel.port1;groundTime=-Infinity;
+    groundPort.onmessage=event=>groundCommand(event.data);
+    iframe.contentWindow.postMessage({type:'ocean-rdd2-connect'},location.origin,[channel.port2]);
+  });
   const groundCameras=[['groundFlow','droneFlowRaw'],['groundLanding','dronePadRaw']].map(([dest,source])=>[$(dest).getContext('2d'),$(source)]);
   function electrodeAddress(){
     const deployed=document.querySelector('meta[name="ocean-electrode-url"]')?.content;
@@ -2079,7 +2157,8 @@ async function run(saved=readReset(),carried){
     electrodeFrame.replaceChildren(iframe);
     groundStation.showModal();
   });
-  on(groundStation,'close',()=>electrodeFrame.replaceChildren());
+  on(groundStation,'close',closeGroundLink);
+  cleanup(closeGroundLink);
   const downRangeRay=new T.Raycaster(),rangeProbe=new T.Vector3(),rangeNormal=new T.Vector3(),normalTransform=new T.Matrix3();
   function droneRangeAt(origin,direction,solidOnly=false){
     if(direction.z>=-.15)return;
@@ -2697,7 +2776,7 @@ async function run(saved=readReset(),carried){
     raceSidebar.hidden=Boolean(sensorPanel);
     $('flightModeLabel').hidden=!drone?.active;
     $('droneSensors').hidden=!drone?.active;
-    $('openGroundStation').hidden=!drone?.active;
+    $('openGroundStation').hidden=!(drone?.active&&vehicleCatalog.drone.capabilities.groundStation);
     if(!drone?.active&&groundStation.open)groundStation.close();
     $('autoLandMode').hidden=$('autoLandMode').disabled=!drone?.hasAutoland;
     if(drone?.active){
@@ -2784,10 +2863,9 @@ async function run(saved=readReset(),carried){
   }
   $('showSticks').onclick=()=>{stickPreference=$('showSticks').getAttribute('aria-pressed')!=='true';touchControls();};
   const targetSelect=$('controlTarget');
-  if(hasBoat&&!cat){
-    targetSelect.querySelector('[value="boat"]').textContent='Pilothouse sloop';
-    $('otherSailboat').value='hobie';$('otherSailboat').textContent='Hobie 16';
-  }
+  const hullChoice=vehicleForRole('boat',cat),otherHull=vehicleForRole('boat',!cat);
+  targetSelect.replaceChildren(option(hullChoice,'boat'),option(otherHull),
+    ...oceanVehicles.filter(vehicle=>vehicle.role!=='boat').map(vehicle=>option(vehicle)));
   function changeVehicle(choice){
     if(signal.aborted)return;
     const link=vehicleLink(url,choice),online=$('multiplayer').getAttribute('aria-pressed')==='true';
@@ -2911,6 +2989,8 @@ async function run(saved=readReset(),carried){
   const flightControl=$('flightMode');
   flightControl.onchange=()=>{
     if(!drone)return;
+    holdGroundMission();
+    if(missionReady)world.set('stationUp',5);
     const choice=flightControl.value,race=choice==='race',landing=choice==='3',takeoff=choice==='takeoff';
     if((landing||takeoff)&&drone.disarmed){flightControl.value='0';return;}
     if(landing&&!drone.hasAutoland){flightControl.value='0';return;}
@@ -2938,6 +3018,7 @@ async function run(saved=readReset(),carried){
   }
   let automaticCut=false;
   function droneArmed(armed){
+    if(!armed)holdGroundMission();
     drone.cut(!armed);
     $('cutMotors').setAttribute('aria-pressed',String(!armed));
     $('cutMotors').textContent=armed?'Disarm':'Arm';
@@ -3004,6 +3085,7 @@ async function run(saved=readReset(),carried){
     if(!world && drone?.active && targetSelect.value!=='drone' && drone.manual){
       race.set('landingReaction',[0,0,0,0,0,0]);model.set('droneLoad',[0,0,0,0,0,0]);
     }
+    if(targetSelect.value!=='drone')holdGroundMission();
     drone?.select(targetSelect.value==='drone');
     const flying=Boolean(drone?.active);
     $('view').focus({preventScroll:true});
@@ -3019,7 +3101,7 @@ async function run(saved=readReset(),carried){
       viewSelect.value='deck';
     }
     $('flightKeys').hidden=!flying;
-    document.querySelector('h1').textContent=tender?'Boston Whaler 190':motor?'Sea Ray Sundancer 320':sub?.active?'Piccard Sub':flying?'RDD2 survey drone':(cat?'Hobie 16':'Sailboat');
+    document.querySelector('h1').textContent=vehicleForRole(targetSelect.value,cat)?.label??vesselConfig.label;
     touchControls();
   }
   targetSelect.value=selectedRole;targetSelect.disabled=false;targetSelect.onchange=selectTarget;
@@ -4108,7 +4190,7 @@ async function run(saved=readReset(),carried){
         }
         if(world.hasPeerWake){
           const shareWake=remote.wantsWakeSource && (Boolean(poweredHull) || hasBoat && $('controlTarget').value==='boat');
-          const drawWake=(hasBoat||poweredHull)&&!omitWake;
+          const drawWake=hasHullWake&&!omitWake;
           world.setWakeSourceRequested(shareWake||drawWake||Boolean(physicsEnabled&&model));
           const strips=world.get('waves.sourceStrips');
           const sources=remote.wakeSources(now,shareWake?strips:null,waterStamp());
@@ -4141,8 +4223,8 @@ async function run(saved=readReset(),carried){
           nextDrift.set(world.get('waves.driftE'),world.get('waves.driftN'));
           if(!lastHullHeight || lastDrift.distanceToSquared(nextDrift)>16)lastDrift.copy(nextDrift);
           ocean.updateHullSpectrum(hullHeight,nextDrift.x,nextDrift.y,world.get('waves.period'),
-            model||poweredHull?world.get('bowHeight'):undefined,world.get('bowFoam'));
-          if(!omitWake&&(model||poweredHull)){
+            hasHullWake?world.get('bowHeight'):undefined,world.get('bowFoam'));
+          if(!omitWake&&hasHullWake){
             const speed=world.get('bowSpeed')?.[0]??world.get('engine')?.[1]??model?.get('surge');
             ocean.updateHullFoam(world.get('waves.sourceStrips'),waveTick,speed,cat,Boolean(world.get('sternFoamTrail')),
               world.get('bowSpray'),world.get('bowFrame'),world.get('sternFoamTrail'));
@@ -4297,52 +4379,43 @@ async function run(saved=readReset(),carried){
         }
       }
       let whalerState,motorState;
-      if(tender){
-        const pose=world.get('boatPose'),engine=world.get('engine');
-        tender.group.position.fromArray(pose);tender.group.rotation.set(pose[3],pose[4],pose[5],'ZYX');
-        tender.draw(engine,frameSeconds,shaftCommand,anchorLowered,bilgeOn);
-        tender.starterRemaining=world.get('starterRemaining')??0;
-        tender.engineRunning=(world.get('engineRunning')??Number(engine[0]>45))>.5;
-        tender.propellerWetFraction=world.get('propellerWetFraction');
-        const [rpm,speed,thrust,steering]=engine;
-        whalerState={rpm,speed,thrust,steering,throttle:shaftCommand,anchorLowered,bilgeOn,
-          starterRemaining:tender.starterRemaining,engineRunning:tender.engineRunning,propellerWetFraction:tender.propellerWetFraction};
-        drawDriveAnchor(tender);
-        if(!animalId)$('readout').textContent=tender.starterRemaining>1e-6?'Starting engine…':Math.round(engine[0])+' rpm · '+(knotsPerMetrePerSecond*engine[1]).toFixed(1)+' kn';
-      }
-      if(motor||tender){
-        const fuel=world.get('fuelState');
+      if(poweredHull){
+        if(motor)checkCruiserPower(world,motor);
+        const pose=world.get('boatPose'),engine=world.get('engine'),[rpm,speed,thrust,steering]=engine;
+        const starterRemaining=Math.max(0,world.get('starterRemaining')??0);
+        const idle=world.get('engineIdleTime'),idleLimit=world.get('engineOffAfter'),runningOutput=world.get('engineRunning');
+        const engineRunning=runningOutput!==undefined?runningOutput>.5:idle!==undefined&&idleLimit!==undefined?
+          idle<idleLimit-1e-7&&starterRemaining<1e-6:tender?rpm>45:undefined;
+        const propellerWetFraction=world.get('propellerWetFraction')??world.get('propulsion.propellerWetFraction');
+        poweredHull.group.position.fromArray(pose);
+        poweredHull.group.rotation.set(pose[3],pose[4],pose[5],'ZYX');
+        Object.assign(poweredHull,{starterRemaining,engineRunning,propellerWetFraction,maxRPM:world.get('shaftRpmAhead')??poweredHull.maxRPM??1750});
+        if(tender){
+          tender.draw(engine,frameSeconds,shaftCommand,anchorLowered,bilgeOn);
+          whalerState={rpm,speed,thrust,steering,throttle:shaftCommand,anchorLowered,bilgeOn,
+            starterRemaining,engineRunning,propellerWetFraction};
+        }else{
+          const rad=Math.PI/180;
+          $('yawDegrees').value=$('lampYaw').value+'°';$('tiltDegrees').value=$('lampTilt').value+'°';
+          motorState=[rpm,steering,Number(!cruiserPowerLost&&$('searchLamp').checked),Number(!cruiserPowerLost&&$('keelLamp').checked),
+            rad*$('lampYaw').value,-rad*$('lampTilt').value,starterRemaining,engineRunning];
+          motor.update(t,rpm,steering,motorState.slice(2,6),roomTime);
+          motor.setWiper(world.get('wiperAngle')??0);
+          motor.setHelmSwitch('search',Boolean(motorState[2]));
+          motor.setHelmSwitch('underwater',Boolean(motorState[3]));
+          motor.setHelmSwitch('wipers',world.hasWiper&&wiperSwitch.checked);
+          motor.setHelmSwitch('anchor',anchorLowered);
+          motor.setHelmSwitch('bilge',bilgeOn);
+          motor.setHelmControls(shaftCommand,steering);
+          if(imagingActive())imagingPing(now,pose,ocean.sampleSurface,visitors.fish,visitors.contacts);
+        }
+        drawDriveAnchor(poweredHull);
+        const fuel=world.get('fuelState'),bilge=world.get('bilgeState');
         fuelReadout.hidden=!fuel||Boolean(animalId);
-        const bilge=world.get('bilgeState');
         bilgeReadout.hidden=bilgeSwitch.hidden||!bilge;
-        if(bilge)bilgeReadout.textContent='Bilge '+Math.max(0,bilge[0]).toFixed(1)+' L'+
-          (bilgeOn?' · '+bilge[2].toFixed(2)+' L/s pumped':'');
         if(fuel)fuelReadout.textContent='Fuel '+fuel[0].toFixed(1)+' / '+fuel[1]+' L · '+fuel[2].toFixed(1)+' L/h';
-      }
-      if(motor){
-        checkCruiserPower(world,motor);
-        const pose=world.get('boatPose'),engine=world.get('engine'),rad=Math.PI/180;
-        motor.starterRemaining=Math.max(0,world.get('starterRemaining'));
-        motor.maxRPM=world.get('shaftRpmAhead')??1750;
-        motor.propellerWetFraction=world.get('propellerWetFraction')??world.get('propulsion.propellerWetFraction');
-        const idle=world.get('engineIdleTime'),idleLimit=world.get('engineOffAfter');
-        const engineRunning=world.get('engineRunning');
-        motor.engineRunning=engineRunning!==undefined?engineRunning>.5:idle!==undefined&&idleLimit!==undefined?
-          idle<idleLimit-1e-7&&motor.starterRemaining<1e-6:undefined;
-        $('yawDegrees').value=$('lampYaw').value+'°';$('tiltDegrees').value=$('lampTilt').value+'°';
-        motor.group.position.fromArray(pose);motor.group.rotation.set(pose[3],pose[4],pose[5],'ZYX');
-        motorState=[engine[0],engine[3],Number(!cruiserPowerLost&&$('searchLamp').checked),Number(!cruiserPowerLost&&$('keelLamp').checked),rad*$('lampYaw').value,-rad*$('lampTilt').value,motor.starterRemaining,motor.engineRunning];
-        motor.update(t,...motorState.slice(0,2),motorState.slice(2,6),roomTime);
-        motor.setWiper(world.get('wiperAngle')??0);
-        motor.setHelmSwitch('search',Boolean(motorState[2]));
-        motor.setHelmSwitch('underwater',Boolean(motorState[3]));
-        motor.setHelmSwitch('wipers',world.hasWiper&&wiperSwitch.checked);
-        motor.setHelmSwitch('anchor',anchorLowered);
-        motor.setHelmSwitch('bilge',bilgeOn);
-        motor.setHelmControls(shaftCommand,engine[3]);
-        drawDriveAnchor(motor);
-        if(imagingActive())imagingPing(now,pose,ocean.sampleSurface,visitors.fish,visitors.contacts);
-        if(!animalId)$('readout').textContent=motor.starterRemaining>1e-6?'Starting engine…':Math.round(engine[0])+' rpm · '+(knotsPerMetrePerSecond*engine[1]).toFixed(1)+' kn';
+        if(bilge)bilgeReadout.textContent='Bilge '+Math.max(0,bilge[0]).toFixed(1)+' L'+(bilgeOn?' · '+bilge[2].toFixed(2)+' L/s pumped':'');
+        if(!animalId)$('readout').textContent=starterRemaining>1e-6?'Starting engine…':Math.round(rpm)+' rpm · '+(knotsPerMetrePerSecond*speed).toFixed(1)+' kn';
       }
       // The draw mesh eases between plant samples. Publish the measured pose
       // so another player's contact solver sees the current hull location.
@@ -4657,7 +4730,7 @@ async function run(saved=readReset(),carried){
       flightHud.hidden=!hud.enabled('fpv',true)||Boolean(animalId)||!(droneFpv||(subFpv&&!sub.breached));
       if(!flightHud.hidden&&droneFpv){
         const mode=drone.disarmed?'Disarmed':drone.takingOff?'Auto takeoff':drone.landing?'Autoland':
-          !drone.manual?'Race autopilot':drone.learned?'RL policy':flightControl.selectedOptions[0]?.text;
+          missionPhase==='active'||missionPhase==='complete'?'Ground station mission':!drone.manual?'Race autopilot':drone.learned?'RL policy':flightControl.selectedOptions[0]?.text;
         drawInstruments({...drone.instruments(),mode},camera.fov,renderer.domElement.clientHeight,courseTarget);
       }
       if(!flightHud.hidden&&subFpv){
@@ -5038,7 +5111,10 @@ async function run(saved=readReset(),carried){
         const status=$('flightModeStatus'),modeStatus=drone.disarmed?(automaticCut?'Landed · disarmed':'Disarmed'):drone.takingOff?'Climbing to launch height':
           drone.onCarrier?'On helipad · climb to launch':
           (['','Searching','Aligning','Descending','Landed'][drone.landingState]??'');
-        if(status.textContent!==modeStatus)status.textContent=modeStatus;
+        advanceGroundMission(t);
+        const flightStatus=missionPhase==='complete'?'Mission complete · holding':missionPhase==='active'?
+          'Mission waypoint '+(missionSequence+1)+' / '+missionWaypoints.length:modeStatus;
+        if(status.textContent!==flightStatus)status.textContent=flightStatus;
         const telemetry=['E '+e.toFixed(1)+' m','N '+n.toFixed(1)+' m','Altitude '+z.toFixed(2)+' m','Drag '+Math.hypot(...drone.drag).toFixed(2)+' N'];
         if(drone.manual&&flightControl.value!=='0')telemetry.push('Throttle '+Math.round(100*drone.throttle)+'%');
         const wash=physicsEnabled?drone.wakeLoad():null;

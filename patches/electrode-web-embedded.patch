@@ -1,13 +1,729 @@
+diff --git a/apps/web/src/lib/workers/comms.worker.ts b/apps/web/src/lib/workers/comms.worker.ts
+index 5bd5f32..9620571 100644
+--- a/apps/web/src/lib/workers/comms.worker.ts
++++ b/apps/web/src/lib/workers/comms.worker.ts
+@@ -12,6 +12,12 @@ import {
+   encodeRuntimeParameter,
+   encodeRuntimeParameterGet,
+   encodeRuntimeTrajectory,
++  isOceanEnu,
++  oceanTelemetryFrames,
++  oceanWaypointPacket,
++  type OceanEnu,
++  type OceanRdd2Command,
++  type OceanRdd2Telemetry,
+   decodeRuntimeParameterReply,
+   decodeSynapseLogFrames,
+   extractPlotSeriesUpdates,
+@@ -32,6 +38,8 @@ import zenohWasmUrl from '../zenohWasmUrl';
+ type WorkerIn =
+   | { type: 'connect'; mode: RuntimeMode; url: string; vehicleId: string }
+   | { type: 'disconnect' }
++  | { type: 'connectOcean'; port: MessagePort }
++  | { type: 'oceanCommand'; command: OceanRdd2Command; waypoints?: OceanEnu[] }
+   | { type: 'setSubscriptions'; keys: string[] }
+   | { type: 'setMocapDisplaySource'; source: 'auto' | 'raw' | 'external' }
+   | { type: 'virtualManual'; enabled: boolean; input?: VirtualManualInput }
+@@ -73,6 +81,10 @@ let vehicleId = 'electrode-01';
+ let state: VehicleState = createInitialVehicleState(vehicleId);
+ let mode: RuntimeMode = 'zenoh';
+ let zenoh: ZenohWasmTransport | null = null;
++let oceanPort: MessagePort | null = null;
++let oceanLastTelemetry = -Infinity;
++let oceanCommandId = 0;
++let pendingOceanCommand: { id: number; timer: ReturnType<typeof setTimeout> } | null = null;
+ let staleTimer: ReturnType<typeof setInterval> | null = null;
+ let replayTimer: ReturnType<typeof setInterval> | null = null;
+ let recording = false;
+@@ -109,6 +121,10 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerIn>) => {
+   if (message.type === 'connect') {
+     vehicleId = message.vehicleId || vehicleId;
+     connect(message.mode, message.url);
++  } else if (message.type === 'connectOcean') {
++    connectOcean(message.port);
++  } else if (message.type === 'oceanCommand') {
++    sendOceanCommand(message.command, message.waypoints);
+   } else if (message.type === 'disconnect') {
+     disconnect();
+   } else if (message.type === 'setSubscriptions') {
+@@ -128,7 +144,7 @@ ctx.addEventListener('message', (event: MessageEvent<WorkerIn>) => {
+     recording = true;
+     recorder = new SynapseLogRecorder({
+       vehicleId,
+-      source: `electrode-web/${mode}`,
++      source: oceanPort ? 'ocean-web/rdd2' : `electrode-web/${mode}`,
+       description: `electrode ${vehicleId} ${mode} session`
+     });
+     ctx.postMessage({ type: 'recording', recording, count: recorder.frameCount });
+@@ -196,7 +212,98 @@ function connect(nextMode: RuntimeMode, url: string): void {
+   }
+ }
+ 
++function connectOcean(port: MessagePort): void {
++  disconnect(false);
++  oceanPort = port;
++  vehicleId = 'ocean-rdd2';
++  state = createInitialVehicleState(vehicleId);
++  resetPlotState();
++  startStaleTimer();
++  let frameSequence = 0;
++  let missionId = 0;
++  let lastRoute = '';
++  port.onmessage = ({ data }: MessageEvent<unknown>) => {
++    if (oceanPort !== port || !data || typeof data !== 'object') return;
++    const message = data as Record<string, unknown>;
++    if (message.type === 'commandResult') {
++      if (pendingOceanCommand && message.id === pendingOceanCommand.id &&
++        typeof message.ok === 'boolean' && typeof message.message === 'string') {
++        finishOceanCommand(message.message, message.ok);
++      }
++      return;
++    }
++    if (message.type !== 'telemetry' || typeof message.time !== 'number' ||
++      !Number.isFinite(message.time) || message.time < 0 ||
++      !isOceanEnu(message.position) || !isOceanEnu(message.velocity) || !isOceanEnu(message.attitude) ||
++      typeof message.armed !== 'boolean' || !message.mission || typeof message.mission !== 'object') {
++      return;
++    }
++    const route = message.mission as Record<string, unknown>;
++    if (!Array.isArray(route.waypoints) || route.waypoints.length > 7 ||
++      !Array.from(route.waypoints).every(isOceanEnu)) return;
++    const waypoints = route.waypoints as OceanEnu[];
++    const missionState = route.state === 'active' || route.state === 'complete' ? route.state :
++      route.state === 'paused' || route.state === 'holding' ? 'paused' : 'idle';
++    const sequence = typeof route.sequence === 'number' && Number.isInteger(route.sequence) ?
++      Math.max(0, Math.min(waypoints.length - 1, route.sequence)) : 0;
++    const routeKey = JSON.stringify(waypoints);
++    const publishWaypoints = routeKey !== lastRoute;
++    if (publishWaypoints) {
++      lastRoute = routeKey;
++      missionId++;
++      if (waypoints.length === 0) state.mission = null;
++    }
++    oceanLastTelemetry = performance.now();
++    const now = Date.now();
++    const snapshot: OceanRdd2Telemetry = {
++      type: 'telemetry', time: message.time, position: message.position, velocity: message.velocity,
++      attitude: message.attitude, armed: message.armed, mission: { state: missionState, sequence, waypoints }
++    };
++    applyFrames(oceanTelemetryFrames(snapshot, {
++      sequence: ++frameSequence, sourceTimeNs: snapshot.time * 1e9,
++      receiveTimeNs: now * 1e6, expireTimeNs: 0, vehicleId, schemaVersion: 1,
++      messageType: '', priority: 'normal', streamId: 'ocean-rdd2'
++    }, missionId, publishWaypoints));
++  };
++  port.start();
++  postState();
++}
++
++function finishOceanCommand(message: string, ok: boolean): void {
++  if (pendingOceanCommand) clearTimeout(pendingOceanCommand.timer);
++  pendingOceanCommand = null;
++  ctx.postMessage({ type: 'oceanCommandStatus', pending: false, ok, message: message.slice(0, 200) });
++}
++
++function sendOceanCommand(command: OceanRdd2Command, waypoints: OceanEnu[] = []): void {
++  if (!oceanPort || performance.now() - oceanLastTelemetry > 2400) {
++    finishOceanCommand('Waiting for live Ocean Web telemetry.', false);
++    return;
++  }
++  if (pendingOceanCommand) return;
++  const id = ++oceanCommandId;
++  let message;
++  try {
++    message = command === 'upload'
++      ? { type: 'command', id, command, waypoints: oceanWaypointPacket(waypoints, id) }
++      : { type: 'command', id, command };
++  } catch (error) {
++    finishOceanCommand(error instanceof Error ? error.message : 'Invalid trajectory.', false);
++    return;
++  }
++  oceanPort.postMessage(message);
++  pendingOceanCommand = {
++    id, timer: setTimeout(() => finishOceanCommand('Ocean Web did not acknowledge the command.', false), 3500)
++  };
++  ctx.postMessage({ type: 'oceanCommandStatus', pending: true, ok: true, message: 'Waiting for Ocean Web…' });
++}
++
+ function disconnect(post = true): void {
++  oceanPort?.close();
++  oceanPort = null;
++  oceanLastTelemetry = -Infinity;
++  if (pendingOceanCommand) clearTimeout(pendingOceanCommand.timer);
++  pendingOceanCommand = null;
+   stopVirtualManualTimer();
+   if (runtimeRefreshTimer !== null) clearTimeout(runtimeRefreshTimer);
+   runtimeRefreshTimer = null;
 diff --git a/apps/web/src/routes/+page.svelte b/apps/web/src/routes/+page.svelte
-index dbb5eaf..31556d4 100644
+index dbb5eaf..09869e5 100644
 --- a/apps/web/src/routes/+page.svelte
 +++ b/apps/web/src/routes/+page.svelte
-@@ -847,7 +847,7 @@
+@@ -57,6 +57,8 @@
+     type Attitude,
+     type ConnectionState,
+     type MissionWaypoint,
++    type OceanEnu,
++    type OceanRdd2Command,
+     type Pose,
+     type PlotFieldDefinition,
+     type PlotPacketDefinition,
+@@ -77,6 +79,7 @@
+     | { type: 'recordingExport'; export: SynapseLogExport }
+     | { type: 'plotState'; plotState: PlotState }
+     | { type: 'topicCatalog'; catalog: TopicCatalog }
++    | { type: 'oceanCommandStatus'; pending: boolean; ok: boolean; message: string }
+     | { type: 'runtimeCommandStatus'; status: 'sent' | 'error'; message: string }
+     | { type: 'runtimeParameterValue'; name: string; value: number }
+     | { type: 'replay'; replay: ReplayState };
+@@ -252,6 +255,11 @@
+   }
+ 
+   let worker: Worker | null = null;
++  let oceanEmbedded = false;
++  let oceanWaypoints = '';
++  let oceanCommandPending = false;
++  let oceanCommandOk = true;
++  let oceanCommandMessage = '';
+   let theme: ThemeName = 'dark';
+   let activePage: GroundStationPage = initialGroundStationPage();
+   let dashboardProfile: DashboardProfile = initialDashboardProfile();
+@@ -398,24 +406,28 @@
+           ? `${vehicle.localization.source} · ${vehicle.localization.fresh ? 'fresh' : 'stale'}`
+           : 'no mocap source';
+   $: mission = vehicle.mission;
+-  // 2D map projection of the mission plan, using the same metres→percent
+-  // mapping as the vehicle marker.
+-  $: missionWaypoints = (mission?.waypoints ?? [])
+-    .filter((wp): wp is MissionWaypoint => wp !== null)
+-    .map((wp) => ({
+-      ...wp,
+-      mapX: clamp(50 + wp.east * 0.72, 8, 92),
+-      mapY: clamp(50 - wp.north * 0.72, 8, 92)
+-    }));
++  // Keep the live vehicle and the furthest uploaded waypoint in view on
++  // the local simulator map. The standalone ground station keeps its scale.
++  $: plannedWaypoints = (mission?.waypoints ?? []).filter((wp): wp is MissionWaypoint => wp !== null);
++  $: oceanMapRadius = 25 * Math.ceil(Math.max(50, Math.abs(pose?.xM ?? 0) + 10,
++    Math.abs(pose?.yM ?? 0) + 10, ...plannedWaypoints.map((wp) =>
++      Math.max(Math.abs(wp.east), Math.abs(wp.north)) + 10)) / 25);
++  $: mapScale = oceanEmbedded ? 42 / oceanMapRadius : 0.72;
++  $: missionWaypoints = plannedWaypoints.map((wp) => ({
++    ...wp,
++    mapX: clamp(50 + wp.east * mapScale, 8, 92),
++    mapY: clamp(50 - wp.north * mapScale, 8, 92)
++  }));
+   $: missionPathPoints = missionWaypoints.map((wp) => `${wp.mapX},${wp.mapY}`).join(' ');
+-  $: mapSubtitle =
+-    mapViewMode === '2d'
++  $: mapSubtitle = oceanEmbedded
++    ? `Local ${format(pose?.xM)} E / ${format(pose?.yM)} N m`
++    : mapViewMode === '2d'
+       ? pose
+         ? `${pose.lat.toFixed(6)}, ${pose.lon.toFixed(6)}`
+         : 'no fix'
+       : `${vehicle.localization.source} · local ${format(pose?.xM)} / ${format(pose?.yM)} m`;
+-  $: mapX = clamp(50 + (pose?.xM ?? 0) * 0.72, 8, 92);
+-  $: mapY = clamp(50 - (pose?.yM ?? 0) * 0.72, 8, 92);
++  $: mapX = clamp(50 + (pose?.xM ?? 0) * mapScale, 8, 92);
++  $: mapY = clamp(50 - (pose?.yM ?? 0) * mapScale, 8, 92);
+   $: yawDeg = attitude?.yawDeg ?? 0;
+   $: rollDeg = attitude?.rollDeg ?? 0;
+   $: pitchDeg = attitude?.pitchDeg ?? 0;
+@@ -804,22 +816,52 @@
+     }
+   }
+ 
++  function sendOceanCommand(command: OceanRdd2Command, waypoints?: OceanEnu[]): void {
++    worker?.postMessage({ type: 'oceanCommand', command, waypoints });
++  }
++
++  function uploadOceanMission(): void {
++    const lines = oceanWaypoints.split('\n').map((line) => line.trim()).filter(Boolean);
++    if (lines.length === 0 || lines.length > 7) {
++      oceanCommandOk = false;
++      oceanCommandMessage = 'Enter one to seven waypoints.';
++      return;
++    }
++    const waypoints: OceanEnu[] = [];
++    for (const [index, line] of lines.entries()) {
++      const fields = line.split(',').map((field) => field.trim());
++      if (fields.length !== 3 || fields.some((field) => !field || !Number.isFinite(Number(field)))) {
++        oceanCommandOk = false;
++        oceanCommandMessage = `Line ${index + 1} must contain east, north, up in metres.`;
++        return;
++      }
++      waypoints.push([Number(fields[0]), Number(fields[1]), Number(fields[2])]);
++    }
++    sendOceanCommand('upload', waypoints);
++  }
++
+   onMount(() => {
+     const stored = document.documentElement.dataset.theme;
+     theme = stored === 'light' ? 'light' : 'dark';
++    const parameters = new URLSearchParams(window.location.search);
++    oceanEmbedded = isOceanEmbed(parameters);
++    if (oceanEmbedded) showMocapView = false;
+ 
+-    // Unlock Ground Station (hardware) features when a local backend answers on
+-    // this origin; otherwise this is the display-only Viewer.
+-    void detectGroundStation().then(() => {
+-      void refreshAutopilotRun();
+-      void refreshManualBridge();
+-    });
+-    const autopilotTimer = setInterval(() => void refreshAutopilotRun(), 2000);
+-    const manualBridgeTimer = setInterval(() => void refreshManualBridge(), 2000);
+     const keydown = (event: KeyboardEvent) => handleKeyboardRemote(event, true);
+     const keyup = (event: KeyboardEvent) => handleKeyboardRemote(event, false);
+-    window.addEventListener('keydown', keydown);
+-    window.addEventListener('keyup', keyup);
++    let autopilotTimer: ReturnType<typeof setInterval> | undefined;
++    let manualBridgeTimer: ReturnType<typeof setInterval> | undefined;
++    if (!oceanEmbedded) {
++      // Only the standalone app probes for host hardware.
++      void detectGroundStation().then(() => {
++        void refreshAutopilotRun();
++        void refreshManualBridge();
++      });
++      autopilotTimer = setInterval(() => void refreshAutopilotRun(), 2000);
++      manualBridgeTimer = setInterval(() => void refreshManualBridge(), 2000);
++      window.addEventListener('keydown', keydown);
++      window.addEventListener('keyup', keyup);
++    }
+ 
+     worker = new Worker(new URL('$lib/workers/comms.worker.ts', import.meta.url), { type: 'module' });
+     worker.addEventListener('message', (event: MessageEvent<WorkerOut>) => {
+@@ -836,6 +878,10 @@
+         plotState = message.plotState;
+       } else if (message.type === 'topicCatalog') {
+         topicCatalog = message.catalog;
++      } else if (message.type === 'oceanCommandStatus') {
++        oceanCommandPending = message.pending;
++        oceanCommandOk = message.ok;
++        oceanCommandMessage = message.message;
+       } else if (message.type === 'runtimeCommandStatus') {
+         runtimeCommandStatus = message.message;
+       } else if (message.type === 'runtimeParameterValue') {
+@@ -846,10 +892,28 @@
+       }
      });
  
-     syncKeyboardRemote(keyboardRemoteActive, keyboardRevision);
+-    syncKeyboardRemote(keyboardRemoteActive, keyboardRevision);
 -    connect();
-+    if (new URLSearchParams(window.location.search).get('connect') !== '0') connect();
++    let oceanPortAccepted = false;
++    const acceptOceanPort = (event: MessageEvent) => {
++      if (event.source !== window.parent || event.origin !== window.location.origin ||
++        event.data?.type !== 'ocean-rdd2-connect' || event.ports.length !== 1) return;
++      const [port] = event.ports;
++      if (oceanPortAccepted || !worker) {
++        port.close();
++        return;
++      }
++      oceanPortAccepted = true;
++      worker.postMessage({ type: 'connectOcean', port }, [port]);
++    };
++    if (oceanEmbedded) {
++      window.addEventListener('message', acceptOceanPort);
++      window.parent.postMessage({ type: 'ocean-rdd2-ready' }, window.location.origin);
++    } else {
++      syncKeyboardRemote(keyboardRemoteActive, keyboardRevision);
++      if (parameters.get('connect') !== '0') connect();
++    }
  
      return () => {
++      window.removeEventListener('message', acceptOceanPort);
        clearInterval(autopilotTimer);
+       clearInterval(manualBridgeTimer);
+       window.removeEventListener('keydown', keydown);
+@@ -883,13 +947,19 @@
+     worker?.postMessage({ type: 'connect', mode: runtimeMode, url, vehicleId });
+   }
+ 
++  function isOceanEmbed(parameters: URLSearchParams): boolean {
++    return window.parent !== window && parameters.get('airframe') === 'drone' &&
++      parameters.get('connect') === '0';
++  }
++
+   function initialMapViewMode(): MapViewMode {
+     if (typeof window === 'undefined') {
+       return '3d';
+     }
+ 
+-    const requested = new URLSearchParams(window.location.search).get('map') as MapViewMode | null;
+-    return requested && mapViewModes.includes(requested) ? requested : '3d';
++    const parameters = new URLSearchParams(window.location.search);
++    const requested = parameters.get('map') as MapViewMode | null;
++    return requested && mapViewModes.includes(requested) ? requested : isOceanEmbed(parameters) ? '2d' : '3d';
+   }
+ 
+   function initialGroundStationPage(): GroundStationPage {
+@@ -1253,6 +1323,7 @@
+     </div>
+ 
+     <div class="header-actions">
++      {#if !oceanEmbedded}
+       <div class="airframe-switch" aria-label="Airframe dashboard">
+         {#each dashboardProfiles as entry}
+           <button
+@@ -1267,6 +1338,7 @@
+           </button>
+         {/each}
+       </div>
++      {/if}
+       <details class="settings-menu">
+         <summary class="icon-button quiet" aria-label="Settings" title="Settings">
+           <Settings size={18} />
+@@ -1483,7 +1555,38 @@
+       </div>
+     </section>
+ 
+-    {#if dashboardProfile === 'drone'}
++    {#if oceanEmbedded}
++      <section class="panel telemetry-panel ocean-mission-panel">
++        <div class="panel-heading">
++          <div>
++            <h2>RDD2 mission</h2>
++            <p>{vehicle.connected ? 'Live simulation telemetry' : 'Waiting for Ocean Web'}</p>
++            {#if mission?.total}
++              <p>Waypoint {mission.currentSeq + 1}/{mission.total} · {mission.state}</p>
++            {/if}
++          </div>
++          <MapPinned size={20} />
++        </div>
++        <label class="ocean-waypoints">
++          <span>Waypoints in metres, east, north, up</span>
++          <textarea
++            bind:value={oceanWaypoints}
++            rows="3"
++            placeholder={'-32, -8, 8\n-20, -5, 10'}
++            spellcheck="false"
++          ></textarea>
++        </label>
++        <div class="button-row">
++          <button type="button" class="icon-button" onclick={uploadOceanMission}
++            disabled={!vehicle.connected || oceanCommandPending}>Upload route</button>
++          <button type="button" class="icon-button primary" onclick={() => sendOceanCommand('start')}
++            disabled={!vehicle.connected || oceanCommandPending || !mission?.total || mission.state === 'active'}>Start mission</button>
++          <button type="button" class="icon-button" onclick={() => sendOceanCommand('hold')}
++            disabled={!vehicle.connected || oceanCommandPending || mission?.state !== 'active'}>Hold position</button>
++        </div>
++        <output class:warn={!oceanCommandOk}>{oceanCommandMessage}</output>
++      </section>
++    {:else if dashboardProfile === 'drone'}
+       <section class="panel telemetry-panel">
+         <div class="panel-heading">
+           <div>
+@@ -1629,7 +1732,7 @@ vehicle built -S mocap-gnss; the default build drops injected fixes."
+ 
+     <!-- Both airframes fly on mocap indoors, so the capture link is configured
+          from either dashboard rather than only the one it was asked for on. -->
+-    <section class="panel mocap-panel">
++    <section class="panel mocap-panel" class:hidden={oceanEmbedded}>
+       <div class="panel-heading">
+         <div>
+           <h2>Mocap</h2>
+@@ -1753,13 +1856,13 @@ disconnects the link."
+         <div>
+           <h2>Map</h2>
+           <p>
+-            {mapSubtitle}{dashboardProfile === 'drone' && mapViewMode === '3d'
++            {mapSubtitle}{!oceanEmbedded && dashboardProfile === 'drone' && mapViewMode === '3d'
+               ? ` · ${odomSourceNote}${ghostNote}`
+               : ''}
+           </p>
+         </div>
+         <div class="map-tools">
+-          {#if dashboardProfile === 'drone'}
++          {#if dashboardProfile === 'drone' && !oceanEmbedded}
+             <!-- Two independent toggles, not a two-way switch: comparing the
+                  sources means seeing both. Also drives Control Surfaces, so it
+                  stays available in 2D. -->
+@@ -1845,7 +1948,7 @@ disconnects the link."
+               </g>
+             </svg>
+           </div>
+-          <div class="map-scale">50 m</div>
++          <div class="map-scale">{oceanEmbedded ? `±${oceanMapRadius} m` : '50 m'}</div>
+         </div>
+       {:else}
+         <IndoorScene
+@@ -1868,7 +1971,7 @@ disconnects the link."
+       {/if}
+     </section>
+ 
+-    <section class="panel deflect-panel">
++    <section class="panel deflect-panel" class:hidden={oceanEmbedded}>
+       <div class="panel-heading">
+         <div>
+           <h2>Control Surfaces</h2>
+@@ -2248,7 +2351,7 @@ disconnects the link."
+       </div>
+     </section>
+ 
+-    <section class="panel discovery-panel">
++    <section class="panel discovery-panel" class:hidden={oceanEmbedded}>
+       <div class="panel-heading">
+         <div>
+           <h2>Discovery</h2>
+@@ -2337,6 +2440,27 @@ disconnects the link."
+ </main>
+ 
+ <style>
++  .ocean-mission-panel,
++  .ocean-waypoints {
++    display: grid;
++    gap: 8px;
++  }
++
++  .ocean-waypoints textarea {
++    border: 1px solid currentColor;
++    border-radius: 5px;
++    padding: 7px;
++    background: transparent;
++    color: inherit;
++    font: inherit;
++    resize: vertical;
++  }
++
++  .telemetry-panel.ocean-mission-panel {
++    grid-row: span 38;
++    align-content: start;
++  }
++
+   :global(html) {
+     background: #f6f7f8;
+     color: #171b1f;
+diff --git a/packages/electrode-sdk/src/index.ts b/packages/electrode-sdk/src/index.ts
+index 5d6fd93..da8eed1 100644
+--- a/packages/electrode-sdk/src/index.ts
++++ b/packages/electrode-sdk/src/index.ts
+@@ -1,4 +1,5 @@
+ export * from './mocap-encode';
++export * from './ocean-rdd2';
+ export * from './plotting';
+ export * from './replay';
+ export * from './runtime-control';
+diff --git a/packages/electrode-sdk/src/ocean-rdd2.test.ts b/packages/electrode-sdk/src/ocean-rdd2.test.ts
+new file mode 100644
+index 0000000..f64cbba
+--- /dev/null
++++ b/packages/electrode-sdk/src/ocean-rdd2.test.ts
+@@ -0,0 +1,40 @@
++import { describe, expect, it } from 'vitest';
++
++import { oceanTelemetryFrames, oceanWaypointPacket, type OceanRdd2Telemetry } from './ocean-rdd2';
++import { applyGcsFrame, createInitialVehicleState } from './state-store';
++import type { MessageHeader } from './types';
++
++describe('Ocean Web RDD2 FlatBuffers', () => {
++  it('recovers a single target and all cubic segment endpoints without spurious points', () => {
++    expect(oceanWaypointPacket([[3, -4, 8]], 1)).toEqual([[3, -4, 8]]);
++    expect(oceanWaypointPacket([[3, -4, 8], [7, 2, 10], [8, 2, 6]], 2))
++      .toEqual([[3, -4, 8], [7, 2, 10], [8, 2, 6]]);
++    expect(() => oceanWaypointPacket([[3, -4, Infinity]], 3)).toThrow(/finite/);
++  });
++
++  it('applies the wire topics to the live map, health, route and target', () => {
++    const now = Date.now();
++    const header: MessageHeader = {
++      sequence: 1, schemaVersion: 1, priority: 'normal', vehicleId: 'ocean-rdd2',
++      messageType: '', streamId: 'ocean-rdd2', receiveTimeNs: now * 1e6, sourceTimeNs: 3e9, expireTimeNs: 0
++    };
++    const sample: OceanRdd2Telemetry = {
++      type: 'telemetry', time: 3, position: [-32, -8, 5], attitude: [0, 0, Math.PI / 2],
++      velocity: [3, 4, 1], armed: true,
++      mission: { state: 'active', sequence: 1, waypoints: [[-32, -8, 5], [-22, -8, 7]] }
++    };
++    let state = createInitialVehicleState(header.vehicleId);
++    for (const frame of oceanTelemetryFrames(sample, header, 5, true)) {
++      state = applyGcsFrame(state, frame, now);
++    }
++    expect(state.connected).toBe(true);
++    expect(state.pose).toMatchObject({ xM: -32, yM: -8, altM: 5 });
++    expect(state.velocity).toMatchObject({ eastMps: 3, northMps: 4, downMps: -1, groundSpeedMps: 5 });
++    expect(state.mode).toMatchObject({ name: 'auto', armed: true });
++    expect(state.mission).toMatchObject({
++      missionId: 5, state: 'active', currentSeq: 1, total: 2,
++      target: { east: -22, north: -8, up: 7 },
++      waypoints: [{ east: -32, north: -8, up: 5 }, { east: -22, north: -8, up: 7 }]
++    });
++  });
++});
+diff --git a/packages/electrode-sdk/src/ocean-rdd2.ts b/packages/electrode-sdk/src/ocean-rdd2.ts
+new file mode 100644
+index 0000000..3c261b1
+--- /dev/null
++++ b/packages/electrode-sdk/src/ocean-rdd2.ts
+@@ -0,0 +1,173 @@
++import { parseKey } from '@cognipilot/synapse-fbs/topic_catalog';
++import { Builder, ByteBuffer } from 'flatbuffers';
++
++import { TrajectorySetRequest } from './generated/synapse/cmd/trajectory-set-request.js';
++import { AttitudeEstimateData } from './generated/synapse/topic/attitude-estimate-data.js';
++import { AttitudeEstimateFlags } from './generated/synapse/topic/attitude-estimate-flags.js';
++import { LocalPositionCommandData } from './generated/synapse/topic/local-position-command-data.js';
++import { LocalPositionCommandMask } from './generated/synapse/topic/local-position-command-mask.js';
++import { MissionProgressData } from './generated/synapse/topic/mission-progress-data.js';
++import { TrajectoryDegree } from './generated/synapse/topic/trajectory-degree.js';
++import { TrajectorySegmentData, TrajectorySegmentDataT } from './generated/synapse/topic/trajectory-segment-data.js';
++import { TrajectoryType } from './generated/synapse/topic/trajectory-type.js';
++import { VehicleHealthData } from './generated/synapse/topic/vehicle-health-data.js';
++import { VehicleHealthFlags } from './generated/synapse/topic/vehicle-health-flags.js';
++import { LocalFrame } from './generated/synapse/types/local-frame.js';
++import { MissionState } from './generated/synapse/types/mission-state.js';
++import { Vec3fT } from './generated/synapse/types/vec3f.js';
++import { encodeMocapFrame } from './mocap-encode';
++import { decode, expectedTopicEncoding } from './synapse-decode';
++import type { GcsFrame, MessageHeader } from './types';
++
++export type OceanEnu = [number, number, number];
++export type OceanRdd2Command = 'upload' | 'start' | 'hold';
++export type OceanRdd2MissionState = 'idle' | 'active' | 'paused' | 'complete';
++
++export interface OceanRdd2Telemetry {
++  type: 'telemetry';
++  time: number;
++  position: OceanEnu;
++  velocity: OceanEnu;
++  attitude: OceanEnu;
++  armed: boolean;
++  mission: { state: OceanRdd2MissionState; sequence: number; waypoints: OceanEnu[] };
++}
++
++const zero: OceanEnu = [0, 0, 0];
++const missionStates: Record<OceanRdd2MissionState, MissionState> = {
++  idle: MissionState.Idle,
++  active: MissionState.Active,
++  paused: MissionState.Paused,
++  complete: MissionState.Complete
++};
++const ignoreDerivatives =
++  LocalPositionCommandMask.IgnoreVelocityX |
++  LocalPositionCommandMask.IgnoreVelocityY |
++  LocalPositionCommandMask.IgnoreVelocityZ |
++  LocalPositionCommandMask.IgnoreAccelerationX |
++  LocalPositionCommandMask.IgnoreAccelerationY |
++  LocalPositionCommandMask.IgnoreAccelerationZ |
++  LocalPositionCommandMask.IgnoreYawRate;
++
++export function isOceanEnu(value: unknown): value is OceanEnu {
++  return Array.isArray(value) && value.length === 3 &&
++    [value[0], value[1], value[2]].every((component) =>
++      typeof component === 'number' && Number.isFinite(component));
++}
++
++function bezierSegment(
++  from: OceanEnu, to: OceanEnu, id: number, version: number, index: number, timestamp: bigint
++): TrajectorySegmentDataT {
++  const between = (u: number) => new Vec3fT(
++    from[0] + u * (to[0] - from[0]),
++    from[1] + u * (to[1] - from[1]),
++    from[2] + u * (to[2] - from[2])
++  );
++  const segment = new TrajectorySegmentDataT();
++  segment.timestampUs = timestamp;
++  segment.trajectoryId = id;
++  segment.planVersion = version;
++  segment.segmentSeq = index;
++  segment.p0EnuM = between(0);
++  segment.p1EnuM = between(1 / 3);
++  segment.p2EnuM = between(2 / 3);
++  segment.p3EnuM = between(1);
++  segment.trajectoryType = TrajectoryType.Bezier;
++  segment.degree = TrajectoryDegree.Cubic;
++  segment.frame = LocalFrame.LocalEnu;
++  return segment;
++}
++
++/** Encode one complete local route and recover its canonical float32 waypoint tuples. */
++export function oceanWaypointPacket(waypoints: OceanEnu[], id: number): OceanEnu[] {
++  if (waypoints.length === 0 || waypoints.length > 7 || !Array.from(waypoints).every(isOceanEnu)) {
++    throw new Error('Enter one to seven finite east, north, up waypoints.');
++  }
++  const builder = new Builder(2048);
++  const count = Math.max(1, waypoints.length - 1);
++  TrajectorySetRequest.startSegmentsVector(builder, count);
++  for (let i = count - 1; i >= 0; i--) {
++    bezierSegment(waypoints[i], waypoints[i + 1] ?? waypoints[i], id, 1, i, 0n).pack(builder);
++  }
++  const segments = builder.endVector();
++  builder.finish(TrajectorySetRequest.createTrajectorySetRequest(builder, id, 0, 1, 0, count, 0, 0, segments));
++  const request = TrajectorySetRequest.getRootAsTrajectorySetRequest(new ByteBuffer(builder.asUint8Array()));
++  if (request.trajectoryId() !== id || request.segmentsLength() !== count || request.total() !== count) {
++    throw new Error('Could not encode the Synapse trajectory.');
++  }
++  const verified: OceanEnu[] = [];
++  for (let i = 0; i < count; i++) {
++    const segment = request.segments(i);
++    const first = segment?.p0EnuM();
++    const last = segment?.p3EnuM();
++    if (!first || !last || segment?.segmentSeq() !== i || segment.frame() !== LocalFrame.LocalEnu) {
++      throw new Error('Invalid local Synapse trajectory segment.');
++    }
++    if (!i) verified.push([first.x(), first.y(), first.z()]);
++    if (waypoints.length > 1) verified.push([last.x(), last.y(), last.z()]);
++  }
++  if (!verified.every(isOceanEnu)) throw new Error('Waypoint exceeds the Synapse coordinate range.');
++  return verified;
++}
++
++function orientation([roll, pitch, yaw]: OceanEnu) {
++  const c = Math.cos(roll / 2), s = Math.sin(roll / 2);
++  const p = Math.cos(pitch / 2), q = Math.sin(pitch / 2);
++  const y = Math.cos(yaw / 2), z = Math.sin(yaw / 2);
++  return { w: c * p * y + s * q * z, x: s * p * y - c * q * z,
++    y: c * q * y + s * p * z, z: c * p * z - s * q * y };
++}
++
++function struct(size: number, write: (builder: Builder) => number): Uint8Array {
++  const builder = new Builder(size);
++  const offset = write(builder);
++  return builder.dataBuffer().bytes().slice(-offset);
++}
++
++export function oceanTelemetryFrames(
++  telemetry: OceanRdd2Telemetry, header: MessageHeader, missionId: number, publishWaypoints: boolean
++): GcsFrame[] {
++  const frames: GcsFrame[] = [];
++  const timestamp = BigInt(Math.round(telemetry.time * 1e6));
++  const [x, y, z] = telemetry.position;
++  const attitude = orientation(telemetry.attitude);
++  const { waypoints, state, sequence } = telemetry.mission;
++  function packet(topic: string, bytes: Uint8Array) {
++    const schema = parseKey(topic)?.topic;
++    const decoded = decode(topic, bytes, schema ? expectedTopicEncoding(schema) : undefined);
++    if (decoded.decoded) {
++      frames.push({ kind: 'telemetry', topic, header: { ...header, messageType: decoded.schema }, payload: decoded.payload });
++    }
++  }
++  packet('synapse/mocap/frame', encodeMocapFrame({ position: { x, y, z }, attitude }, {
++    bodyId: 1, timestampUs: Number(timestamp), frameNumber: header.sequence
++  }));
++  packet('att', struct(AttitudeEstimateData.sizeOf(), (builder) =>
++    AttitudeEstimateData.createAttitudeEstimateData(builder, timestamp,
++      attitude.w, attitude.x, attitude.y, attitude.z, ...zero, AttitudeEstimateFlags.AttitudeValid)));
++  packet('health', struct(VehicleHealthData.sizeOf(), (builder) =>
++    VehicleHealthData.createVehicleHealthData(builder, timestamp, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
++      -1, 2, Number(state === 'active'), 0, 100, telemetry.armed ? VehicleHealthFlags.Armed : 0)));
++  packet('mission', struct(MissionProgressData.sizeOf(), (builder) =>
++    MissionProgressData.createMissionProgressData(builder, timestamp, missionId, 0, 0,
++      sequence, waypoints.length, missionStates[state], 0)));
++  const target = waypoints[sequence];
++  if (target) {
++    packet('pos_sp', struct(LocalPositionCommandData.sizeOf(), (builder) =>
++      LocalPositionCommandData.createLocalPositionCommandData(builder, timestamp, ...target, ...zero,
++        ...zero, telemetry.attitude[2], 0, ignoreDerivatives, LocalFrame.LocalEnu)));
++  }
++  if (publishWaypoints) {
++    for (const [i, point] of waypoints.entries()) {
++      packet('traj', struct(TrajectorySegmentData.sizeOf(), (builder) =>
++        bezierSegment(point, waypoints[i + 1] ?? point, missionId, 1, i, timestamp).pack(builder)));
++    }
++  }
++  const [eastMps, northMps, upMps] = telemetry.velocity;
++  frames.push({
++    kind: 'telemetry', topic: `vehicle/${header.vehicleId}/state/velocity`,
++    header: { ...header, messageType: 'Velocity' },
++    payload: { eastMps, northMps, downMps: -upMps, groundSpeedMps: Math.hypot(eastMps, northMps) }
++  });
++  return frames;
++}

@@ -295,7 +295,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <section id="vehiclePanel" aria-labelledby="hudMenuTitle" hidden>
 <div class="hud-drawer-head"><h2 id="hudMenuTitle">Controls</h2><button type="button" id="hudDone">Close</button></div>
 <div id="vehicleControls" class="control-fields quick-controls"><div class="control-grid">
-<label class="control-select"><span>Model</span><select id="controlTarget" disabled><option value="boat">Hobie 16</option><option id="otherSailboat" value="sloop">Pilothouse sloop</option><option value="motorboat">Sea Ray Sundancer 320</option><option value="whaler">Boston Whaler 190</option><option value="drone">Drone: RDD2</option><option value="sub">Sub: Piccard</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option><option value="gull">Herring gull</option></select></label>
+<label class="control-select"><span>Model</span><select id="controlTarget" disabled></select></label>
 <label class="control-select"><span>Camera</span><select id="cameraDepth"><option value="deck">Orbit</option><option value="line">Waterline</option><option value="keel">Under hull</option><option hidden id="droneFpvOption" value="fpv">Drone FPV</option><option hidden id="droneDownOption" value="droneDown">Downward camera</option><option hidden id="onboardOption" value="onboard">Piccard Sub FPV</option><option value="gull" hidden disabled>Gull cam</option><option value="whale" hidden disabled>Whale cam</option><option value="shark" hidden disabled>Shark cam</option><option value="manta" hidden disabled>Manta cam</option><option value="diver" hidden disabled>Diver orbit</option><option value="diverEyes" hidden disabled>Diver first person</option></select></label>
 <label class="control-select" id="hobieControllerLabel" hidden><span>Helm controller</span><select id="hobieController"><option value="manual">Manual</option><option value="vmg">VMG autopilot</option><option value="rl">RL policy</option></select></label>
 <label class="control-select" id="diverModeLabel" hidden><span>Dive mode</span><select id="diverMode"><option value="manual">Manual</option><option value="learned">Learned swim</option><option value="auto">Auto patrol</option></select></label>
@@ -481,7 +481,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <details class="control-pane" id="wildlifeSpawn"><summary>Spawn NPC</summary>
 <div class="control-fields">
 <div class="control-row">
-<label class="control-select"><span>NPC model</span><select id="spawnKind" aria-label="NPC model"><option value="hobie">Hobie 16</option><option value="sloop">Pilothouse sloop</option><option value="motorboat">Sea Ray Sundancer 320</option><option value="drone">RDD2 drone</option><option value="sub">Piccard submarine</option><option value="gull">Herring gull</option><option value="whale">Humpback whale</option><option value="shark">Great white shark</option><option value="manta">Manta ray</option><option value="diver">Scuba diver</option></select></label>
+<label class="control-select"><span>NPC model</span><select id="spawnKind" aria-label="NPC model"></select></label>
 <label class="control-select" id="npcControllerLabel"><span>Hobie controller</span><select id="npcController"></select></label>
 <label class="control-select" id="npcDiveSiteLabel" hidden><span>Dive site</span><select id="npcDiveSite"></select></label>
 <button id="spawnAnimal" type="button">Spawn NPC</button> <button id="spawnHobieRace" type="button" title="Add four Hobie 16s to the same race, one per controller">Race all four controllers</button>
@@ -609,18 +609,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <output id="fleetDirectoryStatus" aria-live="polite"></output></fieldset>
 <form method="dialog">
 <label for="vehicleType">Vehicle type</label>
-<select id="vehicleType">
-<option value="hobie">Hobie 16</option>
-<option value="diver">Scuba diver</option>
-<option value="motorboat">Sea Ray Sundancer 320</option>
-<option value="whaler">Boston Whaler 190</option>
-<option value="sloop">Pilothouse sloop</option>
-<option value="drone">RDD2 drone</option>
-<option value="sub">Piccard Sub</option>
-<option value="whale">Humpback whale</option>
-<option value="shark">Great white shark</option><option value="manta">Manta ray</option>
-<option value="gull">Herring gull</option>
-</select>
+<select id="vehicleType"></select>
 <div id="entrySpawnFields" hidden><label for="entrySpawn">Spawn point</label>
 <div class="entry-spawn-row"><select id="entrySpawn"></select><button type="button" id="entryMapOpen" aria-haspopup="dialog" aria-controls="entryMap">Choose on map</button></div></div>
 <button id="launchFleet" type="submit">Start simulation</button>

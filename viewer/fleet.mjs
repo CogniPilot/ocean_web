@@ -13,6 +13,7 @@ import {FleetSeaClock} from './fleet-sea-clock.mjs';
 import {loadVehicleShell,vehicleShell} from './vehicle-assets.mjs';
 import {sailboatMesh} from './board/boat.mjs';
 import {createWhaler} from './regatta.mjs';
+import {vehicleCatalog,vehicleForRole} from './vehicle-catalog.mjs';
 import {fleetRelays as relays} from './fleet-directory.mjs';
 const channels=4;
 const sailFloats=216;
@@ -326,7 +327,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   async function loadPeerBoat(id,peer){
     peer.loadingHull=true;
     try{
-      await loadVehicleShell(peer.cat?'hobie-hulls':'sloop-hull');
+      await loadVehicleShell(peer.vehicle.asset);
       if(peers.get(id)!==peer)return;
       peer.mesh=sailboatMesh(T,peer.cat);
       if(peer.cat)peer.mesh.setSailNumber(fleetNumber(id));
@@ -343,7 +344,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   function drawPeerWhaler(peer,p,d,f,now){
     if(!whalerReady){
       if(!loadingWhaler&&now>=retryWhalerAt){
-        loadingWhaler=Promise.resolve(loadVehicleShell('boston-whaler-190'))
+        loadingWhaler=Promise.resolve(loadVehicleShell(peer.vehicle.asset))
           .then(()=>{whalerReady=true;})
           .catch(error=>{retryWhalerAt=performance.now()+10000;console.warn('Remote Whaler mesh',error);})
           .finally(()=>{loadingWhaler=null;});
@@ -386,7 +387,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       for(const m of materials){if(m.map&&!m.map.userData.sharedSubsea)textures.add(m.map);m.dispose();}
       for(const item of [...textures,...geometries])item.dispose();
       peer.whaler?.dispose();
-      if(peer.kind==='boat'||peer.kind==='motorboat'){boatCount--;trafficChanged=true;}
+      if(peer.vehicle.capabilities.peerHullClass){boatCount--;trafficChanged=true;}
       peers.delete(id);}
   }
   function leave(){lifts.bind(null);resetChannel=null;lastReset=pendingReset=undefined;finishes.clear();finishChannel=null;if(seaClock)retainedOffset=seaClock.offset;const old=room;npc.connect(null);laps?.connect(null);chatChannel=null;lapChannel=null;starterChannel=null;engineChannel=null;starters.clear();engineStates.clear();encounterChannel=null;encounter=undefined;lastEncounterSend=-Infinity;penaltyChannel=null;lastPenaltySend=-Infinity;ourPenalty=0;penalties.clear();lampStates.clear();lamps.length=0;sentLamp=undefined;room=null;action=null;lastPoseTime=lastPoseKind=undefined;seaClock=null;clockChannel=clockPauseChannel=null;lastClockSend=-Infinity;lastWakeStamp=-Infinity;wakeChannel=null;wakeOptOut.clear();weatherChannel=null;weatherRows=null;gustChannel=null;gustReports.clear();lastGustSend=-Infinity;old?.leave();for(const id of peers.keys())remove(id);participants.clear();currentPosePeers.clear();whalerPosePeers.clear();failedPeers.clear();report();}
@@ -443,7 +444,10 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       const previous=encounter?.owner===peerId&&encounter.rows[7]?{at:encounter.at,rows:encounter.rows}:null;
       encounter={owner:peerId,at:performance.now(),rows,previous};
     };
-    lifts.bind(room,participants,id=>peers.get(id)?.kind,selfId);
+    lifts.bind(room,participants,id=>{
+      const capabilities=peers.get(id)?.vehicle.capabilities;
+      return capabilities?.sternLift?'motorboat':capabilities?.liftRider?'sub':undefined;
+    },selfId);
     engineChannel=room.makeAction('engine-run');
     engineChannel.onMessage=(running,{peerId})=>{
       if(room===active&&participants.has(peerId)&&typeof running==='boolean')engineStates.set(peerId,running);
@@ -657,9 +661,10 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
           if(departed)remove(departed[0]);
         }
         if(peers.size>=channels)return;
-        peer={id:peerId,state:kind==='boat'?new Float32Array(207):null,kind,timeline:new PeerTimeline(),cat:!!data[207],
+        const vehicle=vehicleForRole(kind,Boolean(data[207]));
+        peer={id:peerId,vehicle,state:kind==='boat'?new Float32Array(207):null,kind,timeline:new PeerTimeline(),cat:!!data[207],
           retryHullAt:0,target:new T.Vector3(),rotation:new T.Quaternion()};
-        if(kind==='boat'||kind==='motorboat'){
+        if(vehicle.capabilities.peerHullClass){
           const used=new Set([...peers.values()].map(p=>p.contactSlot));
           for(let i=0;i<channels;i++)if(!used.has(i)){peer.contactSlot=i;break;}
           boatCount++;
@@ -676,7 +681,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       if(kind==='boat'&&!peer.mesh&&!peer.loadingHull&&performance.now()>=peer.retryHullAt)loadPeerBoat(peerId,peer);
       const now=performance.now();
       if(peer.timeline.receive(data,now)){
-        if(kind==='boat'||kind==='motorboat')trafficChanged=true;
+        if(peer.vehicle.capabilities.peerHullClass)trafficChanged=true;
         if(rotorSpeeds){
           currentPosePeers.add(peerId);
           rememberRotorSpeeds(peer,data[215],rotorSpeeds,now);
@@ -804,8 +809,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
         continue;
       }
       if(d[216]===1 && !sub && !remoteSub && !loadingSub && now>=retrySubAt){
-        loadingSub=Promise.resolve(loadVehicleShell('survey-pressure-housing'))
-          .then(()=>{remoteSub=surveyVehicle(T,vehicleShell('survey-pressure-housing'));})
+        loadingSub=Promise.resolve(loadVehicleShell(vehicleCatalog.sub.asset))
+          .then(()=>{remoteSub=surveyVehicle(T,vehicleShell(vehicleCatalog.sub.asset));})
           .catch(error=>{retrySubAt=performance.now()+10000;console.warn('Remote submarine mesh',error);})
           .finally(()=>{loadingSub=null;});
       }
@@ -937,7 +942,8 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   function nearbyDeck(east,north,now){
     let nearest,limit=10;
     for(const peer of peers.values()){
-      if(peer.kind!=='boat'||peer.leftAt!==undefined||peer.awaitingPose||!peer.timeline.latest||peer.timeline.age(now)>650)continue;
+      const {landingDeck,peerPose}=peer.vehicle.capabilities;
+      if(!landingDeck||peerPose!=='rigged'||peer.leftAt!==undefined||peer.awaitingPose||!peer.timeline.latest||peer.timeline.age(now)>650)continue;
       const {data}=peer.timeline.latest;
       const distance=Math.hypot(east-data[0],north-data[1]);
       if(distance<limit){nearest=data;limit=distance;}
@@ -970,8 +976,9 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     }
     for(const row of patrols??[])add(row);
     for(const peer of peers.values()){
-      const cruiser=peer.kind==='motorboat';
-      if((!cruiser&&peer.kind!=='boat')||peer.leftAt!==undefined||peer.awaitingPose||!peer.timeline.latest||peer.timeline.age(now)>650)continue;
+      const {landingDeck,peerPose,peerHullClass}=peer.vehicle.capabilities;
+      if(!landingDeck||peer.leftAt!==undefined||peer.awaitingPose||!peer.timeline.latest||peer.timeline.age(now)>650)continue;
+      const cruiser=peerPose==='rigid';
       const {left,right,fraction}=peer.timeline.at(now);
       const k=cruiser?217:0;
       if((east-left[k])**2+(north-left[k+1])**2>=64)continue;
@@ -983,7 +990,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
       const dt=left===right?(latest.sent-(prior?.sent??latest.sent))*.001:
         left[215]>0&&right[215]>0?right[215]-left[215]:(latest.sent-(prior?.sent??latest.sent))*.001;
       const known=cruiser?undefined:[212,213,214].map(i=>left[i]+fraction*(right[i]-left[i]));
-      add([1,cruiser?3:peer.cat?1:2,...pose,...deckTwist(pose,before,after,dt,known)]);
+      add([1,peerHullClass,...pose,...deckTwist(pose,before,after,dt,known)]);
     }
     vesselDecks.fill(0);
     // Reserve slot zero while this client owns a cruiser simulation, so
@@ -1026,8 +1033,7 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
   const hullEuler=new T.Euler(0,0,0,'ZYX'),hullQuarter=new T.Quaternion();
   function players(){
     return [...participants].map(id=>{
-      const peer=peers.get(id);
-      const model=peer?.kind==='boat'?(peer.cat?'hobie':'sloop'):peer?.kind;
+      const model=peers.get(id)?.vehicle.id;
       return {id,name:roster.get(id)??'Player',model,penalty:penalties.get(id)??0,controlPolicy:controlPolicies.get(id)};
     });
   }
@@ -1103,11 +1109,11 @@ export function fleet(T,scene,roomName,status,weather,crew,laps,onImagingHit,cha
     const result=[];
     for(const [id,peer] of peers){
       if(peer.leftAt!==undefined||peer.awaitingPose||!peer.timeline.latest||peer.timeline.age(now)>2500)continue;
-      const rigidBoat=peer.kind==='motorboat'||peer.kind==='whaler';
-      const d=peer.timeline.latest.data,k=peer.kind==='sub'||rigidBoat?217:peer.kind==='drone'?225:0;
-      const hull=peer.kind==='motorboat'?3:peer.kind==='boat'?(peer.cat?1:2):0;
+      const {peerHullClass:hull,peerPose}=peer.vehicle.capabilities;
+      const rigid=peerPose==='rigid',aircraft=peer.vehicle.category==='aircraft';
+      const d=peer.timeline.latest.data,k=rigid?(aircraft?225:217):0;
       let ve=k?0:d[212],vn=k?0:d[213],yaw=d[2],heel=d[4],pitch=d[5],yawRate=k?0:d[214];
-      if(rigidBoat||peer.kind==='sub'){
+      if(rigid&&!aircraft){
         hullEuler.setFromQuaternion(hullQuarter.fromArray(d,k+3),'ZYX');
         yaw=hullEuler.z;heel=hullEuler.x;pitch=hullEuler.y;
         const old=peer.timeline.samples.at(-2),dt=old?(peer.timeline.latest.sent-old.sent)*.001:0;

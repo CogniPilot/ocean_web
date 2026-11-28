@@ -1,9 +1,11 @@
 import {isCaptainName} from './captains.mjs';
+import {oceanVehicles,vehicleCatalog} from './vehicle-catalog.mjs';
 
 // Each retained finish has its own storage key so simultaneous tabs cannot
 // overwrite one another's laps. Only the ten fastest per course and hull survive.
 const limit=10;
-const classes={Hobie16:'Hobie 16',Sailboat:'Pilothouse sloop',RDD2:'RDD2 drone',motorboat:'Sea Ray Sundancer 320',whaler:'Boston Whaler 190',sub:'Piccard submarine',gull:'Herring gull',whale:'Humpback whale',shark:'Great white shark',manta:'Manta ray',diver:'Scuba diver'};
+const classes={Hobie16:vehicleCatalog.hobie.label,Sailboat:vehicleCatalog.sloop.label,RDD2:vehicleCatalog.drone.label,
+  ...Object.fromEntries(oceanVehicles.filter(vehicle=>vehicle.role!=='boat'&&vehicle.id!=='drone').map(vehicle=>[vehicle.id,vehicle.label]))};
 const feedingKinds=['shark','manta','whale'];
 const boards=[...Object.keys(classes),...feedingKinds.map(kind=>kind+'-feeding')];
 const feeding=board=>board.endsWith('-feeding');

@@ -104,7 +104,7 @@ export async function surveyDrone(T,scene,world){
   }
   function instruments(compass=false){
     const [[roll,pitch,yaw],position,velocity,wind,windValid]=flight.getMany(compass&&hasNavigation?compassFields:instrumentsFields);
-    return {roll,pitch,yaw,position,speed:Math.hypot(velocity[0],velocity[1]),level:position[2],
+    return {roll,pitch,yaw,position,velocity,speed:Math.hypot(velocity[0],velocity[1]),level:position[2],
       vertical:velocity[2],wind:windValid>.5?wind:null};
   }
   function covariance(){

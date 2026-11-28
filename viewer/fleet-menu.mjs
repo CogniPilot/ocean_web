@@ -1,5 +1,6 @@
 import {harborMap} from './harbor-map.mjs';
 import {chartNavigation} from './harbor-map-input.mjs';
+import {vehicleCatalog} from './vehicle-catalog.mjs';
 import {fixedSpawnPoints} from './spawn-sites.mjs';
 import {createNamedRoom,namedRoomChannel,namedRoomId,observeDirectory,privateRoom,publicRoom,validFleetRoom} from './fleet-directory.mjs';
 import {reserveFleetSeat} from './fleet-seat.mjs';
@@ -8,7 +9,7 @@ import {validRoomName} from './vendor/names.js';
 export async function chooseVehicle(url,endpoint){
   const $=id=>document.getElementById(id);
   const dialog=$('vehiclePicker'),form=dialog.querySelector('form'),vehicles=$('vehicleType');
-  const world=$('worldType'),oceanVehicles=[...vehicles.options],tumblehome=new Option('ONR Tumblehome','onrt');
+  const world=$('worldType'),oceanVehicles=[...vehicles.options],tumblehome=new Option(vehicleCatalog.onrt.label,vehicleCatalog.onrt.id);
   const spawn=$('entrySpawn'),mapButton=$('entryMapOpen'),mapDialog=$('entryMap');
   const canvas=$('entryMapCanvas'),mapChoice=$('entryMapChoice');
   const mapLifetime=new AbortController();

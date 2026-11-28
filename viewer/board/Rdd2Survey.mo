@@ -570,6 +570,7 @@ model Rdd2Survey "CogniPilot RDD2 hovering over the wreck survey area"
   parameter Real origin[2]={-5,0} "Default survey launch coordinates ENU";
   final parameter Real activeOrigin[2]=if islandLaunch then islandPad[1:2] else origin;
   input Real pilot,forward,left,climb,turn,stationEast,stationNorth;
+  input Real stationUp=5 "Autonomous waypoint altitude in ENU metres";
   input Real raceNavigation=0 "Use the faster waypoint profile during race autopilot";
   input Real flightMode(start=0) "Manual modes: 0 position hold, 1 auto level, 2 acro";
   Boolean positionHold,acro;
@@ -717,8 +718,8 @@ equation
   desired=if landing then (if locked then {landingCue[5]+max(-.85,min(.85,.7*landingCue[2])),
     landingCue[6]+max(-.85,min(.85,.7*landingCue[3])),-descendingSpeed} else zeros(3))
     elseif pilot>.5 then {2*(forward*cos(yawTarget)-left*sin(yawTarget)),2*(forward*sin(yawTarget)+left*cos(yawTarget)),climb}
-    elseif raceNavigation>.5 then cat(1,raceVelocity,{max(-1,min(1,5-target[3]))})
-    else {max(-2,min(2,stationEast-target[1])),max(-2,min(2,stationNorth-target[2])),max(-1,min(1,5-target[3]))};
+    elseif raceNavigation>.5 then cat(1,raceVelocity,{max(-1,min(1,stationUp-target[3]))})
+    else {max(-2,min(2,stationEast-target[1])),max(-2,min(2,stationNorth-target[2])),max(-1,min(1,stationUp-target[3]))};
   der(target[1:2])=if landing then estimatedVelocity[1:2]+5*(estimatedPosition[1:2]+
     (if locked then landingCue[2:3] else zeros(2))-target[1:2])
     elseif positionHold then desired[1:2] else estimatedVelocity[1:2]+10*(estimatedPosition[1:2]-target[1:2]);

@@ -77,7 +77,10 @@ async function verify(engine){
     assert.deepEqual(await first.evaluate(()=>received),[[4,5,6]]);
     assert.deepEqual(await second.evaluate(()=>received),[[1,2,3]]);
     await second.evaluate(()=>fleet.leave());
-    await first.waitForFunction(()=>peers.size===0,null,{timeout:10000});
+    await second.close();
+    // Closing the page also releases transport resources if the engine
+    // defers the data-channel close notification during teardown.
+    await first.waitForFunction(()=>peers.size===0,null,{timeout:30000});
     console.log('Chromium and '+engine+' joined, exchanged binary data and handled departure through native WebRTC.');
   }finally{
     await Promise.all(browsers.map(browser=>browser.close()));

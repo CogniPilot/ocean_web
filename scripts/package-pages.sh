@@ -8,7 +8,7 @@ cp viewer/model-training{,-paths}.mjs viewer/training-{camera,fleet-view,model-r
 cp viewer/harbor-hud.{css,mjs} viewer/harbor-aux.css "$out/"
 cp viewer/{drone-flow,drone-sensors,landing-tags}.mjs "$out/"
 cp viewer/vendor/apriltag-wasm.{mjs,wasm} "$out/vendor/"
-cp viewer/boat-anchor.mjs "$out/"
+cp viewer/{boat-anchor,vehicle-catalog}.mjs "$out/"
 cp viewer/fmi3/HobieCoursePrediction.{json,mjs,wasm,fmu} "$out/fmi3/"
 cp viewer/{sail-training-tasks,sail-training-helm,hobie-race-policies}.mjs "$out/"
 cp viewer/{rig-selection,load-vectors,wildlife-loads,physics-geometry}.mjs "$out/"

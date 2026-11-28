@@ -1,6 +1,7 @@
 import {validLoads} from './wildlife-loads.mjs';
 import {validSchoolSnapshot} from './fish-schools.mjs';
 import {racerFrameSize} from './npc-sailing-frame.mjs';
+import {oceanVehicles,vehicleCatalog} from './vehicle-catalog.mjs';
 export function gullIndex(id){
   if(id==='gull')return 0;
   const numbered=typeof id==='string'&&/^gull-([1-6])$/.exec(id);
@@ -8,9 +9,8 @@ export function gullIndex(id){
 }
 
 
-export const vesselNpcNames=Object.freeze({
-  hobie:'Hobie 16',sloop:'Pilothouse sloop',motorboat:'Sea Ray Sundancer 320',drone:'RDD2 drone',sub:'Piccard submarine'
-});
+export const vesselNpcNames=Object.freeze(Object.fromEntries(oceanVehicles
+  .filter(vehicle=>vehicle.capabilities.npc==='vessel').map(({id,label})=>[id,label])));
 // Diver packets append the 20 Modelica restart states and four gauge outputs to the swimmer pose.
 export const sharkForebodyOffset=321;
 export const divePacket={start:23,gauge:43,posture:47,computer:48,log:51,joints:56,rates:66,footLoads:76,lateral:78,lateralRates:82,vest:86,axial:88,axialRates:92,torch:96,length:97};
@@ -73,7 +73,7 @@ export function npcRoom(){
   }
   let animals=new Map(),controls=new Map(),revision=0;
   const validFrame=f=>Array.isArray(f)&&[65,70,202,203,205,207,319,321,sharkForebodyOffset+2].includes(f.length)&&f.every(Number.isFinite);
-  const validKind=kind=>kind==='whale'||kind==='shark'||individualSwimmer(kind);
+  const validKind=kind=>vehicleCatalog[kind]?.capabilities.npc==='animal';
   const validPolicy = weights => Array.isArray(weights) && weights.length === 8 && weights.every(row => finiteRow(row,15));
   function setDiverMode(animal,auto,learned=false){
     animal.auto=auto;animal.learned=!auto&&learned;
@@ -436,29 +436,35 @@ export function npcRoom(){
       habitat.sounds.push([++habitat.sequence,time,kind,...position,gain]);
       if(habitat.sounds.length>16)habitat.sounds.shift();
     },
-    canSpawn(kind){return owner===self&&(Object.hasOwn(vesselNpcNames,kind)?habitat.vessels.length<npcVesselLimit:
-      kind==='gull'?habitat.gulls.length<maxGulls:validKind(kind)&&animals.size<npcAnimalLimit);},
+    canSpawn(kind){
+      if(owner!==self)return false;
+      switch(vehicleCatalog[kind]?.capabilities.npc){
+        case 'vessel':return habitat.vessels.length<npcVesselLimit;
+        case 'gull':return habitat.gulls.length<maxGulls;
+        case 'animal':return animals.size<npcAnimalLimit;
+        default:return false;
+      }
+    },
     spawn(kind,started=0,raceAt,raceWind,site,controller='vmg',weights,policyName){
       if(!this.canSpawn(kind))return;
-      if(Object.hasOwn(vesselNpcNames,kind)){
+      const {npc,npcRace}=vehicleCatalog[kind].capabilities;
+      if(npc==='vessel'){
         if(!Number.isFinite(started))return;
         const vessel={kind,started};
-        if(kind==='hobie'){
+        if(npcRace){
           if(!['vmg','rl','nmpc','mppi'].includes(controller)||weights!==undefined&&!validHobieWeights(weights))return;
           vessel.controller=controller;
           if(controller==='rl'&&weights){
             vessel.weights=weights;
             if(typeof policyName==='string'&&policyName.trim())vessel.policyName=policyName.trim().slice(0,80);
           }
-        }
-        if(kind==='hobie'){
           if(validStart(raceAt))vessel.raceAt=raceAt;
           vessel.raceId=Array.from(crypto.getRandomValues(new Uint8Array(8)),b=>b.toString(16).padStart(2,'0')).join('');
+          if(Number.isFinite(raceWind))vessel.raceWind=Math.max(0,Math.min(22,raceWind));
         }
-        if(kind==='hobie'&&Number.isFinite(raceWind))vessel.raceWind=Math.max(0,Math.min(22,raceWind));
         habitat.vessels.push(vessel);revision++;sync();return 'npc-'+habitat.vessels.length;
       }
-      if(kind==='gull'){
+      if(npc==='gull'){
         const id=addGull();sync();return id;
       }
       let number=2;while(animals.has(kind+'-'+number))number++;

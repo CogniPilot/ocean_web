@@ -1,14 +1,30 @@
 // tag36h11 artwork from AprilRobotics/apriltag-imgs. Each tag's full
 // ten-cell square includes the required one-cell white quiet zone.
 const layouts={committee:[0,1,4,5,6],island:[2,3,7,8,9]};
-const positions=[
-  [-.275,0,.41],[.275,0,.41],[0,0,.12],[0,-.32,.19],[0,.32,.19]
-];
 
 export function padLayout(site,width,length){
+  const wide=width>=length;
+  const longEdge=Math.max(width,length),shortEdge=Math.min(width,length);
+  const edge=Math.min(.02,.02*shortEdge),gap=Math.min(.012,.015*shortEdge);
+  // The centered marker stays visible as the field of view shrinks at touchdown.
+  const center=Math.min(.146,.10*shortEdge);
+  const acquisition=Math.min(shortEdge-2*edge,(longEdge-center-2*(edge+gap))/2);
+  const spread=center/2+gap+acquisition/2;
+  const corner=(shortEdge-acquisition)/2-edge;
+  const offset=.94*corner;
+
+  // Offset the acquisition markers toward opposite corners so the intermediate
+  // markers can stay close to center without using either one's quiet zone.
+  const band=corner+offset-gap;
+  const near=Math.max(center,Math.min(.47,.19*shortEdge,band));
+  const nearAlong=band>=center ? center/2+gap+near/2 : 0;
+  const nearAcross=band>=center ? Math.max(0,acquisition/2-offset+gap+near/2) : .32*shortEdge;
+  const positions=[[-spread,offset,acquisition],[spread,-offset,acquisition],[0,0,center],
+    [-nearAlong,-nearAcross,near],[nearAlong,nearAcross,near]];
+
   return layouts[site].map((id,i)=>{
-    const [x,y,size]=positions[i];
-    return {id,x:x*width,y:y*length,size:size*Math.min(width,length)};
+    const [along,across,size]=positions[i];
+    return {id,x:wide?along:across,y:wide?across:along,size};
   });
 }
 
