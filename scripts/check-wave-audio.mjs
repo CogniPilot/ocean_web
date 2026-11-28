@@ -53,8 +53,15 @@ for(let i=0;i<=3.5*period/step;i++){
 }
 assert(crestPeak>.08);
 
-assert.deepEqual(hullWashMix(undefined,.3,.2),{gurgle:0,rush:0});
-assert.deepEqual(hullWashMix(0,0,0),{gurgle:0,rush:0});
+assert.deepEqual(hullWashMix(undefined,.3,.2),{gurgle:0,rush:0,gurgleRate:1});
+assert.deepEqual(hullWashMix(0,0,0),{gurgle:0,rush:0,gurgleRate:1});
+const knot=1852/3600;
+const glide=hullWashMix(knot,0,0,true),cruise=hullWashMix(6*knot,0,0,true);
+assert(glide.gurgle>0&&glide.gurgle<.20*cruise.gurgle&&glide.rush===0);
+assert(glide.gurgleRate<.8&&cruise.gurgleRate>1);
+assert(hullWashMix(0,.3,0,true).gurgle>0,'Swell can still lap a stationary Hobie');
+assert(hullWashMix(13*knot,0,0,true).rush>.60);
+assert.equal(hullWashMix(knot,0,0).gurgleRate,1);
 assert(hullWashMix(0,.3,0).gurgle>0);
 const slow=hullWashMix(1,0,0),crossfade=hullWashMix(6*1852/3600,0,0),fast=hullWashMix(13*1852/3600,0,0);
 assert(slow.gurgle>.2&&slow.rush===0);

@@ -409,14 +409,18 @@ export function waveAmbience(){
   return {sample,reset};
 }
 
-export function hullWashMix(speed,swell,wake){
-  if(!Number.isFinite(speed))return {gurgle:0,rush:0};
+export function hullWashMix(speed,swell,wake,catamaran=false){
+  if(!Number.isFinite(speed))return {gurgle:0,rush:0,gurgleRate:1};
   const flow=Math.abs(speed);
   const transition=Math.max(0,Math.min(1,(flow-1.35)/3.15));
   const blend=transition*transition*(3-2*transition);
-  const low=Math.min(1,.52*flow/(.55+flow)+.45*swell+.45*wake);
+  // The narrow Hobie hulls make very little wash at a slow glide. Build up
+  // both the strength and the cadence of the bubbles toward six knots.
+  const cruise=Math.min(1,flow/(6*1852/3600));
+  const lowFlow=catamaran?.56*cruise*cruise*(3-2*cruise):.52*flow/(.55+flow);
+  const low=Math.min(1,lowFlow+.45*swell+.45*wake);
   const high=Math.min(1,.90*flow/(1.45+flow)+.22*wake);
-  return {gurgle:Math.sqrt(1-blend)*low,rush:Math.sqrt(blend)*high};
+  return {gurgle:Math.sqrt(1-blend)*low,rush:Math.sqrt(blend)*high,gurgleRate:catamaran?.70+.40*cruise:1};
 }
 
 // Signed listener height above the local animated wave, in metres.
@@ -462,7 +466,7 @@ export function raceAudio(T){
     rain?.pause();rainPlaying=false;
   }
   let waves,waveGains,lastWaveMix=-Infinity,lastWaveTime,waveTimeWall,wavesActive=false;
-  let hullWash,hullLapping,piccardVoices,piccardRecording,piccardRetryAt=0;
+  let hullWash,hullGurgle,hullLapping,piccardVoices,piccardRecording,piccardRetryAt=0;
   function silencePiccard(){piccardVoices?.stop();piccardVoices=undefined;}
   const detectPiccardImpact=piccardImpactDetector();
   function submarineSound(sub,camera,wet,running,peers=[]){
@@ -568,7 +572,7 @@ export function raceAudio(T){
     if(!response.ok)throw Error('Audio HTTP '+response.status);
     return audio.decodeAudioData(await response.arrayBuffer());
   }
-  function startAmbience(file,destination,fadeIn=false){
+  function startAmbience(file,destination,fadeIn=false,onSource){
     if(loading.has(file))return;
     loading.add(file);
     decodeRecording(file)
@@ -580,6 +584,7 @@ export function raceAudio(T){
           entrance.gain.value=0;entrance.gain.setTargetAtTime(1,audio.currentTime,.16);
           source.connect(entrance).connect(destination);
         }else source.connect(destination);
+        onSource?.(source);
         source.start();
       }).catch(error=>console.warn('Ambience unavailable',file,error));
   }
@@ -693,7 +698,7 @@ export function raceAudio(T){
     source.start();
     return gains;
   }
-  function water(surface,time,east,north,tide,height,includeWake,hullSpeed,hullDistance=Infinity,lappingPosition){
+  function water(surface,time,east,north,tide,height,includeWake,hullSpeed,hullDistance=Infinity,lappingPosition,catamaran=false){
     if(!enabled||!level)return;
     if(!surface||height<=-.35){silenceWaves();return;}
     const wall=audio.currentTime;
@@ -725,21 +730,25 @@ export function raceAudio(T){
       startAmbience('hull-lapping.mp3',hullLapping,true);
     }
     hullLapping?.gain.setTargetAtTime(lap,wall,.16);
-    const {gurgle,rush}=hullWashMix(hullSpeed,swell,wake);
+    const {gurgle,rush,gurgleRate}=hullWashMix(hullSpeed,swell,wake,catamaran);
     const listenerGain=.86*exposure/(1+(hullDistance/15)**2);
     if(!hullWash&&Math.max(gurgle,rush)*listenerGain>.015){
       // Start both loops together so the next blend needs no audio fetch.
-      hullWash=['hull-wash.mp3','hull-rush.mp3'].map(file=>{
+      hullWash=['hull-wash.mp3','hull-rush.mp3'].map((file,index)=>{
         const gain=audio.createGain();
         gain.gain.value=0;
         gain.connect(effects);
-        startAmbience(file,gain);
+        startAmbience(file,gain,false,index===0?source=>{
+          hullGurgle=source;
+          source.playbackRate.value=gurgleRate;
+        }:undefined);
         return gain;
       });
     }
     if(hullWash){
       hullWash[0].gain.setTargetAtTime(gurgle*listenerGain,wall,.24);
       hullWash[1].gain.setTargetAtTime(rush*listenerGain,wall,.24);
+      hullGurgle?.playbackRate.setTargetAtTime(gurgleRate,wall,.24);
     }
   }
   function signal(){

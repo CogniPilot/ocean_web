@@ -226,16 +226,6 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 #vehiclePicker button:disabled{opacity:.55}
 #fleetBrowser{margin:0 0 16px}
 #vehiclePicker select,#launchFleet{width:100%;min-height:44px}
-#vehicleChoices{display:none}
-@media (max-width:650px),(pointer:coarse){
-  #vehiclePicker label[for="vehicleType"],#vehicleType{display:none}
-  #vehicleChoices{display:block;min-width:0;margin:0 0 8px;border:0;padding:0}
-  #vehicleChoices legend{margin-bottom:5px;padding:0}
-  #vehicleChoices div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:5px}
-  #vehicleChoices label{display:flex;align-items:center;gap:6px;min-height:44px;padding:4px 7px;border:1px solid #659995;border-radius:5px;cursor:pointer}
-  #vehicleChoices input{margin:0;accent-color:#9adbd2}
-  #vehicleChoices label:has(:checked){background:#24545e;border-color:#a4e4d9}
-}
 #fleetDirectoryStatus,#fleetLaunchStatus{display:block;margin-top:5px}
 #launchFleet{margin-top:14px;background:#9adbd2;color:#102b35;font-weight:650}
 </style><link rel="stylesheet" href="harbor-hud.css?v=47b0c91b988ee2da"><link rel="stylesheet" href="harbor-aux.css"><script type="importmap">{"imports":{"./harbor-hud.mjs":"./harbor-hud.mjs?v=019f3590171ef166"}}</script></head><body><section id="startupScreen" aria-labelledby="startupTitle">
@@ -277,7 +267,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 </div></details><details id="cruiserCameras"><summary>Underwater cameras</summary><label><input id="cameraKeelLamp" type="checkbox" aria-keyshortcuts="X"> Underwater lights (X)</label> <label class="echo-view">Feed <select id="echoCamera"><option value="all">All cameras</option><option value="motorBow">Bow</option><option value="motorStern">Stern</option><option value="motorPort">Port</option><option value="motorStarboard">Starboard</option><option value="motorKeel">Keel (down)</option></select></label><div class="camera-grid"><figure><figcaption>Bow</figcaption><canvas data-camera="motorBow" width="256" height="144" aria-label="Live underwater bow camera"></canvas></figure><figure><figcaption>Stern</figcaption><canvas data-camera="motorStern" width="256" height="144" aria-label="Live underwater stern camera"></canvas></figure><figure><figcaption>Port</figcaption><canvas data-camera="motorPort" width="256" height="144" aria-label="Live underwater port camera"></canvas></figure><figure><figcaption>Starboard</figcaption><canvas data-camera="motorStarboard" width="256" height="144" aria-label="Live underwater starboard camera"></canvas></figure><figure><figcaption>Keel (down)</figcaption><canvas data-camera="motorKeel" width="256" height="144" aria-label="Live downward-facing keel camera"></canvas></figure></div><button id="openCamera" disabled>Open selected feed in main view</button></details></section>
 <section id="animalSensors" aria-label="Animal sensors" hidden><details id="fishFinder"><summary>Fish finder · <output id="fishCaught">0 fish caught</output></summary><canvas id="animalSonar" width="320" height="140" aria-label="Forward sonar in plan and elevation, range 15 metres"></canvas></details></section>
 <canvas id="flightHud" role="img" hidden></canvas><section id="subPanel" hidden><details id="subSensors"><summary>Imaging sonar</summary><div class="sensor-images"><figure><figcaption>Forward imaging sonar</figcaption><canvas id="sonarFan" width="320" height="185" aria-label="Sonar echoes by bearing and range, 18 metres ahead"></canvas></figure></div><label><input type="checkbox" id="sonarMap"> Sonar map</label><small id="dvlMapLegend">White points show DVL bottom-lock hits. Soft marks show fan echoes with uncertain elevation.</small></details><details id="subOptical"><summary>Optical camera</summary><div class="sensor-images"><canvas id="sensorCam" width="320" height="238" aria-label="Forward RGB camera for computer vision"></canvas></div></details></section><aside id="raceSidebar" aria-label="Race and fleet">
-<details id="racePanel">
+<details id="racePanel" open>
 <summary><span>Race committee</span><output id="countdown" aria-label="Next fleet start">—</output></summary>
 <div><small id="raceCourse"></small><output id="raceStatus"></output><output id="raceWinner" aria-live="polite" hidden></output></div>
 <output id="feedingHeat" hidden></output><p id="racePenalty" role="status" hidden></p><section id="bestLaps" aria-label="Best laps"><label>Leaderboard <select aria-label="Leaderboard event"></select></label><small></small><ol></ol><p>No finished laps yet.</p></section>
@@ -562,7 +552,7 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <dialog id="vehiclePicker" aria-labelledby="vehiclePickerTitle"><h2 id="vehiclePickerTitle">Choose a world and vehicle</h2>
 <div class="mode-switch" role="group" aria-label="Play mode"><button id="pickSolo" type="button" aria-pressed="true">Solo</button><button id="pickFleet" type="button" aria-pressed="false">Multiplayer</button></div>
 <label for="worldType">World</label>
-<select id="worldType"><option value="ocean">Open ocean</option><option value="basin">Iowa wave basin · Solo only</option></select>
+<select id="worldType"><option value="ocean">Open ocean</option><option value="basin">Iowa wave basin</option></select>
 <p id="basinInfo" hidden>Compare the simulated hull motion with measurements from the Iowa wave basin.</p>
 <fieldset id="fleetBrowser" hidden><legend>Server list</legend>
 <label id="inviteChoice" hidden><input type="radio" name="fleetChoice" value="invite"><span></span></label>
@@ -582,7 +572,6 @@ footer button:focus-visible,footer select:focus-visible,footer input:focus-visib
 <option value="shark">Great white shark</option><option value="manta">Manta ray</option>
 <option value="gull">Herring gull</option>
 </select>
-<fieldset id="vehicleChoices"><legend>Vehicle type</legend><div></div></fieldset>
 <div id="entrySpawnFields" hidden><label for="entrySpawn">Spawn point</label>
 <div class="entry-spawn-row"><select id="entrySpawn"></select><button type="button" id="entryMapOpen" aria-haspopup="dialog" aria-controls="entryMap">Choose on map</button></div></div>
 <button id="launchFleet" type="submit">Start simulation</button>
