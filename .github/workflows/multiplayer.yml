@@ -16,8 +16,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {os: ubuntu-latest, engine: chromium}
-          - {os: ubuntu-latest, engine: firefox}
+          - {os: ubuntu-24.04, engine: chromium}
+          - {os: ubuntu-24.04, engine: firefox}
           - {os: macos-latest, engine: webkit}
           - {os: windows-latest, engine: chromium}
     steps:
