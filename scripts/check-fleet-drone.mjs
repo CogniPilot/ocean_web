@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import {readFile} from 'node:fs/promises';
 import {createRequire} from 'node:module';
 import {fleet} from '../viewer/fleet.mjs';
+import {loadVehicleShell} from '../viewer/vehicle-assets.mjs';
 
 const T=createRequire(import.meta.url)('../viewer/vendor/three.min.js');
 globalThis.BroadcastChannel=undefined;
@@ -167,6 +169,57 @@ try{
   assert(pauses.some(row=>row.data===true) && pauses.some(row=>row.data===false));
   const clockPackets=pilotAnnouncements.filter(row=>row.name==='sea-clock');
   assert(clockPackets.length && clockPackets.every(row=>row.data.length===2),'Keep the existing clock wire shape');
+
+  // Use the real artwork and proxy factory without needing a browser server.
+  globalThis.THREE=T;
+  globalThis.self=globalThis;
+  globalThis.ProgressEvent??=class {constructor(type,fields){Object.assign(this,{type},fields);}};
+  const browserFetch=globalThis.fetch;
+  globalThis.fetch=async (request,options)=>{
+    const url=new URL(request instanceof Request?request.url:request);
+    if(url.protocol!=='file:')return browserFetch(request,options);
+    const bytes=await readFile(url);
+    return new Response(bytes,{headers:{'Content-Length':String(bytes.length)}});
+  };
+  await loadVehicleShell('boston-whaler-190');
+  const whaler=new T.Group();
+  whaler.position.set(-18,20,.22);
+  whaler.rotation.z=.7;
+  const engine={rpm:3350,speed:14,thrust:1000,steering:.15,throttle:.63,
+    anchorLowered:true,bilgeOn:false,starterRemaining:0,engineRunning:true,propellerWetFraction:.82};
+  pilot.frame(start+9550,null,false,null,null,null,'whaler',false,null,null,null,0,0,null,4,whaler,engine);
+  for(let i=0;pending.length&&i<10;i++)await deliver();
+  const whalerMessages=sent.filter(row=>row.from==='pilot'&&row.name==='sail-pose'&&row.data.byteLength===68);
+  assert.deepEqual(whalerMessages.map(row=>row.target),['observer'],'Only compatible peers receive the Whaler pose');
+  assert.equal(new Float32Array(whalerMessages[0].data.buffer)[0],4);
+  const before=performance.now();
+  draw(before);await Promise.resolve();draw(before+20);draw(before+60);
+  assert.equal(observer.players().find(player=>player.id==='pilot')?.model,'whaler');
+  assert.equal(observer.whalers.length,1);
+  assert.equal(observer.cruisers.length,0,'A Whaler does not advertise cruiser lights, deck or lift');
+  const remoteWhaler=observer.whalers[0];
+  assert.equal(remoteWhaler.shaftRPM,engine.rpm);
+  assert.equal(remoteWhaler.engineRunning,true);
+  assert(Math.abs(remoteWhaler.group.rotation.z-.7)<1e-6);
+  assert(Math.abs(remoteWhaler.propellerWetFraction-.82)<1e-6);
+  const outboard=remoteWhaler.group.getObjectByName('Outboard');
+  assert(Math.abs(outboard.rotation.z+.15)<1e-6);
+  assert.notEqual(remoteWhaler.group.getObjectByName('Propeller').rotation.x,0);
+  assert.equal(remoteWhaler.group.getObjectByName('AnchorSwitch').rotation.y,.22);
+  assert.equal(observer.liftCarrier('pilot',before+60),undefined);
+  assert.equal(observer.nearbyDecks(-18,20,before+60)[0],0);
+  assert.equal(observer.contacts(-20,20,0)[0],0);
+  assert.equal(observer.vessels(before+60).find(vessel=>vessel.id==='pilot').hull,0);
+  const malformed=whalerMessages[0].data.slice();
+  const invalid=new Float32Array(malformed.buffer);
+  invalid[1]+=1;invalid[9]=9000;
+  receiver.actions.get('sail-pose').onMessage(malformed,{peerId:'pilot'});
+  draw(before+410);
+  assert.equal(observer.whalers[0].shaftRPM,engine.rpm);
+  draw(before+850);
+  assert.equal(observer.whalers.length,0,'Stale Whaler snapshots stop producing engine audio');
+  assert(remoteWhaler.group.visible,'Retain the last visible hull while updates are delayed');
+  console.log('Whaler poses, engine signals, real artwork, stale audio and capability negotiation passed.');
   console.log('Combined drone packets, legacy fallback, prop animation, stale poses and reconnect passed.');
 }finally{
   observer.leave();

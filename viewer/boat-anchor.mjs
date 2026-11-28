@@ -68,5 +68,14 @@ export function boatAnchorView(T,group){
     rode.count=index;
     rode.instanceMatrix.needsUpdate=true;
   }
+  setAnchor.dispose=()=>{
+    anchorMesh.removeFromParent();
+    rode.removeFromParent();
+    for(const item of anchorMesh.children)item.geometry.dispose();
+    anchorMetal.dispose();
+    rode.geometry.dispose();
+    rode.material.dispose();
+    rode.dispose();
+  };
   return setAnchor;
 }

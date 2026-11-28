@@ -100,7 +100,10 @@ export function inboardMixer(context,output,decodeRecording){
     }
     if(running){
       if(local)collect(local,Math.abs(localThrottle)>.008&&Math.abs(local.shaftRPM)>45);
-      for(const boat of peers)collect(boat,Math.abs(boat.shaftRPM)>90);
+      for(const boat of peers){
+        const commanded=Number.isFinite(boat.throttle)?Math.abs(boat.throttle)>.008:true;
+        collect(boat,commanded&&Math.abs(boat.shaftRPM)>90);
+      }
     }
     nearby.sort((a,b)=>a.d-b.d);
     const active=new Set();

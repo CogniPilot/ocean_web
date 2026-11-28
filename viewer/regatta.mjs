@@ -138,6 +138,31 @@ export function raceCoursePoints(race){
   return [p,q,e[0],n[0],e[1],n[1],c,d];
 }
 
+export function createWhaler(T,scene){
+  const group=new T.Group();
+  group.name='Boston Whaler 190';scene.add(group);
+  const shell=vehicleShell('boston-whaler-190');
+  const outboard=shell.getObjectByName('Outboard'),propeller=shell.getObjectByName('Propeller');
+  const wheel=shell.getObjectByName('SteeringWheel'),lever=shell.getObjectByName('ThrottleLever');
+  const anchorSwitch=shell.getObjectByName('AnchorSwitch'),bilgeSwitch=shell.getObjectByName('BilgeSwitch');
+  const deckObjects=new Map([['anchor',anchorSwitch],['bilge',bilgeSwitch]].filter(([,object])=>object));
+  group.add(shell);
+  const setAnchor=boatAnchorView(T,group);
+  group.traverse(showInLowWaterCapture);
+  return {group,setAnchor,deckObjects,maxRPM:5900,dispose(){
+    setAnchor.dispose();
+    group.removeFromParent();
+  },draw(engine,dt,throttle,anchorLowered,bilgeOn){
+    this.shaftRPM=engine[0];
+    outboard.rotation.z=-engine[3];
+    if(wheel)wheel.rotation.x=-engine[3]/.55*1.5*Math.PI;
+    if(lever)lever.rotation.y=.85*throttle;
+    if(anchorSwitch)anchorSwitch.rotation.y=anchorLowered?.22:-.22;
+    if(bilgeSwitch)bilgeSwitch.rotation.y=bilgeOn?.22:-.22;
+    propeller.rotation.x+=engine[0]*dt*(2*Math.PI/60)/1.92*Math.sign(engine[2]);
+  }};
+}
+
 export function courseScene(T,scene,race){
   const group=new T.Group();scene.add(group);
   const mat=(color,roughness=.55)=>new T.MeshStandardMaterial({color,roughness});
@@ -166,27 +191,6 @@ export function courseScene(T,scene,race){
     [committeePad.aft,0,committeePad.top,committeePad.width,committeePad.length];
   const [padX,padY,padZ,padWidth,padLength]=pad;
   boat.add(vehicleShell('boston-whaler-190'));
-  function createWhaler(){
-    const group=new T.Group();
-    group.name='Boston Whaler 190';scene.add(group);
-    const shell=vehicleShell('boston-whaler-190');
-    const outboard=shell.getObjectByName('Outboard'),propeller=shell.getObjectByName('Propeller');
-    const wheel=shell.getObjectByName('SteeringWheel'),lever=shell.getObjectByName('ThrottleLever');
-    const anchorSwitch=shell.getObjectByName('AnchorSwitch'),bilgeSwitch=shell.getObjectByName('BilgeSwitch');
-    const deckObjects=new Map([['anchor',anchorSwitch],['bilge',bilgeSwitch]].filter(([,object])=>object));
-    group.add(shell);
-    const setAnchor=boatAnchorView(T,group);
-    group.traverse(showInLowWaterCapture);
-    return {group,setAnchor,deckObjects,maxRPM:5900,draw(engine,dt,throttle,anchorLowered,bilgeOn){
-      this.shaftRPM=engine[0];
-      outboard.rotation.z=-engine[3];
-      if(wheel)wheel.rotation.x=-engine[3]/.55*1.5*Math.PI;
-      if(lever)lever.rotation.y=.85*throttle;
-      if(anchorSwitch)anchorSwitch.rotation.y=anchorLowered?.22:-.22;
-      if(bilgeSwitch)bilgeSwitch.rotation.y=bilgeOn?.22:-.22;
-      propeller.rotation.x+=engine[0]*dt*(2*Math.PI/60)/1.92*Math.sign(engine[2]);
-    }};
-  }
   const mastTop=race.has('committeeMastTop')?race.get('committeeMastTop'):4;
   const bowMast=race.has('committeeMastX'),mastX=bowMast?race.get('committeeMastX'):0;
   rod(boat,[mastX,0,bowMast?.99:2.34],[mastX,0,mastTop],.033,metal);
@@ -286,7 +290,7 @@ export function courseScene(T,scene,race){
     ctx.font='bold 35px monospace';ctx.fillText('S – 1p – 2p – F',256,99);
     ctx.fillStyle='#ffbe52';ctx.font='bold 43px monospace';ctx.fillText(label,256,151);texture.needsUpdate=true;
   }
-  return {update,setDeckPose,committee:boat,marks,addHelipad,createWhaler,flag,padSize:[padWidth,padLength],
+  return {update,setDeckPose,committee:boat,marks,addHelipad,createWhaler:()=>createWhaler(T,scene),flag,padSize:[padWidth,padLength],
     setPadIllumination(intensity){for(const material of padMaterials)material.emissiveIntensity=intensity;}};
 }
 export function sailFlapRate(){
