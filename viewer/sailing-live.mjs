@@ -4386,10 +4386,14 @@ async function run(saved=readReset(),carried){
         audio.update(model?.get('cupSpeed')??Math.hypot(...wind),storm,eyeHeight,
           sailLuff,s,t,playbackRate);
         const ownHull=!subject&&!animalId&&!sub?.active&&!drone?.active;
-        const waterSpeed=ownHull?(motor?world.get('engine')[1]:s?.[10]):undefined;
+        let waterSpeed=ownHull?(motor?world.get('engine')[1]:s?.[10]):undefined;
+        if(ownHull&&cat&&s&&model.has('ve')&&model.has('vn')){
+          const [ve,vn,currentEast,currentNorth]=model.getMany(['ve','vn','currentEast','currentNorth']);
+          if([ve,vn,currentEast,currentNorth].every(Number.isFinite))waterSpeed=Math.hypot(ve-currentEast,vn-currentNorth);
+        }
         audio.water(running&&!document.hidden?ocean.sampleSurface:null,opticalTime,eyeX,eyeY,
           ocean.U.tide.value,eyeHeight,!omitWake,waterSpeed,hullDistance,
-          sub?.active&&!subject&&!animalId?sub.mesh.position:ownHull?motor?.group.position:undefined);
+          sub?.active&&!subject&&!animalId?sub.mesh.position:ownHull?motor?.group.position:undefined,cat);
       }
       const floodedCabin=motor&&view==='motorCabin'&&!animalId&&
         motor.group.worldToLocal(cabinEye.copy(camera.position)).z<motor.cabinWaterLevel;

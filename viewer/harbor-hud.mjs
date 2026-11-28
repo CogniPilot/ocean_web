@@ -21,7 +21,7 @@ export function harborHud(signal,role){
     preferences[id]=value;
     try{localStorage.setItem(key,JSON.stringify(preferences));}catch{}
   }
-  const enabled=(id,initial=false)=>typeof preferences[id]==='boolean'?preferences[id]:initial;
+  const enabled=(id,initial=id==='racePanel')=>typeof preferences[id]==='boolean'?preferences[id]:initial;
   function header(){
     for(const name of ['telemetry','performance','fpv'])document.body.dataset['hud'+name[0].toUpperCase()+name.slice(1)]=String(enabled(name,name!=='telemetry'));
   }
@@ -208,7 +208,7 @@ export function harborHud(signal,role){
     for(const field of ['telemetry','performance','fpv',...Object.keys(panelNames),'compass-'+role,'mastPanel',...Object.keys(shortcuts).map(id=>'pin-'+id)]){
       delete preferences[field];
     }
-    for(const id of Object.keys(panelNames))byId(id).open=false;
+    for(const id of Object.keys(panelNames))byId(id).open=enabled(id);
     const compass=byId('showCompass');
     if(!compass.hidden && (compass.getAttribute('aria-pressed')==='true')!==compassDefault)compass.click();
     if(!byId('mastPanel').hidden)byId('mastCapture').click();
